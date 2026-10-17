@@ -208,6 +208,7 @@ def _build(args: argparse.Namespace) -> int:
         snapshot_id=args.snapshot_id,
         as_of=as_of,
         code_commit_sha=args.code_commit,
+        workers=args.workers,
     )
     print(f"snapshot {frozen.snapshot_id}")
     print(f"bundles {len(frozen.bundles)}")
@@ -224,6 +225,14 @@ def _stats(args: argparse.Namespace) -> int:
         return 2
     print(json.dumps(stats, indent=2))
     return 0
+
+
+def _positive_int(text: str) -> int:
+    """An argparse type: an integer of at least 1."""
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {value}")
+    return value
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -279,6 +288,9 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--as-of", required=True, help=_AS_OF_HELP)
     build.add_argument("--code-commit", default=None,
                        help="override the recorded commit (tests, out-of-tree builds)")
+    build.add_argument("--workers", type=_positive_int, default=None,
+                       help="processes that load the bundles and gate evidence (default: one per CPU); "
+                            "the snapshot written is the same for any count")
 
     stats = commands.add_parser(
         "stats", help="print the report's stats file (star figures, corpus totals) for a snapshot database"

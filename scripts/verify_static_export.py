@@ -60,6 +60,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -187,13 +188,15 @@ class Grid:
         self.client = TestClient(
             create_app(str(db), web_dir=str(db.parent / "__no_web__"), evidence_files=evidence_files)
         )
+        self.db, self.evidence_files = db, evidence_files
         self.requests: list[dict] = []
-        self.expected: list[dict] = []
+        self.expected: list[Optional[dict]] = []
+        self._later: list[tuple[int, tuple]] = []
 
     def _answer(self, response) -> dict:
-        if response.status_code == 200:
-            return {"ok": True, "data": response.json()}
-        return {"ok": False, "status": response.status_code, "detail": response.json()["error"]["detail"]}
+        from porchlamp.serve.inprocess import answer_of
+
+        return answer_of(response)
 
     def get(self, kind: str, fn: str, args: list, path: str, params: Optional[dict] = None) -> dict:
         present = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
@@ -202,22 +205,44 @@ class Grid:
         self.expected.append(answer)
         return answer
 
+    def later(self, kind: str, fn: str, args: list, method: str, path: str,
+              params: Optional[dict] = None, body: Any = None) -> None:
+        """A request whose answer the grid does not read: :meth:`resolve` answers them all at once."""
+        present = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
+        self.requests.append({"kind": kind, "fn": fn, "args": args})
+        self.expected.append(None)
+        self._later.append((len(self.expected) - 1, (method, path, present or None, body)))
+
+    def resolve(self, workers: Optional[int] = None) -> None:
+        """Every :meth:`later` request's answer, from the API on ``workers`` processes (``None``: one per CPU)."""
+        from porchlamp.serve.inprocess import answers
+
+        found = answers(self.db, [request for _i, request in self._later], evidence_files=self.evidence_files,
+                        workers=workers)
+        for (index, _request), answer in zip(self._later, found, strict=True):
+            self.expected[index] = answer
+        self._later = []
+
     def expect(self, kind: str, fn: str, args: list, expected: dict) -> None:
         """A request whose expected answer is not one API call's (it is computed from the database)."""
         self.requests.append({"kind": kind, "fn": fn, "args": args})
         self.expected.append(expected)
 
-    def post_reproject(self, weights: dict, page: Optional[int], page_size: Optional[int]) -> dict:
+    def post_reproject(self, weights: dict, page: Optional[int], page_size: Optional[int], *, later: bool = False):
         params = {k: v for k, v in (("page", page), ("page_size", page_size)) if v is not None}
-        answer = self._answer(self.client.post("/v1/porchlamp/reproject", params=params, json=weights))
         options = {k: v for k, v in (("page", page), ("page_size", page_size)) if v is not None}
-        self.requests.append({"kind": "reproject", "fn": "postReproject", "args": [weights, options] if options else [weights]})
+        args = [weights, options] if options else [weights]
+        if later:
+            self.later("reproject", "postReproject", args, "POST", "/v1/porchlamp/reproject", params, weights)
+            return None
+        answer = self._answer(self.client.post("/v1/porchlamp/reproject", params=params, json=weights))
+        self.requests.append({"kind": "reproject", "fn": "postReproject", "args": args})
         self.expected.append(answer)
         return answer
 
 
 def _leaderboard(grid: Grid, params: dict) -> None:
-    grid.get("leaderboard", "fetchLeaderboard", [params], "/v1/porchlamp/leaderboard", params)
+    grid.later("leaderboard", "fetchLeaderboard", [params], "GET", "/v1/porchlamp/leaderboard", params)
 
 
 def _not_ranked(grid: Grid, params: dict) -> dict:
@@ -259,15 +284,19 @@ def _not_ranked_full(grid: Grid, conn: sqlite3.Connection, snapshot_id: str, par
 
 def _repo(grid: Grid, owner: str, name: str) -> None:
     path = f"/v1/porchlamp/repos/{quote(owner, safe='')}/{quote(name, safe='')}"
-    grid.get("repo", "fetchRepoDetail", [owner, name], path)
-    grid.get("evidence", "fetchEvidence", [owner, name], f"{path}/evidence")
+    grid.later("repo", "fetchRepoDetail", [owner, name], "GET", path)
+    grid.later("evidence", "fetchEvidence", [owner, name], "GET", f"{path}/evidence")
 
 
 def _weights(pillars: tuple[str, ...], values: list[float]) -> dict:
     return {f"weight_{p}": v for p, v in zip(pillars, values)}
 
 
-def build_grid(db: Path, *, quick: bool, seed: int = 20260923, evidence_files: Any = None) -> Grid:
+def build_grid(
+    db: Path, *, quick: bool, seed: int = 20260923, evidence_files: Any = None, workers: Optional[int] = 1,
+) -> Grid:
+    """The request grid and the API's answer to each: requests whose answer the grid does not read are answered
+    together at the end, on ``workers`` processes (``None``: one per CPU, what ``main`` asks for)."""
     from porchlamp.core import constants
 
     sort_keys = _export_static().sort_keys
@@ -342,27 +371,44 @@ def build_grid(db: Path, *, quick: bool, seed: int = 20260923, evidence_files: A
         vectors.append([x / total for x in raw])
     for values in vectors:
         weights = _weights(pillars, values)
-        grid.post_reproject(weights, None, None)  # what the UI sends: page 1 of the default size
+        grid.post_reproject(weights, None, None, later=True)  # what the UI sends: page 1 of the default size
         full = grid.post_reproject(weights, 1, 1000)
         total = full["data"]["total"] if full["ok"] else 0
         for page in range(2, total // 1000 + 3):  # every page, and one past the end
-            grid.post_reproject(weights, page, 1000)
+            grid.post_reproject(weights, page, 1000, later=True)
     for values in ([0.2, 0.2, 0.2, 0.2, 0.1], [-0.1, 0.4, 0.3, 0.2, 0.2]):
-        grid.post_reproject(_weights(pillars, values), None, None)
+        grid.post_reproject(_weights(pillars, values), None, None, later=True)
     missing = _weights(pillars, [0.25, 0.25, 0.2, 0.15, 0.15])
     missing.pop(f"weight_{pillars[-1]}")
-    grid.post_reproject(missing, None, None)
+    grid.post_reproject(missing, None, None, later=True)
     extra = _weights(pillars, [0.25, 0.25, 0.2, 0.15, 0.15]) | {"weight_stars": 0.0}
-    grid.post_reproject(extra, None, None)
+    grid.post_reproject(extra, None, None, later=True)
+    grid.resolve(workers)
     return grid
 
 
-def run_static(node: str, site: Path, requests: list[dict], api_module: str = "api.js") -> list[dict]:
+def run_static(
+    node: str, site: Path, requests: list[dict], api_module: str = "api.js", *, digests_out: Optional[Path] = None,
+) -> list[dict]:
+    """Every request's answer from the site's ``api_module`` under Node; ``digests_out`` also receives the sha256 of
+    each answer's JSON text, for :func:`run_static_changed`."""
     with tempfile.TemporaryDirectory() as tmp:
         req_path, out_path = Path(tmp) / "requests.json", Path(tmp) / "results.json"
         req_path.write_text(json.dumps([{"fn": r["fn"], "args": r["args"]} for r in requests]), encoding="utf-8")
-        subprocess.run([node, str(PARITY_JS), str(site), str(req_path), str(out_path), api_module], check=True)
+        extra = ["--digests-out", str(digests_out)] if digests_out is not None else []
+        subprocess.run([node, str(PARITY_JS), str(site), str(req_path), str(out_path), api_module, *extra], check=True)
         return json.loads(out_path.read_text(encoding="utf-8"))
+
+
+def run_static_changed(node: str, site: Path, requests: list[dict], api_module: str, digests: Path) -> dict[int, dict]:
+    """Request index -> answer, for the answers whose JSON text differs from the run that wrote ``digests``. Every
+    other answer is byte-identical to that run's, so it is the same value."""
+    with tempfile.TemporaryDirectory() as tmp:
+        req_path, out_path = Path(tmp) / "requests.json", Path(tmp) / "results.json"
+        req_path.write_text(json.dumps([{"fn": r["fn"], "args": r["args"]} for r in requests]), encoding="utf-8")
+        subprocess.run([node, str(PARITY_JS), str(site), str(req_path), str(out_path), api_module,
+                        "--differing-from", str(digests)], check=True)
+        return dict(json.loads(out_path.read_text(encoding="utf-8")))
 
 
 def mismatching(grid: Grid, actual: list[dict]) -> dict[int, str]:
@@ -385,6 +431,7 @@ def compare(grid: Grid, bad: dict[int, str]) -> dict[str, list[str]]:
 
 def verify(
     db: Path, site: Path, *, quick: bool = False, mutants: bool = True, evidence_files: Any = None, log=print,
+    workers: Optional[int] = 1,
 ) -> dict:
     """``{"requests": n, "mismatches": {kind: [...]}, "mutants": {name: answers, or None if its target is
     absent}}``, where a mutant's answers are those it gets wrong that the site itself gets right -- an
@@ -400,7 +447,7 @@ def verify(
         source.backup(target)
         source.close()
         target.close()
-        grid = build_grid(copy, quick=quick, evidence_files=evidence_files)
+        grid = build_grid(copy, quick=quick, evidence_files=evidence_files, workers=workers)
     kinds: dict[str, int] = {}
     for request in grid.requests:
         kinds[request["kind"]] = kinds.get(request["kind"], 0) + 1
@@ -408,31 +455,45 @@ def verify(
     errors = sum(1 for e in grid.expected if not e["ok"])
     log(f"verify: {errors} of them are API errors (the static site must fail the same way)")
 
-    baseline = mismatching(grid, run_static(node, site, grid.requests))
-    mismatches = compare(grid, baseline)
-    for kind, items in sorted(mismatches.items()):
-        log(f"MISMATCH {kind}: {len(items)} of {kinds[kind]}")
-        for item in items[:5]:
-            log(f"  {item}")
-    if not mismatches:
-        log("verify: every answer identical to the API's")
+    with tempfile.TemporaryDirectory() as tmp:
+        digests = Path(tmp) / "digests.json"
+        baseline = mismatching(grid, run_static(node, site, grid.requests, digests_out=digests))
+        mismatches = compare(grid, baseline)
+        for kind, items in sorted(mismatches.items()):
+            log(f"MISMATCH {kind}: {len(items)} of {kinds[kind]}")
+            for item in items[:5]:
+                log(f"  {item}")
+        if not mismatches:
+            log("verify: every answer identical to the API's")
 
-    caught: dict[str, Optional[int]] = {}
-    if mutants:
-        source_text = (site / "api.js").read_text(encoding="utf-8")
-        for name, old, new in MUTANTS:
-            if source_text.count(old) != 1:
-                log(f"MUTANT NOT APPLIED ({name}): target occurs {source_text.count(old)} times in api.js")
-                caught[name] = None
-                continue
-            mutant = site / "api.mutant.js"
-            mutant.write_text(source_text.replace(old, new), encoding="utf-8")
-            try:
-                bad = mismatching(grid, run_static(node, site, grid.requests, "api.mutant.js"))
-            finally:
-                mutant.unlink()
-            caught[name] = len(bad.keys() - baseline.keys())
-            log(f"mutant {'caught' if caught[name] else 'SURVIVED'}: {name} ({caught[name]} answers it alone gets wrong)")
+        caught: dict[str, Optional[int]] = {}
+        if mutants:
+            source_text = (site / "api.js").read_text(encoding="utf-8")
+            applied = [(i, old, new) for i, (_name, old, new) in enumerate(MUTANTS) if source_text.count(old) == 1]
+
+            def wrong_alone(item: tuple[int, str, str]) -> int:
+                """How many answers the mutant gets wrong that the site gets right. An answer byte-identical
+                to the site's is wrong exactly where the site's is, so only the changed ones are compared."""
+                i, old, new = item
+                mutant = site / f"api.mutant-{i}.js"
+                mutant.write_text(source_text.replace(old, new), encoding="utf-8")
+                try:
+                    changed = run_static_changed(node, site, grid.requests, mutant.name, digests)
+                finally:
+                    mutant.unlink()
+                bad = {j for j, answer in changed.items() if differs(grid.expected[j], answer)}
+                return len(bad - baseline.keys())
+
+            # One Node process per mutant, all at once: each run is independent of the others.
+            with ThreadPoolExecutor(max_workers=max(1, min(len(applied), os.cpu_count() or 1))) as pool:
+                counts = dict(zip((i for i, _old, _new in applied), pool.map(wrong_alone, applied)))
+            for i, (name, old, _new) in enumerate(MUTANTS):
+                if i not in counts:
+                    log(f"MUTANT NOT APPLIED ({name}): target occurs {source_text.count(old)} times in api.js")
+                    caught[name] = None
+                    continue
+                caught[name] = counts[i]
+                log(f"mutant {'caught' if caught[name] else 'SURVIVED'}: {name} ({caught[name]} answers it alone gets wrong)")
     return {"requests": len(grid.requests), "mismatches": mismatches, "mutants": caught}
 
 
@@ -1827,7 +1888,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     ok = True
     if not args.report_only:
         ok = passed(verify(args.db.resolve(), site, quick=args.quick, mutants=not args.no_mutants,
-                           evidence_files=evidence_files))
+                           evidence_files=evidence_files, workers=None))
     problems = check_sitemap(site)
     for problem in problems:
         print(f"SITEMAP {problem}")
