@@ -25,13 +25,16 @@ __all__ = [
     "_has_off_platform_marker",
     "_pr_has_review_handoff_notice",
     "_review_handoff",
+    "_review_handoff_in",
     "_tree_paths",
     "_vitality_commit_count",
     "black_hole_window_breakdown_from_raw",
     "gate_evidence_for",
     "outside_pr_authors",
     "pr_rule_inputs_recorded",
+    "pr_window_coverage_in",
     "pr_window_data",
+    "pr_window_document",
     "PR_SAMPLE_SIZE",
 ]
 
@@ -246,6 +249,12 @@ def _envelope_data(raw_root: Path, layer: str, basename: str) -> Mapping[str, An
     return _document_data(_envelope_document(raw_root, layer, basename))
 
 
+def pr_window_document(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
+    """The repository's whole ``pr_window`` envelope (its ``data`` and ``fetched_at``);
+    ``None`` when absent or unreadable."""
+    return _envelope_document(raw_root, "pr_window", basename)
+
+
 def pr_window_data(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
     """The ``data`` of the repository's ``pr_window`` envelope: the PRs opened
     in the 180 days before the fetch; ``None`` when absent or unreadable."""
@@ -418,7 +427,7 @@ def _tree_flag(found: bool, truncated: bool) -> bool | None:
     return False
 
 
-def _window_coverage_in(document: Mapping[str, Any] | None, as_of: datetime | None) -> tuple[bool | None, str | None]:
+def pr_window_coverage_in(document: Mapping[str, Any] | None, as_of: datetime | None) -> tuple[bool | None, str | None]:
     """D-GATE-5 window coverage of a ``pr_window`` envelope document
     (:func:`porchlamp.core.gates.pr_window_coverage`) against the window
     ending at ``as_of`` (its own window without ``as_of``); ``(None, None)``
@@ -438,7 +447,7 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
     ``as_of`` is the snapshot's reference time: D-GATE-4 counts only commits in
     the 180 days ending there (:func:`_vitality_commit_count`), D-GATE-5 asks
     whether the PR window record covers the window ending there
-    (:func:`_window_coverage_in`), and D-GATE-6 only counts decisions in the
+    (:func:`pr_window_coverage_in`), and D-GATE-6 only counts decisions in the
     365 days ending there (:func:`_decided_external_pr_in`).
     The ``pr_window`` envelope is read once, for the review hand-off, the
     D-GATE-5 rule inputs and window coverage, and D-GATE-6. ``fork_parent_in_universe`` stays
@@ -448,9 +457,9 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
     field for any repo this script scores -- ``None`` is correct, not a
     stand-in for missing data."""
     paths, truncated = _tree_envelope(raw_root, basename)
-    pr_window_document = _envelope_document(raw_root, "pr_window", basename)
-    pr_window = _document_data(pr_window_document)
-    window_complete, window_cutoff = _window_coverage_in(pr_window_document, as_of)
+    window_document = pr_window_document(raw_root, basename)
+    pr_window = _document_data(window_document)
+    window_complete, window_cutoff = pr_window_coverage_in(window_document, as_of)
     author_history = _envelope_data(raw_root, "author_history", basename)
     return GateEvidence(
         manifest_found=None if paths is None else _tree_flag(_has_recognized_manifest(paths), truncated),

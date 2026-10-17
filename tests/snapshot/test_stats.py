@@ -103,8 +103,8 @@ def test_every_field_matches_the_hand_worked_values(tmp_path):
         "spearman": {"p_responsiveness": {"n": 3, "rho": -1.0}, "porchlamp": {"n": 3, "rho": 1.0},
                      "ttfhr_p75": {"n": 3, "rho": -1.0}},
         "top100_overlap": 3, "top100_stars_min": -1,
-        # d's and a's windows lack the rule inputs, but both are decided on gate 5
-        "gate5_undecided_rule_inputs": 0,
+        # d's and a's windows lack the rule inputs and the cut flag, but both are decided on gate 5
+        "gate5_undecided_rule_inputs": 0, "gate5_undecided_cut_record": 0,
         # 11 outside PRs to d (u0..u9, then U0 = u0) and 10 to a; b has no readable window
         "corpus": {"derived_repos": 3, "pr_windows": 2, "human_outside_prs": 21, "distinct_outside_authors": 20},
     }
@@ -138,6 +138,32 @@ def test_a_gate_5_undecided_project_whose_window_lacks_the_rule_inputs_is_counte
     assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 1
     _h_window(data, [{**_pr("w1"), "isDraft": False, "timelineItems": {"nodes": []}}])
     assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 0
+
+
+def test_a_gate_5_undecided_project_whose_record_stops_short_of_the_window_is_counted(tmp_path):
+    """h passed gates 1 to 4 and is undecided on gate 5 over 12 PRs. With the rule inputs recorded, it is
+    counted as cut while its record stopped at the collector's PR cap after the window opened (16 April), and
+    not once the record is uncut. A cut record that also lacks the rule inputs is counted for those only."""
+    db, data = _snapshot(tmp_path)
+    recorded = {**_pr("w1"), "isDraft": False, "timelineItems": {"nodes": []}}
+
+    def record(prs: list[dict], **fields: object) -> None:
+        _h_window(data, prs)
+        path = data / "raw" / "pr_window" / "Org__h.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["data"].update(window_anchor=AS_OF, window_days=180, **fields)
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+    def counts() -> tuple[int, int]:
+        stats = compute_stats(db, data)
+        return stats["gate5_undecided_cut_record"], stats["gate5_undecided_rule_inputs"]
+
+    record([recorded], truncated=True)
+    assert counts() == (1, 0)
+    record([recorded], truncated=False)
+    assert counts() == (0, 0)
+    record([_pr("w1")], truncated=True)
+    assert counts() == (0, 1)
 
 
 def test_an_undecided_project_below_the_minimum_population_is_not_counted(tmp_path):

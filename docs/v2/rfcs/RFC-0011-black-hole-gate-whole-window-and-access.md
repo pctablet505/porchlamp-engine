@@ -76,20 +76,30 @@ Owner, 2026-10-17: "fix it". The rules below are the lead's decisions in the tas
 `BENCHMARK_VERSION`: `"2.0.0-rc1"` -> `"2.0.0-rc1"` (no bump, matching the RFC-0001..0010
 pre-release convention).
 
-Not changed, and left for a ruling:
+Considered and decided against:
 
-- **Commit authors as maintainers.** The brief also named "recorded as committing to the
-  default branch in `raw/commits_365d`". That file records each commit's author login
-  (`porchlamp.collect.commits.shape_commit_rows`), not who committed it. A PR merged on GitHub
-  keeps its outside author as the commit author, so that rule would count every contributor
-  whose PR landed: on the 30 checked projects it adds 19 responders to Pumpkin-MC/Pumpkin, 6
-  to JuliusBrussee/caveman, 5 to run-llama/llama_index and 3 to crewAIInc/crewAI, most of them
-  outside contributors.
+- **Commit authors as maintainers: not used** (lead decision, 2026-10-17). The task brief also
+  named "recorded as committing to the default branch in `raw/commits_365d`". That file
+  records each commit's author login (`porchlamp.collect.commits.shape_commit_rows`), not who
+  committed it. A PR merged on GitHub keeps its outside author as the commit author, so that
+  rule would count every contributor whose PR landed: on the 30 checked projects it adds 19
+  responders to Pumpkin-MC/Pumpkin, 6 to JuliusBrussee/caveman, 5 to run-llama/llama_index
+  and 3 to crewAIInc/crewAI, most of them outside contributors.
+
+Left to a separate change (lead decision, 2026-10-17):
+
 - **Bots GitHub types as users.** D-IN-1 knows a bot by `__typename == "Bot"`, a `[bot]`
   suffix or an exact login list. Service accounts with a user type and a maintainer
   association or a merge (for example `rustbot`, `k8s-ci-robot`, `flinkbot`) still answer
   PRs. On the recorded data such accounts give the first response on thousands of outside
-  PRs. Changing D-IN-1 moves every parameter that reads it, so it needs its own decision.
+  PRs. Changing D-IN-1 moves every parameter that reads it, so a follow-up change extends
+  the exact login list, each login backed by evidence from the recorded data.
+
+The stats file the report reads counts the projects this leaves undecided:
+`gate5_undecided_cut_record` (`porchlamp.snapshot.stats`) counts projects that passed
+gates 1 to 4 and are undecided on D-GATE-5, with a measured share of at least the minimum
+population, no hand-off and the rule inputs recorded, only because their record does not
+cover the window.
 
 ## Evidence
 
@@ -141,4 +151,9 @@ Not changed, and left for a ruling:
 
 ## Reviewer
 
-Pending: the lead session reviews the PR. The code was written by a separate session.
+Reviewed on 2026-10-17 by the lead session, which did not write the code. The code is
+accepted. With main `ce06758` merged in, the full suite passes: 3,722 passed, 0 failed
+(testq job `20261017-210141-8725248`). It is not merged yet. Exporting the published
+2026-10-17 build with this code refuses 3 of its 720 black-hole verdicts: their pinned
+evidence, read by the new rules, no longer shows a black hole. So the change lands together
+with a rebuilt snapshot, and publishing new numbers is the owner's decision.
