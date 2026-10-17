@@ -2005,41 +2005,101 @@ def _expected_description(who: str, rank: int, total: int, short: str) -> str:
     return f"{cut}\u2026" if len(cut) > len(lead) else lead
 
 
-def _expected_project_hooks(
-    detail: dict, evidence: list[dict], standings: dict[str, tuple[Optional[int], int, Optional[str]]],
-    similar: list[dict], answer: str, words: dict[str, dict[str, str]], labels: dict[str, dict[str, str]],
-) -> dict[str, str]:
-    """Every value a ranked project's page prints (a ``data-v`` hook), as ``views/project.js`` formats it, from the API's
-    own record and evidence, the lens standings (``(rank, total, reason)`` per lens) and the similar projects."""
-    hooks = {
-        "detail.snapshot_date": _long_date(detail["snapshot_id"]), "answer": answer,
-        "detail.snapshot_id": detail["snapshot_id"], "cite.year": detail["snapshot_id"][:4],
-        "detail.rank": f"{detail['rank']:,}", "standings.balanced.total": f"{standings['balanced'][1]:,}",
+def _project_copy() -> tuple[dict[str, Any], dict[str, dict[str, str]]]:
+    """The words the project view fills its numbers into (copy.js): the unit and reply-time templates, the coverage band
+    labels and the pillar order; and the plain label of each enum code, by parameter."""
+    from porchlamp.serve import report_pages as rp
+
+    words = {
+        "units": rp.copy_js_map("PARAM_UNIT_WORDS"), "reply": rp.copy_js_map("REPLY_TIME_WORDS"),
+        "bands": rp.copy_js_map("COVERAGE_BAND_LABELS"), "pillars": list(rp.copy_js_map("PILLAR_NAMES")),
+        "lenses": list(rp.copy_js_map("PERSONA_NAMES")),
     }
+    return words, {pid: rp.copy_js_map(name) for pid, name in _ENUM_LABELS.items()}
+
+
+def _share(fraction: float) -> str:
+    """A fraction as a percent with one decimal, half up from its printed decimal (``0.3445`` -> ``34.5``)."""
+    return _round_half_up(_printed(fraction) * 100, 1)
+
+
+def _black_hole_hooks(detail: dict) -> dict[str, str]:
+    """The black-hole card's values (``views/project.js`` ``blackHoleBlock``): the counts and shares, the window, each
+    exclusion counted, and each counted pull request's number and date."""
+    holed = detail.get("gate_reason") == "black_hole" or "black_hole" in (detail.get("suspicion") or [])
+    ev = detail.get("black_hole_evidence") or {}
+    counts = [ev.get(key) for key in ("unanswered", "population_n")]
+    if not holed or not all(isinstance(n, int) and not isinstance(n, bool) for n in counts) or counts[1] <= 0:
+        return {}
+    hooks = {"bh.unanswered": str(counts[0]), "bh.population_n": str(counts[1])}
+    if isinstance(ev.get("unanswered_share"), (int, float)):
+        hooks["bh.unanswered_share"] = _share(ev["unanswered_share"])
+    if all(isinstance(ev.get(key), (int, float)) for key in ("wilson_lower_bound", "threshold_share", "min_n")):
+        hooks |= {"bh.wilson_lower_bound": _share(ev["wilson_lower_bound"]), "bh.threshold_share": _share(ev["threshold_share"]),
+                  "bh.min_n": str(ev["min_n"])}
+    if ev.get("window_start") and ev.get("window_end"):
+        hooks["bh.window"] = _date_range(ev["window_start"], ev["window_end"])
+    excluded = ev.get("excluded") or {}
+    # draft and self-closed counts exist only when the snapshot recorded them
+    measured = ["draft", "self_closed"] if ev.get("rule_inputs_measured") is True else []
+    for key in (*measured, "new_account", "bot", "internal", "under_14d"):
+        if (excluded.get(key) or 0) > 0:
+            hooks[f"bh.excluded.{key}"] = str(excluded[key])
+    prs = [pr for pr in ev.get("counted_prs") or [] if isinstance(pr.get("number"), int) and pr["number"] > 0]
+    for i, pr in enumerate(prs):
+        hooks[f"bh.counted_prs.{i}.number"] = str(pr["number"])
+        if pr.get("created_at"):
+            hooks[f"bh.counted_prs.{i}.created_at"] = _long_date(pr["created_at"])
+    return hooks
+
+
+def _expected_project_hooks(
+    detail: dict, evidence: Optional[list[dict]], standings: Optional[dict[str, tuple[Optional[int], int, Optional[str]]]],
+    similar: Optional[list[dict]], answer: Optional[str], words: dict[str, Any], labels: dict[str, dict[str, str]],
+    *, mode: str = "page",
+) -> dict[str, str]:
+    """Every value the project view (``views/project.js``) prints for a record (a ``data-v`` hook), as it formats it, from
+    the API's own record and evidence and, for a ranked project, its lens standings (``(rank, total, reason)`` per
+    lens), its similar projects and its answer (None where the record has none). ``mode`` is "page" or "panel"; only
+    the page prints the snapshot date."""
+    ranked = bool(detail["eligible"] and detail["rated"])
+    hooks = {"detail.snapshot_id": detail["snapshot_id"]}
+    if mode == "page":
+        hooks["detail.snapshot_date"] = _long_date(detail["snapshot_id"])
+    if answer is not None:
+        hooks["answer"] = answer
     if detail["raw_hash"]:
         hooks["detail.raw_hash"] = detail["raw_hash"]
-    if detail["porchlamp"] is not None:
-        hooks["detail.porchlamp"] = _js_fixed(detail["porchlamp"], 2)
-    cov = detail["coverage"]
-    band = "full" if cov >= 0.95 else "A" if cov >= 0.8 else "B" if cov >= 0.6 else "below"
-    hooks["detail.coverage"] = f"{math.floor(cov * 100 + 0.5)}% · {words['bands'].get(band, 'Below floor')}"
-    for key in ("leverage", "friction"):
-        if detail[key] is not None:
-            hooks[f"detail.{key}"] = _js_fixed(float(detail[key]), 1)
-        if detail[f"{key}_coverage"] is not None:
-            hooks[f"detail.{key}_coverage"] = f"{math.floor(detail[f'{key}_coverage'] * 100 + 0.5)}%"
-    # the key facts: the reply time and the no-reply share where measured, the first-timer rank or its reason
-    by_id = {row["param_id"]: row for row in evidence}
-    reply, ghost = (by_id.get(pid) for pid in ("ttfhr_hours", "gr14_ghost_rate"))
-    if reply and not reply["unmeasured_reason"] and reply["value"] is not None:
-        hooks["facts.reply_time"] = _key_fact_reply(reply["value"], words["reply"])
-    if ghost and not ghost["unmeasured_reason"] and ghost["value"] is not None:
-        hooks["facts.no_reply_share"] = f"{_half_up(ghost['value'], 100)}%"
-    first_rank, first_total, first_reason = standings["first_timer"]
-    if first_rank is not None:
-        hooks["standings.first_timer.rank"], hooks["standings.first_timer.total"] = f"{first_rank:,}", f"{first_total:,}"
-    elif first_reason:
-        hooks["standings.first_timer.reason"] = first_reason
+    if ranked:
+        # the key facts and the rating card, and the cite line
+        hooks["cite.year"] = detail["snapshot_id"][:4]
+        if detail["rank"] is not None:
+            hooks["detail.rank"] = f"{detail['rank']:,}"
+            if standings:
+                hooks["standings.balanced.total"] = f"{standings['balanced'][1]:,}"
+        if detail["porchlamp"] is not None:
+            hooks["detail.porchlamp"] = _js_fixed(detail["porchlamp"], 2)
+        cov = detail["coverage"]
+        band = "full" if cov >= 0.95 else "A" if cov >= 0.8 else "B" if cov >= 0.6 else "below"
+        hooks["detail.coverage"] = f"{math.floor(cov * 100 + 0.5)}% · {words['bands'].get(band, 'Below floor')}"
+        for key in ("leverage", "friction"):
+            if detail[key] is not None:
+                hooks[f"detail.{key}"] = _js_fixed(float(detail[key]), 1)
+            if detail[f"{key}_coverage"] is not None:
+                hooks[f"detail.{key}_coverage"] = f"{math.floor(detail[f'{key}_coverage'] * 100 + 0.5)}%"
+        by_id = {row["param_id"]: row for row in evidence or []}
+        reply, ghost = (by_id.get(pid) for pid in ("ttfhr_hours", "gr14_ghost_rate"))
+        if reply and not reply["unmeasured_reason"] and reply["value"] is not None:
+            hooks["facts.reply_time"] = _key_fact_reply(reply["value"], words["reply"])
+        if ghost and not ghost["unmeasured_reason"] and ghost["value"] is not None:
+            hooks["facts.no_reply_share"] = f"{_half_up(ghost['value'], 100)}%"
+        if standings:
+            first_rank, first_total, first_reason = standings["first_timer"]
+            if first_rank is not None:
+                hooks["standings.first_timer.rank"], hooks["standings.first_timer.total"] = f"{first_rank:,}", f"{first_total:,}"
+            elif first_reason:
+                hooks["standings.first_timer.reason"] = first_reason
+    hooks |= _black_hole_hooks(detail)
     # the pillars
     if any(detail[f"p_{p}"] is not None for p in words["pillars"]):
         for p in words["pillars"]:
@@ -2047,7 +2107,7 @@ def _expected_project_hooks(
                 hooks[f"detail.p_{p}"] = _js_fixed(detail[f"p_{p}"], 1)
             hooks[f"detail.c_{p}"] = f"{math.floor((detail[f'c_{p}'] or 0) * 100 + 0.5)}%"
     # the parameters
-    for row in evidence:
+    for row in evidence or []:
         if row["unmeasured_reason"]:
             continue
         ident = f"evidence.{row['param_id']}"
@@ -2061,14 +2121,15 @@ def _expected_project_hooks(
             hooks[f"{ident}.window"] = _date_range(row["window_start"], row["window_end"])
     # the lens table: a lens the project is not gated from, with a composite
     composites, gates = detail.get("persona_composites") or {}, detail.get("persona_gates") or {}
-    for lens, (rank, total, _reason) in standings.items():
+    for lens in words["lenses"]:
         if not detail["eligible"] or gates.get(lens) or not composites.get(lens):
             continue
+        rank, total, _reason = (standings or {}).get(lens, (None, None, None))
         if rank is not None:
             hooks[f"standings.{lens}.rank"], hooks[f"standings.{lens}.total"] = f"{rank:,}", f"{total:,}"
         if composites[lens].get("porchlamp") is not None:
             hooks[f"detail.persona_composites.{lens}.porchlamp"] = _js_fixed(composites[lens]["porchlamp"], 2)
-    for i, row in enumerate(similar):
+    for i, row in enumerate(similar or []):
         hooks[f"similar.{i}.rank"] = f"{row['rank']:,}"
     return hooks
 
@@ -2137,11 +2198,7 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     as_of = snapshot["as_of"][:10]
     gate_copy = rp.copy_js_map("PERSONA_GATE_COPY")
     insufficient = rp.copy_js_string("PERSONA_INSUFFICIENT_EVIDENCE_TEXT")
-    words = {
-        "units": rp.copy_js_map("PARAM_UNIT_WORDS"), "reply": rp.copy_js_map("REPLY_TIME_WORDS"),
-        "bands": rp.copy_js_map("COVERAGE_BAND_LABELS"), "pillars": list(rp.copy_js_map("PILLAR_NAMES")),
-    }
-    labels = {pid: rp.copy_js_map(name) for pid, name in _ENUM_LABELS.items()}
+    words, labels = _project_copy()
     issue_base, issue_prefix = rp.copy_js_string("ISSUE_BASE"), rp.copy_js_string("ISSUE_TITLE_PREFIX")
     boilerplate = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', export_static.APP_SHELL.read_text(encoding="utf-8")).group(1))
     min_n = {p["input_id"]: p["min_n"] for p in methodology["parameters"]}

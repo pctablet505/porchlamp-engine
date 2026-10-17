@@ -967,6 +967,63 @@ def test_the_export_writes_the_answer_standings_and_similar_projects_into_ranked
     assert all(set(record) == {"detail", "evidence"} for key, record in records.items() if tuple(key.split("/", 1)) not in ranked)
 
 
+#: Three real records of the 2026-10-17 export (vllm and keras ranked, 3b1b/manim a black hole), each with its record file.
+PROJECT_FIXTURES = ROOT / "tests" / "fixtures" / "project"
+_RENDER_BOTH_MODES = """
+import { readFileSync } from "node:fs";
+import { renderProject } from "%(view)s";
+const out = {};
+for (const path of JSON.parse(process.argv[1])) {
+  const { recordFile, ...record } = JSON.parse(readFileSync(path, "utf8"));
+  out[path] = { page: renderProject(record, { mode: "page", recordFile }), panel: renderProject(record, { mode: "panel", recordFile }) };
+}
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+def _drawn_in_both_modes() -> dict[Path, dict[str, str]]:
+    """Each fixture record as views/project.js draws it in page and in panel mode, through Node."""
+    import subprocess
+
+    paths = sorted(PROJECT_FIXTURES.glob("*.json"))
+    script = _RENDER_BOTH_MODES % {"view": (ROOT / "web" / "app" / "views" / "project.js").as_uri()}
+    ran = subprocess.run([export_static.find_node(), "--input-type=module", "-e", script, json.dumps([str(p) for p in paths])],
+                         capture_output=True, text=True, check=False)
+    assert ran.returncode == 0, ran.stderr[-1500:]
+    return {Path(path): modes for path, modes in json.loads(ran.stdout).items()}
+
+
+def _expected_hooks(record: dict, mode: str) -> dict[str, str]:
+    words, labels = verify_static_export._project_copy()
+    standings = {lens: (s["rank"], s["total"], s["reason"]) for lens, s in record["standings"].items()} if record.get("standings") else None
+    answer = " ".join(record["answer"]) if record.get("answer") else None
+    return verify_static_export._expected_project_hooks(
+        record["detail"], record["evidence"], standings, record.get("similar"), answer, words, labels, mode=mode)
+
+
+def test_the_project_view_prints_each_value_as_the_verifier_formats_it_in_page_and_panel_mode():
+    drawn = _drawn_in_both_modes()
+    assert {p.name for p in drawn} == {"vllm-project__vllm.json", "keras-team__keras.json", "3b1b__manim.json"}
+    for path, modes in drawn.items():
+        record = json.loads(path.read_text(encoding="utf-8"))
+        for mode, markup in modes.items():
+            ledger = verify_static_export._Ledger()
+            verify_static_export._compare_hooks(ledger, f"{path.name} {mode}", verify_static_export.read_page(markup).hooks, _expected_hooks(record, mode))
+            assert ledger.errors == [] and ledger.checked > 40, (ledger.errors[:5], ledger.checked)
+    # the black hole's card is among them
+    assert "bh.unanswered_share" in _expected_hooks(json.loads((PROJECT_FIXTURES / "3b1b__manim.json").read_text(encoding="utf-8")), "panel")
+
+    # the comparison can fail: one wrong value in the panel is named
+    path = PROJECT_FIXTURES / "keras-team__keras.json"
+    markup = drawn[path]["panel"]
+    planted = re.sub(r'(data-v="evidence\.ttfhr_hours\.value">)([^<]+)', lambda m: m.group(1) + m.group(2).replace("148.3", "148.4"), markup, count=1)
+    assert planted != markup
+    ledger = verify_static_export._Ledger()
+    verify_static_export._compare_hooks(ledger, "keras panel", verify_static_export.read_page(planted).hooks,
+                                        _expected_hooks(json.loads(path.read_text(encoding="utf-8")), "panel"))
+    assert [e for e in ledger.errors if "'evidence.ttfhr_hours.value'" in e and "148.4" in e], ledger.errors
+
+
 def test_project_pages_have_a_self_canonical_a_unique_title_an_answer_and_no_placeholder_text(built):
     site = built[0]
     titles, canonicals = [], []
