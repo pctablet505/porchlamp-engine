@@ -29,7 +29,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-STYLES = Path(__file__).resolve().parent.parent / "web" / "v2" / "styles"
+STYLES = Path(__file__).resolve().parent.parent / "web" / "app" / "styles"
 
 _COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 #: An innermost rule block: a selector list and a declaration body with no

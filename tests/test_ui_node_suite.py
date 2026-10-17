@@ -1,4 +1,4 @@
-"""Pytest wrapper for the Node.js frontend test suite (`web/v2/tests/`).
+"""Pytest wrapper for the Node.js frontend test suite (`web/app/tests/`).
 
 Executes `node --test` on `unit.test.mjs`, `render.perf.test.mjs` and `livecheck.test.mjs`. An
 absent Node.js interpreter is a failure, not a silent skip (H4): the suite
@@ -18,9 +18,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-UNIT_TEST_MJS = REPO_ROOT / "web" / "v2" / "tests" / "unit.test.mjs"
-PERF_TEST_MJS = REPO_ROOT / "web" / "v2" / "tests" / "render.perf.test.mjs"
-LIVECHECK_TEST_MJS = REPO_ROOT / "web" / "v2" / "tests" / "livecheck.test.mjs"
+UNIT_TEST_MJS = REPO_ROOT / "web" / "app" / "tests" / "unit.test.mjs"
+PERF_TEST_MJS = REPO_ROOT / "web" / "app" / "tests" / "render.perf.test.mjs"
+LIVECHECK_TEST_MJS = REPO_ROOT / "web" / "app" / "tests" / "livecheck.test.mjs"
 
 #: Where to look for a Node.js interpreter, in order, when it is not on
 #: ``PATH``. The point of this suite is that the JavaScript tests actually
@@ -98,7 +98,7 @@ def test_find_node_looks_in_the_accounts_real_home_when_home_is_a_throwaway(tmp_
 
 
 def test_node_frontend_unit_and_perf_suite() -> None:
-    """Run Node.js unit and render performance suites for `web/v2/`."""
+    """Run Node.js unit and render performance suites for `web/app/`."""
     node_bin = find_node()
     if node_bin is None:
         if os.environ.get("PORCHLAMP_ALLOW_MISSING_NODE") == "1":

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from porchlamp.models import Ecosystem
 
-WEB = Path(__file__).resolve().parent.parent / "web" / "v2"
+WEB = Path(__file__).resolve().parent.parent / "web" / "app"
 
 
 def _listed_values() -> list[str]:

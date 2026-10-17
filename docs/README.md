@@ -14,7 +14,7 @@ This directory contains the canonical v2 specification, generated methodology re
 | [`v2/02-RANKING-DESIGN.md`](v2/02-RANKING-DESIGN.md) | Mathematical specification of the 6 hard gates, 18 parameters across 5 pillars, ECDF normalisation, coverage ceilings, 2D matrix, and 5 persona lenses. |
 | [`v2/03-ANTI-MANIPULATION.md`](v2/03-ANTI-MANIPULATION.md) | Bot stripping (`D-IN-1`), substantive response filter (`D-IN-2`), author hygiene & sybil resistance (`D-IN-3`), and gaming detectors (`porchlamp/verify/detectors.py`). |
 | [`v2/04-ARCHITECTURE.md`](v2/04-ARCHITECTURE.md) | Target package layout, the `Envelope` and `FeatureBundle` contracts, the store schema, queries, API v2 and the migration path. |
-| [`v2/06-UX-DESIGN.md`](v2/06-UX-DESIGN.md) | Specification for the `web/v2/` interface (Leaderboard, Not ranked, 2D Matrix, Repository drawer, Configure weights, Compare, Methodology). |
+| [`v2/06-UX-DESIGN.md`](v2/06-UX-DESIGN.md) | Specification for the `web/app/` interface (Leaderboard, Not ranked, 2D Matrix, Repository drawer, Configure weights, Compare, Methodology). |
 | [`v2/07-BFS-COLLECTION-TASK.md`](v2/07-BFS-COLLECTION-TASK.md) | Universe discovery and multi-layer collection orchestration (`L0..L4`). |
 | [`v2/08-SUSTAINABLE-COLLECTION.md`](v2/08-SUSTAINABLE-COLLECTION.md) | Sweep-to-delta collection design (`D-COL-*`, wave W6). |
 

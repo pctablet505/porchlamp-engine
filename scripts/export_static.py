@@ -1,6 +1,6 @@
 """Export one Porchlamp snapshot database as a static site (GitHub Pages).
 
-The UI in ``web/v2`` reads the v2 API (``porchlamp/serve/app.py``). A static host
+The UI in ``web/app`` reads the v2 API (``porchlamp/serve/app.py``). A static host
 has no API, so this writes, under ``<out>/data/<snapshot_id>/``, what that
 API answers for this database -- every response is read THROUGH the API
 (Starlette's ``TestClient`` on :func:`porchlamp.serve.app.create_app`), never
@@ -10,7 +10,7 @@ paging) in the browser. The one computation the browser does itself is
 ``POST /reproject`` (custom weights), over the stored pillar columns
 exported in ``reproject.json``.
 
-``<out>`` is the whole site: ``web/v2`` with ``api.js`` replaced by
+``<out>`` is the whole site: ``web/app`` with ``api.js`` replaced by
 ``web/static/api.js``, a generated ``data-version.js`` naming the data
 directory, and ``.nojekyll``. ``scripts/verify_static_export.py`` checks the
 exported site against the API, request by request.
@@ -54,10 +54,10 @@ from typing import Any, Iterator, Optional
 from urllib.parse import quote
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-WEB_V2 = REPO_ROOT / "web" / "v2"
+WEB_APP = REPO_ROOT / "web" / "app"
 STATIC_API = REPO_ROOT / "web" / "static" / "api.js"
 
-#: ``web/v2`` entries the page never loads: its own test suite and the Node
+#: ``web/app`` entries the page never loads: its own test suite and the Node
 #: package marker that suite needs.
 _WEB_SKIP = frozenset({"tests", "package.json"})
 
@@ -283,7 +283,7 @@ def _export_reproject(conn: sqlite3.Connection, snapshot_id: str, details: dict[
 
 
 def _copy_web(out: Path) -> None:
-    for entry in WEB_V2.iterdir():
+    for entry in WEB_APP.iterdir():
         if entry.name in _WEB_SKIP:
             continue
         target = out / entry.name

@@ -1,11 +1,11 @@
 // copy.js — every user-facing sentence in the Porchlamp v2 UI lives here (06 §6).
-// Nothing user-facing is a string literal anywhere else in web/v2/: views
+// Nothing user-facing is a string literal anywhere else in web/app/: views
 // and components import names from this module and interpolate data into
 // the templates defined here, never write new prose inline.
 //
 // tests/test_ui_copy_usage.py enumerates every exported name in this file (via a
 // source-level parse, not execution) and asserts each one is referenced
-// somewhere under web/v2/, so no string here is dead/orphaned copy.
+// somewhere under web/app/, so no string here is dead/orphaned copy.
 
 export const BRAND_NAME = "Porchlamp";
 /** The slogan, beside the brand in the header (hidden on narrow screens). */
@@ -285,7 +285,7 @@ export const NOT_RANKED_TRUNCATED = "This list is cut short. Search by owner or 
 // The API's error body carries a `detail` string (`{"error": {endpoint,
 // status, detail}}`) explaining WHAT went wrong, not just that it did —
 // appended after the endpoint and status wherever it is available
-// (`ApiError.detail`, `web/v2/api.js`).
+// (`ApiError.detail`, `web/app/api.js`).
 function appendSentence(text) {
   const trimmed = text.trim();
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
@@ -449,7 +449,7 @@ export const DRAWER_NOT_FOUND_TEXT = "This repository could not be found in the 
 
 // --------------------------------------------------------------------- //
 // Live check: an opt-in look at public GitHub data for a repository the
-// snapshot does not hold (06 §3 C; web/v2/livecheck.js). Every sentence
+// snapshot does not hold (06 §3 C; web/app/livecheck.js). Every sentence
 // names only what the check itself read -- never a score, a rank or a tier.
 // --------------------------------------------------------------------- //
 export function liveNotInSnapshotText(repoKey, snapshotId) {
@@ -1056,7 +1056,7 @@ export const FOOTER_METHODOLOGY_LABEL = "Methodology";
 // --- Maintainer README badge (Screen C, inside the Composite section) -----
 // Offered when a repository's canonical (balanced) record is rated at tier A
 // or above with no suspicion flag. The image is one of the static files in
-// web/v2/badges/; the Markdown links it to the repository's drawer, which is
+// web/app/badges/; the Markdown links it to the repository's drawer, which is
 // the part that stays current when a later snapshot changes the rating.
 export const MAINTAINER_BADGE_HEADING = "Maintainer README badge";
 export const MAINTAINER_BADGE_NOTE =

@@ -300,7 +300,7 @@ def test_a_planted_placeholder_text_a_script_and_a_duplicate_title_fail_verifica
 def test_the_sitemap_and_llms_txt_list_all_ten_and_the_verifier_notices_one_missing(built, tmp_path):
     site, db, *_ = built
     # the export writes the page sitemap; llms.txt is written by hand
-    for name, path in (("sitemap-pages.xml", site / "sitemap-pages.xml"), ("llms.txt", ROOT / "web" / "v2" / "llms.txt")):
+    for name, path in (("sitemap-pages.xml", site / "sitemap-pages.xml"), ("llms.txt", ROOT / "web" / "app" / "llms.txt")):
         text = path.read_text(encoding="utf-8")
         for slug in SLUGS:
             assert text.count(f"https://porchlamp.org/{slug}/") == 1, (name, slug)
@@ -368,7 +368,7 @@ def test_a_planted_wrong_link_in_the_report_a_project_page_and_the_methodology_e
 
 # ---- E7: the home page's structured data --------------------------------------------------------------------
 
-HOME = ROOT / "web" / "v2" / "index.html"
+HOME = ROOT / "web" / "app" / "index.html"
 
 
 def _home_ld(text: str) -> dict:

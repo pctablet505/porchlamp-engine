@@ -2,7 +2,7 @@
 // The symbol is a porch lamp with its light on (a lamp left on tells a visitor
 // they are expected); it is decorative -- the name beside it carries the
 // meaning -- so it is hidden from assistive technology.
-// web/v2/favicon.svg is the same drawing with fixed colours.
+// web/app/favicon.svg is the same drawing with fixed colours.
 import * as copy from "../copy.js";
 import { escapeHtml } from "./table.js";
 

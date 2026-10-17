@@ -40,7 +40,7 @@ from porchlamp.serve.app import create_app  # noqa: E402
 from porchlamp.serve.contract import RepoDetailResponse  # noqa: E402
 from serve.helpers import build_snapshot, finalize, fresh_db  # noqa: E402
 
-WEB_DIR = REPO_ROOT / "web" / "v2"
+WEB_DIR = REPO_ROOT / "web" / "app"
 FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures" / "ui"
 FIXTURE_SERVER_SCRIPT = REPO_ROOT / "scripts" / "serve_ui_fixtures.py"
 

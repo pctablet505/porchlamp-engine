@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-METHODOLOGY_JS = Path(__file__).resolve().parent.parent / "web" / "v2" / "views" / "methodology.js"
+METHODOLOGY_JS = Path(__file__).resolve().parent.parent / "web" / "app" / "views" / "methodology.js"
 
 #: A numeric literal token: a run of digits (optionally with one decimal
 #: point) NOT immediately preceded by an identifier character (letter,
@@ -47,7 +47,7 @@ def strip_comments(source: str) -> str:
 
 def strip_escape_html_boilerplate(source: str) -> str:
     # The identical `escapeHtml` helper (with its `&#39;` HTML-entity
-    # string) is copy-pasted verbatim across every web/v2/ file — a
+    # string) is copy-pasted verbatim across every web/app/ file — a
     # utility, never a methodology fact; excluded once, by name, rather
     # than papering over it with a broader "ignore short strings" rule.
     return _ESCAPE_HTML_FN_RE.sub("", source)

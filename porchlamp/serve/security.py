@@ -14,7 +14,7 @@ SECURITY_HEADERS: dict[str, str] = {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
     # connect-src names one external origin: api.github.com, which only the
-    # UI's opt-in live check contacts (web/v2/livecheck.js) -- index.html's
+    # UI's opt-in live check contacts (web/app/livecheck.js) -- index.html's
     # own CSP meta carries the same rule for the static site.
     "Content-Security-Policy": (
         "default-src 'self'; script-src 'self' 'unsafe-inline'; "

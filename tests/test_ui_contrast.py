@@ -1,4 +1,4 @@
-"""WCAG contrast test for `web/v2/styles/tokens.css` (06 §5 checklist item 9).
+"""WCAG contrast test for `web/app/styles/tokens.css` (06 §5 checklist item 9).
 
 Parses the actual CSS custom-property VALUES out of the theme blocks
 (dark: bare `:root`; light: both `:root[data-theme="light"]` and the
@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-TOKENS_CSS = Path(__file__).resolve().parent.parent / "web" / "v2" / "styles" / "tokens.css"
+TOKENS_CSS = Path(__file__).resolve().parent.parent / "web" / "app" / "styles" / "tokens.css"
 
 VAR_RE = re.compile(r"--([a-zA-Z0-9-]+)\s*:\s*([^;]+);")
 

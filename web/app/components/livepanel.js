@@ -1,6 +1,6 @@
 // components/livepanel.js — the drawer body for a repository the snapshot
 // does not hold (06 §3 C, "Repositories outside the snapshot"). It says so,
-// offers the opt-in live check (web/v2/livecheck.js) and renders its result.
+// offers the opt-in live check (web/app/livecheck.js) and renders its result.
 // A pure `(state, repoKey) -> string` like every component: it never fetches,
 // so opening the drawer contacts nobody until the visitor presses the button.
 //

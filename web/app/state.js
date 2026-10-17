@@ -16,7 +16,10 @@
 
 import { parseRepoSlug } from "./livecheck.js";
 
-const PERSISTED_THEME_KEY = "porchlamp-v2-theme";
+const PERSISTED_THEME_KEY = "porchlamp-theme";
+//: Where earlier builds kept the theme choice. `readPersistedTheme` moves a
+//: value found there to PERSISTED_THEME_KEY, so a returning visitor keeps it.
+const FORMER_THEME_KEY = "porchlamp-v2-theme";
 
 //: The page sizes the pagination control offers. Mirrors
 //: `porchlamp.serve.contract.LEADERBOARD_PAGE_SIZES`.
@@ -208,7 +211,7 @@ export function defaultState() {
     repoDetailByKey: {}, // "owner/name" -> the flat RepoDetailResponse (kind is derived client-side, views/drawer.js::classifyKind)
     repoDetailLoading: false,
     repoDetailError: null, // { endpoint, status, detail } for the CURRENTLY open repo, if it failed
-    // Opt-in live checks for repositories outside the snapshot (web/v2/livecheck.js),
+    // Opt-in live checks for repositories outside the snapshot (web/app/livecheck.js),
     // kept in memory until the page reloads, so reopening a drawer never spends the visitor's
     // GitHub allowance twice: "owner/name" -> { status: "loading" } | { status: "done", outcome, atMs }.
     liveCheckByKey: {},
@@ -767,12 +770,21 @@ export function reduce(state, action) {
 }
 
 export function readPersistedTheme(storage) {
+  let value = null;
   try {
-    const value = storage.getItem(PERSISTED_THEME_KEY);
-    return value === "light" || value === "dark" ? value : "system";
+    value = storage.getItem(PERSISTED_THEME_KEY);
+    if (value === null) {
+      value = storage.getItem(FORMER_THEME_KEY);
+      if (value !== null) {
+        storage.setItem(PERSISTED_THEME_KEY, value);
+        storage.removeItem(FORMER_THEME_KEY);
+      }
+    }
   } catch {
-    return "system";
+    // Storage unavailable (private mode, disabled site data), or the move
+    // could not be written: the value read so far applies to this visit.
   }
+  return value === "light" || value === "dark" ? value : "system";
 }
 
 export function writePersistedTheme(storage, theme) {

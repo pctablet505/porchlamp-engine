@@ -31,7 +31,7 @@ jobs:
           node-version: "20"
 
       - name: Run frontend Node test suite
-        run: node --test web/v2/tests/unit.test.mjs web/v2/tests/render.perf.test.mjs
+        run: node --test web/app/tests/unit.test.mjs web/app/tests/render.perf.test.mjs
 
       - name: Run test suite
         env:

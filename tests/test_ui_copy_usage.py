@@ -1,12 +1,12 @@
-"""Every user-facing string lives in `web/v2/copy.js` and is actually used.
+"""Every user-facing string lives in `web/app/copy.js` and is actually used.
 
 06 §6: "copy.js (every user-facing sentence, ...); nothing user-facing is a
 string literal elsewhere." The dispatch's acceptance test for this is
 explicitly satisfiable as: "a test that parses copy.js's exported keys and
 greps the tests for each key". Node is not available on this box (see
-so there is no `web/v2/tests/*.test.mjs` to
+so there is no `web/app/tests/*.test.mjs` to
 grep for usage yet; this test greps the actual UI SOURCE
-(`web/v2/{app.js,components,views}`) instead — the practical, available
+(`web/app/{app.js,components,views}`) instead — the practical, available
 substitute that still catches the real defect class (an orphaned string
 nothing renders, or a hand-written literal bypassing copy.js entirely).
 """
@@ -16,8 +16,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-WEB_V2 = Path(__file__).resolve().parent.parent / "web" / "v2"
-COPY_JS = WEB_V2 / "copy.js"
+WEB_APP = Path(__file__).resolve().parent.parent / "web" / "app"
+COPY_JS = WEB_APP / "copy.js"
 
 EXPORT_RE = re.compile(r"^export\s+(?:const|function)\s+([A-Za-z_][A-Za-z0-9_]*)", re.MULTILINE)
 
@@ -37,7 +37,7 @@ def exported_names() -> list[str]:
 def consumer_source() -> str:
     chunks = []
     for pattern in CONSUMER_GLOBS:
-        for path in WEB_V2.glob(pattern):
+        for path in WEB_APP.glob(pattern):
             chunks.append(path.read_text())
     return "\n".join(chunks)
 
@@ -68,10 +68,10 @@ class TestNoHandWrittenUserFacingStringsOutsideCopy:
     def test_every_view_and_component_imports_copy(self) -> None:
         offenders = []
         for pattern in ["components/*.js", "views/*.js"]:
-            for path in WEB_V2.glob(pattern):
+            for path in WEB_APP.glob(pattern):
                 if path.name == "patch.js":
                     continue  # a pure DOM-diffing utility, no copy of its own
                 text = path.read_text()
                 if 'from "../copy.js"' not in text:
-                    offenders.append(str(path.relative_to(WEB_V2)))
+                    offenders.append(str(path.relative_to(WEB_APP)))
         assert not offenders, f"files rendering markup without importing copy.js: {offenders}"

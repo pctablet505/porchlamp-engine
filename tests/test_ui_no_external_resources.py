@@ -1,6 +1,6 @@
-"""Zero-external-request check for `web/v2/` (06 §8 checklist item 10).
+"""Zero-external-request check for `web/app/` (06 §8 checklist item 10).
 
-`web/v2/` is many files (styles/*.css, *.js, components/*.js, views/*.js), so
+`web/app/` is many files (styles/*.css, *.js, components/*.js, views/*.js), so
 this test applies the rule to every file actually served.
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-WEB_V2 = Path(__file__).resolve().parent.parent / "web" / "v2"
+WEB_APP = Path(__file__).resolve().parent.parent / "web" / "app"
 
 #: Every file this packet ships that a browser will actually fetch.
 SERVED_EXTENSIONS = {".html", ".css", ".js", ".mjs"}
@@ -17,16 +17,16 @@ SERVED_EXTENSIONS = {".html", ".css", ".js", ".mjs"}
 #: The char right after "//" must be alphanumeric (a host name never starts
 #: with punctuation) — this is what tells a real "//example.com" URL apart
 #: from a `//:`-prefixed doc comment (this file's own house style; see
-#: web/v2/state.js), which would otherwise false-positive.
+#: web/app/state.js), which would otherwise false-positive.
 EXTERNAL_URL_RE = re.compile(r"""(https?:)?//[a-zA-Z0-9][^\s'"()]*""")
 #: The only "//" this codebase may legitimately contain: outbound
 #: `https://github.com/<owner>/<name>` anchor links rendered in the repository
-#: drawer (`web/v2/copy.js::drawerGithubUrl`), which the browser never fetches
+#: drawer (`web/app/copy.js::drawerGithubUrl`), which the browser never fetches
 #: automatically as a subresource. Kept as an explicit allowlist so any other
 #: external URL is still flagged.
 ALLOWED_URL_SUBSTRINGS: tuple[str, ...] = ("https://github.com/",)
-#: Per-file exceptions (keyed by path under web/v2/), each an origin one module
-#: must name. Only the opt-in live check (06 §3 C, `web/v2/livecheck.js`) may
+#: Per-file exceptions (keyed by path under web/app/), each an origin one module
+#: must name. Only the opt-in live check (06 §3 C, `web/app/livecheck.js`) may
 #: name api.github.com: it contacts it solely when the visitor presses its
 #: button, never on load, so the page still makes no external request on its own.
 PER_FILE_ALLOWED: dict[str, tuple[str, ...]] = {"livecheck.js": ("https://api.github.com",)}
@@ -48,7 +48,7 @@ CSP_META_RE = re.compile(r"""<meta\s+http-equiv="Content-Security-Policy"\s+cont
 
 
 def served_files() -> list[Path]:
-    return [p for p in WEB_V2.rglob("*") if p.is_file() and p.suffix in SERVED_EXTENSIONS]
+    return [p for p in WEB_APP.rglob("*") if p.is_file() and p.suffix in SERVED_EXTENSIONS]
 
 
 def scannable_text(text: str) -> str:
@@ -67,7 +67,7 @@ def url_allowed(url: str, relative_path: str) -> bool:
 class TestNoExternalResources:
     def test_every_served_file_exists(self) -> None:
         files = served_files()
-        assert len(files) >= 15, f"expected at least 15 served files under web/v2/, found {len(files)}"
+        assert len(files) >= 15, f"expected at least 15 served files under web/app/, found {len(files)}"
 
     def test_no_external_script_or_style_tags(self) -> None:
         for path in served_files():
@@ -80,7 +80,7 @@ class TestNoExternalResources:
     def test_no_external_urls_anywhere(self) -> None:
         violations: list[str] = []
         for path in served_files():
-            relative_path = path.relative_to(WEB_V2).as_posix()
+            relative_path = path.relative_to(WEB_APP).as_posix()
             for match in EXTERNAL_URL_RE.finditer(scannable_text(path.read_text())):
                 url = match.group(0)
                 if not url_allowed(url, relative_path):
@@ -91,7 +91,7 @@ class TestNoExternalResources:
         # Copy may SAY "api.github.com" (the button's note does); only
         # livecheck.js may hold it as an address a request could be built from.
         holders = sorted(
-            path.relative_to(WEB_V2).as_posix()
+            path.relative_to(WEB_APP).as_posix()
             for path in served_files()
             if GITHUB_API_ADDRESS_RE.search(scannable_text(path.read_text()))
         )

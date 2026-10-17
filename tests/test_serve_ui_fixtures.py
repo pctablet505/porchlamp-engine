@@ -1,5 +1,5 @@
 """Tests for `scripts/serve_ui_fixtures.py`: the stdlib fixture server that
-backs `web/v2/`.
+backs `web/app/`.
 
 Starts the REAL `http.server.ThreadingHTTPServer` on an OS-assigned free
 port (`--port 0`) in a background thread and drives it over real HTTP with
@@ -28,7 +28,7 @@ from porchlamp.serve.contract import RepoDetailResponse
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "serve_ui_fixtures.py"
-WEB_DIR = REPO_ROOT / "web" / "v2"
+WEB_DIR = REPO_ROOT / "web" / "app"
 FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures" / "ui"
 
 PILLARS = ("responsiveness", "criticality", "governance", "rigor", "accessibility")
@@ -285,7 +285,7 @@ class TestRepoDetailEndpoint:
     `views/drawer.js::renderDrawer` has a dedicated "genuinely not found"
     panel (`components/livepanel.js::renderNotInSnapshot`, which offers the
     opt-in live check; see the sibling render test in
-    `web/v2/tests/unit.test.mjs`) that is only reachable for a REAL 404 —
+    `web/app/tests/unit.test.mjs`) that is only reachable for a REAL 404 —
     an empty `200 {}` would leave the drawer silently rendering nothing
     useful instead. `test_unknown_repo_is_404` is written to fail red
     against exactly that mutant.
@@ -387,7 +387,7 @@ class TestGatedRepoDrawerSections:
     this same fixture repo is exercised live in a real browser (dynamic
     `import('/views/drawer.js')` against this same server, documented in
     this packet's handoff) since Node is not available on this box to run
-    `web/v2/tests/unit.test.mjs` directly.
+    `web/app/tests/unit.test.mjs` directly.
     """
 
     def test_gated_repo_with_a_real_evidence_fixture_is_fully_fetchable(self, server_url: str) -> None:
@@ -759,7 +759,7 @@ class TestMethodologyEndpoint:
 class TestErrorBodyShape:
     """ review addendum (2026-09-13): the real API's error body is
     `{"error": {endpoint, status, detail}}`, not a bare string —
-    `web/v2/api.js` was found to never read `detail` at all. This class
+    `web/app/api.js` was found to never read `detail` at all. This class
     proves the fixture server actually sends that shape (so `api.js`'s
     `extractErrorDetail` has something real to parse) for both an
     input-validation 400 and a genuine `--fail`-simulated 500.

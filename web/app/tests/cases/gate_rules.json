@@ -1,5 +1,5 @@
 {
-  "_comment": "Gate evidence rules pinned for the engine (porchlamp.core.commit_domains.is_bot; porchlamp.derive.gate_evidence._has_recognized_manifest, _has_license_file, _has_off_platform_marker, _vitality_commit_count; porchlamp.core.gates._has_decided_external_pr) and their port web/v2/livecheck.js. Expected values were produced by the Python functions; tests/test_ui_livecheck_port.py and web/v2/tests/livecheck.test.mjs each check their own implementation against this file.",
+  "_comment": "Gate evidence rules pinned for the engine (porchlamp.core.commit_domains.is_bot; porchlamp.derive.gate_evidence._has_recognized_manifest, _has_license_file, _has_off_platform_marker, _vitality_commit_count; porchlamp.core.gates._has_decided_external_pr) and their port web/app/livecheck.js. Expected values were produced by the Python functions; tests/test_ui_livecheck_port.py and web/app/tests/livecheck.test.mjs each check their own implementation against this file.",
   "ref_now": "2026-10-15T12:00:00Z",
   "bots": [
     {

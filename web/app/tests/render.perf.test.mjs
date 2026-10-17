@@ -3,7 +3,7 @@
 // Written to run cleanly under `node --test` (Node >= 18, stdlib `node:test` +
 // `node:assert`, zero npm dependencies).
 //
-// Run: node --test web/v2/tests/render.perf.test.mjs
+// Run: node --test web/app/tests/render.perf.test.mjs
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -32,7 +32,7 @@ const HOST_FACTOR = Number(process.env.PORCHLAMP_PERF_HOST_FACTOR ?? "1");
 assert.ok(HOST_FACTOR > 0, `PORCHLAMP_PERF_HOST_FACTOR must be a positive number, got ${process.env.PORCHLAMP_PERF_HOST_FACTOR}`);
 const LIMIT_MS = FRAME_BUDGET_MS * FRAME_BUDGET_MARGIN * HOST_FACTOR;
 
-// NOTE: this mirrors the windowing in web/v2/views/leaderboard.js by hand. The
+// NOTE: this mirrors the windowing in web/app/views/leaderboard.js by hand. The
 // two must stay in step -- when they drifted (leaderboard passed a spacer its
 // height at create time and this helper did not) U-19 measured a harness that
 // was not what production runs. Any change to leaderboard.js's patchRows call

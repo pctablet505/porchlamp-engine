@@ -1,6 +1,6 @@
 """The live check's rule constants and readings stay the engine's.
 
-`web/v2/livecheck.js` runs D-GATE-1..4 and D-GATE-6 in the visitor's browser
+`web/app/livecheck.js` runs D-GATE-1..4 and D-GATE-6 in the visitor's browser
 (06 §3 C, "Repositories outside the snapshot: live check"). It can only claim
 to apply the snapshot's own rules if every constant it mirrors still equals
 the Python one it names, so this file parses those constants out of the JS
@@ -9,9 +9,9 @@ here, not silently in a visitor's browser.
 
 The readings that are code rather than data (the SPDX expression parser, the
 bot rule, the manifest/licence-file/marker path rules) are pinned by shared
-case files under `web/v2/tests/cases/`, produced by the Python functions:
+case files under `web/app/tests/cases/`, produced by the Python functions:
 this file re-checks the Python side against them and
-`web/v2/tests/livecheck.test.mjs` checks the JS side against the same files.
+`web/app/tests/livecheck.test.mjs` checks the JS side against the same files.
 """
 
 from __future__ import annotations
@@ -32,11 +32,11 @@ from porchlamp.derive import gate_evidence
 from porchlamp.serve.security import SECURITY_HEADERS
 from scripts import gather
 
-WEB_V2 = Path(__file__).resolve().parent.parent / "web" / "v2"
-LIVECHECK_JS = (WEB_V2 / "livecheck.js").read_text(encoding="utf-8")
-COPY_JS = (WEB_V2 / "copy.js").read_text(encoding="utf-8")
-INDEX_HTML = (WEB_V2 / "index.html").read_text(encoding="utf-8")
-CASES = WEB_V2 / "tests" / "cases"
+WEB_APP = Path(__file__).resolve().parent.parent / "web" / "app"
+LIVECHECK_JS = (WEB_APP / "livecheck.js").read_text(encoding="utf-8")
+COPY_JS = (WEB_APP / "copy.js").read_text(encoding="utf-8")
+INDEX_HTML = (WEB_APP / "index.html").read_text(encoding="utf-8")
+CASES = WEB_APP / "tests" / "cases"
 
 
 def js_string_list(name: str) -> list[str]:

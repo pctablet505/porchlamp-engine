@@ -1,8 +1,8 @@
 """The live check in a real browser: nothing leaves the page before the click, then only api.github.com.
 
-`web/v2/livecheck.js` (06 §3 C, "Repositories outside the snapshot: live check") is the one place the site
+`web/app/livecheck.js` (06 §3 C, "Repositories outside the snapshot: live check") is the one place the site
 may contact another origin, and only after the visitor presses its button. Unit tests pin the logic
-(`web/v2/tests/livecheck.test.mjs`); this module drives the built static site in headless Chrome
+(`web/app/tests/livecheck.test.mjs`); this module drives the built static site in headless Chrome
 (`tests/ui_browser.py`) against the page's real Content-Security-Policy:
 
 * opening the drawer for a repository the snapshot lacks requests nothing from any other origin;
