@@ -31,8 +31,8 @@ With ``--stats <stats-YYYY-MM-DD.json>`` (from ``surprise_stats.py``) the export
 prerender draws the report view into: ``black-holes/index.html``, the app's page, and the frozen copy
 ``black-holes/<snapshot_id>/index.html``, with its own ``styles.css`` and the CSV of the ranked projects beside it.
 Older frozen copies are not written here: a publish carries them from the published tree. Then one page per ranked
-project (``porchlamp/serve/project_pages.py``:
-``projects/<owner>/<name>/index.html``, lower case), ``check/index.html`` with its search index
+project (``projects/<owner>/<name>/index.html``, lower case), with its head (``porchlamp/serve/project_pages.py``), which
+the prerender draws the project view into from the project's record, ``check/index.html`` with its search index
 ``check/projects.json``, and ``sitemap-projects.xml`` (every project page, in balanced-rank order), then ten landing pages
 (``porchlamp/serve/landing_pages.py``): ``rust/``, ``python/``, ``javascript/``, ``go/``, ``java/``, ``c-cpp/`` and the lenses
 ``first-timers/``, ``career/``, ``senior-systems/``, ``ai-assisted/``. The black-hole evidence the report sums is recomputed from the raw ``pr_window``
@@ -406,10 +406,11 @@ def data_version_js(snapshot_id: str) -> str:
 
 
 def _prerender(out: Path, pages: list[dict]) -> None:
-    """Draws every page's header, nav and footer, and the methodology and report views into their pages
+    """Draws every page's header, nav and footer, and the methodology, report and project views into their pages
     (``web/prerender.mjs``), from the data this export wrote, loaded through the site's own api.js. ``pages``:
     ``{"path", "view"}`` for a page of the app (``"frozen": true`` for the report's frozen copy), ``{"path", "nav"}``
-    (its nav entry, or None) for any other. The page list lives outside the site."""
+    (its nav entry, or None) for any other, with ``"project": "owner/name"`` for a project's page. The page list
+    lives outside the site."""
     node = find_node()
     if node is None:
         raise SystemExit("export: no Node.js interpreter for web/prerender.mjs (PATH, PORCHLAMP_NODE_BIN or ~/.local/opt/node-*)")
@@ -533,38 +534,50 @@ def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest
     ]
 
 
-def _write_project_pages(
-    out: Path, facts: Any, methodology: dict, boards: dict[str, dict], buckets: dict[str, dict[str, dict]], snapshot: dict
-) -> list[dict]:
-    """One page per ranked project (``projects/<owner>/<name>/``), the /check/ page with its search index, and
-    ``sitemap-projects.xml``. Every page is rendered from the project's own API record and evidence, as the
-    drawer shows them. Returns the pages for :func:`_prerender`: none of them is a nav entry's."""
+def _add_project_extras(buckets: dict[str, dict[str, dict]], boards: dict[str, dict], methodology: dict) -> None:
+    """Writes into each ranked project's record what its page and side panel print beside the API's detail and
+    evidence: the answer sentences, its standing in each lens and its similar projects
+    (``project_pages.record_extras``). With ``--stats`` only, as the project pages are."""
     from porchlamp.serve import project_pages as pp
     from porchlamp.serve import report_pages
 
-    copy = pp.Copy.load()
     try:
-        index = pp.ProjectIndex(boards, copy)
-        param_order = [p["input_id"] for p in methodology["parameters"]]
+        index = pp.ProjectIndex(boards, pp.Copy.load())
         min_n = {p["input_id"]: p["min_n"] for p in methodology["parameters"]}
-        missing = sorted(set(param_order) - set(pp.PARAM_MEANINGS))
+        for records in buckets.values():
+            for record in records.values():
+                extras = pp.record_extras(index, record["detail"], record["evidence"], min_n)
+                if extras is not None:
+                    record.update(extras)
+    except report_pages.ReportError as error:
+        raise SystemExit(f"export: {error}") from error
+
+
+def _write_project_pages(
+    out: Path, facts: Any, methodology: dict, boards: dict[str, dict], buckets: dict[str, dict[str, dict]], snapshot: dict
+) -> list[dict]:
+    """One page per ranked project (``projects/<owner>/<name>/``) with its head, the /check/ page with its search index,
+    and ``sitemap-projects.xml``. :func:`_prerender` draws the project view into each page from the project's record.
+    Returns the pages for it: none of them is a nav entry's."""
+    from porchlamp.serve import project_pages as pp
+    from porchlamp.serve import report_pages
+
+    try:
+        index = pp.ProjectIndex(boards, pp.Copy.load())
+        missing = sorted({p["input_id"] for p in methodology["parameters"]} - set(report_pages.copy_js_map("PARAM_MEANINGS")))
         if missing:
-            raise report_pages.ReportError(f"no one-line meaning for the parameters {missing}")
+            raise report_pages.ReportError(f"copy.js has no one-line meaning for the parameters {missing}")
+        min_n = {p["input_id"]: p["min_n"] for p in methodology["parameters"]}
         as_of = date.fromisoformat(snapshot["as_of"][:10])
         pages = []
         for owner, name in index.keys:
-            bucket = bucket_of(owner, name)
-            record = buckets[bucket][f"{owner}/{name}"]
+            record = buckets[bucket_of(owner, name)][f"{owner}/{name}"]
+            reply = pp.answer_reply(record["detail"], record["evidence"], min_n)
+            description = pp.head_description(f"{owner}/{name}", index.standing(pp.BALANCED, record["detail"]), reply)
             target = out / pp.project_path(owner, name)
             target.mkdir(parents=True, exist_ok=True)
-            (target / "index.html").write_text(
-                pp.render_project(
-                    facts, detail=record["detail"], evidence=record["evidence"], index=index, copy=copy,
-                    param_order=param_order, min_n=min_n, bucket=bucket, as_of=as_of,
-                ),
-                encoding="utf-8",
-            )
-            pages.append({"path": f"{pp.project_path(owner, name)}index.html", "nav": None})
+            (target / "index.html").write_text(pp.project_page(owner, name, description), encoding="utf-8")
+            pages.append({"path": f"{pp.project_path(owner, name)}index.html", "nav": None, "project": f"{owner}/{name}"})
         (out / "check").mkdir(parents=True, exist_ok=True)
         top = index.balanced[0]
         (out / "check" / "index.html").write_text(
@@ -677,6 +690,7 @@ def export(
         _refuse_black_holes_without_rule_inputs(details, evidence_read=evidence_files is not None)
         facts = None
         if stats is not None:
+            _add_project_extras(buckets, boards, methodology)
             facts = _report_facts(conn, snapshot, methodology, stats, boards, details)
             sizes["report.json"] = _dump(data / "report.json", _report_json(facts))
         repo_bytes = sum(_dump(data / "repos" / f"{b}.json", records) for b, records in buckets.items())

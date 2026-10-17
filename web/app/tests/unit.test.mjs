@@ -49,7 +49,8 @@ import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, renderShell a
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY, renderScatterSvg } from "../components/scatter.js";
 import { synthesizeRows } from "./synthetic-rows.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape, renderShell as renderCompareShell, computeVerdict } from "../views/compare.js";
-import { renderDrawer, classifyKind, classifyKindForLens, renderPillarRadar, findRow, renderBlackHoleEvidence } from "../views/drawer.js";
+import { renderDrawer, classifyKind, classifyKindForLens, findRow } from "../views/drawer.js";
+import { renderProject, renderPillarRadar, formatParameterValue, replyTimeText } from "../views/project.js";
 import {
   personaVisibleCount,
   personaDelta,
@@ -887,58 +888,35 @@ test("findRow + classifyKind: the real (flat) shape round-trips through renderDr
 });
 
 // --------------------------------------------------------------------- //
-// Gated repository rendering: renders gate reason above the fold, followed
-// by three collapsed <details> sections (Pillars, Personas, Integrity).
-// Composite and Playbook sections are omitted.
+// Gated repository rendering: the gate reason first, then the parameters and
+// Integrity, all open. Composite and the Persona view are not drawn: no score
+// was computed, and every persona row would repeat the sentence.
 // --------------------------------------------------------------------- //
 
-test("findRow + classifyKind: a GATED repo renders the gate sentence first, then Pillars/Persona/Integrity collapsed, with Composite omitted", () => {
+test("findRow + classifyKind: a GATED repo renders the gate sentence first, once, with Composite and the Persona view omitted and nothing folded", () => {
   const state = stateWithRepoDetail(FLAT_GATED_DETAIL);
   assert.equal(classifyKind(FLAT_GATED_DETAIL), "gated");
   const html = renderDrawer(state);
   assert.ok(html.includes("repo-mirror-0"));
 
   const gateSentence = copy.gateReasonText(FLAT_GATED_DETAIL.gate_reason);
-  const gateSentenceIndex = html.indexOf(gateSentence);
-  const firstDetailsIndex = html.indexOf("<details");
-  assert.ok(gateSentenceIndex >= 0, "the gate reason sentence must render");
-  assert.ok(firstDetailsIndex >= 0, "at least one <details> section must render");
-  assert.ok(gateSentenceIndex < firstDetailsIndex, "the gate sentence must render before any <details> section (nothing else above the fold)");
+  assert.ok(html.includes(gateSentence), "the gate reason sentence must render");
+  assert.ok(html.indexOf(gateSentence) < html.indexOf(copy.PROJECT_PARAMETERS_HEADING), "the gate sentence comes before the parameters");
 
   // Composite is omitted entirely -- no score/tier/quadrant was ever computed.
   assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for a gated repo");
-  // Playbook is omitted too -- nothing to recommend for a disqualified repo.
-  assert.ok(!html.includes(copy.DRAWER_SECTION_PLAYBOOK), "no Playbook section for a gated repo");
-
-  // Exactly three <details> sections, every one collapsed (no `open`
-  // attribute) so the fold shows only the gate sentence.
-  const detailsTags = html.match(/<details[^>]*>/g) || [];
-  assert.equal(detailsTags.length, 3, `expected exactly 3 <details> sections for gated, got ${detailsTags.length}`);
-  for (const tag of detailsTags) {
-    assert.ok(!/\bopen\b/.test(tag), `every gated section must be collapsed, found: ${tag}`);
-  }
-  assert.ok(html.includes(copy.DRAWER_SECTION_PILLARS));
-  assert.ok(html.includes(copy.DRAWER_SECTION_PERSONAS));
+  assert.ok(!html.includes("<details"), "nothing is folded");
+  assert.ok(html.includes(copy.PROJECT_PARAMETERS_HEADING));
   assert.ok(html.includes(copy.DRAWER_SECTION_INTEGRITY));
 
-  // Persona view: every known persona listed against the SAME repo-level
-  // gate reason (persona_gates/persona_composites are both {} on the wire
-  // for a gated repo -- disqualification happens before any persona lens
-  // is ever applied).
-  for (const personaName of Object.values(copy.PERSONA_NAMES)) {
-    assert.ok(html.includes(personaName), `persona "${personaName}" must be listed in the Persona view`);
-  }
-  const gateSentenceOccurrences = html.split(gateSentence).length - 1;
-  assert.equal(
-    gateSentenceOccurrences,
-    1 + Object.keys(copy.PERSONA_NAMES).length,
-    "the gate sentence must appear once in the identity banner plus once per persona row"
-  );
+  // A gated repo has no persona composites or gates (disqualification happens before any lens), so the Persona
+  // view is not drawn and the banner says the sentence once.
+  assert.ok(!html.includes(copy.DRAWER_SECTION_PERSONAS), "no Persona view for a gated repo");
+  assert.equal(html.split(gateSentence).length - 1, 1, "the gate sentence appears once");
 
-  // Integrity: raw_hash/snapshot_id still render -- both present on the
-  // wire for a gated repo (a synthetic raw_hash stands in server-side,
-  // scripts/serve_ui_fixtures.py::_synthetic_raw_hash).
-  assert.ok(html.includes(FLAT_GATED_DETAIL.raw_hash.slice(0, 16)));
+  // Integrity: raw_hash/snapshot_id still render -- both present on the wire for a gated repo (a synthetic
+  // raw_hash stands in server-side, scripts/serve_ui_fixtures.py::_synthetic_raw_hash).
+  assert.ok(html.includes(FLAT_GATED_DETAIL.raw_hash));
   assert.ok(html.includes(FLAT_GATED_DETAIL.snapshot_id));
 });
 
@@ -959,7 +937,7 @@ test("findRow + classifyKind: a GATED repo's Pillars section renders its real ev
   assert.ok(html.includes(copy.missingValueReason("not_applicable")), "the unmeasured-reason text must render for the evidence row");
 });
 
-test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a crash on missing composite fields", () => {
+test("findRow + classifyKind: an UNRATED repo renders its reason and evidence, not a crash on missing composite fields", () => {
   const state = stateWithRepoDetail(FLAT_UNRATED_DETAIL);
   assert.equal(classifyKind(FLAT_UNRATED_DETAIL), "unrated");
   // Must not throw (the exact regression: `row` was `undefined` under the
@@ -967,13 +945,9 @@ test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a 
   const html = renderDrawer(state);
   assert.ok(html.includes("repo-insufficient_evidence-0"));
 
-  // An unrated repo renders open Pillars and evidence plus collapsed Persona view and Integrity,
-  // with Composite and Playbook omitted.
-  const detailsTags = html.match(/<details[^>]*>/g) || [];
-  assert.equal(detailsTags.length, 3, "unrated renders Pillars and evidence (open) + Persona view + Integrity");
-  assert.ok(/\bopen\b/.test(detailsTags[0]), "unrated's Pillars and evidence section is open");
-  assert.ok(!/\bopen\b/.test(detailsTags[1]), "unrated's Persona view section is collapsed by default");
-  assert.ok(!/\bopen\b/.test(detailsTags[2]), "unrated's Integrity section is collapsed by default");
+  // An unrated repo renders the reason, the parameters, the Persona view and Integrity, all open, with no Composite.
+  assert.ok(!html.includes("<details"), "nothing is folded");
+  assert.ok(html.includes(copy.PROJECT_PARAMETERS_HEADING), "the parameters render for unrated");
   assert.ok(html.includes(copy.DRAWER_SECTION_PERSONAS), "Persona view section renders for unrated");
   assert.ok(html.includes(copy.DRAWER_SECTION_INTEGRITY), "Integrity section renders for unrated");
   assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for unrated");
@@ -1819,10 +1793,10 @@ test("maintainer badge: the Markdown links the image to the project's own page o
 test("maintainer badge: the drawer shows the balanced badge at the end of Composite, never one a persona lens would mint (U-4, D-DEF-2)", () => {
   const html = renderDrawer(stateWithRepoDetail(FLAT_RATED_DETAIL), { siteBaseUrl: SITE_BASE });
   const box = html.indexOf('data-maintainer-badge="sweet-spot-tier-s"');
-  const composite = html.indexOf(`<summary>${escapeHtml(copy.DRAWER_SECTION_COMPOSITE)}</summary>`);
-  const pillars = html.indexOf(`<summary>${escapeHtml(copy.DRAWER_SECTION_PILLARS)}</summary>`);
-  assert.ok(composite > -1 && composite < box && box < pillars, "the badge box is inside the Composite section");
-  assert.equal((html.match(/<details[^>]*>/g) || []).length, 5, "a rated drawer still has five sections");
+  const composite = html.indexOf('id="rating"');
+  const next = html.indexOf('id="parameters"');
+  assert.ok(composite > -1 && composite < box && box < next, "the badge box is inside the Composite card, before the sections that follow");
+  assert.ok(!html.includes("<details"), "a rated drawer folds nothing");
   assert.ok(html.includes('data-badge-copy="true"') && html.includes('data-badge-markdown="true"'));
   assert.ok(html.includes(escapeHtml(`${SITE_BASE}projects/riverline/httpkit/`)), "the Markdown uses the address app.js passes in");
   assert.ok(html.includes('src="/badges/sweet-spot-tier-s.svg"'), "the preview loads from this site's root");
@@ -2381,14 +2355,25 @@ const FLAT_BLACK_HOLE_DETAIL = {
   },
 };
 
-test("renderBlackHoleEvidence: renders exact counts, percentage, Wilson lower bound, window dates, exclusions, and PR links without contributor usernames", () => {
-  const html = renderBlackHoleEvidence(FLAT_BLACK_HOLE_DETAIL);
-  assert.ok(html.includes('data-black-hole-evidence="true"'));
+/** The black-hole evidence card of a project, as the project view draws it (the `section#black-hole` of `renderProject`). */
+function blackHoleCard(detail, evidence = []) {
+  const html = renderProject({ detail, evidence }, { mode: "panel" });
+  const start = html.indexOf('<section class="project-card black-hole-evidence"');
+  return start < 0 ? "" : html.slice(start, html.indexOf("</section>", start) + "</section>".length);
+}
+
+/** Markup as text: tags removed, so a number inside its hook reads as part of its sentence. */
+const textOf = (html) => html.replace(/<[^>]*>/g, "");
+
+test("black-hole card: renders exact counts, percentage, Wilson lower bound, window dates, exclusions, and PR links without contributor usernames", () => {
+  const card = blackHoleCard(FLAT_BLACK_HOLE_DETAIL);
+  const html = textOf(card);
+  assert.ok(card.includes('data-black-hole-evidence="true"'));
   assert.ok(html.includes(copy.BLACK_HOLE_EVIDENCE_HEADING));
   assert.ok(html.includes(copy.BLACK_HOLE_RULE_TEXT));
   assert.ok(html.includes("12 of 15 (80.0%) external non-bot PRs had no maintainer response, merge, or close within 14 days"));
   assert.ok(html.includes("95% Wilson lower confidence bound: 59.8% (threshold: &gt; 50.0%, min n = 10)"));
-  assert.ok(html.includes("2026-03-01T00:00:00Z – 2026-09-01T00:00:00Z"));
+  assert.ok(html.includes("Window: 1 March to 1 September 2026"), "the window reads as dates, not ISO timestamps");
   assert.ok(html.includes("Source: raw/pr_window/ghost-org__abandoned-lib.json"));
   assert.ok(html.includes(escapeHtml(copy.BLACK_HOLE_EXCLUSIONS_TEXT)));
   assert.ok(html.includes("2 draft"));
@@ -2399,9 +2384,10 @@ test("renderBlackHoleEvidence: renders exact counts, percentage, Wilson lower bo
   assert.ok(html.includes("6 open &lt;14d"));
   assert.ok(html.includes(copy.BLACK_HOLE_RECHECK_TEXT));
 
-  // PR links (#101, #102)
-  assert.ok(html.includes('<a href="https://github.com/ghost-org/abandoned-lib/pull/101" target="_blank" rel="noopener noreferrer">#101</a>'));
-  assert.ok(html.includes('<a href="https://github.com/ghost-org/abandoned-lib/pull/102" target="_blank" rel="noopener noreferrer">#102</a>'));
+  // PR links (#101, #102), each number a hook; the opening dates read as dates
+  assert.ok(card.includes('<a href="https://github.com/ghost-org/abandoned-lib/pull/101" target="_blank" rel="noopener noreferrer">#<span data-v="bh.counted_prs.0.number">101</span></a>'));
+  assert.ok(card.includes('<a href="https://github.com/ghost-org/abandoned-lib/pull/102" target="_blank" rel="noopener noreferrer">#<span data-v="bh.counted_prs.1.number">102</span></a>'));
+  assert.ok(card.includes('<span data-v="bh.counted_prs.0.created_at">1 April 2026</span>'));
 
   // Privacy: never include contributor usernames/logins
   for (const forbiddenLogin of ["octocat", "author", "contributor", "login", "maintainer_login"]) {
@@ -2409,7 +2395,7 @@ test("renderBlackHoleEvidence: renders exact counts, percentage, Wilson lower bo
   }
 });
 
-test("renderBlackHoleEvidence: escapes untrusted strings against XSS", () => {
+test("black-hole card: escapes untrusted strings against XSS", () => {
   const xssDetail = {
     ...FLAT_BLACK_HOLE_DETAIL,
     owner: '<script>alert("owner")</script>',
@@ -2420,32 +2406,32 @@ test("renderBlackHoleEvidence: escapes untrusted strings against XSS", () => {
       window_start: '<img src=x onerror=alert(1)>',
     },
   };
-  const html = renderBlackHoleEvidence(xssDetail);
+  const html = blackHoleCard(xssDetail);
   assert.ok(!html.includes("<script>alert("));
   assert.ok(!html.includes("<img src=x"));
   assert.ok(html.includes("&lt;script&gt;alert("));
   assert.ok(html.includes("&lt;img src=x"));
 });
 
-test("renderBlackHoleEvidence: data recorded before the RFC-0008 fields hides the draft and self-closed counts and says so", () => {
+test("black-hole card: data recorded before the RFC-0008 fields hides the draft and self-closed counts and says so", () => {
   assert.equal(typeof copy.BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT, "string");
   assert.ok(!copy.BLACK_HOLE_EXCLUSIONS_TEXT.includes("applied"));
-  const notMeasured = renderBlackHoleEvidence({
+  const notMeasured = textOf(blackHoleCard({
     ...FLAT_BLACK_HOLE_DETAIL,
     black_hole_evidence: { ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence, rule_inputs_measured: false },
-  });
+  }));
   assert.ok(notMeasured.includes(escapeHtml(copy.BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT)));
   assert.ok(!notMeasured.includes("2 draft"));
   assert.ok(!notMeasured.includes("author self-closed"));
   assert.ok(notMeasured.includes("3 new account"));
-  const measured = renderBlackHoleEvidence(FLAT_BLACK_HOLE_DETAIL);
+  const measured = textOf(blackHoleCard(FLAT_BLACK_HOLE_DETAIL));
   assert.ok(!measured.includes(escapeHtml(copy.BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT)));
   assert.ok(measured.includes("2 draft"));
 });
 
-test("renderBlackHoleEvidence: an XSS payload in counted_prs[].created_at is rendered inert", () => {
+test("black-hole card: an XSS payload in counted_prs[].created_at is rendered inert", () => {
   const evidence = FLAT_BLACK_HOLE_DETAIL.black_hole_evidence;
-  const html = renderBlackHoleEvidence({
+  const html = blackHoleCard({
     ...FLAT_BLACK_HOLE_DETAIL,
     black_hole_evidence: {
       ...evidence,
@@ -2456,66 +2442,37 @@ test("renderBlackHoleEvidence: an XSS payload in counted_prs[].created_at is ren
   assert.ok(html.includes("&lt;svg onload="));
 });
 
-test("renderBlackHoleEvidence: an owner name that needs URL encoding produces an encoded PR link", () => {
-  const html = renderBlackHoleEvidence({ ...FLAT_BLACK_HOLE_DETAIL, owner: "org with space&co" });
+test("black-hole card: an owner name that needs URL encoding produces an encoded PR link", () => {
+  const html = blackHoleCard({ ...FLAT_BLACK_HOLE_DETAIL, owner: "org with space&co" });
   assert.ok(html.includes('href="https://github.com/org%20with%20space%26co/abandoned-lib/pull/101"'));
 });
 
-test("renderDrawer: a black_hole gated repo renders the evidence panel while preserving 3 collapsed <details> sections and gate sentence precedence", () => {
+test("renderDrawer: a black_hole gated repo draws the gate sentence, then the evidence card, with no <details> section", () => {
   const state = stateWithRepoDetail(FLAT_BLACK_HOLE_DETAIL);
   const html = renderDrawer(state);
 
   const gateSentence = copy.gateReasonText(FLAT_BLACK_HOLE_DETAIL.gate_reason);
   const gateSentenceIndex = html.indexOf(gateSentence);
-  const firstDetailsIndex = html.indexOf("<details");
   const evidencePanelIndex = html.indexOf('data-black-hole-evidence="true"');
 
   assert.ok(gateSentenceIndex >= 0, "the gate reason sentence must render");
   assert.ok(evidencePanelIndex >= 0, "black-hole evidence panel must render");
-  assert.ok(firstDetailsIndex >= 0, "at least one <details> section must render");
-  assert.ok(gateSentenceIndex < firstDetailsIndex, "gate sentence must render before any <details> section");
-  assert.ok(evidencePanelIndex < firstDetailsIndex, "evidence panel must render before any <details> section");
+  assert.ok(gateSentenceIndex < evidencePanelIndex, "gate sentence must render before the evidence card");
+  assert.ok(!html.includes("<details"), "the panel hides nothing behind a disclosure");
+  assert.ok(!html.includes('role="alert"'), "the gate sentence is content present at load, not an alert");
 
-  // Preserves exactly 3 <details> sections
-  const detailsTags = html.match(/<details(?:\s+open)?>/g) || [];
-  assert.equal(detailsTags.length, 3, "must preserve exactly 3 <details> sections (pillars, personas, integrity)");
-
-  // Evidence panel does NOT repeat the exact gateReasonText("black_hole")
-  const evidenceBox = html.slice(evidencePanelIndex, html.indexOf("</div>", evidencePanelIndex + 100));
-  assert.ok(!evidenceBox.includes(gateSentence), "evidence panel must not repeat exact gate reason sentence");
+  // Evidence card does NOT repeat the exact gateReasonText("black_hole")
+  const card = blackHoleCard(FLAT_BLACK_HOLE_DETAIL);
+  assert.ok(!card.includes(gateSentence), "evidence card must not repeat exact gate reason sentence");
 });
 
-test("renderBlackHoleEvidence: falls back to gr14_ghost_rate from evidenceRows when black_hole_evidence is absent", () => {
+test("black-hole card: renders rule, exclusions, and recovery note when black_hole_evidence is absent, and recomputes nothing from the evidence rows", () => {
   const noEvidenceDetail = {
     ...FLAT_BLACK_HOLE_DETAIL,
     black_hole_evidence: null,
   };
-  const evidenceRows = [
-    {
-      param_id: "gr14_ghost_rate",
-      value: 0.75,
-      score: 25.0,
-      n: 20,
-      window_start: "2026-03-01T00:00:00Z",
-      window_end: "2026-09-01T00:00:00Z",
-      method: "windowed_share",
-      source: "raw/pr_window/ghost-org__abandoned-lib.json",
-      source_sha256: "d".repeat(64),
-      fetched_at: "2026-09-01T01:00:00Z",
-    },
-  ];
-  const html = renderBlackHoleEvidence(noEvidenceDetail, evidenceRows);
-  assert.ok(html.includes("15 of 20 (75.0%) external non-bot PRs had no maintainer response"));
-  assert.ok(html.includes("95% Wilson lower confidence bound:"));
-  assert.ok(html.includes("Source: raw/pr_window/ghost-org__abandoned-lib.json"));
-});
-
-test("renderBlackHoleEvidence: renders rule, exclusions, and recovery note when no evidence rows or black_hole_evidence exist", () => {
-  const noEvidenceDetail = {
-    ...FLAT_BLACK_HOLE_DETAIL,
-    black_hole_evidence: null,
-  };
-  const html = renderBlackHoleEvidence(noEvidenceDetail, []);
+  const ghostRow = { param_id: "gr14_ghost_rate", pillar: "responsiveness", value: 0.75, score: 25.0, n: 20, unmeasured_reason: null };
+  const html = blackHoleCard(noEvidenceDetail, [ghostRow]);
   assert.ok(html.includes(copy.BLACK_HOLE_EVIDENCE_HEADING));
   assert.ok(html.includes(copy.BLACK_HOLE_RULE_TEXT));
   assert.ok(html.includes(escapeHtml(copy.BLACK_HOLE_EXCLUSIONS_TEXT)));
@@ -2650,8 +2607,8 @@ test("error banners across views include retry buttons", () => {
   assert.ok(mdHtml.includes('data-methodology-retry="true"'));
 });
 
-test("renderBlackHoleEvidence: formats response_kind into human prose and computes missing share/Wilson bound", () => {
-  const html = renderBlackHoleEvidence({
+test("black-hole card: formats response_kind into human prose, and prints no share or Wilson bound the record lacks", () => {
+  const card = blackHoleCard({
     ...FLAT_BLACK_HOLE_DETAIL,
     black_hole_evidence: {
       ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence,
@@ -2666,8 +2623,9 @@ test("renderBlackHoleEvidence: formats response_kind into human prose and comput
       ],
     },
   });
-  assert.ok(html.includes("12 of 15 (80.0%) external non-bot PRs"));
-  assert.ok(html.includes("95% Wilson lower confidence bound: 59.1%"));
+  const html = textOf(card);
+  assert.ok(html.includes("12 of 15 external non-bot PRs"), "the counts stand without a percentage the record does not hold");
+  assert.ok(!html.includes("95% Wilson lower confidence bound:"), "the view does not work out a Wilson bound itself");
   assert.ok(html.includes("No response within 14d"));
   assert.ok(html.includes("Answered (review or comment)"));
   assert.ok(html.includes("Answered (closed by maintainer)"));
@@ -2675,7 +2633,7 @@ test("renderBlackHoleEvidence: formats response_kind into human prose and comput
   assert.ok(!html.includes("Answered (review_or_comment)"));
   assert.ok(!html.includes("Answered (closed_by_maintainer)"));
   assert.ok(!html.includes("Answered (none)"));
-  assert.ok(html.includes("black-hole-pr-scroll"));
+  assert.ok(card.includes("black-hole-pr-scroll"));
 });
 
 test("methodology: the parameters table keeps seven columns with the readable name in the row header, and Why Porchlamp renders a 3-column kicker grid", () => {
@@ -3062,13 +3020,13 @@ test("copy.js: no visible string holds a register id such as D-GATE-5 or RFC-000
 });
 
 test("black-hole stat: the 'no response' sentence claims only what was counted", () => {
-  const measured = renderBlackHoleEvidence(FLAT_BLACK_HOLE_DETAIL);
+  const measured = textOf(blackHoleCard(FLAT_BLACK_HOLE_DETAIL));
   assert.ok(measured.includes("12 of 15 (80.0%) external non-bot PRs had no maintainer response, merge, or close within 14 days"));
-  const notMeasured = renderBlackHoleEvidence({
+  const notMeasured = blackHoleCard({
     ...FLAT_BLACK_HOLE_DETAIL,
     black_hole_evidence: { ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence, rule_inputs_measured: false },
   });
-  const stat = notMeasured.match(/<p class="black-hole-stat">(.*?)<\/p>/)[1];
+  const stat = textOf(notMeasured.match(/<p class="black-hole-stat">(.*?)<\/p>/)[1]);
   assert.ok(stat.startsWith("12 of 15 (80.0%) external non-bot PRs had no maintainer review, comment or merge within 14 days"), stat);
   assert.doesNotMatch(stat, /or close|response, merge/, "a close by a maintainer was not counted, so the sentence must not say it was");
   assert.ok(stat.includes("a close by a maintainer was not counted"), stat);
@@ -3330,7 +3288,7 @@ test("routes: a panel's history entry brings back the view under it; loaded dire
 test("routes: the side panel links a ranked project's own page, and only a ranked project's", () => {
   const ranked = renderDrawer(stateWithRepoDetail(FLAT_RATED_DETAIL));
   assert.ok(ranked.includes(`<a class="drawer-page-link" href="/projects/riverline/httpkit/" data-drawer-page="true">${escapeHtml(copy.DRAWER_PAGE_LABEL)}</a>`), ranked);
-  const identity = ranked.match(/<div class="drawer-identity"[\s\S]*?<\/div>/)[0];
+  const identity = ranked.match(/<div class="project-identity"[\s\S]*?<\/div>/)[0];
   assert.ok(identity.includes("data-drawer-page"), "under the project's name, not among the buttons");
   for (const detail of [FLAT_GATED_DETAIL, FLAT_UNRATED_DETAIL]) {
     assert.ok(!renderDrawer(stateWithRepoDetail(detail)).includes("data-drawer-page"), `${detail.owner}: no page, no link`);
@@ -3368,8 +3326,11 @@ test("routes: on a ranked project's static page, Back and Forward between the ap
     globalThis.location = saved.location;
   }
   assert.equal(reloads, 1, "a Back or Forward loads the address it moved to");
-  const projectPages = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "porchlamp", "serve", "project_pages.py"), "utf8");
-  assert.match(projectPages, /scripts=\("\/back-forward\.js",\)/, "every project page loads it");
+  const serve = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "porchlamp", "serve");
+  const reportPages = readFileSync(path.join(serve, "report_pages.py"), "utf8");
+  assert.match(reportPages, /"project": \("\/theme-init\.js", "\/back-forward\.js"\)/, "a project page's scripts are the theme's and this one");
+  const projectPages = readFileSync(path.join(serve, "project_pages.py"), "utf8");
+  assert.match(projectPages, /scripts=PAGE_SCRIPTS\["project"\]\[1:\]/, "every project page loads its scripts after the theme's");
 });
 
 test("routes: the panel's README badge preview loads from the site root, since the panel is open at a project's address", () => {
@@ -3532,4 +3493,446 @@ test("report: the shell is loading, error, empty or the body, the body keyed by 
   assert.ok(error.includes(`<button type="button" class="icon-button" data-report-retry="true">${copy.RETRY_LABEL}</button>`));
   assert.equal((reportRenderShell(base).match(/<h1/g) || []).length, 1);
   assert.equal(reportRenderShell({ ...base, report: REPORT_EXAMPLE, sourceDbSha256: REPORT_DIGEST }), renderReport(REPORT_EXAMPLE, { sourceDbSha256: REPORT_DIGEST }));
+});
+
+// --- project (views/project.js)
+// The data is three records of the export's shape ({detail, evidence, answer?, standings?, similar?, recordFile}),
+// read through one constant so that only the files change when the export's own records replace them.
+const PHONE_COLUMN_PX = 294; // the narrowest column the radar gets: the panel on a 375 px phone (measured in headless Chrome)
+const PROJECT_FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tests", "fixtures", "project");
+const projectRecord = (stem) => JSON.parse(readFileSync(path.join(PROJECT_FIXTURES, `${stem}.json`), "utf8"));
+const PROJECT_STEMS = ["vllm-project__vllm", "keras-team__keras", "3b1b__manim"];
+const PROJECT_RECORDS = Object.fromEntries(PROJECT_STEMS.map((stem) => [stem, projectRecord(stem)]));
+const projectHtml = (rec, mode, extra = {}) => renderProject(rec, { mode, recordFile: rec.recordFile, ...extra });
+
+const PROJECT_HOOK = /<(span|p)\b[^>]*\bdata-v="([^"]+)"[^>]*>([^<]*)<\/\1>/g;
+const projectHooks = (html) => [...html.matchAll(PROJECT_HOOK)].map((m) => ({ id: m[2], text: unescapeHtml(m[3]) }));
+const VOID_TAGS = new Set(["img", "br", "hr", "input", "meta", "link", "circle", "line", "polygon", "polyline", "path"]);
+
+/** The reading text of markup: hooks removed, nothing inside an aria-hidden element, tags dropped. */
+function projectProse(html) {
+  const out = [];
+  const stack = [];
+  let hidden = 0;
+  for (const tok of html.replace(PROJECT_HOOK, " ").match(/<[^>]+>|[^<]+/g)) {
+    if (tok[0] !== "<") {
+      if (!hidden) out.push(unescapeHtml(tok));
+    } else if (tok[1] === "/") {
+      if (stack.pop()) hidden--;
+    } else if (!tok.endsWith("/>") && !VOID_TAGS.has(/^<([a-z0-9]+)/i.exec(tok)[1])) {
+      const hides = /aria-hidden="true"/.test(tok);
+      stack.push(hides);
+      if (hides) hidden++;
+    }
+  }
+  return out.join(" ");
+}
+
+// What the view must print, worked out here from the record by its own rules (not read from the view's output).
+const TEST_MONTHS = "January February March April May June July August September October November December".split(" ");
+const groupDigits = (n) => new Intl.NumberFormat("en-US").format(n);
+const dayText = (iso) => { const [y, m, d] = iso.slice(0, 10).split("-").map(Number); return `${d} ${TEST_MONTHS[m - 1]} ${y}`; };
+const spanText = (a, b) => `${a.slice(0, 4) === b.slice(0, 4) ? dayText(a).replace(/ \d{4}$/, "") : dayText(a)} to ${dayText(b)}`;
+const wholePercent = (f) => `${Math.round(f * 100)}%`;
+const SHARE_PARAM_IDS = ["dr90_decision_rate", "mr_first_rate", "gr14_ghost_rate", "substantive_review_rate", "newcomer_conversion", "rr90_return_rate"];
+const ENUM_PARAM_LABELS = {
+  legal_ip: { DCO: "Sign-off on commits (DCO)", NONE: "No CLA or sign-off found", FOUNDATION_CLA: "Foundation CLA", CORP_CLA: "Company CLA" },
+  ai_posture: { REGULATED: "Written AI policy", PROSCRIBED: "AI ban stated in a written policy", AD_HOC: "No written AI policy" },
+  promotion_ladder: {
+    VERIFIED: "An outside contributor became a member or collaborator",
+    DOCUMENTED: "A written path to becoming a maintainer",
+    AD_HOC: "No written path to becoming a maintainer",
+    CLOSED: "Merged pull requests all came from one organisation",
+  },
+};
+
+/** `printed * mul / div` to `places` decimals, half up, worked out on the printed decimal as a fraction (Python's
+ *  `Decimal(repr(x))` rule), for a number of 0 or more. */
+function printedHalfUp(printed, mul, div, places) {
+  const [whole, frac = ""] = String(printed).split(".");
+  const num = BigInt(whole + frac);
+  const den = 10n ** BigInt(frac.length);
+  const scaled = (2n * num * BigInt(mul) * 10n ** BigInt(places) + den * BigInt(div)) / (2n * den * BigInt(div));
+  const text = scaled.toString().padStart(places + 1, "0");
+  return places ? `${text.slice(0, -places)}.${text.slice(-places)}` : text;
+}
+const testHours = (h) => printedHalfUp(h, 1, 1, 1);
+const testDays = (h) => String(Number(printedHalfUp(h, 1, 24, 1)));
+const testShare = (f) => printedHalfUp(f, 100, 1, 1);
+
+/** The value column of a parameter row, by DESIGN's table of units. */
+function expectedParamValue(id, v) {
+  if (id === "ttfhr_hours" || id === "ttm_p90_hours") return `${testHours(v)} hours (${testDays(v)} days)`;
+  if (SHARE_PARAM_IDS.includes(id)) return `${testShare(v)}%`;
+  if (id === "downloads_monthly") return v >= 1e6 ? `${(v / 1e6).toFixed(1)} million downloads a month` : `${groupDigits(v)} downloads a month`;
+  if (["dependents_deduped", "elephant_factor", "newcomer_issue_supply"].includes(id)) return groupDigits(v);
+  if (ENUM_PARAM_LABELS[id]) return ENUM_PARAM_LABELS[id][v];
+  return String(Math.round(v * 10000) / 10000);
+}
+
+/** The reply time of the key facts: project_pages.reply_time_text for hours, with the hours after the days. */
+function expectedReply(hours) {
+  if (hours < 48) return `${Number(testHours(hours))} ${Number(testHours(hours)) === 1 ? "hour" : "hours"}`;
+  return `${testDays(hours)} days (${testHours(hours)} hours)`;
+}
+
+/** Every hook id the view must print for a record, and the text of each. */
+function expectedProjectHooks(rec, mode) {
+  const d = rec.detail;
+  const want = new Map();
+  const add = (id, text) => want.set(id, text);
+  if (mode === "page") add("detail.snapshot_date", dayText(d.snapshot_id));
+  if (rec.answer) add("answer", rec.answer.join(" "));
+  const ranked = d.eligible && d.rated;
+  const param = (id) => (rec.evidence || []).find((r) => r.param_id === id);
+  if (ranked) {
+    add("detail.rank", groupDigits(d.rank));
+    if (rec.standings) add("standings.balanced.total", groupDigits(rec.standings.balanced.total));
+    add("detail.porchlamp", d.porchlamp.toFixed(2));
+    add("detail.coverage", copy.coverageBadgeText(d.coverage));
+    add("detail.leverage", d.leverage.toFixed(1));
+    add("detail.friction", d.friction.toFixed(1));
+    add("detail.leverage_coverage", wholePercent(d.leverage_coverage));
+    add("detail.friction_coverage", wholePercent(d.friction_coverage));
+    const reply = param("ttfhr_hours");
+    const ghost = param("gr14_ghost_rate");
+    if (reply && !reply.unmeasured_reason) add("facts.reply_time", expectedReply(reply.value));
+    if (ghost && !ghost.unmeasured_reason) add("facts.no_reply_share", wholePercent(ghost.value));
+    const first = rec.standings && rec.standings.first_timer;
+    if (first && first.rank != null) {
+      add("standings.first_timer.rank", groupDigits(first.rank));
+      add("standings.first_timer.total", groupDigits(first.total));
+    }
+    const windowRow = [reply, ghost].find((r) => r && !r.unmeasured_reason && r.window_start);
+    if (windowRow) add(`evidence.${windowRow.param_id}.window`, spanText(windowRow.window_start, windowRow.window_end));
+    add("cite.year", d.snapshot_id.slice(0, 4));
+  }
+  for (const p of ["responsiveness", "criticality", "governance", "rigor", "accessibility"]) {
+    if (!["responsiveness", "criticality", "governance", "rigor", "accessibility"].some((q) => d[`p_${q}`] != null)) break;
+    if (d[`p_${p}`] != null) add(`detail.p_${p}`, d[`p_${p}`].toFixed(1));
+    add(`detail.c_${p}`, wholePercent(d[`c_${p}`] || 0));
+  }
+  for (const r of rec.evidence || []) {
+    if (r.unmeasured_reason) continue;
+    if (r.value != null) add(`evidence.${r.param_id}.value`, expectedParamValue(r.param_id, r.value));
+    if (r.score != null) add(`evidence.${r.param_id}.score`, r.score.toFixed(1));
+    if (r.n) add(`evidence.${r.param_id}.n`, groupDigits(r.n));
+    if (r.window_start && r.window_end) add(`evidence.${r.param_id}.window`, spanText(r.window_start, r.window_end));
+  }
+  if (d.eligible) {
+    for (const lens of Object.keys(copy.PERSONA_NAMES)) {
+      const c = (d.persona_composites || {})[lens];
+      if ((d.persona_gates || {})[lens] || !c) continue;
+      const s = rec.standings && rec.standings[lens];
+      if (s && s.rank != null) {
+        add(`standings.${lens}.rank`, groupDigits(s.rank));
+        add(`standings.${lens}.total`, groupDigits(s.total));
+      }
+      add(`detail.persona_composites.${lens}.porchlamp`, c.porchlamp.toFixed(2));
+    }
+  }
+  const ev = d.black_hole_evidence;
+  if (ev && d.gate_reason === "black_hole") {
+    add("bh.unanswered", String(ev.unanswered));
+    add("bh.population_n", String(ev.population_n));
+    add("bh.unanswered_share", testShare(ev.unanswered_share));
+    add("bh.wilson_lower_bound", testShare(ev.wilson_lower_bound));
+    add("bh.threshold_share", testShare(ev.threshold_share));
+    add("bh.min_n", String(ev.min_n));
+    add("bh.window", spanText(ev.window_start, ev.window_end));
+    for (const [k, n] of Object.entries(ev.excluded)) {
+      const counted = ev.rule_inputs_measured === true || !["draft", "self_closed"].includes(k);
+      if (n > 0 && counted) add(`bh.excluded.${k}`, String(n));
+    }
+    ev.counted_prs.forEach((pr, i) => {
+      add(`bh.counted_prs.${i}.number`, String(pr.number));
+      if (pr.created_at) add(`bh.counted_prs.${i}.created_at`, dayText(pr.created_at));
+    });
+  }
+  (rec.similar || []).forEach((s, i) => add(`similar.${i}.rank`, groupDigits(s.rank)));
+  add("detail.snapshot_id", d.snapshot_id);
+  if (d.raw_hash) add("detail.raw_hash", d.raw_hash);
+  return want;
+}
+
+for (const mode of ["page", "panel"]) {
+  for (const stem of PROJECT_STEMS) {
+    test(`project: every data-v of ${stem} in ${mode} mode equals the record's value by the view's rules, and every expected hook is there`, () => {
+      const rec = PROJECT_RECORDS[stem];
+      const hooks = projectHooks(projectHtml(rec, mode));
+      const want = expectedProjectHooks(rec, mode);
+      assert.ok(hooks.length > (stem === "3b1b__manim" ? 20 : 60), `the scanned set is not empty (${hooks.length} hooks)`);
+      for (const { id, text } of hooks) {
+        assert.ok(want.has(id), `${id} is printed but the record gives it no value`);
+        assert.equal(text, want.get(id), id);
+      }
+      assert.deepEqual([...new Set(hooks.map((h) => h.id))].sort(), [...want.keys()].sort());
+    });
+  }
+}
+
+test("project: the page and the panel carry the same hook ids, apart from the snapshot date", () => {
+  for (const stem of PROJECT_STEMS) {
+    const ids = (mode) => new Set(projectHooks(projectHtml(PROJECT_RECORDS[stem], mode)).map((h) => h.id));
+    const page = ids("page");
+    const panel = ids("panel");
+    assert.ok(page.has("detail.snapshot_date") && !panel.has("detail.snapshot_date"), `${stem}: the lede is the page's alone`);
+    page.delete("detail.snapshot_date");
+    assert.deepEqual([...page].sort(), [...panel].sort(), stem);
+  }
+});
+
+/** The strings of copy.js that carry a digit, and the identifiers of a record: the only digits the text may hold. */
+function projectLiterals(rec) {
+  const d = rec.detail;
+  const fromCopy = [
+    ...Object.keys(copy.PARAM_MEANINGS).map(copy.paramName), ...Object.values(copy.PARAM_MEANINGS), ...Object.values(copy.PROJECT_COLUMNS),
+    ...Object.values(copy.KEY_FACT_LABELS), ...Object.values(copy.BLACK_HOLE_EXCLUDED_LABELS),
+    copy.PROJECT_PILLARS_CAPTION, copy.BLACK_HOLE_RULE_TEXT, copy.BLACK_HOLE_EXCLUSIONS_TEXT, copy.BLACK_HOLE_RECHECK_TEXT,
+    copy.BLACK_HOLE_STAT_PREDICATE, copy.BLACK_HOLE_STAT_PREDICATE_CLOSE_NOT_COUNTED, copy.BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT,
+    "95% Wilson lower confidence bound", "CC BY 4.0", copy.gateReasonText("black_hole"), copy.TIER_CAPPED_EXPLANATION,
+    ...["No response within 14d", "Answered"], ...Object.values(copy.AI_POSTURE_LABELS),
+  ];
+  const identifiers = [
+    `${d.owner}/${d.name}`, d.owner, d.name, rec.recordFile, `${copy.SITE_ADDRESS}${projectPath(d.owner, d.name)}`,
+    ...(rec.similar || []).flatMap((s) => [`${s.owner}/${s.name}`]),
+    ...(rec.evidence || []).flatMap((r) => [r.source, r.method].filter(Boolean)),
+    d.black_hole_evidence && d.black_hole_evidence.source,
+  ].filter(Boolean);
+  return [...fromCopy, ...identifiers].sort((a, b) => b.length - a.length);
+}
+
+for (const mode of ["page", "panel"]) {
+  test(`project: no digit in the ${mode} text outside a hook, apart from copy literals and identifiers`, () => {
+    for (const stem of PROJECT_STEMS) {
+      const rec = PROJECT_RECORDS[stem];
+      let text = projectProse(projectHtml(rec, mode)).replace(/\s+/g, " ");
+      assert.ok(text.length > 800, `${stem}: the scanned text is not empty`);
+      for (const literal of projectLiterals(rec)) text = text.split(literal).join(" ");
+      assert.doesNotMatch(text, /\d/, `${stem}: ${text.match(/.{0,40}\d.{0,40}/)?.[0]}`);
+    }
+  });
+}
+
+test("project: the page has one h1 and no skipped heading level, and no <details>; the panel has no h1", () => {
+  for (const stem of PROJECT_STEMS) {
+    const levels = (mode) => [...projectHtml(PROJECT_RECORDS[stem], mode).matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
+    const page = levels("page");
+    assert.equal(page.filter((l) => l === 1).length, 1, `${stem}: one h1`);
+    assert.equal(page[0], 1);
+    page.forEach((l, i) => { if (i) assert.ok(l <= page[i - 1] + 1, `${stem}: h${l} after h${page[i - 1]}`); });
+    const panel = levels("panel");
+    assert.ok(!panel.includes(1), `${stem}: the panel draws no h1`);
+    assert.equal(panel[0], 2, "the panel's title is an h2");
+    panel.forEach((l, i) => { if (i) assert.ok(l <= panel[i - 1] + 1, `${stem}: panel h${l} after h${panel[i - 1]}`); });
+    for (const mode of ["page", "panel"]) assert.ok(!/<details/.test(projectHtml(PROJECT_RECORDS[stem], mode)), `${stem}: no <details> in ${mode} mode`);
+  }
+  const panelHtml = projectHtml(PROJECT_RECORDS["keras-team__keras"], "panel");
+  assert.ok(panelHtml.includes('<h2 id="drawer-title" class="project-title">'), "the dialog names itself by this title");
+  assert.ok(projectHtml(PROJECT_RECORDS["keras-team__keras"], "page").includes('<h1 id="project-title" class="project-title">'));
+});
+
+test("project: the anchors the old page and panel had are present, and so are the new ones", () => {
+  const ids = (html) => new Set([...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]));
+  for (const mode of ["page", "panel"]) {
+    for (const stem of ["vllm-project__vllm", "keras-team__keras"]) {
+      const found = ids(projectHtml(PROJECT_RECORDS[stem], mode));
+      for (const id of ["answer", "rating", "pillars", "lenses", "similar", "evidence", "correction", "parameters", "parameters-responsiveness", "parameters-governance"]) {
+        assert.ok(found.has(id), `${stem} ${mode}: #${id}`);
+      }
+    }
+    const manim = ids(projectHtml(PROJECT_RECORDS["3b1b__manim"], mode));
+    for (const id of ["black-hole", "parameters", "evidence", "correction"]) assert.ok(manim.has(id), `manim ${mode}: #${id}`);
+    for (const id of ["answer", "rating", "pillars", "lenses", "similar"]) assert.ok(!manim.has(id), `manim ${mode}: no #${id} for a project that was never scored`);
+  }
+  const html = projectHtml(PROJECT_RECORDS["keras-team__keras"], "page");
+  assert.equal([...html.matchAll(/ id="([^"]+)"/g)].length, ids(html).size, "no id is used twice");
+  // The panel sits on the list's page: no other view may use one of these ids.
+  const others = ["leaderboard", "notranked", "matrix", "compare", "configure", "methodology", "report"].map((v) => readFileSync(path.join(WEB_ROOT, "views", `${v}.js`), "utf8")).join("\n");
+  assert.doesNotMatch(others, / id="(answer|rating|pillars|lenses|similar|evidence|correction|parameters|black-hole|key-facts)"/);
+});
+
+test("project: the radar is aria-hidden, its labels are 13 px or more where a phone's column is no wider than the viewBox, and a table says the same in text", () => {
+  const html = projectHtml(PROJECT_RECORDS["keras-team__keras"], "page");
+  const radar = html.match(/<div class="radar-chart-container"[^>]*>/)[0];
+  assert.ok(radar.includes('aria-hidden="true"'), "the radar is hidden from assistive technology");
+  assert.ok(!/role="img"/.test(html), "no role=img on a hidden box");
+  const css = readFileSync(path.join(WEB_ROOT, "styles", "views.css"), "utf8");
+  const label = css.match(/\.radar-label\s*\{[^}]*\}/)[0];
+  assert.ok(Number(/font-size:\s*(\d+(?:\.\d+)?)px/.exec(label)[1]) >= 13, label);
+  const viewBoxWidth = Number(/viewBox="0 0 (\d+) \d+"/.exec(html)[1]);
+  assert.ok(viewBoxWidth <= PHONE_COLUMN_PX, `the viewBox (${viewBoxWidth}) is not wider than a phone's column (${PHONE_COLUMN_PX} px), so the labels do not shrink`);
+  // The text alternative: a table with a caption and a row header per pillar, score and coverage hooked.
+  const table = html.match(/<table class="project-table pillar-table">[\s\S]*?<\/table>/)[0];
+  assert.ok(table.includes(`<caption>${escapeHtml(copy.PROJECT_PILLARS_CAPTION)}</caption>`));
+  for (const name of Object.values(copy.PILLAR_NAMES)) assert.ok(table.includes(`<th scope="row">${name}</th>`), name);
+  assert.equal((table.match(/data-v="detail\.p_/g) || []).length, 5);
+  assert.equal((table.match(/data-v="detail\.c_/g) || []).length, 5);
+  assert.ok(html.indexOf("radar-chart-container") < html.indexOf("pillar-table"), "the table sits under the radar");
+});
+
+test("project: the key facts are a table of row headers with the rows AI-04 lists, for a ranked project only", () => {
+  const html = projectHtml(PROJECT_RECORDS["keras-team__keras"], "page");
+  const table = html.match(/<table class="project-table key-facts" id="key-facts">[\s\S]*?<\/table>/)[0];
+  const heads = [...table.matchAll(/<th scope="row">([^<]*)<\/th>/g)].map((m) => m[1]);
+  assert.deepEqual(heads, ["Rank", "Score", "Tier", "Median first reply", "14-day no-reply share", "First-timer rank", "Ecosystem", "Window"]);
+  assert.ok(table.includes("<caption>Key facts</caption>"));
+  assert.ok(table.includes(">Python<"), "the ecosystem is its plain name");
+  assert.ok(html.indexOf('id="answer"') < html.indexOf('id="key-facts"') && html.indexOf('id="key-facts"') < html.indexOf('id="rating"'), "answer, key facts, composite");
+  assert.ok(!projectHtml(PROJECT_RECORDS["3b1b__manim"], "page").includes("key-facts"));
+  // Not ranked for first-time contributors: the row carries the reason, as the answer does.
+  const noFirst = { ...PROJECT_RECORDS["keras-team__keras"], standings: { ...PROJECT_RECORDS["keras-team__keras"].standings, first_timer: { rank: null, total: 0, reason: "too few first-time authors" } } };
+  assert.ok(projectHtml(noFirst, "page").includes('<span data-v="standings.first_timer.reason">too few first-time authors</span>'));
+});
+
+test("project: each unit of the parameter table, below and above one million downloads", () => {
+  const f = formatParameterValue;
+  assert.equal(f("ttfhr_hours", 148.3311), "148.3 hours (6.2 days)");
+  assert.equal(f("ttm_p90_hours", 41.2108), "41.2 hours (1.7 days)");
+  assert.equal(f("ttfhr_hours", 0.0017), "0.0 hours (0 days)");
+  for (const id of SHARE_PARAM_IDS) assert.equal(f(id, 0.4523), "45.2%", id);
+  assert.equal(f("dr90_decision_rate", 1), "100.0%");
+  assert.equal(f("gr14_ghost_rate", 0), "0.0%");
+  assert.equal(f("downloads_monthly", 11338452), "11.3 million downloads a month");
+  assert.equal(f("downloads_monthly", 11400000), "11.4 million downloads a month");
+  assert.equal(f("downloads_monthly", 1000000), "1.0 million downloads a month");
+  assert.equal(f("downloads_monthly", 999999), "999,999 downloads a month");
+  assert.equal(f("downloads_monthly", 1857), "1,857 downloads a month");
+  assert.equal(f("downloads_monthly", 0), "0 downloads a month");
+  assert.equal(f("dependents_deduped", 424118), "424,118");
+  assert.equal(f("elephant_factor", 25), "25");
+  assert.equal(f("newcomer_issue_supply", 1234), "1,234");
+  assert.equal(f("openssf_criticality", 0.5843), "0.5843");
+  assert.equal(f("pipeline_defenses", 65.0667), "65.0667");
+  assert.equal(f("dx", 85), "85");
+  assert.equal(f("dx", 0.14040000000000002), "0.1404", "floating-point noise is rounded as before");
+  assert.equal(f("ttfhr_hours", null), copy.MISSING_VALUE);
+});
+
+test("project: the median first reply follows project_pages.reply_time_text, hours under 48 and days with their hours", () => {
+  assert.equal(replyTimeText(3.9156), "3.9 hours");
+  assert.equal(replyTimeText(6), "6 hours");
+  assert.equal(replyTimeText(1), "1 hour");
+  assert.equal(replyTimeText(0.04), "under 0.1 hours");
+  assert.equal(replyTimeText(1.45), "1.5 hours", "a printed half rounds up, as Python's Decimal does (toFixed gives 1.4)");
+  assert.equal(replyTimeText(47.96), "48 hours");
+  assert.equal(replyTimeText(48), "2 days (48.0 hours)");
+  assert.equal(replyTimeText(148.3311), "6.2 days (148.3 hours)");
+});
+
+test("project: hours, days and shares round the printed decimal half up, in the key facts and the parameter table alike", () => {
+  // 3.85 is 3.8499999999999996 as a double: toFixed(1) gives "3.8", the printed decimal rounds to 3.9.
+  assert.equal(replyTimeText(3.85), "3.9 hours", "key facts");
+  assert.equal(formatParameterValue("ttfhr_hours", 3.85), "3.9 hours (0.2 days)", "parameter table");
+  assert.equal(formatParameterValue("ttm_p90_hours", 3.85), "3.9 hours (0.2 days)");
+  // 49.2 hours is 2.05 days exactly; as a double the quotient is 2.0499999999999998.
+  assert.equal(replyTimeText(49.2), "2.1 days (49.2 hours)");
+  assert.equal(formatParameterValue("ttfhr_hours", 49.2), "49.2 hours (2.1 days)");
+  assert.equal(replyTimeText(72), "3 days (72.0 hours)", "a trailing .0 of the days drops");
+  assert.equal(formatParameterValue("ttfhr_hours", 72), "72.0 hours (3 days)", "and in the table too");
+  // 0.3445 * 100 is 34.449999999999996 as a double.
+  assert.equal(formatParameterValue("gr14_ghost_rate", 0.3445), "34.5%");
+  assert.equal(formatParameterValue("dr90_decision_rate", 0.0005), "0.1%");
+  assert.equal(formatParameterValue("mr_first_rate", 1), "100.0%");
+  // the key facts' whole percent, from the same printed digits
+  const keras = structuredClone(PROJECT_RECORDS["keras-team__keras"]);
+  keras.evidence.find((r) => r.param_id === "gr14_ghost_rate").value = 0.285;
+  assert.ok(projectHtml(keras, "page").includes('<span data-v="facts.no_reply_share">29%</span>'), "0.285 is 28.5% printed: 29%");
+});
+
+test("project: every enum code the engine defines has a plain label, and no label is for a code it does not define", () => {
+  const constants = readFileSync(path.join(WEB_ROOT, "..", "..", "porchlamp", "core", "constants.py"), "utf8");
+  const codes = (name) => [...constants.match(new RegExp(`^${name}: tuple\\[str, \\.\\.\\.\\] = \\(([^)]*)\\)`, "m"))[1].matchAll(/"([A-Z_]+)"/g)].map((m) => m[1]).sort();
+  const maps = { legal_ip: copy.LEGAL_IP_LABELS, ai_posture: copy.AI_POSTURE_LABELS, promotion_ladder: copy.PROMOTION_LADDER_LABELS };
+  const defined = { legal_ip: codes("LEGAL_IP_VALUES"), ai_posture: codes("AI_POSTURE_VALUES"), promotion_ladder: codes("PROMOTION_LADDER_VALUES") };
+  for (const [param, labels] of Object.entries(maps)) {
+    assert.ok(defined[param].length >= 3, `${param}: the engine's codes were read`);
+    assert.deepEqual(Object.keys(labels).sort(), defined[param], param);
+    for (const code of defined[param]) {
+      assert.equal(formatParameterValue(param, code), ENUM_PARAM_LABELS[param][code]);
+      assert.doesNotMatch(labels[code], /\b(good|bad|risky|restrictive|strict|safe|best|worst|poor|weak|strong|lenient|friendly)\b/i, `${param} ${code}: a fact, not a judgement`);
+    }
+  }
+  // The codes the three records hold, as they reach the table.
+  for (const rec of Object.values(PROJECT_RECORDS)) {
+    for (const r of rec.evidence.filter((row) => maps[row.param_id] && row.value != null)) {
+      assert.ok(Object.hasOwn(maps[r.param_id], r.value), `${r.param_id} ${r.value}`);
+    }
+  }
+  assert.equal(formatParameterValue("legal_ip", "SOMETHING_NEW"), "SOMETHING_NEW", "a code the engine does not define prints as it is");
+});
+
+test("project: the panel through renderDrawer, for a ranked, a gated and a black-hole record", () => {
+  const stateFor = (rec, extras) => {
+    const key = `${rec.detail.owner}/${rec.detail.name}`;
+    return { ...stateWithRepoDetail(rec.detail), evidenceByRepo: { [key]: rec.evidence }, projectExtrasByKey: { [key]: extras } };
+  };
+  const keras = PROJECT_RECORDS["keras-team__keras"];
+  const ranked = renderDrawer(stateFor(keras, { answer: keras.answer, standings: keras.standings, similar: keras.similar, recordFile: keras.recordFile }), { siteBaseUrl: SITE_BASE });
+  assert.ok(ranked.startsWith('<div class="drawer-backdrop" data-drawer-backdrop="true"><div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">'));
+  assert.ok(ranked.includes('<h2 id="drawer-title"'), "the dialog is named by the title");
+  assert.ok(!ranked.includes("<h1"));
+  assert.ok(ranked.includes('data-drawer-page="true"'), "a ranked project links its page");
+  assert.ok(ranked.includes(`<a href="/${keras.recordFile}">`), "the record's file comes from the extras");
+  assert.equal(ranked.replace(/^.*?<div class="project-view/, '<div class="project-view').replace(/<\/div><\/div>$/, ""), projectHtml(keras, "panel", { pageHref: "/projects/keras-team/keras/", kind: "rated", persona: "balanced" }).replace(/<div class="project-view is-panel">/, '<div class="project-view is-panel">'), "the drawer's body is the project view, nothing else");
+
+  const gated = renderDrawer(stateFor(PROJECT_RECORDS["3b1b__manim"], null));
+  assert.ok(gated.includes(copy.gateReasonText("black_hole")), "the gate sentence");
+  assert.ok(gated.includes('id="black-hole"') && !gated.includes('id="rating"') && !gated.includes("data-drawer-page"));
+  assert.ok(!gated.includes('role="alert"'));
+
+  const plainGate = { ...PROJECT_RECORDS["3b1b__manim"], detail: { ...PROJECT_RECORDS["3b1b__manim"].detail, gate_reason: "archived", suspicion: [], black_hole_evidence: null } };
+  const archived = renderDrawer(stateFor(plainGate, null));
+  assert.ok(archived.includes(copy.gateReasonText("archived")) && !archived.includes("data-black-hole-evidence"));
+});
+
+test("project: answer, standings and similar null (the dev API) still render, without those parts", () => {
+  for (const mode of ["page", "panel"]) {
+    for (const stem of ["vllm-project__vllm", "keras-team__keras"]) {
+      const { answer, standings, similar, ...bare } = PROJECT_RECORDS[stem];
+      const html = projectHtml({ ...bare, answer: null, standings: null, similar: null }, mode);
+      const ids = new Set(projectHooks(html).map((h) => h.id));
+      assert.ok(!html.includes('id="answer"') && !html.includes('id="similar"'), `${stem} ${mode}: no answer, no similar projects`);
+      assert.ok(![...ids].some((id) => id.startsWith("standings.") || id.startsWith("similar.") || id === "answer"), `${stem} ${mode}: no hook of a part that is absent`);
+      assert.ok(ids.has("detail.rank") && ids.has("facts.reply_time") && ids.has("detail.porchlamp"), "what the row itself holds still shows");
+      assert.ok(html.includes('id="rating"') && html.includes('id="parameters"') && html.includes('id="lenses"'));
+      assert.doesNotMatch(html, /undefined|NaN|null/, `${stem} ${mode}`);
+    }
+  }
+});
+
+test("project: loading and failed evidence show in place of the parameters, and the lens's gate replaces the score", () => {
+  const keras = PROJECT_RECORDS["keras-team__keras"];
+  const loading = projectHtml({ ...keras, evidence: undefined }, "panel");
+  assert.ok(loading.includes(copy.DRAWER_LOADING_TEXT));
+  const failed = projectHtml({ ...keras, evidence: undefined }, "panel", { evidenceError: { endpoint: "/v1/x", status: 500, detail: "boom" } });
+  assert.ok(failed.includes('data-evidence-retry="true"') && failed.includes("boom"));
+  const gate = projectHtml(keras, "panel", { kind: "persona-gated", persona: "first_timer", detail: undefined });
+  assert.ok(!gate.includes('id="rating"') && gate.includes('class="gate-banner project-gate"'));
+});
+
+test("project: untrusted strings are escaped, and a date that is no date prints as text", () => {
+  const rec = structuredClone(PROJECT_RECORDS["keras-team__keras"]);
+  rec.detail.owner = '<script>alert("o")</script>';
+  rec.evidence[0].source = "<img src=x onerror=alert(1)>";
+  rec.evidence[0].window_start = "<b>start</b>";
+  rec.answer = ["<i>answer</i>"];
+  for (const mode of ["page", "panel"]) {
+    const html = projectHtml(rec, mode);
+    assert.ok(!/<script>alert|<img src=x|<b>start|<i>answer/.test(html), mode);
+    assert.ok(html.includes("&lt;script&gt;alert") && html.includes("&lt;i&gt;answer"));
+  }
+});
+
+test("project: the drawer's loading, error and not-found bodies name the dialog with an h2, never a second h1", () => {
+  const states = [
+    drawerStateFor({ repoDetailLoading: true }),
+    drawerStateFor({ repoDetailError: { endpoint: "/v1/porchlamp/repos/nobody/nothing", status: 500, detail: "boom" } }),
+    drawerStateFor({ repoDetailError: { endpoint: "/v1/porchlamp/repos/nobody/nothing", status: 404, detail: "no such repo" } }),
+  ];
+  for (const state of states) {
+    const html = renderDrawer(state);
+    assert.ok(html.includes('<h2 id="drawer-title" class="drawer-fallback-title">'), html);
+    assert.ok(!html.includes("<h1"), "the list behind the dialog owns the h1");
+  }
 });

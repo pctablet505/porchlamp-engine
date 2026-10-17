@@ -16,6 +16,7 @@ import functools
 import http.server
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -97,7 +98,10 @@ def serve(site: Path) -> Iterator[str]:
         server.server_close()
 
 
-def probe(site: Path, cases: list[dict], tmp: Path, *, budget_ms: int = 60000) -> dict:
+def probe(site: Path, cases: list[dict], tmp: Path, *, budget_ms: int = 60000, flags: tuple[str, ...] = (),
+          env: dict[str, str] | None = None) -> dict:
+    """Runs ``cases`` (module docstring) in one Chrome, with extra command-line ``flags`` (``--lang=de-DE``) and
+    environment ``env`` (``TZ``) when given; returns what each case's script returned, by its name."""
     chrome = find_chrome()
     if chrome is None:
         raise FileNotFoundError("no Chrome or Chromium on PATH")
@@ -108,9 +112,9 @@ def probe(site: Path, cases: list[dict], tmp: Path, *, budget_ms: int = 60000) -
             [
                 chrome, "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
                 f"--user-data-dir={tmp / 'chrome-profile'}", f"--virtual-time-budget={budget_ms}",
-                "--window-size=1400,1000", "--dump-dom", f"{base}/probe.html",
+                "--window-size=1400,1000", *flags, "--dump-dom", f"{base}/probe.html",
             ],
-            capture_output=True, text=True, timeout=180, check=False,
+            capture_output=True, text=True, timeout=180, check=False, env={**os.environ, **env} if env else None,
         )
     (site / "probe.html").unlink(missing_ok=True)
     found = re.search(r'<pre id="result">(.*?)</pre>', result.stdout, re.DOTALL)

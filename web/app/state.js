@@ -218,6 +218,9 @@ export function defaultState() {
     repoDetailByKey: {}, // "owner/name" -> the flat RepoDetailResponse (kind is derived client-side, views/drawer.js::classifyKind)
     repoDetailLoading: false,
     repoDetailError: null, // { endpoint, status, detail } for the CURRENTLY open repo, if it failed
+    // What a project's panel prints beside its record (api.fetchProjectExtras): "owner/name" -> { answer, standings,
+    // similar, recordFile } (the first three null for a project without a balanced rank), or null where none is served.
+    projectExtrasByKey: {},
     // Opt-in live checks for repositories outside the snapshot (web/app/livecheck.js),
     // kept in memory until the page reloads, so reopening a drawer never spends the visitor's
     // GitHub allowance twice: "owner/name" -> { status: "loading" } | { status: "done", outcome, atMs }.
@@ -788,6 +791,9 @@ export function reduce(state, action) {
       if (!isCurrentRepo) return state;
       return { ...state, repoDetailLoading: false, repoDetailError: action.error };
     }
+
+    case "PROJECT_EXTRAS_OK":
+      return { ...state, projectExtrasByKey: { ...state.projectExtrasByKey, [action.repo]: action.data } };
 
     // ---------------- live check for a repository outside the snapshot (C)
     case "LIVE_CHECK_LOADING":

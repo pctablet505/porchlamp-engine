@@ -163,6 +163,15 @@ export function fetchManifest() {
 }
 
 /**
+ * A project's record file and, when it is ranked, its answer sentences, lens standings and similar projects
+ * (web/static/api.js answers them on the published site from the export's record files). The API serves none of
+ * them: `null`, without a request, and the project view leaves those parts out.
+ */
+export function fetchProjectExtras() {
+  return Promise.resolve({ ok: true, data: null });
+}
+
+/**
  * The report (web/static/api.js answers it on the published site from the export's report.json, which needs the
  * stats file). The API serves no report: an error, without a request, which the report view shows.
  */
