@@ -13,7 +13,10 @@ proves, page by page:
 * the exported methodology page holds its headings, ``data-v`` hooks, links and anchors in the HTML itself, with the
   values of the export's own record, and is what the Node prerender draws from that record in any locale and time zone;
 * in a real browser a stored theme shows on a static and an app page, and the toggle switches it;
-* the lens addresses and the data link in ``copy.js`` are the Python pages' own.
+* the lens addresses and the data link in ``copy.js`` are the Python pages' own;
+* ``scripts/verify_static_export.py`` passes the export, and names a methodology page whose database digest is not the
+  verifier's own sha256 of the database file (even where the export's manifest agrees with the page) and a page
+  without its nav.
 
 Each checker returns a list of problems; a test also runs it on a broken copy of a page (a plant) and expects the page
 to be named, so a checker that cannot fail would show.
@@ -21,9 +24,11 @@ to be named, so a checker that cannot fail would show.
 # ruff: noqa: F811  (the ``built`` fixture is imported by name from the report tests and then used as an argument)
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from decimal import ROUND_HALF_UP, Decimal
@@ -38,7 +43,7 @@ sys.path.insert(0, str(ROOT / "tests"))  # serve.helpers -> store.helpers, as te
 
 import ui_browser  # noqa: E402
 from test_report_pages import PAGES as REPORT_PAGES  # noqa: E402
-from test_report_pages import SNAPSHOT, built, export_static  # noqa: E402,F401
+from test_report_pages import SNAPSHOT, built, export_static, verify_static_export  # noqa: E402,F401
 
 from porchlamp.serve import report_pages  # noqa: E402
 
@@ -466,11 +471,14 @@ def test_the_methodology_page_holds_its_headings_hooks_and_links_without_javascr
 # 6. The methodology page is the Node prerender's output
 # --------------------------------------------------------------------------- #
 def _prerender_methodology(site: Path, tmp: Path, env: dict[str, str], *, mutate=None) -> bytes:
-    """The methodology page as ``web/prerender.mjs`` draws it from the export's record, in a clean directory."""
+    """The methodology page as ``web/prerender.mjs`` draws it from the export's record, through the export's api.js,
+    in a clean directory."""
     sid = _snapshot_id(site)
     route = next(r for r in export_static.app_routes() if r["id"] == "methodology")
     (tmp / "methodology").mkdir(parents=True)
     (tmp / "methodology" / "index.html").write_text(export_static.view_page(route), encoding="utf-8")
+    for name in ("api.js", "data-version.js"):
+        (tmp / name).write_bytes((site / name).read_bytes())
     (tmp / "data" / sid).mkdir(parents=True)
     for name in ("snapshot", "methodology", "manifest"):
         data = (site / "data" / sid / f"{name}.json").read_text(encoding="utf-8")
@@ -478,7 +486,7 @@ def _prerender_methodology(site: Path, tmp: Path, env: dict[str, str], *, mutate
             data = mutate[1](data)
         (tmp / "data" / sid / f"{name}.json").write_text(data, encoding="utf-8")
     job = tmp / "job.json"
-    job.write_text(json.dumps({"data": f"data/{sid}", "pages": [{"path": "methodology/index.html", "view": "methodology"}]}), encoding="utf-8")
+    job.write_text(json.dumps({"pages": [{"path": "methodology/index.html", "view": "methodology"}]}), encoding="utf-8")
     ran = subprocess.run([_node(), str(PRERENDER), str(tmp), str(job)], capture_output=True, text=True, env={**os.environ, **env}, check=False)
     assert ran.returncode == 0, ran.stderr[-1500:]
     return (tmp / "methodology" / "index.html").read_bytes()
@@ -552,3 +560,31 @@ def test_a_stored_theme_shows_on_a_static_and_an_app_page_and_the_toggle_switche
 def test_the_lens_addresses_and_the_data_link_agree_with_the_python_pages():
     assert report_pages.copy_js_map("LENS_PAGE_HREFS") == {lens: f"/{slug}/" for lens, slug in report_pages.LENS_SLUGS.items()}
     assert report_pages.copy_js_string("FOOTER_DATA_HREF") == report_pages.GITHUB_REPO
+
+
+# --------------------------------------------------------------------------- #
+# 9. The verifier's chrome and methodology checks
+# --------------------------------------------------------------------------- #
+def test_the_verifier_passes_the_export_and_names_a_wrong_database_digest_and_a_dropped_nav(built, tmp_path):
+    site, db = built[0], built[1]
+    quiet = lambda _line: None  # noqa: E731
+    methodology = verify_static_export.verify_methodology(db, site, log=quiet)
+    chrome = verify_static_export.verify_chrome(db, site, log=quiet)
+    assert methodology["errors"] == [], methodology["errors"][:5]
+    assert chrome["errors"] == [], chrome["errors"][:5]
+    assert methodology["hooks"] > 100
+    assert chrome["pages"] == len(_pages(site))
+
+    planted = tmp_path / "site"
+    shutil.copytree(site, planted)
+    # an export that printed a wrong digest, with a manifest that agrees with its page: the database file decides
+    digest, wrong = hashlib.sha256(db.read_bytes()).hexdigest(), "0" * 64
+    _rewrite(planted, f"data/{_snapshot_id(site)}/manifest.json", digest, wrong)
+    _rewrite(planted, "methodology/index.html", digest, wrong)
+    problems = verify_static_export.verify_methodology(db, planted, log=quiet)["errors"]
+    assert any("'snapshot.source_db_sha256' shows ['" + wrong in problem for problem in problems), problems
+    # a page without its nav
+    nav = _FRAME["nav"].search(_read(planted, "black-holes/index.html"))
+    _rewrite(planted, "black-holes/index.html", nav.group(0), nav.group(0).replace(nav.group(1), ""))
+    problems = verify_static_export.verify_chrome(db, planted, log=quiet)["errors"]
+    assert [problem.split(":")[0] for problem in problems] == ["black-holes/index.html nav is chrome.js's"], problems

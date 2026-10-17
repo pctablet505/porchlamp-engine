@@ -314,10 +314,11 @@ export function fetchMethodology() {
 }
 
 /**
- * The export's own record of what it published (manifest.json: no API answers it): the methodology prints the
- * digest of the database file the site was exported from, `source_db_sha256`.
+ * The export's own record of what it published (manifest.json; no API answers it). The methodology prints the digest
+ * of the database file the site was exported from, `source_db_sha256`, from here: in the app, and at export, where
+ * web/prerender.mjs draws the page through this same call.
  */
-export function fetchExportManifest() {
+export function fetchManifest() {
   return answer("manifest.json", () => loadJson("manifest.json"));
 }
 

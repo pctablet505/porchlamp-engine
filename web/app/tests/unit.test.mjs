@@ -40,7 +40,7 @@ import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, 
 import { renderShell as notRankedRenderShell } from "../views/notranked.js";
 import { centeredScrollLeft, renderNav, navEntryFor, renderFooter, renderHeader, renderAppHeader, headerControlsFor } from "../components/chrome.js";
 import { ROUTES, matchRoute, projectPath, routeById, routePath, routeTitle } from "../routes.js";
-import { postReproject } from "../api.js";
+import { fetchManifest, postReproject } from "../api.js";
 import { normalizeWeights, applyPresetRespectingLocks, renderControls, renderShell as renderConfigureShell, sortReprojectRows, filterReprojectRows, renderPager as renderConfigurePager, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
 import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, renderShell as renderMatrixShell, shellShape as matrixShellShape, clientToDomainCoords } from "../views/matrix.js";
@@ -1167,6 +1167,30 @@ test("methodology: the index and the body come from one list (same ids, same ord
   assert.deepEqual(sectionIds, index.map((e) => e.id));
   assert.deepEqual(jumpIds, index.map((e) => e.id));
   assert.equal(new Set(sectionIds).size, sectionIds.length, "section ids are unique");
+});
+
+test("methodology: the database digest row shows fetchManifest's digest; the API's server has none, so no row", async () => {
+  const realFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = () => {
+    requests += 1;
+    return Promise.reject(new Error("fetchManifest makes no request against the API"));
+  };
+  try {
+    assert.deepEqual(await fetchManifest(), { ok: true, data: null });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(requests, 0, "answered without a request");
+  const digest = "ab".repeat(32);
+  const shown = renderMethodologyShell({
+    methodology: METHODOLOGY_DOC, snapshot: SNAPSHOT_DOC, methodologyLoading: false, methodologyError: null, sourceDbSha256: digest,
+  });
+  const hidden = methodologyShell(SNAPSHOT_DOC);
+  assert.ok(shown.includes(`<code data-v="snapshot.source_db_sha256">${digest}</code>`), "a manifest's digest is printed");
+  assert.ok(shown.includes(escapeHtml(copy.METHODOLOGY_DB_SHA256_LABEL)));
+  assert.ok(!hidden.includes("snapshot.source_db_sha256"), "no manifest: no row");
+  assert.ok(!hidden.includes(escapeHtml(copy.METHODOLOGY_DB_SHA256_LABEL)));
 });
 
 test("brand: the header carries the symbol (decorative), the name and the slogan, all from copy.js", () => {

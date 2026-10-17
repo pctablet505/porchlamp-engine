@@ -155,11 +155,11 @@ export function fetchMethodology() {
 
 /**
  * The export's own record of what it published (web/static/api.js answers it on the published site, where the
- * methodology prints the digest of the database file it came from). The API publishes no database file, so it has
- * none: an answer without a request.
+ * methodology prints the digest of the database file it came from). The API publishes no database file, so there is
+ * no manifest: `null`, without a request, and the methodology leaves that row out.
  */
-export function fetchExportManifest() {
-  return Promise.resolve({ ok: false, error: new ApiError("manifest.json", 404, "the API serves no export manifest") });
+export function fetchManifest() {
+  return Promise.resolve({ ok: true, data: null });
 }
 
 /**

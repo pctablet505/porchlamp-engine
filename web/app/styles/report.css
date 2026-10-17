@@ -2,7 +2,29 @@
  * (scripts/export_static.py --stats). Their header, nav and footer are the app's (components/chrome.js, styled in
  * components.css); tokens, the page shell and the article/table styles come from tokens.css and base.css. This file
  * sets the reading size, the findings and the two SVG charts. No external resources: system fonts, inline SVG.
- * An anchor clears the sticky header and nav (--header-height is 0 on a phone, where the header scrolls away). */
+ *
+ * A frozen report copy published before the shared chrome (/black-holes/2026-10-14/, carried from the published
+ * tree, never re-rendered) still has its own nav and footer and links this file: the .report-nav and .report-footer
+ * rules and the plain anchor offsets below keep it looking as it was published. */
+
+.report-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--text-body-lg);
+}
+
+.report-nav a {
+  text-decoration: none;
+}
+
+.report-nav a[aria-current="page"] {
+  color: var(--text-primary);
+  font-weight: 600;
+}
 
 .report {
   max-width: 44rem;
@@ -20,14 +42,14 @@
 .report h2 {
   font-size: 1.25rem;
   margin: var(--space-xl) 0 var(--space-xs);
-  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
+  scroll-margin-top: var(--space-md);
 }
 
 .report h3 {
   font-size: 1rem;
   margin: var(--space-lg) 0 var(--space-2xs);
   color: var(--text-primary);
-  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
+  scroll-margin-top: var(--space-md);
 }
 
 .report .lede {
@@ -41,6 +63,14 @@
   background: var(--bg-surface);
   border-left: 3px solid var(--lamp-glow);
   border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  scroll-margin-top: var(--space-md);
+}
+
+/* On a page with the shared chrome (its <main> is the app's #app-main) an anchor clears the sticky header and nav;
+ * --header-height is 0 on a phone, where the header scrolls away. */
+#app-main .report h2,
+#app-main .report h3,
+#app-main .report .finding {
   scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
 }
 
@@ -147,6 +177,12 @@
 
 .report ul.hashes {
   padding-left: var(--space-lg);
+}
+
+.report-footer {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
 }
 
 @media (max-width: 767px) {

@@ -224,7 +224,7 @@ export function boot(win = window, doc = document) {
     if (tab === "matrix" && !state.matrix && !state.matrixLoading) loadMatrix();
     if (tab === "configure" && !state.reproject && !state.reprojectLoading) runReproject();
     if (tab === "methodology" && !state.methodology && !state.methodologyLoading) loadMethodology();
-    if (tab === "methodology" && state.exportManifest === "idle") loadExportManifest();
+    if (tab === "methodology" && state.manifestLoad === "idle") loadManifest();
     if (tab === "compare") {
       if (!state.methodology && !state.methodologyLoading) loadMethodology();
       for (const key of state.compareRepos) {
@@ -558,7 +558,7 @@ export function boot(win = window, doc = document) {
         const pending =
           (!state.methodology && !state.methodologyError) ||
           (!state.snapshot && !state.snapshotError) ||
-          state.exportManifest !== "done";
+          state.manifestLoad !== "done";
         if (pending) return;
         // Settled: the page shows this data already, or, if a load failed, the same data the export read.
         prerendered = null;
@@ -813,10 +813,10 @@ export function boot(win = window, doc = document) {
   }
 
   /** The published site's manifest, for the database digest the methodology prints; the API's server has none. */
-  function loadExportManifest() {
-    store.dispatch({ type: "EXPORT_MANIFEST_LOADING" });
-    return api.fetchExportManifest().then((result) => {
-      store.dispatch({ type: "EXPORT_MANIFEST_DONE", sourceDbSha256: result.ok ? result.data.source_db_sha256 : null });
+  function loadManifest() {
+    store.dispatch({ type: "MANIFEST_LOADING" });
+    return api.fetchManifest().then((result) => {
+      store.dispatch({ type: "MANIFEST_DONE", sourceDbSha256: result.ok && result.data ? result.data.source_db_sha256 : null });
     });
   }
 

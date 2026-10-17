@@ -1251,7 +1251,8 @@ def verify_methodology(db: Path, site: Path, *, log=print) -> dict:
     ledger.equal("methodology keeps the old anchors", sorted(set(METHODOLOGY_FORMER_IDS + tuple(gate_ids)) - page.ids), [])
     limits = re.search(r'id="limits">.*?<ul class="spec-rules">(.*?)</ul>', text, re.S)
     ledger.equal("methodology Limits are copy.js's", _items(limits.group(1)) if limits else None, rp.copy_js_list("LIMITS"))
-    # the page again, from the API's answers: the export's own page skeleton, drawn by the prerender
+    # the page again, from the API's answers and the verifier's own digest of the database: the export's page
+    # skeleton, drawn by the prerender through the site's api.js
     export_static = _export_static()
     node = find_node()
     route = next(r for r in export_static.app_routes() if r["id"] == "methodology")
@@ -1261,10 +1262,12 @@ def verify_methodology(db: Path, site: Path, *, log=print) -> dict:
         data.mkdir(parents=True)
         for name, payload in (("snapshot", snapshot), ("methodology", methodology), ("manifest", {"source_db_sha256": db_sha})):
             (data / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+        (root / "api.js").write_bytes(export_static.STATIC_API.read_bytes())
+        (root / "data-version.js").write_text(export_static.data_version_js(snapshot["snapshot_id"]), encoding="utf-8")
         (root / "methodology").mkdir()
         (root / "methodology" / "index.html").write_text(export_static.view_page(route), encoding="utf-8")
-        (root / "job.json").write_text(json.dumps({"data": f"data/{snapshot['snapshot_id']}", "pages": [
-            {"path": "methodology/index.html", "view": "methodology"}]}), encoding="utf-8")
+        (root / "job.json").write_text(json.dumps({"pages": [{"path": "methodology/index.html", "view": "methodology"}]}),
+                                       encoding="utf-8")
         ran = subprocess.run([node, str(REPO_ROOT / "web" / "prerender.mjs"), str(root), str(root / "job.json")],
                              capture_output=True, text=True, timeout=120, check=False)
         again = (root / "methodology" / "index.html").read_text(encoding="utf-8") if ran.returncode == 0 else ran.stderr

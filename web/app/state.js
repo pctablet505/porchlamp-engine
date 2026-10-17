@@ -177,10 +177,10 @@ export function defaultState() {
     methodology: null,
     methodologyLoading: false,
     methodologyError: null,
-    // The digest of the database file the published site was exported from (its manifest.json): null where there
-    // is none (the API's own server) or until it has loaded; `exportManifest` is "idle" | "loading" | "done".
+    // The digest of the database file the published site was exported from (api.js fetchManifest): null where there
+    // is none (the API's own server) or until it has loaded; `manifestLoad` is "idle" | "loading" | "done".
     sourceDbSha256: null,
-    exportManifest: "idle",
+    manifestLoad: "idle",
 
     leaderboard: null, // the CURRENT page's LeaderboardResponse
     leaderboardLoading: false, // true only when there is NO data yet (skeleton)
@@ -885,10 +885,10 @@ export function reduce(state, action) {
       return { ...state, methodologyLoading: false, methodology: action.data, methodologyError: null };
     case "METHODOLOGY_ERROR":
       return { ...state, methodologyLoading: false, methodologyError: action.error };
-    case "EXPORT_MANIFEST_LOADING":
-      return { ...state, exportManifest: "loading" };
-    case "EXPORT_MANIFEST_DONE":
-      return { ...state, exportManifest: "done", sourceDbSha256: action.sourceDbSha256 || null };
+    case "MANIFEST_LOADING":
+      return { ...state, manifestLoad: "loading" };
+    case "MANIFEST_DONE":
+      return { ...state, manifestLoad: "done", sourceDbSha256: action.sourceDbSha256 || null };
 
     default:
       return state;
