@@ -46,7 +46,7 @@ sys.path.insert(0, str(ROOT / "tests"))  # serve.helpers -> store.helpers, as te
 
 import ui_browser  # noqa: E402
 from test_report_pages import PAGES as REPORT_PAGES  # noqa: E402
-from test_report_pages import SNAPSHOT, built, export_static, verify_static_export  # noqa: E402,F401
+from test_report_pages import SNAPSHOT, built, export_static, report_record, verify_static_export  # noqa: E402,F401
 
 from porchlamp.serve import report_pages  # noqa: E402
 
@@ -484,7 +484,7 @@ def _prerender_methodology(site: Path, tmp: Path, env: dict[str, str], *, mutate
     for name in ("api.js", "data-version.js"):
         (tmp / name).write_bytes((site / name).read_bytes())
     (tmp / "data" / sid).mkdir(parents=True)
-    for name in ("snapshot", "methodology", "manifest"):
+    for name in ("snapshot", "methodology", "manifest", "report"):
         data = (site / "data" / sid / f"{name}.json").read_text(encoding="utf-8")
         if mutate and name == mutate[0]:
             data = mutate[1](data)
@@ -682,10 +682,10 @@ def test_the_lens_addresses_and_the_data_link_agree_with_the_python_pages():
 # --------------------------------------------------------------------------- #
 # 9. The verifier's chrome and methodology checks
 # --------------------------------------------------------------------------- #
-def test_the_verifier_passes_the_export_and_names_a_wrong_database_digest_and_a_dropped_nav(built, tmp_path):
+def test_the_verifier_passes_the_export_and_names_a_wrong_database_digest_and_a_dropped_nav(built, report_record, tmp_path):
     site, db = built[0], built[1]
     quiet = lambda _line: None  # noqa: E731
-    methodology = verify_static_export.verify_methodology(db, site, log=quiet)
+    methodology = verify_static_export.verify_methodology(db, site, report=report_record, log=quiet)
     chrome = verify_static_export.verify_chrome(db, site, log=quiet)
     assert methodology["errors"] == [], methodology["errors"][:5]
     assert chrome["errors"] == [], chrome["errors"][:5]
@@ -698,7 +698,7 @@ def test_the_verifier_passes_the_export_and_names_a_wrong_database_digest_and_a_
     digest, wrong = hashlib.sha256(db.read_bytes()).hexdigest(), "0" * 64
     _rewrite(planted, f"data/{_snapshot_id(site)}/manifest.json", digest, wrong)
     _rewrite(planted, "methodology/index.html", digest, wrong)
-    problems = verify_static_export.verify_methodology(db, planted, log=quiet)["errors"]
+    problems = verify_static_export.verify_methodology(db, planted, report=report_record, log=quiet)["errors"]
     assert any("'snapshot.source_db_sha256' shows ['" + wrong in problem for problem in problems), problems
     # a page without its nav
     nav = _FRAME["nav"].search(_read(planted, "black-holes/index.html"))

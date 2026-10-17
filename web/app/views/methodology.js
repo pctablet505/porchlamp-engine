@@ -38,7 +38,7 @@
 
 import * as copy from "../copy.js";
 import { fill, hook } from "../components/fill.js";
-import { renderCountsStrip } from "./leaderboard.js";
+import { fillFromReport, renderCountsStrip } from "./leaderboard.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -627,13 +627,17 @@ export function renderShell(state) {
     `<section class="why-card" aria-labelledby="why-porchlamp-title">` +
     `<h2 class="why-title" id="why-porchlamp-title">${escapeHtml(copy.WHY_HEADING)}</h2>` +
     `<div class="why-grid">` +
-    copy.WHY_PARAGRAPHS.map(
-      (p, idx) =>
+    copy.WHY_PARAGRAPHS.map((p, idx) => {
+      // "The Finding" is a template filled from report.json; without a report the paragraph is left out.
+      const text = p === copy.WHY_FINDING_TEMPLATE ? fillFromReport(p, state.report) : escapeHtml(p);
+      if (text === null) return "";
+      return (
         `<div class="why-item">` +
         `<span class="why-kicker">${escapeHtml(copy.WHY_KICKERS[idx] || "")}</span>` +
-        `<p>${escapeHtml(p)}</p>` +
+        `<p>${text}</p>` +
         `</div>`
-    ).join("") +
+      );
+    }).join("") +
     `</div>` +
     `</section>` +
     `<div class="doc-layout" id="methodology">` +

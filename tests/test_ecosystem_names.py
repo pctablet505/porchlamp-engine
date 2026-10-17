@@ -20,8 +20,6 @@ from porchlamp.serve import landing_pages, report_pages
 from tests.test_report_pages import SNAPSHOT, built  # noqa: F401  (fixture)
 from tests.test_ui_ecosystems import _listed_options
 
-WEB = Path(__file__).resolve().parent.parent / "web" / "app"
-
 #: The registries' names, as a reader would see them. ``npm`` is matched as a word: a path such as ``/npm/`` in an
 #: address is not text, and the scan reads text only.
 REGISTRY_NAMES = {
@@ -30,16 +28,6 @@ REGISTRY_NAMES = {
     "Maven": re.compile(r"\bMaven\b"),
     "npm": re.compile(r"\bnpm\b"),
 }
-
-#: The one exception (lead ruling, 2026-10-17): not scanned, each with the reason, the home page's hand-typed article and
-#: the two machine-read files that repeat it, which still carry registry names. Step 6 replaces all three with
-#: generated files; the test below fails as soon as a file here no longer names a registry, so the list has to empty.
-NOT_SCANNED_UNTIL_THE_HOME_STEP = {
-    "index.html": "the hand-typed article under the app shell",
-    "llms.txt": "a hand-typed summary for language models",
-    "feed.xml": "a hand-typed feed",
-}
-
 
 class _VisibleText(HTMLParser):
     """The text a reader sees: the title, the body's text and the meta description; script and style are skipped."""
@@ -116,6 +104,16 @@ def test_no_report_page_names_a_registry(built):
     assert pages_naming_a_registry(report_paths(site), site) == {}
 
 
+def test_the_generated_home_page_llms_txt_and_feed_name_no_registry(built):
+    """The export writes these three from the data (porchlamp/serve/home_pages.py): read as text, none names a registry,
+    and each names the ecosystems the list's way where it names them."""
+    site = built[0]
+    home = visible_text((site / "index.html").read_text(encoding="utf-8"))
+    files = {"index.html": home, **{name: (site / name).read_text(encoding="utf-8") for name in ("llms.txt", "feed.xml")}}
+    assert {name: registry_hits(text) for name, text in files.items()} == {name: [] for name in files}
+    assert all(f"[{name} projects that answer outside pull requests]" in files["llms.txt"] for name in report_pages.ECOSYSTEM_NAMES.values())
+
+
 def test_the_filter_offers_the_lists_names_and_no_registry():
     options = _listed_options()
     assert [label for _value, label in options] == [report_pages.ECOSYSTEM_NAMES[value] for value, _label in options]
@@ -146,19 +144,3 @@ def test_a_registry_name_in_a_script_or_an_address_is_not_text():
     html = '<title>t</title><script>var s = "PyPI npm";</script><style>.npm{}</style><a href="/npm/crates.io/">Rust</a>'
     assert registry_hits(visible_text(html)) == []
     assert registry_hits(visible_text('<meta name="description" content="Among the 5 judged crates.io projects">')) == ["crates.io"]
-
-
-def test_the_pages_left_out_exist_and_are_named_with_their_reason():
-    assert NOT_SCANNED_UNTIL_THE_HOME_STEP.keys() == {"index.html", "llms.txt", "feed.xml"}
-    for name, reason in NOT_SCANNED_UNTIL_THE_HOME_STEP.items():
-        assert (WEB / name).is_file() and reason, name
-
-
-def test_a_file_left_out_still_names_a_registry_or_leaves_the_list():
-    """The exception lasts only while its reason does: a file here that no longer prints a registry name (step 6 makes
-    it generated, from the list) must leave NOT_SCANNED_UNTIL_THE_HOME_STEP, and be scanned like every other page."""
-    for name in NOT_SCANNED_UNTIL_THE_HOME_STEP:
-        text = (WEB / name).read_text(encoding="utf-8")
-        assert any(pattern.search(text) for pattern in REGISTRY_NAMES.values()), (
-            f"{name} names no registry any more: take it off NOT_SCANNED_UNTIL_THE_HOME_STEP"
-        )

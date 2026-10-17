@@ -1,7 +1,7 @@
-"""The ten landing pages (six ecosystems, four lenses), their links in, and the home page's structured data (E4, E7).
+"""The ten landing pages (six ecosystems, four lenses) and their links in (E4).
 
 Built by ``scripts/export_static.py --stats`` (``porchlamp/serve/landing_pages.py``) and proved by
-``scripts/verify_static_export.py`` (``verify_landing``, ``verify_home``). The fixture is the report tests' synthetic
+``scripts/verify_static_export.py`` (``verify_landing``). The fixture is the report tests' synthetic
 snapshot (``tests/test_report_pages.py``); every plant below is a change to a copy of its exported site.
 """
 # ruff: noqa: F811  (pytest fixtures are imported by name from the report tests and then used as arguments)
@@ -307,8 +307,8 @@ def test_a_planted_placeholder_text_a_script_and_a_duplicate_title_fail_verifica
 
 def test_the_sitemap_and_llms_txt_list_all_ten_and_the_verifier_notices_one_missing(built, tmp_path):
     site, db, *_ = built
-    # the export writes the page sitemap; llms.txt is written by hand
-    for name, path in (("sitemap-pages.xml", site / "sitemap-pages.xml"), ("llms.txt", ROOT / "web" / "app" / "llms.txt")):
+    # the export writes both: the page sitemap, and llms.txt from the data (porchlamp/serve/home_pages.py)
+    for name, path in (("sitemap-pages.xml", site / "sitemap-pages.xml"), ("llms.txt", site / "llms.txt")):
         text = path.read_text(encoding="utf-8")
         for slug in SLUGS:
             assert text.count(f"https://porchlamp.org/{slug}/") == 1, (name, slug)
@@ -359,110 +359,3 @@ def test_a_planted_wrong_link_in_the_report_and_a_project_page_each_fail_verific
     project.write_text(body.replace(f'<a class="eco-chip project-eco" href="/{slug}/">', '<a class="eco-chip project-eco" href="/elsewhere/">', 1), encoding="utf-8")
     errors = verify_static_export.verify_projects(db, copy_dir, log=lambda _line: None)["errors"]
     assert any(rel in e and f"links to /{slug}/" in e for e in errors), errors[:3]
-
-
-# ---- E7: the home page's structured data --------------------------------------------------------------------
-
-HOME = ROOT / "web" / "app" / "index.html"
-
-
-def _home_ld(text: str) -> dict:
-    return json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
-
-
-def _home_site(built, tmp_path: Path) -> Path:
-    """A site holding the shipped home page, the fixture's report page, and a stub page at every address the home
-    page's ItemList names (the fixture has none of the real top-10 projects)."""
-    site = tmp_path / "home-site"
-    (site / "black-holes").mkdir(parents=True)
-    shutil.copy(HOME, site / "index.html")
-    shutil.copy(built[0] / "black-holes" / "index.html", site / "black-holes" / "index.html")
-    for item in next(n for n in _home_ld(HOME.read_text(encoding="utf-8"))["@graph"] if n["@type"] == "ItemList")["itemListElement"]:
-        address = item["url"].removeprefix("https://porchlamp.org/")
-        (site / address).mkdir(parents=True)
-        (site / address / "index.html").write_text("<!doctype html>", encoding="utf-8")
-    return site
-
-
-def _verify_home(site: Path) -> list[str]:
-    return verify_static_export.verify_home(site, log=lambda _line: None)["errors"]
-
-
-def test_the_shipped_home_page_has_no_software_application_no_dataset_and_project_page_addresses(built, tmp_path):
-    graph = _home_ld(HOME.read_text(encoding="utf-8"))["@graph"]
-    assert [n["@type"] for n in graph] == ["Person", "WebSite", "WebPage", "ItemList"]
-    report_dataset = next(n for n in _ld(_page(built[0], "black-holes/index.html"))["@graph"] if n["@type"] == "Dataset")["@id"]
-    assert next(n for n in graph if n["@type"] == "WebPage")["about"] == {"@id": report_dataset}
-    items = next(n for n in graph if n["@type"] == "ItemList")["itemListElement"]
-    assert len(items) == 10
-    assert all(re.fullmatch(r"https://porchlamp\.org/projects/[a-z0-9._-]+/[a-z0-9._-]+/", i["url"]) for i in items)
-    assert _verify_home(_home_site(built, tmp_path)) == []
-
-
-def _plant(site: Path, change) -> list[str]:
-    text = (site / "index.html").read_text(encoding="utf-8")
-    ld = _home_ld(text)
-    change(ld)
-    new = json.dumps(ld, separators=(",", ":"), ensure_ascii=False)
-    old = re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1)
-    (site / "index.html").write_text(text.replace(old, new, 1), encoding="utf-8")
-    return _verify_home(site)
-
-
-def test_each_e7_rule_fails_on_its_own_plant(built, tmp_path):
-    base = _home_site(built, tmp_path)
-    assert _verify_home(base) == []
-
-    def fresh(name: str) -> Path:
-        target = tmp_path / name
-        shutil.copytree(base, target)
-        return target
-
-    errors = _plant(fresh("app"), lambda ld: ld["@graph"].append({"@type": "SoftwareApplication", "name": "Porchlamp"}))
-    assert any("no SoftwareApplication" in e for e in errors), errors
-    errors = _plant(fresh("data"), lambda ld: ld["@graph"].append({"@type": "Dataset", "@id": "https://porchlamp.org/#dataset"}))
-    assert any("no Dataset" in e for e in errors), errors
-
-    def about_home(ld):
-        next(n for n in ld["@graph"] if n["@type"] == "WebPage")["about"] = {"@id": "https://porchlamp.org/#dataset"}
-
-    assert any("about names the report's Dataset" in e for e in _plant(fresh("about"), about_home))
-
-    def old_address(ld):
-        item = next(n for n in ld["@graph"] if n["@type"] == "ItemList")["itemListElement"][0]
-        item["url"] = "https://porchlamp.org/?repo=meshery%2Fmeshery"
-
-    assert any("?repo=meshery" in e and "project page address" in e for e in _plant(fresh("old"), old_address))
-
-    def item_path(index: int) -> str:
-        """The ``<owner>/<name>/`` of the home list's item ``index``, whichever project ranks there."""
-        ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>',
-                                  (base / "index.html").read_text(encoding="utf-8"), re.S).group(1))
-        url = next(n for n in ld["@graph"] if n["@type"] == "ItemList")["itemListElement"][index]["url"]
-        return url.split("/projects/", 1)[1]
-
-    second = item_path(1)
-
-    def upper_case(ld):
-        item = next(n for n in ld["@graph"] if n["@type"] == "ItemList")["itemListElement"][1]
-        item["url"] = item["url"].replace(second, second.upper())
-
-    assert second != second.upper()
-    errors = _plant(fresh("case"), upper_case)
-    assert any(second.upper() in e and "project page address" in e for e in errors), errors
-
-    first = item_path(0)
-    gone = fresh("gone")
-    shutil.rmtree(gone / "projects" / first.split("/")[0])
-    errors = _verify_home(gone)
-    assert any(f"projects/{first}" in e and "has a page in the export" in e for e in errors), errors
-
-
-def test_the_home_article_links_the_six_ecosystem_pages_and_the_verifier_notices_a_missing_line(built, tmp_path):
-    base = _home_site(built, tmp_path)
-    text = (base / "index.html").read_text(encoding="utf-8")
-    assert re.search(r"Browse by ecosystem:\s*<a href=\"rust/\">Rust</a> ·", text)
-    (base / "index.html").write_text(text.replace("Browse by ecosystem:", "Browse:"), encoding="utf-8")
-    assert any("Browse by ecosystem" in e for e in _verify_home(base))
-    (base / "index.html").write_text(text, encoding="utf-8")
-    assert _verify_home(base) == []

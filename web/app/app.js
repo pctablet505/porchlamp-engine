@@ -60,6 +60,9 @@ import {
   personaDeltaForState,
   personaVisibleForState,
   lastPageWhenPastEnd,
+  prerenderedBoardKey,
+  adoptPrerenderedBoard,
+  syncFindingsLine,
 } from "./views/leaderboard.js";
 import {
   renderShell as renderNotRankedShell,
@@ -228,6 +231,9 @@ export function boot(win = window, doc = document) {
     if (tab === "methodology" && !state.methodology && !state.methodologyLoading) loadMethodology();
     if (tab === "methodology" && state.manifestLoad === "idle") loadManifest();
     if (tab === "report" && !state.report && !state.reportLoading) loadReport();
+    // The ranked view's findings line and the methodology's Finding paragraph are filled from the report; a report
+    // that failed to load (the dev API has none) is not asked for again on every visit.
+    if ((tab === "ranked" || tab === "methodology") && !state.report && !state.reportLoading && !state.reportError) loadReport();
     if (tab === "report" && state.manifestLoad === "idle") loadManifest();
     if (tab === "compare") {
       if (!state.methodology && !state.methodologyLoading) loadMethodology();
@@ -380,6 +386,9 @@ export function boot(win = window, doc = document) {
 
   // ----------------------------------------------------------- Main render
   function patchLeaderboardBody(state) {
+    // A board the export drew stays as it is until `syncView` has taken it over: a scroll before the data arrives
+    // would otherwise patch the rows away.
+    if (prerendered) return;
     syncSortHeaders(state);
     syncCountsStrip(state);
     if (state.leaderboard) syncPager(main, state.page, state.pageSize, state.leaderboard.total, "pager");
@@ -583,6 +592,7 @@ export function boot(win = window, doc = document) {
         const pending =
           (!state.methodology && !state.methodologyError) ||
           (!state.snapshot && !state.snapshotError) ||
+          (!state.report && !state.reportError) ||
           state.manifestLoad !== "done";
         if (pending) return;
         // Settled: the page shows this data already, or, if a load failed, the same data the export read.
@@ -604,6 +614,29 @@ export function boot(win = window, doc = document) {
     const viewport = currentViewport();
     const shape = shellShape(state, viewport);
     const shellKey = shape === "empty" ? `${shape}:${state.ecosystem}:${state.query}` : shape;
+    if (prerendered) {
+      // The export drew the first page of the ranked view (web/prerender.mjs). A board that shows something else
+      // than this state asks for (another lens, a page, a search) can never be taken over: draw as usual.
+      if (prerenderedBoardKey(main) !== requestSignature(state)) {
+        prerendered = null;
+      } else {
+        // Same state: keep the page until the page of rows, the snapshot and the report have each loaded or failed.
+        const pending =
+          (!state.leaderboard && !state.leaderboardError) ||
+          (!state.snapshot && !state.snapshotError) ||
+          (!state.report && !state.reportError);
+        if (pending) return;
+        prerendered = null;
+        if (adoptPrerenderedBoard(main, state, viewport)) {
+          currentTab = "ranked";
+          currentShellShape = shellKey;
+          forgetOtherShapes("ranked");
+          patchLeaderboardBody(state);
+          syncFindingsLine(main, state.report);
+          return;
+        }
+      }
+    }
     if (currentTab !== "ranked" || shellKey !== currentShellShape) {
       const focusedSubTab =
         doc.activeElement && main.contains(doc.activeElement)
@@ -616,6 +649,7 @@ export function boot(win = window, doc = document) {
       forgetOtherShapes("ranked");
     }
     if (shape.startsWith("table")) patchLeaderboardBody(state);
+    syncFindingsLine(main, state.report);
   }
 
   /** Configure's slider/preset/sum controls render in EVERY shape (loading/error/empty/body — the controls stay visible while re-projecting), so a weight/lock change never rebuilds the shell; this syncs the five sliders' value/output/lock state plus the sum display. Also called from `syncView`'s non-"body" branch, since the controls exist there too. */
