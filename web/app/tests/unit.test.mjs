@@ -1751,7 +1751,7 @@ test("maintainer badge: the drawer shows the balanced badge at the end of Compos
   assert.equal((html.match(/<details[^>]*>/g) || []).length, 5, "a rated drawer still has five sections");
   assert.ok(html.includes('data-badge-copy="true"') && html.includes('data-badge-markdown="true"'));
   assert.ok(html.includes(escapeHtml(`${SITE_BASE}projects/riverline/httpkit/`)), "the Markdown uses the address app.js passes in");
-  assert.ok(html.includes('src="badges/sweet-spot-tier-s.svg"'), "the preview loads from this site");
+  assert.ok(html.includes('src="/badges/sweet-spot-tier-s.svg"'), "the preview loads from this site's root");
 
   // Balanced tier B, tier A under a lens: Composite shows the lens's A, but no badge is minted from it.
   const lensOnly = {
@@ -3256,4 +3256,11 @@ test("routes: on a ranked project's static page, Back and Forward between the ap
   assert.equal(reloads, 1, "a Back or Forward loads the address it moved to");
   const projectPages = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "porchlamp", "serve", "project_pages.py"), "utf8");
   assert.match(projectPages, /<script type="module" src="\{rel\}back-forward\.js"><\/script>/, "every project page loads it");
+});
+
+test("routes: the panel's README badge preview loads from the site root, since the panel is open at a project's address", () => {
+  const html = renderMaintainerBadge(badgeRow({}), SITE_BASE);
+  const src = html.match(/<img class="maintainer-badge-preview" src="([^"]*)"/)[1];
+  assert.match(src, /^\/badges\/[a-z0-9-]+\.svg$/, src);
+  assert.ok(existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", src.slice(1))), `${src} is a file of the site`);
 });

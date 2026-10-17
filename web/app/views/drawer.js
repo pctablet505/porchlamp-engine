@@ -168,7 +168,8 @@ export function renderMaintainerBadge(canonicalRow, baseUrl = "") {
     `<span class="identity-label">${escapeHtml(copy.MAINTAINER_BADGE_HEADING)}</span>` +
     `<button type="button" class="reproduce-copy" data-badge-copy="true">${escapeHtml(copy.MAINTAINER_BADGE_COPY_LABEL)}</button>` +
     `</div>` +
-    `<img class="maintainer-badge-preview" src="${escapeHtml(spec.file)}" alt="${escapeHtml(spec.alt)}" height="20">` +
+    // From the site root: the panel is open at its project's address (/projects/<owner>/<name>/).
+    `<img class="maintainer-badge-preview" src="${escapeHtml(`/${spec.file}`)}" alt="${escapeHtml(spec.alt)}" height="20">` +
     `<p class="maintainer-badge-note">${escapeHtml(copy.MAINTAINER_BADGE_NOTE)}</p>` +
     `<pre class="maintainer-badge-snippet" data-badge-markdown="true">${escapeHtml(copy.maintainerBadgeMarkdown(canonicalRow, baseUrl))}</pre>` +
     `</div>`
