@@ -223,7 +223,7 @@ def _footer(rel: str) -> str:
 
 
 def _name_cell(r: Row, rel: str) -> str:
-    label = f"{_t(r.owner)}/{_t(r.name)}"
+    label = f"{_t(r.owner)}/<wbr>{_t(r.name)}"
     return f'<a href="{_a(rel + project_path(r.owner, r.name))}">{label}</a>' if r.linked else label
 
 

@@ -481,6 +481,8 @@ def _token_in(text: str, token: str) -> bool:
 
 
 def _plain(fragment: str) -> str:
+    """The text a reader sees: tags become spaces, except ``<wbr>``, which is only a place the line may break."""
+    fragment = re.sub(r"<wbr\s*/?>", "", fragment)
     return html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment))).strip()
 
 

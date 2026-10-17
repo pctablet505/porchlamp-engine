@@ -264,10 +264,6 @@
   width: 100%;
 }
 
-.report .landing-table th[scope="row"] {
-  overflow-wrap: anywhere;
-}
-
 .report .landing-table td {
   white-space: nowrap;
 }

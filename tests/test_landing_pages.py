@@ -146,10 +146,12 @@ def test_the_table_has_a_row_per_project_in_rank_order_and_each_name_opens_its_p
         if slug in ECOSYSTEM_SLUGS:
             assert ranks == list(range(1, len(rows) + 1)), "an ecosystem page ranks within the ecosystem"
         for _rank, name_cell, _score, _tier in rows:
-            link = re.fullmatch(r'<a href="\.\./projects/([^"]+)/">([^<]+)</a>', name_cell)
+            link = re.fullmatch(r'<a href="\.\./projects/([^"]+)/">([^<]+)<wbr>([^<]+)</a>', name_cell)
             if link:
                 assert (site / "projects" / link.group(1) / "index.html").is_file(), name_cell
-                assert link.group(2).lower() == link.group(1)
+                assert (link.group(2) + link.group(3)).lower() == link.group(1)
+            else:
+                assert re.fullmatch(r"[^<]+/<wbr>[^<]+", name_cell), name_cell
 
 
 def test_a_project_a_lens_ranks_but_the_balanced_ranking_does_not_is_named_without_a_link():
@@ -160,8 +162,8 @@ def test_a_project_a_lens_ranks_but_the_balanced_ranking_does_not_is_named_witho
     note = landing_pages.table_note("in this view", [linked, row])
     assert note.endswith("Each name opens that project's page, except Acme/Widget, which has no page because it is not in the balanced ranking.")
     assert landing_pages.table_note("in this view", [row, row]).count("have no page because they are not") == 1
-    assert landing_pages._name_cell(row, "../") == "Acme/Widget"
-    assert landing_pages._name_cell(linked, "../") == '<a href="../projects/acme/gadget/">acme/gadget</a>'
+    assert landing_pages._name_cell(row, "../") == "Acme/<wbr>Widget"
+    assert landing_pages._name_cell(linked, "../") == '<a href="../projects/acme/gadget/">acme/<wbr>gadget</a>'
 
 
 def test_a_lens_leaves_zero_weights_out_and_an_unknown_lens_stops_the_export(built):
@@ -207,8 +209,8 @@ def test_verify_landing_proves_every_number_and_row(built):
 
 def _first_row(text: str) -> tuple[str, str]:
     """(the first row's name text, its link target)."""
-    match = re.search(r'<th scope="row"><a href="([^"]*)">([^<]*)</a></th>', text)
-    return match.group(2), match.group(1)
+    match = re.search(r'<th scope="row"><a href="([^"]*)">([^<]*)<wbr>([^<]*)</a></th>', text)
+    return match.group(2) + match.group(3), match.group(1)
 
 
 def test_a_planted_wrong_number_fails_verification_naming_the_page_and_the_number(built, tmp_path):
@@ -238,7 +240,7 @@ def test_a_planted_swap_of_two_names_fails_verification_naming_the_rows(built, t
     site, db, *_ = built
     copy_dir = _copy_site(site, tmp_path)
     text = (copy_dir / "python/index.html").read_text(encoding="utf-8")
-    cells = re.findall(r'(<th scope="row">(?:<a href="[^"]*">)?[^<]+(?:</a>)?</th>)', text)
+    cells = re.findall(r'(<th scope="row">(?:<a href="[^"]*">)?[^<]+<wbr>[^<]+(?:</a>)?</th>)', text)
     a, b = cells[0], cells[1]
     (copy_dir / "python/index.html").write_text(text.replace(a, "@@", 1).replace(b, a, 1).replace("@@", b, 1), encoding="utf-8")
     errors = _verify(db, copy_dir)["errors"]
