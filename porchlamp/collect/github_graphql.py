@@ -583,7 +583,7 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
 # Bundle fields (called from the scripts/derive.py hook)                      #
 # --------------------------------------------------------------------------- #
 
-#: The six bundle fields the derive hook sets from the pr_window envelope.
+#: The bundle fields the derive hook sets from the pr_window envelope.
 PR_WINDOW_BUNDLE_FIELDS: tuple[str, ...] = (
     "pr_window_count",
     "pr_window_truncated",
@@ -591,7 +591,31 @@ PR_WINDOW_BUNDLE_FIELDS: tuple[str, ...] = (
     "pr_window_external_measured_latency_count",
     "pr_window_ttfhr_median_hours",
     "pr_window_substantive_review_rate",
+    "pr_window_outside_pr_count",
+    "pr_window_closed_unread_count",
 )
+
+
+def closed_unread_counts(prs: Sequence[dict]) -> tuple[int, int]:
+    """``(closed_unread, outside)`` over a recorded window's PR nodes: the
+    ``closed_unread`` detector's input (03 section 6).
+
+    ``outside`` counts the outside PRs: an external author association and a
+    non-bot author (D-IN-1). ``closed_unread`` counts those closed and never
+    merged with no D-IN-2 response ever recorded: no maintainer review in any
+    state and no maintainer comment of at least 40 characters, never the
+    author, never a bot (:func:`derive_pr_window`'s
+    ``first_substantive_response_at``, recomputed from the recorded nodes as
+    GR_14 and D-GATE-5 recompute it).
+    """
+    outside = closed_unread = 0
+    for d in derive_pr_window(prs):
+        if not d["is_external"] or d["is_bot_author"]:
+            continue
+        outside += 1
+        if d["decided"] and not d["merged"] and d["first_substantive_response_at"] is None:
+            closed_unread += 1
+    return closed_unread, outside
 
 
 def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
@@ -601,8 +625,10 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
     :data:`PR_WINDOW_BUNDLE_FIELDS`. The envelope-recorded facts (count,
     truncation, point cost) are ``verified``; the statistics computed here
     are ``derived``: the count of external PRs with a measured TTFHR, the
-    TTFHR median over them (02 §4 1.1) and the share of decided external PRs
-    with a substantive review (02 §4 4.3). Empty dict when ``prw`` is None.
+    TTFHR median over them (02 §4 1.1), the share of decided external PRs
+    with a substantive review (02 §4 4.3), and the outside PRs and the
+    closed-unread ones among them (:func:`closed_unread_counts`; absent when
+    the envelope records no PR list). Empty dict when ``prw`` is None.
     """
     if not prw:
         return {}
@@ -612,7 +638,7 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
                     if d.get("ttfhr_hours") is not None]
     decided_external = [d for d in external if d.get("decided")]
     substantive = [d for d in decided_external if d.get("substantive_review")]
-    return {
+    fields = {
         "pr_window_count": (int(prw.get("count") or 0), "verified"),
         "pr_window_truncated": (bool(prw.get("truncated")), "verified"),
         "pr_window_cost_points": (int(prw.get("cost_points") or 0), "verified"),
@@ -624,6 +650,12 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
             round(len(substantive) / len(decided_external), 4), "derived")
         if decided_external else (None, "derived"),
     }
+    prs = prw.get("prs")
+    if isinstance(prs, list):
+        closed_unread, outside = closed_unread_counts(prs)
+        fields["pr_window_outside_pr_count"] = (outside, "derived")
+        fields["pr_window_closed_unread_count"] = (closed_unread, "derived")
+    return fields
 
 
 

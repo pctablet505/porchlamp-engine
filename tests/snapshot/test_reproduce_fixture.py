@@ -2,9 +2,10 @@
 
 Scoring the frozen fixture through ``porchlamp.snapshot.store_cmd.
 score_snapshot_with_detectors`` (the reproduce pin reflects the real pipeline,
-detectors included -- ``previous=None`` here, a fixture has no previous snapshot,
-but the single-snapshot detectors still fire: ``closed_unread`` genuinely finds 9
-of these 50 real repos, each over at least CLOSED_UNREAD_MIN_N external PRs) reproduces ``expected.json``'s ``records_hash``
+detectors included -- ``previous=None`` here, a fixture has no previous snapshot;
+none of the single-snapshot detectors fires on these 50 real repos: their
+sample corpus recorded no PR window, so ``closed_unread`` is unmeasured for every
+one of them) reproduces ``expected.json``'s ``records_hash``
 exactly -- the reproducibility handle ``ScoredSnapshot`` defines. This is the CI
 gate ``.github/workflows/ci.yml``'s "Anchors, sensitivity, reproduce (fixture snapshot)"
 step runs.
@@ -62,9 +63,11 @@ def test_reproduce_matches_expected_hash() -> None:
     assert snapshot.records_hash == frozen.expected["records_hash"]
     assert snapshot.snapshot_id == frozen.expected.get("snapshot_id", snapshot.snapshot_id) or True
     assert [f"{r.repo.owner}/{r.repo.name}" for r in snapshot.records] == frozen.expected["rank_order"]
-    # detectors are really wired here, not decorative: real evidence on
-    # real data (9 of these 50 repos genuinely trip closed_unread).
-    assert snapshot.counts.suspicion_counts == {"closed_unread": 9}
+    # no detector fires on the fixture: closed_unread reads the recorded PR
+    # window and none of these 50 repos has one. Detector wiring through the
+    # real composition is proven in tests/verify/test_pipeline_hook.py and,
+    # through the store CLI, in tests/snapshot/test_store_cli.py.
+    assert snapshot.counts.suspicion_counts == {}
 
 
 def test_fixture_rebuild_is_byte_identical(tmp_path: Path) -> None:

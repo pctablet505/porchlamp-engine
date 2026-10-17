@@ -73,7 +73,7 @@ def validate_bundle(document: Mapping[str, Any]) -> FeatureBundle:
     Raises the same error for a document whose ``schema_version`` is not 2.
 
     ``last_non_bot_commit_at``, ``top_email_domain_share``, ``stars_audited``,
-    ``star_velocity_flag``, and ``forks`` are read back from optional
+    ``star_velocity_flag``, ``forks`` and ``closed_unread`` are read back from optional
     top-level keys of the same name when present (see
     :data:`_OPTIONAL_TOP_LEVEL_KEYS` and :func:`dump_bundle`, which writes
     them). A document without them leaves the bundle-instance sidecar fact at
@@ -119,6 +119,8 @@ def validate_bundle(document: Mapping[str, Any]) -> FeatureBundle:
         _set_star_velocity_flag(bundle, _star_velocity_flag_from_doc(document[_STAR_VELOCITY_FLAG_DOC_KEY]))
     if _FORKS_DOC_KEY in document:
         _set_forks_count(bundle, _forks_from_doc(document[_FORKS_DOC_KEY]))
+    if _CLOSED_UNREAD_DOC_KEY in document:
+        set_closed_unread_counts(bundle, _closed_unread_counts_from_doc(document[_CLOSED_UNREAD_DOC_KEY]))
     return bundle
 
 
@@ -196,6 +198,9 @@ def dump_bundle(bundle: FeatureBundle) -> dict[str, Any]:
         doc[_STAR_VELOCITY_FLAG_DOC_KEY] = _star_velocity_flag_doc(getattr(bundle, _STAR_VELOCITY_FLAG_ATTR, None))
     if forks_count(bundle) is not None:
         doc[_FORKS_DOC_KEY] = forks_count(bundle)
+    counts = closed_unread_counts(bundle)
+    if counts is not None:
+        doc[_CLOSED_UNREAD_DOC_KEY] = {"closed_unread": counts.closed_unread, "population_n": counts.population_n}
     return doc
 
 
@@ -400,6 +405,32 @@ set_forks_count = _set_forks_count
 set_forks = _set_forks_count
 
 
+@dataclass(frozen=True)
+class ClosedUnreadCounts:
+    """The ``closed_unread`` detector's input (03 section 6), as derive
+    counted it from the recorded ``pr_window`` envelope
+    (:func:`porchlamp.collect.github_graphql.closed_unread_counts`):
+    ``population_n`` outside PRs opened in the window, ``closed_unread`` of
+    them closed unmerged with no D-IN-2 response ever recorded."""
+
+    closed_unread: int
+    population_n: int
+
+
+_CLOSED_UNREAD_ATTR = "_closed_unread_counts_attr"
+
+
+def closed_unread_counts(bundle: FeatureBundle) -> ClosedUnreadCounts | None:
+    """The ``closed_unread`` counts for one bundle; ``None`` when nothing was
+    measured (no recorded PR window, or a bundle derived before derive
+    recorded the counts), so the flag never fires."""
+    return getattr(bundle, _CLOSED_UNREAD_ATTR, None)
+
+
+def set_closed_unread_counts(bundle: FeatureBundle, value: ClosedUnreadCounts | None) -> None:
+    setattr(bundle, _CLOSED_UNREAD_ATTR, value)
+
+
 # --------------------------------------------------------------------------- #
 # Round-trip serialisation: the OPTIONAL v2-document top-level keys           #
 # validate_bundle/dump_bundle use to carry the sidecar facts across a real   #
@@ -414,12 +445,14 @@ _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY = "top_email_domain_share"
 _STARS_AUDITED_DOC_KEY = "stars_audited"
 _STAR_VELOCITY_FLAG_DOC_KEY = "star_velocity_flag"
 _FORKS_DOC_KEY = "forks"
+_CLOSED_UNREAD_DOC_KEY = "closed_unread"
 _OPTIONAL_TOP_LEVEL_KEYS = frozenset({
     _LAST_NON_BOT_COMMIT_DOC_KEY,
     _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY,
     _STARS_AUDITED_DOC_KEY,
     _STAR_VELOCITY_FLAG_DOC_KEY,
     _FORKS_DOC_KEY,
+    _CLOSED_UNREAD_DOC_KEY,
 })
 
 
@@ -565,6 +598,22 @@ def _forks_from_doc(doc: Any) -> int | None:
         if isinstance(val, int) and not isinstance(val, bool) and val >= 0:
             return val
     return None
+
+
+def _closed_unread_counts_or_none(closed_unread: Any, population_n: Any) -> ClosedUnreadCounts | None:
+    """Both counts when they are counts and the closed-unread PRs fit in the
+    population, else ``None`` (nothing measured)."""
+    if _is_count(closed_unread) and _is_count(population_n) and closed_unread <= population_n:
+        return ClosedUnreadCounts(closed_unread=closed_unread, population_n=population_n)
+    return None
+
+
+def _closed_unread_counts_from_doc(doc: Any) -> ClosedUnreadCounts | None:
+    """Inverse of the ``closed_unread`` key :func:`dump_bundle` writes; never
+    raises: a malformed value reads as nothing measured, like an absent key."""
+    if not isinstance(doc, Mapping):
+        return None
+    return _closed_unread_counts_or_none(doc.get("closed_unread"), doc.get("population_n"))
 
 
 def _commit_envelope_path(ctx: "_V1Ctx", key: str, envelope_key: str) -> Optional[Path]:
@@ -1675,6 +1724,22 @@ def _resolve_gr14_ghost_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
                      source=relative, source_hash=source_hash, fetched_at=fetched_at)
 
 
+def _resolve_closed_unread(ctx: _V1Ctx) -> ClosedUnreadCounts | None:
+    """The ``closed_unread`` counts derive recorded from the pr_window envelope
+    (``pr_window_closed_unread_count`` of ``pr_window_outside_pr_count``), with
+    the envelope folded into the bundle's provenance as GR_14 folds it. ``None``
+    (the flag is unmeasured) when the envelope does not resolve or derive
+    recorded no counts: the v1 ``pr_events`` sample is never read for them."""
+    path, _data, _fetched_at = _pr_window_envelope(ctx)
+    if path is None:
+        return None
+    counts = _closed_unread_counts_or_none(
+        ctx.meta.get("pr_window_closed_unread_count"), ctx.meta.get("pr_window_outside_pr_count"))
+    if counts is not None:
+        ctx.referenced[_relative_source(path, ctx.raw_root)] = _envelope_hash(path)
+    return counts
+
+
 def _is_count(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
@@ -2304,6 +2369,7 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     # hashed and folded into ctx.referenced before provenance_hash is computed
     # below from that same dict.
     last_commit_fact, top_domain_fact = _resolve_commit_facts(ctx, f"{owner}__{name}")
+    closed_unread_fact = _resolve_closed_unread(ctx)
     stars_audited_fact = _resolve_stars_audited(ctx)
     star_velocity_flag_fact = _resolve_star_velocity_flag(ctx)
     raw_forks = meta.get("forks")
@@ -2388,4 +2454,5 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     _set_stars_audited(bundle, stars_audited_fact)
     _set_star_velocity_flag(bundle, star_velocity_flag_fact)
     _set_forks_count(bundle, forks_fact)
+    set_closed_unread_counts(bundle, closed_unread_fact)
     return bundle

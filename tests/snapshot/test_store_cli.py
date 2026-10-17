@@ -6,9 +6,8 @@ Two fixture shapes feed these tests:
 
 * ``tests/fixtures/snapshot_50`` --
   proves the CLI on real data: counts, ``list_ranked``/``list_not_ranked``,
-  ``snapshot_summary``, the served-DB guard, and (real-data bonus) that
-  ``build_detectors`` genuinely fires on unmodified data (9 of 50 repos
-  trip ``closed_unread``).
+  ``snapshot_summary`` and the served-DB guard; no detector fires on it
+  (its repos record no PR window, so ``closed_unread`` is unmeasured).
 * A small, hand-built synthetic directory (:func:`_write_snapshot_dir`) --
   proves the ``previous``/``param_jump`` wiring and the ``expected.json``
   verify/``--no-verify`` contract without depending on real fixture
@@ -40,9 +39,9 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: ``tests/fixtures/snapshot_50/expected.json``'s own pinned ``records_hash``
 #: (regenerated 2026-09-16 from the sample corpus, so the committed bundles
 #: and manifest are again what ``scripts/build_fixture_snapshot.py`` builds --
-#: ``test_fixture_rebuild_is_byte_identical``): 9 of the 50 real repos
-#: genuinely trip ``closed_unread``, 0 trip anything else on a first-ever
-#: snapshot with no ``previous``. Restated here as a named constant so a
+#: ``test_fixture_rebuild_is_byte_identical``): none of the 50 real repos
+#: trips a detector on a first-ever snapshot with no ``previous``.
+#: Restated here as a named constant so a
 #: silent, unnoticed drift in that shared fixture file shows up as a
 #: mismatch against ITS OWN expectation (this suite's own store calls
 #: verify against ``expected.json`` directly -- see the module docstring
@@ -64,15 +63,17 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: lost its persona composites and gates; no other record and no count moved.
 #: Regenerated 2026-10-14 (was 507887cd...) for RFC-0008 (GATE5_WILSON_Z
 #: added to porchlamp.core.constants, moving ScoreRecord.constants_hash).
-#: ``closed_unread`` requires CLOSED_UNREAD_MIN_N external PRs, so 9 repos
-#: fire (3 more have the share on fewer PRs).
 #: Regenerated 2026-10-17 (was 41fb9b07...) when D-GATE-6 stopped failing a
 #: repository without a complete PR record: the fixture records no pr_window,
 #: and the 30 newest PRs cannot show that no external PR was decided, so
 #: blender, ceph, SpringBlade, cockroach and electron move from
 #: "unrated: no_external_workflow" to "unrated: insufficient_evidence".
+#: Regenerated 2026-10-17 (was 7e16a867...) when ``closed_unread`` moved from
+#: the 30 newest PRs to the recorded PR window: the fixture records none, so
+#: the 9 flags the 30-PR sample gave are gone; no other field of any record
+#: moved.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "7e16a867f0bf6277a4a3f4577cd287d50414a16a756a8631b363c9974ffdd981"
+    "5a9fdb0cc887f9ee740066c4e0b3313b61d6e53d9bff00a4b1e64963144ef31c"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #
@@ -209,8 +210,9 @@ def test_store_snapshot_50_counts_and_hashes(tmp_path, capsys) -> None:
     assert summary["as_of"] == manifest["as_of"]
     assert summary["benchmark_version"] == manifest["benchmark_version"]
     assert summary["constants_hash"] == manifest["constants_hash"]
-    # build_detectors is really wired: this is real data, not injected.
-    assert summary["detector_summary"] == {"closed_unread": 9}
+    # no PR window in the fixture, so no closed_unread flag; the detectors'
+    # wiring through this CLI is test_previous_wires_param_jump_suspicion's.
+    assert summary["detector_summary"] == {}
 
 
 def test_store_snapshot_50_list_ranked_and_not_ranked(tmp_path) -> None:

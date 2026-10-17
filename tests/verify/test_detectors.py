@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from porchlamp.core.models import Cohorts, GateResult, NewcomerAuthor, ParamScore, PRRef, PRWindow, PRWindowEvent, RepoIdentity, ScoreRecord
+from porchlamp.core.models import Cohorts, GateResult, NewcomerAuthor, ParamScore, PRRef, RepoIdentity, ScoreRecord
 from porchlamp.verify.detectors import (
     _measured_n,
     _measured_score,
@@ -42,7 +42,6 @@ from porchlamp.verify.detectors import (
     PARAM_JUMP_THRESHOLD_POINTS,
     SPEED_DR90_SCORE_MAX,
     SPEED_TTFHR_SCORE_MIN,
-    closed_unread_share_from_pr_window,
     detect_closed_unread,
     detect_ef_domain_mismatch,
     detect_label_spam,
@@ -413,40 +412,6 @@ def test_closed_unread_fires_from_the_minimum_sample() -> None:
 def test_closed_unread_without_a_reported_population_does_not_fire() -> None:
     inputs = DetectorInputs(closed_unread_share=0.9, closed_unread_n=None)
     assert detect_closed_unread(_record(), None, inputs) is False
-
-
-def _pr_event(pr_number: int, *, is_external: bool, closed: bool, merged: bool, responded: bool) -> PRWindowEvent:
-    created = BASE
-    return PRWindowEvent(
-        pr_number=pr_number,
-        created_at=_iso(created),
-        closed_at=_iso(created + timedelta(days=1)) if (closed or merged) else None,
-        merged_at=_iso(created + timedelta(days=1)) if merged else None,
-        author_login=f"author{pr_number}",
-        author_association="NONE",
-        is_external=is_external,
-        first_human_review_at=_iso(created + timedelta(hours=1)) if responded else None,
-    )
-
-
-def test_closed_unread_share_from_pr_window_counts_closed_unmerged_unanswered() -> None:
-    """The population is external PRs only: an internal event that would
-    also match 'closed, unmerged, unanswered' is excluded via ``is_external``."""
-    events = (
-        _pr_event(1, is_external=True, closed=True, merged=False, responded=False),  # counts
-        _pr_event(2, is_external=True, closed=True, merged=False, responded=True),   # answered: not counted
-        _pr_event(3, is_external=True, closed=True, merged=True, responded=False),   # merged: not counted
-        _pr_event(4, is_external=True, closed=False, merged=False, responded=False),  # still open: not counted
-        _pr_event(5, is_external=False, closed=True, merged=False, responded=False),  # internal: excluded entirely
-    )
-    window = PRWindow(start=_iso(BASE), end=_iso(BASE + timedelta(days=180)), truncated=False, events=events)
-    share, n = closed_unread_share_from_pr_window(window)
-    assert (share, n) == (0.25, 4)
-
-
-def test_closed_unread_share_from_pr_window_no_external_prs_is_none() -> None:
-    window = PRWindow(start=None, end=None, truncated=False, events=())
-    assert closed_unread_share_from_pr_window(window) == (None, 0)
 
 
 # --------------------------------------------------------------------------- #

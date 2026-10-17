@@ -600,6 +600,109 @@ def test_derive_repo_without_pr_window_envelope_unaffected(tmp_path):
     assert bundle["confidence"]["stars"] == "missing"
 
 
+# --- closed_unread: the two counts the derive hook records from the window ---
+#
+# The closed_unread detector (03 section 6) reads the outside PRs of the
+# window (an external author association and a non-bot author, D-IN-1) and,
+# of those, the ones closed and never merged with no D-IN-2 response ever
+# recorded: a maintainer review in any state or a comment of at least 40
+# characters, never the PR's author, never a bot. Every expected count below
+# is counted by hand from the fixture.
+
+_OPENED, _ANSWERED, _CLOSED = "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z", "2026-08-03T00:00:00Z"
+
+
+def _closed_unmerged(number, **kw) -> dict:
+    return pr_node(number, _OPENED, closed=_CLOSED, **kw)
+
+
+def _merged_by(number, merger) -> dict:
+    """An internal PR ``merger`` merged: it puts ``merger`` in the window's mergers set."""
+    return pr_node(number, _OPENED, closed=_CLOSED, merged=_CLOSED, assoc="MEMBER",
+                   author_login="insider", merged_by=merger)
+
+
+def _closed_unread_counts(prs) -> tuple:
+    """``(closed unread, outside)`` as the derive hook records them for a window of ``prs``."""
+    fields = gql.derive_pr_window_fields({"count": len(prs), "truncated": False, "cost_points": 1,
+                                         "prs": prs, "derived": gql.derive_pr_window(prs)})
+    assert fields["pr_window_closed_unread_count"][1] == fields["pr_window_outside_pr_count"][1] == "derived"
+    return fields["pr_window_closed_unread_count"][0], fields["pr_window_outside_pr_count"][0]
+
+
+def test_closed_unread_counts_a_maintainer_comment_as_read():
+    """Two closed, unmerged outside PRs, neither reviewed: the one a maintainer
+    answered with a 40-character comment is read; the one nobody answered is
+    unread."""
+    prs = [_closed_unmerged(1, comments=[comment(body="m" * 40, created=_ANSWERED)]),
+           _closed_unmerged(2)]
+    assert _closed_unread_counts(prs) == (1, 2)
+
+
+def test_closed_unread_author_comment_is_not_a_reply():
+    """``alice`` merged a PR in the window, so her comments answer like a
+    maintainer's (PR 2), but her association shows CONTRIBUTOR, so her own PR
+    1 is an outside PR. Her 40-character comment on it does not answer it:
+    never the author."""
+    alice_says = comment("alice", assoc="CONTRIBUTOR", body="a" * 40, created=_ANSWERED)
+    prs = [_closed_unmerged(1, assoc="CONTRIBUTOR", author_login="alice", comments=[alice_says]),
+           _closed_unmerged(2, author_login="bob", comments=[alice_says]),
+           _merged_by(9, "alice")]
+    assert _closed_unread_counts(prs) == (1, 2)
+
+
+def test_closed_unread_bot_comment_is_not_a_reply():
+    """``mergify[bot]`` and ``maint`` each merged a PR in the window, so both
+    pass the maintainer test; only the bot rule keeps the bot's 40-character
+    comment on PR 1 from answering it, while maint's answers PR 2."""
+    prs = [_closed_unmerged(1, comments=[comment("mergify[bot]", typ="Bot", assoc="NONE", body="b" * 40,
+                                                 created=_ANSWERED)]),
+           _closed_unmerged(2, author_login="bob", comments=[comment("maint", assoc="CONTRIBUTOR", body="c" * 40,
+                                                                     created=_ANSWERED)]),
+           _merged_by(9, "mergify[bot]"), _merged_by(10, "maint")]
+    assert _closed_unread_counts(prs) == (1, 2)
+
+
+def test_closed_unread_population_is_outside_human_prs_and_only_closed_unmerged_unanswered_count():
+    prs = [
+        _closed_unmerged(1),                                                      # outside, closed unread
+        _closed_unmerged(2, assoc="FIRST_TIME_CONTRIBUTOR", author_login="newbie"),  # outside, closed unread
+        _closed_unmerged(3, assoc="FIRST_TIMER", author_login="newer",            # outside, a review answers
+                         reviews=[review(state="CHANGES_REQUESTED", created=_ANSWERED)]),
+        pr_node(4, _OPENED, closed=_CLOSED, merged=_CLOSED),                      # outside, merged unanswered
+        pr_node(5, _OPENED),                                                      # outside, still open
+        _closed_unmerged(6, assoc="MEMBER", author_login="insider"),              # internal: not outside
+        _closed_unmerged(7, author_login="dependabot[bot]", author_typ="Bot"),    # bot author: not outside
+    ]
+    assert _closed_unread_counts(prs) == (2, 5)
+
+
+def test_closed_unread_counts_of_an_empty_window_are_zero():
+    assert _closed_unread_counts([]) == (0, 0)
+
+
+def test_no_closed_unread_counts_without_recorded_prs():
+    """No envelope, or one without a PR list: nothing is recorded, so the flag
+    has no input."""
+    assert gql.derive_pr_window_fields(None) == {}
+    fields = gql.derive_pr_window_fields({"count": 0, "derived": []})
+    assert "pr_window_closed_unread_count" not in fields
+    assert "pr_window_outside_pr_count" not in fields
+
+
+def test_derive_repo_records_the_closed_unread_counts(tmp_path):
+    """``_write_pr_window_envelope``: PR 1 (outside, closed, a review and a
+    comment) is read; PR 2 (outside, closed unmerged, no response) is unread;
+    PR 3 is a MEMBER's; PR 4 (outside) is open."""
+    _write_pr_window_envelope(tmp_path / "raw")
+    bundle = derive.derive_repo("acme", "widget", derive.Ecosystem.PYPI, tmp_path,
+                                fetch=False, now=NOW)
+    assert (bundle["meta"]["pr_window_closed_unread_count"], bundle["meta"]["pr_window_outside_pr_count"]) == (1, 3)
+    assert bundle["confidence"]["pr_window_closed_unread_count"] == "derived"
+    assert bundle["confidence"]["pr_window_outside_pr_count"] == "derived"
+    assert bundle["provenance"]["pr_window_closed_unread_count"]["source"] == "raw/pr_window/acme__widget.json"
+
+
 # =============================================================================
 # Author history and newcomer cohorts
 # =============================================================================

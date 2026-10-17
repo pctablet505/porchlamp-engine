@@ -74,11 +74,19 @@ _DETECTOR_BUILDERS: dict[str, Any] = {
     },
     _detectors.DETECTOR_CLOSED_UNREAD: lambda: {
         "trigger": (
-            "share of external PRs closed unmerged with no substantive "
-            "response ever recorded >= share_min"
+            "share of outside PRs (an external author association and a non-bot "
+            "author, D-IN-1) opened in the trailing PR window that were closed "
+            "unmerged with no substantive response ever recorded (D-IN-2: any "
+            "review, or a comment of 40+ characters, by a non-author, non-bot "
+            "member, owner or collaborator, or by an account that merged a PR in "
+            "the window) >= share_min, over at least min_n outside PRs; a "
+            "repository with no recorded PR window is not measured"
         ),
         "direction": "above",
-        "thresholds": {"share_min": _detectors.CLOSED_UNREAD_SHARE_MIN},
+        "thresholds": {
+            "share_min": _detectors.CLOSED_UNREAD_SHARE_MIN,
+            "min_n": _detectors.CLOSED_UNREAD_MIN_N,
+        },
     },
     _detectors.DETECTOR_NEWCOMER_BURST: lambda: {
         "trigger": (
