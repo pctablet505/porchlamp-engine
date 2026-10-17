@@ -2,6 +2,7 @@
 // suspicion icon. All pure `(data) -> string` functions.
 
 import * as copy from "../copy.js";
+import { hook } from "./fill.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -9,15 +10,15 @@ function escapeHtml(value) {
   ));
 }
 
-/** Coverage badge, colour-coded by band (06 §3 Screen A). */
-export function renderCoverageBadge(coverage) {
+/** Coverage badge, colour-coded by band (06 §3 Screen A). `hookId` makes its text a verifier hook (components/fill.js). */
+export function renderCoverageBadge(coverage, hookId = null) {
   if (coverage === null || coverage === undefined) {
     return `<span class="cell-missing" tabindex="0" title="${escapeHtml(copy.missingValueReason())}">${copy.MISSING_VALUE}</span>`;
   }
   const band = copy.coverageBandForValue(coverage);
   const cls = band === "full" ? "badge-coverage-full" : band === "A" ? "badge-coverage-a" : band === "B" ? "badge-coverage-b" : "badge-coverage-below";
   const text = copy.coverageBadgeText(coverage);
-  return `<span class="badge ${cls}"><span class="badge-dot" aria-hidden="true"></span>${escapeHtml(text)}</span>`;
+  return `<span class="badge ${cls}"><span class="badge-dot" aria-hidden="true"></span>${hookId ? hook(hookId, text) : escapeHtml(text)}</span>`;
 }
 
 /** Tier pill, with "(capped)" suffix when the coverage ceiling is binding. */

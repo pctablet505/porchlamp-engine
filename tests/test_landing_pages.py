@@ -336,7 +336,7 @@ def test_a_project_page_links_its_ecosystem_to_the_ecosystem_page(built):
     seen = set()
     for path in sorted((site / "projects").rglob("index.html")):
         text = path.read_text(encoding="utf-8")
-        match = re.search(r'<li>Ecosystem: <a href="\.\./\.\./\.\./([^"]+)/">([^<]+)</a></li>', text)
+        match = re.search(r'<a class="eco-chip project-eco" href="/([^"]+)/">([^<]+)</a>', text)
         assert match, path
         assert match.group(1) in ECOSYSTEM_SLUGS and (site / match.group(1) / "index.html").is_file()
         seen.add(match.group(1))
@@ -355,10 +355,10 @@ def test_a_planted_wrong_link_in_the_report_and_a_project_page_each_fail_verific
     project = sorted((copy_dir / "projects").rglob("index.html"))[0]
     rel = project.relative_to(copy_dir).as_posix()
     body = project.read_text(encoding="utf-8")
-    slug = re.search(r'Ecosystem: <a href="\.\./\.\./\.\./([^"]+)/">', body).group(1)
-    project.write_text(body.replace(f'../../../{slug}/">', '../../../elsewhere/">', 1), encoding="utf-8")
+    slug = re.search(r'<a class="eco-chip project-eco" href="/([^"]+)/">', body).group(1)
+    project.write_text(body.replace(f'<a class="eco-chip project-eco" href="/{slug}/">', '<a class="eco-chip project-eco" href="/elsewhere/">', 1), encoding="utf-8")
     errors = verify_static_export.verify_projects(db, copy_dir, log=lambda _line: None)["errors"]
-    assert any(rel in e and "ecosystem link" in e for e in errors), errors[:3]
+    assert any(rel in e and f"links to /{slug}/" in e for e in errors), errors[:3]
 
 
 # ---- E7: the home page's structured data --------------------------------------------------------------------

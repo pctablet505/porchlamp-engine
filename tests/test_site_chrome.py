@@ -12,6 +12,8 @@ proves, page by page:
 * ``/theme-init.js`` runs in ``<head>`` before the stylesheets, as a plain script, on every page;
 * the exported methodology page holds its headings, ``data-v`` hooks, links and anchors in the HTML itself, with the
   values of the export's own record, and is what the Node prerender draws from that record in any locale and time zone;
+* each project page is what the Node prerender draws from the project's record in any locale and time zone, and a real
+  browser, in two locales and time zones, draws the same project view byte for byte;
 * in a real browser a stored theme shows on a static and an app page, and the toggle switches it;
 * the lens addresses and the data link in ``copy.js`` are the Python pages' own;
 * ``scripts/verify_static_export.py`` passes the export, and names a methodology page whose database digest is not the
@@ -25,6 +27,7 @@ to be named, so a checker that cannot fail would show.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import os
 import re
@@ -509,6 +512,119 @@ def test_the_methodology_page_is_what_the_prerender_draws_in_any_locale_and_time
         site, tmp_path / "changed", {"TZ": "UTC"}, mutate=("methodology", lambda data: data.replace('"weight":0.25', '"weight":0.26', 1))
     )
     assert changed != exported
+
+
+# --------------------------------------------------------------------------- #
+# 6b. A project page is the prerender's output, and a browser draws the same view
+# --------------------------------------------------------------------------- #
+#: The project view as its page holds it: what web/prerender.mjs drew into <main>.
+_PROJECT_VIEW = re.compile(r'<main class="app-main" id="app-main" tabindex="-1">\n(.*)\n *</main>', re.S)
+
+
+def _sample_projects(site: Path) -> dict[str, str]:
+    """Three project pages, ``{path: "owner/name"}``: the first, one whose reply time was too small a sample, and one
+    where both values were."""
+    found: dict[str, str] = {}
+    wanted = (r"Outside pull requests to ", r"For [^ ]+, the reply time has too small", r"For [^ ]+, the reply time and the share")
+    for pattern in wanted:
+        for path in sorted(site.glob("projects/*/*/index.html")):
+            text = path.read_text(encoding="utf-8")
+            if re.search(r'id="answer" data-v="answer">' + pattern, text):
+                name = re.search(r'<h1 id="project-title" class="project-title"><span class="repo-owner">([^<]+)/</span>([^<]+)</h1>', text)
+                found[path.relative_to(site).as_posix()] = f"{name.group(1)}/{name.group(2)}"
+                break
+    assert len(found) == 3, found
+    return found
+
+
+def _prerender_projects(site: Path, tmp: Path, env: dict[str, str], pages: dict[str, str], *, mutate=None) -> dict[str, bytes]:
+    """The project pages ``pages`` as ``web/prerender.mjs`` draws them from the export's records, through the export's
+    api.js, in a clean directory: each page's shell is the export's (``project_pages.project_page``, with the page's own
+    description), its header, nav, footer and view drawn afresh."""
+    from porchlamp.serve import project_pages
+
+    sid = _snapshot_id(site)
+    for name in ("api.js", "data-version.js"):
+        (tmp / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp / name).write_bytes((site / name).read_bytes())
+    data = tmp / "data" / sid
+    (data / "repos").mkdir(parents=True)
+    for name in ("snapshot", "methodology", "manifest"):
+        (data / f"{name}.json").write_bytes((site / "data" / sid / f"{name}.json").read_bytes())
+    for bucket in (site / "data" / sid / "repos").glob("*.json"):
+        text = bucket.read_text(encoding="utf-8")
+        (data / "repos" / bucket.name).write_text(mutate(text) if mutate else text, encoding="utf-8")
+    for rel, key in pages.items():
+        description = re.search(r'<meta name="description" content="([^"]*)"', _read(site, rel)).group(1)
+        owner, name = key.split("/")
+        (tmp / rel).parent.mkdir(parents=True)
+        (tmp / rel).write_text(project_pages.project_page(owner, name, html.unescape(description)), encoding="utf-8")
+    job = tmp / "job.json"
+    job.write_text(json.dumps({"pages": [{"path": rel, "nav": None, "project": key} for rel, key in pages.items()]}), encoding="utf-8")
+    ran = subprocess.run([_node(), str(PRERENDER), str(tmp), str(job)], capture_output=True, text=True, env={**os.environ, **env}, check=False)
+    assert ran.returncode == 0, ran.stderr[-1500:]
+    return {rel: (tmp / rel).read_bytes() for rel in pages}
+
+
+def test_a_project_page_is_what_the_prerender_draws_from_its_record_in_any_locale_and_time_zone(built, tmp_path):
+    site = built[0]
+    pages = _sample_projects(site)
+    exported = {rel: (site / rel).read_bytes() for rel in pages}
+    utc = _prerender_projects(site, tmp_path / "utc", {"TZ": "UTC", "LANG": "C", "LC_ALL": "C"}, pages)
+    far = _prerender_projects(
+        site, tmp_path / "kiritimati", {"TZ": "Pacific/Kiritimati", "LANG": "de_DE.UTF-8", "LC_ALL": "de_DE.UTF-8"}, pages
+    )
+    assert all(len(page) > 20000 for page in exported.values())
+    assert utc == exported
+    assert far == exported
+
+    # the comparison can fail: a record whose first answer sentence differs draws a different page
+    rel, key = next(iter(pages.items()))
+    changed = _prerender_projects(
+        site, tmp_path / "changed", {"TZ": "UTC"}, {rel: key}, mutate=lambda text: text.replace("got a first human reply", "got a first reply", 1)
+    )
+    assert changed[rel] != exported[rel]
+
+
+_BROWSER_VIEW = """
+const [view, api] = await Promise.all([import('/views/project.js'), import('/api.js')]);
+const [owner, name] = %(key)s.split('/');
+const [detail, evidence, extras] = await Promise.all([
+  api.fetchRepoDetail(owner, name), api.fetchEvidence(owner, name), api.fetchProjectExtras(owner, name),
+]);
+const { recordFile, ...rest } = extras.data;
+return {
+  html: view.renderProject({ detail: detail.data, evidence: evidence.data, ...rest }, { mode: 'page', recordFile }),
+  zone: Intl.DateTimeFormat().resolvedOptions().timeZone, language: navigator.language,
+};
+"""
+
+
+def test_a_browser_draws_each_project_view_byte_for_byte_as_its_page_holds_it_in_two_locales_and_time_zones(built, tmp_path):
+    if ui_browser.find_chrome() is None:
+        if os.environ.get("PORCHLAMP_ALLOW_MISSING_CHROME") == "1":
+            pytest.skip("no Chrome or Chromium found (PORCHLAMP_ALLOW_MISSING_CHROME=1)")
+        pytest.fail("no Chrome or Chromium on PATH; the re-draw check is a real gate (or set PORCHLAMP_ALLOW_MISSING_CHROME=1)")
+    site = built[0]
+    pages = _sample_projects(site)
+    held = {rel: _PROJECT_VIEW.search(_read(site, rel)).group(1) for rel in pages}
+    cases = [
+        {"name": rel, "path": "/" + rel.removesuffix("index.html"), "width": 1280, "height": 800,
+         "script": _BROWSER_VIEW % {"key": json.dumps(key)}}
+        for rel, key in pages.items()
+    ]
+    for zone, language in (("UTC", "en-US"), ("Pacific/Kiritimati", "de-DE")):
+        drawn = ui_browser.probe(
+            site, cases, tmp_path / zone.replace("/", "-"), flags=(f"--lang={language}", f"--accept-lang={language}"), env={"TZ": zone}
+        )
+        for rel in pages:
+            assert drawn[rel]["zone"] == zone and drawn[rel]["language"] == language, drawn[rel]
+            assert drawn[rel]["html"] == held[rel], rel
+
+    # the comparison can fail: one changed number in the page's view is a different draw
+    rel = next(iter(pages))
+    planted = re.sub(r'(data-v="detail\.porchlamp">)([\d.]+)', lambda m: m.group(1) + m.group(2) + "1", held[rel], count=1)
+    assert planted != held[rel] and planted != drawn[rel]["html"]
 
 
 # --------------------------------------------------------------------------- #

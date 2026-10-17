@@ -300,6 +300,19 @@ export function fetchRepoDetail(owner, name) {
   return answer(endpoint, async () => (await repoRecord(endpoint, owner, name)).detail);
 }
 
+/**
+ * What a project's page and side panel print beside the API's detail and evidence (no API answers it): `recordFile`,
+ * the record's file from the site root, and, for a project with a balanced rank, what the export wrote into its record:
+ * its answer sentences, its standing in each lens and its similar projects (`null` for any other project).
+ */
+export function fetchProjectExtras(owner, name) {
+  const file = `repos/${bucketOf(owner, name)}.json`;
+  return answer(file, async () => {
+    const { answer: sentences = null, standings = null, similar = null } = await repoRecord(file, owner, name);
+    return { answer: sentences, standings, similar, recordFile: `data/${DATA_VERSION}/${file}` };
+  });
+}
+
 // ------------------------------------------- snapshot / matrix / methodology
 export function fetchSnapshot() {
   return answer("/v1/porchlamp/snapshot", () => loadJson("snapshot.json"));
