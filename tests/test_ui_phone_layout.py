@@ -84,9 +84,9 @@ _ACTIVE_TAB = (
     + """
 await sleep(500);
 const strip = doc.querySelector('.primary-tabs').getBoundingClientRect();
-const tab = doc.querySelector('.primary-tab[aria-selected="true"]').getBoundingClientRect();
+const tab = doc.querySelector('.primary-tab[aria-current="page"]').getBoundingClientRect();
 return { tabLeft: tab.left, tabRight: tab.right, stripLeft: strip.left, stripRight: strip.right,
-         label: doc.querySelector('.primary-tab[aria-selected="true"]').textContent.trim() };
+         label: doc.querySelector('.primary-tab[aria-current="page"]').textContent.trim() };
 """
 )
 
@@ -275,45 +275,44 @@ def measured(tmp_path_factory):
     export_static.export(db, site)
     board = json.loads((site / "data" / SNAPSHOT_ID / "leaderboard-balanced.json").read_text())
     first = board["rows"][0]
-    repo = f"{first['owner']}%2F{first['name']}"
 
     cases = [
         {"name": f"width-{tab}", "path": path, **PHONE, "script": _PAGE_WIDTH % (settle, inject)}
         for tab, path, settle, inject in (
             ("ranked", "./", 1500, ""),
-            ("notranked", "./?tab=notranked", 2500, _LONG_NOT_RANKED_ROW),
-            ("matrix", "./?tab=matrix", 2500, ""),
-            ("compare", "./?tab=compare", 1500, ""),
-            ("configure", "./?tab=configure", 3500, ""),
-            ("methodology", "./?tab=methodology", 2500, ""),
+            ("notranked", "./not-ranked/", 2500, _LONG_NOT_RANKED_ROW),
+            ("matrix", "./matrix/", 2500, ""),
+            ("compare", "./compare/", 1500, ""),
+            ("configure", "./weights/", 3500, ""),
+            ("methodology", "./methodology/", 2500, ""),
         )
     ]
     cases += [
-        {"name": "width-notranked-320", "path": "./?tab=notranked", "width": 320, "height": 640,
+        {"name": "width-notranked-320", "path": "./not-ranked/", "width": 320, "height": 640,
          "script": _PAGE_WIDTH % (2500, _LONG_NOT_RANKED_ROW)},
-        {"name": "drawer", "path": f"./?repo={repo}", **PHONE, "script": _DRAWER},
+        {"name": "drawer", "path": f"./projects/{first['owner'].lower()}/{first['name'].lower()}/", **PHONE, "script": _DRAWER},
         {"name": "header", "path": "./", **PHONE, "script": _HEADER},
-        {"name": "active-tab", "path": "./?tab=methodology", **PHONE, "script": _ACTIVE_TAB},
+        {"name": "active-tab", "path": "./methodology/", **PHONE, "script": _ACTIVE_TAB},
         {"name": "pager", "path": "./?page_size=20", **DESKTOP, "script": _PAGER_REVEAL},
         {"name": "chip", "path": "./", **DESKTOP, "script": _HEADER_CHIP},
-        {"name": "compare-enter", "path": "./?tab=compare", **DESKTOP, "script": _COMPARE_ENTER % first["name"]},
+        {"name": "compare-enter", "path": "./compare/", **DESKTOP, "script": _COMPARE_ENTER % first["name"]},
         {"name": "tablet-ranked", "path": "./", **TABLET, "script": _TABLET_RANKED},
         {"name": "tablet-persona", "path": "./?persona=senior_systems", **TABLET, "script": _TABLET_RANKED},
         {"name": "mobile-sort", "path": "./", **PHONE, "script": _MOBILE_SORT},
         {"name": "desktop-sticky-nav", "path": "./", **DESKTOP, "script": _DESKTOP_STICKY_NAV},
-        {"name": "matrix-corners", "path": "./?tab=matrix", **DESKTOP, "script": _MATRIX_CORNERS},
-        {"name": "configure-thead", "path": "./?tab=configure", **DESKTOP, "script": _CONFIGURE_THEAD},
-        {"name": "configure-1100", "path": "./?tab=configure", "width": 1100, "height": 800, "script": _CONFIGURE_1100},
+        {"name": "matrix-corners", "path": "./matrix/", **DESKTOP, "script": _MATRIX_CORNERS},
+        {"name": "configure-thead", "path": "./weights/", **DESKTOP, "script": _CONFIGURE_THEAD},
+        {"name": "configure-1100", "path": "./weights/", "width": 1100, "height": 800, "script": _CONFIGURE_1100},
         {"name": "mobile-card-long-name", "path": "./", **PHONE, "script": _MOBILE_CARD_LONG_NAME},
     ]
     cases += [
         {"name": f"names-{tab}", "path": path, **DESKTOP, "script": _UNNAMED_CONTROLS % settle}
         for tab, path, settle in (
             ("ranked", "./", 1500),
-            ("notranked", "./?tab=notranked", 2500),
-            ("matrix", "./?tab=matrix", 2500),
-            ("compare", "./?tab=compare", 1500),
-            ("configure", "./?tab=configure", 3500),
+            ("notranked", "./not-ranked/", 2500),
+            ("matrix", "./matrix/", 2500),
+            ("compare", "./compare/", 1500),
+            ("configure", "./weights/", 3500),
         )
     ]
     return ui_browser.probe(site, cases, tmp)

@@ -146,13 +146,14 @@ input.control {
   color: var(--text-secondary);
   font-weight: 600;
   white-space: nowrap;
+  text-decoration: none;
 }
 
 .primary-tab:hover {
   color: var(--text-primary);
 }
 
-.primary-tab[aria-selected="true"] {
+.primary-tab[aria-current="page"] {
   color: var(--text-primary);
   border-bottom-color: var(--accent-violet);
 }
@@ -188,9 +189,10 @@ input.control {
   border-bottom: 2px solid transparent;
   color: var(--text-secondary);
   font-weight: 500;
+  text-decoration: none;
 }
 
-.tab[aria-selected="true"] {
+.tab[aria-current="page"] {
   color: var(--text-primary);
   border-bottom-color: var(--accent-cyan);
 }
@@ -925,11 +927,16 @@ input.control {
 
 .drawer-actions {
   display: flex;
+  /* Four actions on a ranked project: at most the header's width, so on a narrow phone they wrap instead of
+   * widening the panel. */
+  flex-wrap: wrap;
+  max-width: 100%;
   align-items: center;
   gap: var(--space-xs);
   flex-shrink: 0;
 }
 
+.drawer-page-link,
 .drawer-compare-btn,
 .drawer-github-link,
 .drawer [data-drawer-close] {
@@ -950,6 +957,7 @@ input.control {
   text-decoration: none;
 }
 
+.drawer-page-link:hover,
 .drawer-compare-btn:hover,
 .drawer-github-link:hover {
   background: var(--bg-surface-hover);

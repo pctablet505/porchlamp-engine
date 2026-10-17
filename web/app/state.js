@@ -3,18 +3,20 @@
 // next/prev/first/last controls, with `page`/`pageSize` part of the
 // URL-synced state.
 //
-// URL shape (the real query string, ruling U-16):
-//   ?persona=&eco=&q=&sort=&page=&page_size=&repo=owner%2Fname&tab=
-// persona/eco/sort/page/page_size/tab/repo changes use history.pushState
-// (each is a meaningful navigation step); `q` uses replaceState while
-// typing and one pushState when committed — app.js owns that distinction,
-// state.js only exposes the pure parse/serialize pair.
+// The address names the state (routes.js): the path names the view, or a
+// project's side panel (`/projects/<owner>/<name>/`), and the query holds
+// the fields that view reads, e.g. `/not-ranked/?persona=first_timer&eco=npm`.
+// Every view change and persona/eco/sort/page/page_size change uses
+// history.pushState (each is a meaningful navigation step); `q` uses
+// replaceState while typing and one pushState when committed — app.js owns
+// that distinction, state.js only exposes the pure parse/serialize pair.
 //
-// The pure functions (`defaultState`, `parseSearch`, `serializeSearch`,
+// The pure functions (`defaultState`, `parseLocation`, `serializeLocation`,
 // `reduce`, `countRankChanges`) are exported separately from the store
 // singleton so they stay testable without a DOM or a running server.
 
 import { parseRepoSlug } from "./livecheck.js";
+import { matchRoute, projectPath, routeById, routePath, routeTitle } from "./routes.js";
 
 const PERSISTED_THEME_KEY = "porchlamp-theme";
 //: Where earlier builds kept the theme choice. `readPersistedTheme` moves a
@@ -144,8 +146,9 @@ export function defaultState() {
     rankedPage: 1,
     rankedPageSize: DEFAULT_PAGE_SIZE,
     leaderboardSignature: null,
-    tab: "ranked", // "ranked" | "notranked" | "matrix" | "compare" | "configure" | "methodology"
-    repo: null, // "owner/name" | null
+    tab: "ranked", // a routes.js view: "ranked" | "notranked" | "matrix" | "compare" | "configure" | "methodology" | "notfound"
+    repo: null, // "owner/name" | null: the open side panel, at /projects/<owner>/<name>/
+    missingPath: null, // the address a "notfound" view answers (kept, so the address stays what was asked for)
     theme: "system", // "system" | "light" | "dark"
 
     // ----------------------------------------------------------- Matrix (B)
@@ -236,68 +239,188 @@ export const VALID_SORT_FIELDS = Object.freeze(new Set([
   "p_accessibility",
 ]));
 
-/** Parse `location.search` (with or without the leading "?") into a partial state. */
-export function parseSearch(search) {
-  const qs = new URLSearchParams(search.replace(/^\?/, ""));
+//: How each query field of an address reads into state and writes back. A value that does not parse is
+//: ignored (a hand-edited address never blanks the screen), and a field at its default is not written.
+const QUERY_FIELDS = Object.freeze({
+  persona: {
+    read: (value) => (VALID_PERSONAS.includes(value) ? { persona: value } : null),
+    write: (state) => (state.persona && state.persona !== "balanced" ? state.persona : null),
+  },
+  eco: { read: (value) => ({ ecosystem: value }), write: (state) => state.ecosystem || null },
+  q: { read: (value) => ({ query: value }), write: (state) => state.query || null },
+  sort: {
+    read: (value) => (VALID_SORT_FIELDS.has(value.startsWith("-") ? value.slice(1) : value) ? { sort: value } : null),
+    write: (state) => (state.sort && state.sort !== "rank" ? state.sort : null),
+  },
+  page: {
+    read: (value) => {
+      const n = parseInt(value, 10);
+      return Number.isFinite(n) && n >= 1 ? { page: n } : null;
+    },
+    write: (state) => (state.page && state.page !== 1 ? String(state.page) : null),
+  },
+  page_size: {
+    read: (value) => {
+      const n = parseInt(value, 10);
+      return PAGE_SIZES.includes(n) ? { pageSize: n } : null;
+    },
+    write: (state) => (state.pageSize && state.pageSize !== DEFAULT_PAGE_SIZE ? String(state.pageSize) : null),
+  },
+  w: {
+    read: (value) => {
+      const weights = parseWeightsParam(value);
+      return weights ? { weights } : null;
+    },
+    write: (state) =>
+      state.weights && !weightsEqual(state.weights, BALANCED_WEIGHTS) ? serializeWeightsParam(state.weights) : null,
+  },
+  cmp: {
+    read: (value) => ({ compareRepos: parseCompareParam(value).slice(0, COMPARE_MAX) }),
+    write: (state) =>
+      state.compareRepos && state.compareRepos.length > 0 ? serializeCompareParam(state.compareRepos) : null,
+  },
+});
+
+function parseQuery(search, keys) {
+  const qs = new URLSearchParams(String(search || "").replace(/^\?/, ""));
   const out = {};
-  if (qs.has("persona")) {
-    const p = qs.get("persona");
-    if (VALID_PERSONAS.includes(p)) out.persona = p;
-  }
-  if (qs.has("eco")) out.ecosystem = qs.get("eco");
-  if (qs.has("q")) out.query = qs.get("q");
-  if (qs.has("sort")) {
-    const s = qs.get("sort");
-    const field = s.startsWith("-") ? s.slice(1) : s;
-    if (VALID_SORT_FIELDS.has(field)) out.sort = s;
-  }
-  if (qs.has("page")) {
-    const n = parseInt(qs.get("page"), 10);
-    if (Number.isFinite(n) && n >= 1) out.page = n;
-  }
-  if (qs.has("page_size")) {
-    const n = parseInt(qs.get("page_size"), 10);
-    if (PAGE_SIZES.includes(n)) out.pageSize = n;
-  }
-  if (qs.has("repo")) out.repo = normalizeRepoParam(qs.get("repo"));
-  if (qs.has("tab")) {
-    const tab = qs.get("tab");
-    out.tab = VALID_TABS.includes(tab) ? tab : "ranked";
-  }
-  if (qs.has("w")) {
-    const weights = parseWeightsParam(qs.get("w"));
-    if (weights) out.weights = weights;
-  }
-  if (qs.has("cmp")) {
-    out.compareRepos = parseCompareParam(qs.get("cmp")).slice(0, COMPARE_MAX);
+  for (const key of keys) {
+    if (qs.has(key)) Object.assign(out, QUERY_FIELDS[key].read(qs.get(key)));
   }
   return out;
 }
 
-//: Every value `tab=` may legitimately hold (06 §2's primary tabs, plus the
-//: Leaderboard screen's own Ranked/Not-ranked sub-tabs) — an unrecognised
-//: value in a hand-edited URL falls back to "ranked", never a blank screen.
-export const VALID_TABS = Object.freeze(["ranked", "notranked", "matrix", "compare", "configure", "methodology"]);
-
-/** Serialize the URL-relevant slice of state back into a "?..." string ("" when every param is default). */
-export function serializeSearch(state) {
+function serializeQuery(state, keys) {
   const qs = new URLSearchParams();
-  if (state.persona && state.persona !== "balanced") qs.set("persona", state.persona);
-  if (state.ecosystem) qs.set("eco", state.ecosystem);
-  if (state.query) qs.set("q", state.query);
-  if (state.sort && state.sort !== "rank") qs.set("sort", state.sort);
-  if (state.page && state.page !== 1) qs.set("page", String(state.page));
-  if (state.pageSize && state.pageSize !== DEFAULT_PAGE_SIZE) qs.set("page_size", String(state.pageSize));
-  if (state.repo) qs.set("repo", state.repo);
-  if (state.tab && state.tab !== "ranked") qs.set("tab", state.tab);
-  if (state.weights && !weightsEqual(state.weights, BALANCED_WEIGHTS)) {
-    qs.set("w", serializeWeightsParam(state.weights));
-  }
-  if (state.compareRepos && state.compareRepos.length > 0) {
-    qs.set("cmp", serializeCompareParam(state.compareRepos));
+  for (const key of keys) {
+    const value = QUERY_FIELDS[key].write(state);
+    if (value !== null) qs.set(key, value);
   }
   const s = qs.toString();
   return s ? `?${s}` : "";
+}
+
+/** `{ owner, name }` of an "owner/name" key both of whose parts can stand in an address, else null. */
+function projectOf(repo) {
+  if (typeof repo !== "string") return null;
+  const match = matchRoute(`/projects/${repo}/`);
+  return match.route.id === "project" ? { owner: match.owner, name: match.name } : null;
+}
+
+/**
+ * The state an address names (routes.js): the route's view as `tab`; for a project's address, its side panel
+ * (`repo`, as written) over the leaderboard; for an address no route claims, the "notfound" view and that
+ * address (`missingPath`). The query fields the route reads come back too; any other field is ignored. Only
+ * what the address names is returned: the caller starts from the defaults.
+ */
+export function parseLocation(pathname, search = "") {
+  const match = matchRoute(pathname);
+  const { route } = match;
+  if (route.id === "notfound") return { tab: "notfound", missingPath: String(pathname || "/") };
+  if (route.id === "project") return { tab: "ranked", repo: `${match.owner}/${match.name}`, ...parseQuery(search, route.query) };
+  return { tab: route.id, ...parseQuery(search, route.query) };
+}
+
+/**
+ * The address of a state: an open panel's project address (with the persona when the view under it reads
+ * one), else the view's path; then the query fields that route reads, each only when it is not at its default.
+ * The "notfound" view keeps the address it answers.
+ */
+export function serializeLocation(state) {
+  const panel = projectOf(state.repo);
+  if (panel) {
+    const under = routeById(state.tab) || routeById("ranked");
+    const keys = routeById("project").query.filter((key) => under.query.includes(key));
+    return projectPath(panel.owner, panel.name) + serializeQuery(state, keys);
+  }
+  if (state.tab === "notfound") return state.missingPath || "/";
+  const route = routeById(state.tab);
+  if (!route || route.path === null || route.id === "project") return "/";
+  return route.path + serializeQuery(state, route.query);
+}
+
+/**
+ * The history entry's state for an address (`history.pushState`'s first argument): with a panel open, the
+ * address of the view under it (`under`) and the project's own spelling (`repo`; the address is lower case), so
+ * Back and Forward bring the panel back over the list it was opened from (`stateFromLocation`). Without a panel
+ * there is nothing to keep.
+ */
+export function historyEntryFor(state) {
+  return projectOf(state.repo) ? { under: serializeLocation({ ...state, repo: null }), repo: state.repo } : null;
+}
+
+/**
+ * `parseLocation`, with what the history entry kept for a project's panel (`historyEntryFor`): the view under it,
+ * and the project's spelling when it is the address's project. A direct load of a project's address has no entry
+ * state: its panel opens over the leaderboard, under the address's spelling.
+ */
+export function stateFromLocation(pathname, search = "", historyState = null) {
+  const parsed = parseLocation(pathname, search);
+  if (!parsed.repo || !historyState) return parsed;
+  const kept = historyState.repo;
+  const repo = typeof kept === "string" && kept.toLowerCase() === parsed.repo.toLowerCase() ? kept : parsed.repo;
+  const under = typeof historyState.under === "string" ? historyState.under : null;
+  const cut = under ? under.indexOf("?") : -1;
+  const view = under ? parseLocation(cut < 0 ? under : under.slice(0, cut), cut < 0 ? "" : under.slice(cut)) : null;
+  if (!view || view.repo || view.tab === "notfound") return { ...parsed, repo };
+  return { ...view, repo };
+}
+
+//: The values the root's `tab=` query field took before the views had their own paths; each is a routes.js id.
+//: Any other value meant the leaderboard.
+export const VALID_TABS = Object.freeze(["ranked", "notranked", "matrix", "compare", "configure", "methodology"]);
+
+/**
+ * Where an address that is not a view's own address goes; null when it is one.
+ *
+ * - The root's old query links, from before the views had paths (indexed, shared and linked from READMEs):
+ *   `?tab=<view>` and `#methodology` load that view's address (`load: true`, for `location.replace`), keeping
+ *   every query field that view reads (a field it cannot use, such as a lens on the matrix, is left out, so
+ *   the reader lands on the view's one address). `?repo=owner/name` opens that project's side panel where it
+ *   is (`load: false`): over the view `tab=` named, at the panel's address `href`, with `under` the address of
+ *   the view below it and `repo` the project as the link spelled it (`historyEntryFor`).
+ * - A project address in another letter case loads the lower-case one, where the export writes the page.
+ *
+ * An address that is loaded keeps its fragment (`?tab=methodology#gates` lands on `/methodology/#gates`).
+ */
+export function redirectTarget(pathname, search = "", hash = "") {
+  const match = matchRoute(pathname);
+  const fragment = hash && hash !== "#methodology" ? String(hash) : "";
+  if (match.route.id === "project") {
+    if (match.owner === match.owner.toLowerCase() && match.name === match.name.toLowerCase()) return null;
+    return { href: projectPath(match.owner, match.name) + String(search || "") + fragment, load: true };
+  }
+  if (match.route.id !== "ranked") return null;
+  if (hash === "#methodology") return { href: routePath("methodology"), load: true };
+  const qs = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  if (!qs.has("tab") && !qs.has("repo")) return null;
+  const tab = VALID_TABS.includes(qs.get("tab")) ? qs.get("tab") : "ranked";
+  const view = { ...defaultState(), tab, ...parseQuery(search, routeById(tab).query) };
+  const panel = qs.has("repo") ? projectOf(normalizeRepoParam(qs.get("repo"))) : null;
+  if (!panel) return { href: serializeLocation(view) + fragment, load: true };
+  const repo = `${panel.owner}/${panel.name}`;
+  return { href: serializeLocation({ ...view, repo }), under: serializeLocation(view), repo, load: false };
+}
+
+/**
+ * The address the app moves to when the reader opens `tab` from where they are (the primary nav, the
+ * Ranked/Not ranked links): the state SET_TAB gives, so each view comes back with its own page and sort, with
+ * no panel open. A view another page answers (the methodology page) is its plain address.
+ */
+export function hrefFor(state, tab) {
+  const route = routeById(tab);
+  if (!route || !route.shell) return routePath(tab) || "/";
+  return serializeLocation({ ...reduce(state, { type: "SET_TAB", tab }), repo: null });
+}
+
+/** The document title of a state: an open panel's project title (in the record's spelling once it has loaded), else its view's. */
+export function titleForState(state) {
+  const panel = projectOf(state.repo);
+  if (panel) {
+    const record = state.repoDetailByKey ? state.repoDetailByKey[state.repo] : null;
+    return routeTitle("project", record ? { owner: record.owner, name: record.name } : panel);
+  }
+  return routeTitle(routeById(state.tab) ? state.tab : "notfound");
 }
 
 
@@ -356,8 +479,8 @@ export function resolveOpenTargetKey(cursorKey, focusedRowKey) {
 }
 
 /**
- * U-7/U-15/U-16: a drawer opened from a URL (`?repo=owner/name`, at boot
- * OR restored by `popstate`) fetches exactly what a click-opened one does
+ * U-7/U-15/U-16: a drawer opened from an address (`/projects/<owner>/<name>/`,
+ * at boot OR restored by `popstate`) fetches exactly what a click-opened one does
  * (the record via `GET /v1/porchlamp/repos/{o}/{n}` and its evidence).
  * `owner`/`name` are `null` when there is nothing to load (`state.repo`
  * is falsy or malformed), so the caller can `if (parsed)` without a
@@ -797,10 +920,9 @@ export function writePersistedTheme(storage, theme) {
   }
 }
 
-/** Creates the mutable store singleton the app uses. */
-export function createStore(initialSearch = "") {
-  const parsed = parseSearch(initialSearch);
-  let state = { ...defaultState(), ...parsed };
+/** Creates the mutable store singleton the app uses, starting from what the address names (`stateFromLocation`). */
+export function createStore(initial = {}) {
+  let state = { ...defaultState(), ...initial };
   if (state.tab === "ranked") {
     state.rankedPage = state.page;
     state.rankedPageSize = state.pageSize;

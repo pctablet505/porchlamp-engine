@@ -11,9 +11,11 @@ paging) in the browser. The one computation the browser does itself is
 exported in ``reproject.json``.
 
 ``<out>`` is the whole site: ``web/app`` with ``api.js`` replaced by
-``web/static/api.js``, a generated ``data-version.js`` naming the data
-directory, and ``.nojekyll``. ``scripts/verify_static_export.py`` checks the
-exported site against the API, request by request.
+``web/static/api.js``, the app's page at each of its views' addresses (``web/app/404.html`` with that view's title
+and canonical address, at each path ``web/app/routes.js`` marks ``shell``: ``not-ranked/``, ``matrix/``, ...), a
+generated ``data-version.js`` naming the data directory, and ``.nojekyll``. GitHub Pages answers any other missing
+address with ``404.html``, where the app shows a project's panel or "page not found".
+``scripts/verify_static_export.py`` checks the exported site against the API, request by request.
 
 The primary checkout cannot import ``porchlamp.serve.app`` while it carries the
 owner's uncommitted rollback (``porchlamp.lakehouse.repositories_dump_hash``), so
@@ -22,10 +24,9 @@ run this from a clean tree::
     PYTHONPATH=<clean worktree> .venv/bin/python <clean worktree>/scripts/export_static.py \\
         --db ../cvi-scratch/bfs-run/cvi-L4a2.db --out ../cvi-scratch/static-site
 
-With ``--stats <stats-YYYY-MM-DD.json>`` (from ``surprise_stats.py``) the export also writes the report and
-methodology pages (``porchlamp/serve/report_pages.py``): ``black-holes/index.html``,
-``black-holes/<snapshot_id>/index.html`` with the CSV of the ranked projects beside it, and
-``methodology/index.html``, then one page per ranked project (``porchlamp/serve/project_pages.py``:
+With ``--stats <stats-YYYY-MM-DD.json>`` (from ``surprise_stats.py``) the export also writes the report pages
+(``porchlamp/serve/report_pages.py``): ``black-holes/index.html`` and ``black-holes/<snapshot_id>/index.html`` with
+the CSV of the ranked projects beside it, then one page per ranked project (``porchlamp/serve/project_pages.py``:
 ``projects/<owner>/<name>/index.html``, lower case), ``check/index.html`` with its search index
 ``check/projects.json``, and ``sitemap-projects.xml`` (the top 1,000 by balanced rank), then ten landing pages
 (``porchlamp/serve/landing_pages.py``): ``rust/``, ``python/``, ``javascript/``, ``go/``, ``java/``, ``c-cpp/`` and the lenses
@@ -42,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import re
 import shutil
@@ -56,6 +58,11 @@ from urllib.parse import quote
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB_APP = REPO_ROOT / "web" / "app"
 STATIC_API = REPO_ROOT / "web" / "static" / "api.js"
+#: The app's route table (its JSON lines sit between these two marker comments) and the app's page with no text of
+#: its own, which the export writes at each app view's address.
+ROUTES_JS = WEB_APP / "routes.js"
+APP_SHELL = WEB_APP / "404.html"
+_ROUTES_BEGIN, _ROUTES_END = "// routes:begin", "// routes:end"
 
 #: ``web/app`` entries the page never loads: its own test suite and the Node
 #: package marker that suite needs.
@@ -294,6 +301,52 @@ def _copy_web(out: Path) -> None:
     shutil.copy2(STATIC_API, out / "api.js")
 
 
+def app_routes() -> list[dict]:
+    """The app's route table, ``ROUTES`` of ``web/app/routes.js``: the JSON lines between its marker comments."""
+    lines = ROUTES_JS.read_text(encoding="utf-8").splitlines()
+    stripped = [line.strip() for line in lines]
+    try:
+        body = lines[stripped.index(_ROUTES_BEGIN) + 1 : stripped.index(_ROUTES_END)]
+        routes = json.loads("[" + "\n".join(body) + "]")
+    except ValueError as error:
+        raise SystemExit(f"export: {ROUTES_JS.name} has no JSON route table between {_ROUTES_BEGIN!r} and {_ROUTES_END!r}: {error}") from error
+    return routes
+
+
+def _view_page(shell: str, route: dict) -> str:
+    """``404.html`` with one view's title and canonical address: the app's page at that view's path."""
+    from porchlamp.serve.report_pages import SITE
+
+    head = (
+        f"<title>{html.escape(route['title'], quote=False)}</title>\n"
+        f'  <link rel="canonical" href="{html.escape(SITE + route["path"])}">'
+    )
+    page, found = re.subn(r"<title>[^<]*</title>", lambda _match: head, shell, count=1)
+    if not found:
+        raise SystemExit(f"export: {APP_SHELL.name} has no <title> for each view's page to replace")
+    return page
+
+
+def _write_view_pages(out: Path) -> list[str]:
+    """The app's page at the address of each view it draws in place (``shell`` in the route table), so a static host
+    serves every view at its own path; ``/`` is ``index.html`` itself. Written after every other page: a path two
+    pages claim stops the export."""
+    shell = APP_SHELL.read_text(encoding="utf-8")
+    written = []
+    for route in app_routes():
+        if not route["shell"] or route["path"] == "/":
+            continue
+        if not re.fullmatch(r"(/[a-z0-9-]+)+/", route["path"]):
+            raise SystemExit(f"export: the {route['id']} view's address {route['path']!r} is not a plain directory path")
+        target = out / route["path"].strip("/") / "index.html"
+        if target.exists():
+            raise SystemExit(f"export: {target.relative_to(out)} is both the {route['id']} view and another page")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_view_page(shell, route), encoding="utf-8")
+        written.append(route["path"])
+    return written
+
+
 def _scan_for_forbidden(out: Path) -> None:
     for path in sorted(out.rglob("*")):
         if not path.is_file() or path.suffix not in {".json", ".js", ".html", ".css", ".csv"}:
@@ -369,10 +422,8 @@ def _report_facts(
         raise SystemExit(f"export: {error}") from error
 
 
-def _write_report_pages(
-    out: Path, facts: Any, methodology: dict, boards: dict[str, dict], manifest: dict
-) -> None:
-    """The report (latest and frozen), its CSV, and the methodology page."""
+def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest: dict) -> None:
+    """The report (latest and frozen) and its CSV."""
     from porchlamp.core import constants
     from porchlamp.serve import report_pages
 
@@ -387,10 +438,6 @@ def _write_report_pages(
             encoding="utf-8",
         )
     (frozen / facts.csv_name).write_text(report_pages.ranked_csv(boards, lenses), encoding="utf-8")
-    (out / "methodology").mkdir(parents=True, exist_ok=True)
-    (out / "methodology" / "index.html").write_text(
-        report_pages.render_methodology(methodology, facts, source_db_sha256=sha), encoding="utf-8"
-    )
 
 
 def _write_project_pages(
@@ -552,9 +599,10 @@ def export(
     _dump(data / "manifest.json", manifest)
     _copy_web(out)
     if facts is not None:
-        _write_report_pages(out, facts, methodology, boards, manifest)
+        _write_report_pages(out, facts, boards, manifest)
         _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
         _write_landing_pages(out, facts, methodology, boards)
+    _write_view_pages(out)
     (out / "sitemap-pages.xml").write_text(_sitemap_pages(out, snapshot_id, snapshot["as_of"]), encoding="utf-8")
     (out / "data-version.js").write_text(
         f"// Generated by scripts/export_static.py: the data directory this build reads.\n"

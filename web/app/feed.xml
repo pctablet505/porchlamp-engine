@@ -23,7 +23,7 @@
 
   <entry>
     <title>Stars Don't Review Pull Requests: 19.9% of Active Open-Source Projects Are Black Holes</title>
-    <link href="https://porchlamp.org/?tab=notranked" rel="alternate" />
+    <link href="https://porchlamp.org/not-ranked/" rel="alternate" />
     <id>https://porchlamp.org/?tab=notranked</id>
     <updated>2026-10-17T00:00:00Z</updated>
     <summary>Of 3,613 licensed, maintained software projects receiving at least 10 outside pull requests in six months, 720 (19.9%) left most stranger pull requests with no human reply, review, or merge for 14 days. The black-hole share rises with star count: 16% at 1k–10k stars, 25% at 10k–50k, and 28% at 50k+ stars.</summary>
@@ -47,7 +47,7 @@
 
   <entry>
     <title>Leverage vs. Friction 2D Discovery Matrix (Sweet Spot, Crucible, Nursery, Graveyard)</title>
-    <link href="https://porchlamp.org/?tab=matrix" rel="alternate" />
+    <link href="https://porchlamp.org/matrix/" rel="alternate" />
     <id>https://porchlamp.org/?tab=matrix</id>
     <updated>2026-10-17T00:00:00Z</updated>
     <summary>Interactive two-dimensional mapping of leverage (criticality 50%, rigor 30%, governance 20%) against contributor friction (responsiveness 50%, governance 30%, accessibility 20%) to isolate Sweet Spot repositories.</summary>
@@ -55,7 +55,7 @@
 
   <entry>
     <title>Porchlamp Methodology, 18 Parameters, Stage-0 Gates &amp; SHA-256 Verification Hashes</title>
-    <link href="https://porchlamp.org/?tab=methodology" rel="alternate" />
+    <link href="https://porchlamp.org/methodology/" rel="alternate" />
     <id>https://porchlamp.org/?tab=methodology</id>
     <updated>2026-10-17T00:00:00Z</updated>
     <summary>Complete specification of Porchlamp's 5 pillars, 18 parameters, coverage-based tier ceilings (D-MISS-3), Stage-0 gating rules, and deterministic reproduction hashes (constants_hash 6e4f3e8e1d0c…, manifest_root f2eb5fc971de…).</summary>

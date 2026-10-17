@@ -335,17 +335,7 @@ def test_a_project_page_links_its_ecosystem_to_the_ecosystem_page(built):
     assert seen == set(ECOSYSTEM_SLUGS)
 
 
-def test_the_methodology_lens_names_link_to_the_four_lens_pages_and_balanced_stays_plain(built):
-    site = built[0]
-    section = re.search(r'<h2 id="lenses">(.*?)<h2 id="parameters">', _page(site, "methodology/index.html"), re.S).group(1)
-    links = re.findall(r'<th scope="row"><a href="([^"]*)">([^<]*)</a></th>', section)
-    assert sorted(href for href, _n in links) == sorted(f"../{slug}/" for slug in LENS_SLUGS)
-    names = report_pages.copy_js_map("PERSONA_NAMES")
-    assert {n for _h, n in links} == {names[k] for k in report_pages.LENS_SLUGS}
-    assert '<th scope="row">Balanced</th>' in section
-
-
-def test_a_planted_wrong_link_in_the_report_a_project_page_and_the_methodology_each_fail_verification(built, tmp_path):
+def test_a_planted_wrong_link_in_the_report_and_a_project_page_each_fail_verification(built, tmp_path):
     site, db, stats_path, *_ = built
     copy_dir = _copy_site(site, tmp_path)
     report = f"black-holes/{SNAPSHOT}/index.html"
@@ -354,9 +344,6 @@ def test_a_planted_wrong_link_in_the_report_a_project_page_and_the_methodology_e
     errors = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)["errors"]
     assert any(report in e and "links to the ecosystem pages" in e for e in errors), errors
     (copy_dir / report).write_text(text, encoding="utf-8")
-    _edit(copy_dir, "methodology/index.html", 'href="../career/"', 'href="../careers/"')
-    errors = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)["errors"]
-    assert any("methodology lens names link to the lens pages" in e for e in errors), errors
     project = sorted((copy_dir / "projects").rglob("index.html"))[0]
     rel = project.relative_to(copy_dir).as_posix()
     body = project.read_text(encoding="utf-8")

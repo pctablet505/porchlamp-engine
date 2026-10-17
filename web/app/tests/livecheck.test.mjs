@@ -43,7 +43,7 @@ import {
 import { renderNotInSnapshot } from "../components/livepanel.js";
 import { escapeHtml } from "../components/table.js";
 import { renderFilteredEmpty } from "../views/leaderboard.js";
-import { defaultState, reduce, parseSearch } from "../state.js";
+import { defaultState, reduce, redirectTarget } from "../state.js";
 import * as copy from "../copy.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -805,8 +805,9 @@ test("state: live checks are kept per repository (and under canonical fullName) 
   assert.equal(s3.liveCheckByKey["acme/widget"].outcome, renamed);
   assert.equal(s3.liveCheckByKey["Acme/Widget"].outcome, renamed);
 
-  assert.equal(parseSearch("?repo=bulk%2Frepo-0133.git").repo, "bulk/repo-0133");
-  assert.equal(parseSearch("?repo=https%3A%2F%2Fgithub.com%2Fbulk%2Frepo-0133%2F").repo, "bulk/repo-0133");
+  // An old ?repo= link with a .git suffix or a pasted GitHub address opens the panel at that project's address.
+  assert.equal(redirectTarget("/", "?repo=bulk%2Frepo-0133.git").href, "/projects/bulk/repo-0133/");
+  assert.equal(redirectTarget("/", "?repo=https%3A%2F%2Fgithub.com%2Fbulk%2Frepo-0133%2F").href, "/projects/bulk/repo-0133/");
   assert.equal(reduce(s0, { type: "OPEN_REPO", repo: "bulk/repo-0133.git" }).repo, "bulk/repo-0133");
 });
 

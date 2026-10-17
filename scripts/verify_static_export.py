@@ -658,7 +658,6 @@ LANDING_LENSES = {
     "ai-assisted": ("ai_assisted", "AI-assisted contributors"),
 }
 ECOSYSTEM_PAGE_SLUGS = {key: slug for slug, (key, _n, _r) in LANDING_ECOSYSTEMS.items()}
-LENS_PAGE_SLUGS = {key: slug for slug, (key, _p) in LANDING_LENSES.items()}
 LANDING_TOP = 50
 
 
@@ -673,8 +672,8 @@ def _judged_by_ecosystem(conn: sqlite3.Connection, sid: str) -> dict[str, tuple[
 
 
 def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any = None, log=print) -> dict:
-    """Recompute every number on the report pages, the methodology page and the CSV from the database, the
-    API and the stats file, and compare. ``{"checked": n, "errors": [...]}``; passing means no errors.
+    """Recompute every number on the report pages and the CSV from the database, the API and the stats file, and
+    compare; the methodology page must be the app's page at its address. ``{"checked": n, "errors": [...]}``; passing means no errors.
 
     The expected values come from sources the exporter's page code does not read in this function: the
     judged / black-hole counts from their own SQL on the database, the ranked count, the leaderboards and
@@ -858,36 +857,13 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
     else:
         ledger.errors.append(f"{csv_path.relative_to(site)} is missing")
 
-    # the methodology page
+    # the methodology page is the app's own view (web/app/routes.js), drawn in the browser from methodology.json and
+    # snapshot.json, which the request grid compares with the API: the page is the app at the view's address
     meth_path = site / "methodology" / "index.html"
     if meth_path.is_file():
         page = meth_path.read_text(encoding="utf-8")
         ledger.equal("methodology canonical", re.search(r'<link rel="canonical" href="([^"]*)"', page).group(1), f"{SITE_ORIGIN}/methodology/")
-        text = _plain(page)
-        for gate in methodology["gates"]:
-            squeeze = lambda s: re.sub(r"[\s`]", "", s)  # noqa: E731
-            ledger.equal(f"methodology gate {gate['id']} criterion", squeeze(gate["criterion"]) in squeeze(text), True)
-        for key in ("constants_hash", "manifest_root", "canonical_dump_hash", "code_commit", "reproduce_command"):
-            ledger.equal(f"methodology {key}", snapshot[key] in text, True)
-        ledger.equal("methodology database sha256", db_sha in text, True)
-        ledger.contains(
-            "methodology check-a-project line", page,
-            "To check a project, open https://porchlamp.org/projects/&lt;owner&gt;/&lt;name&gt;/ (lower case), "
-            'or search on the <a href="../check/">check page</a>.',
-        )
-        pillars = _rows(_section(page, "pillars"))
-        ledger.equal("methodology pillar weights", [r[1] for r in pillars], [f"{round(p['weight'] * 100)}%" for p in methodology["pillars"]])
-        lenses = _rows(_section(page, "lenses"))
-        ledger.equal("methodology lens weights", [r[1:] for r in lenses],
-                     [[f"{round(w[p['name']] * 100)}%" for p in methodology["pillars"]] for w in methodology["personas"]["presets"].values()])
-        ledger.equal("methodology lens names link to the lens pages",
-                     re.findall(r'<th scope="row"><a href="([^"]*)">', _section(page, "lenses")),
-                     [f"../{LENS_PAGE_SLUGS[name]}/" for name in methodology["personas"]["presets"] if name in LENS_PAGE_SLUGS])
-        params = _rows(_section(page, "parameters"))
-        ledger.equal("methodology parameter count", len(params), len(methodology["parameters"]))
-        ledger.equal("methodology parameter weights", [r[2] for r in params],
-                     [f"{round(p['weight_within_pillar'] * 100)}%" for p in methodology["parameters"]])
-        ledger.equal("methodology parameter min counts", [r[3] for r in params], ["n/a" if p["min_n"] is None else str(p["min_n"]) for p in methodology["parameters"]])
+        ledger.equal("methodology is the app's page", '<script type="module" src="/app.js"></script>' in page, True)
     else:
         ledger.errors.append("methodology/index.html is missing")
 

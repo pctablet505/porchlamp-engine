@@ -539,7 +539,12 @@ def render_project(
             {"@type": "ListItem", "position": 2, "name": f"{owner}/{name}", "item": canonical},
         ],
     }
-    return page(title=title, description=description, canonical=canonical, rel=rel, body=body, ld=ld, nav_current="")
+    # The page's address is also the project's side panel in the app: web/app/back-forward.js lets Back and Forward
+    # between the app's entries load the app again (the page's one script).
+    return page(
+        title=title, description=description, canonical=canonical, rel=rel, body=body, ld=ld, nav_current="",
+        scripts=f'  <script type="module" src="{rel}back-forward.js"></script>\n',
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -571,7 +576,7 @@ def render_check(f: Facts, *, ranked: int, example: Mapping[str, Any]) -> str:
         </div>
         <ul class="check-results" id="check-results" aria-live="polite" data-check-results></ul>
         <noscript><p>Search needs JavaScript. Without it, open the address above, or browse the <a href="{rel}">rankings</a>.</p></noscript>
-        <p class="note">Only the {_t(fmt_int(ranked))} ranked projects have a page. A project that is not ranked, and the reason, is listed under <a href="{rel}?tab=notranked">Not ranked</a>.</p>
+        <p class="note">Only the {_t(fmt_int(ranked))} ranked projects have a page. A project that is not ranked, and the reason, is listed under <a href="{rel}not-ranked/">Not ranked</a>.</p>
         <footer class="report-footer"><p><a href="{rel}">Porchlamp rankings</a> · <a href="{rel}black-holes/">Report</a> · <a href="{rel}methodology/">Methodology</a> · <a href="{GITHUB_REPO}">Data on GitHub</a></p></footer>
       </article>"""
     ld = {

@@ -140,6 +140,29 @@ def test_the_site_is_web_app_with_only_api_js_replaced(site):
     assert (out / "data" / SNAPSHOT_ID / "snapshot.json").is_file()
 
 
+def test_the_export_writes_the_app_s_page_at_every_view_s_address_and_404_html(site):
+    """A static host serves a view only where a file is: each view the app draws in place (web/app/routes.js
+    ``shell``) gets the app's page at its address, with that view's title and canonical address, and every other
+    missing address is answered by 404.html. Every address those pages fetch starts at the site root, so the same
+    page works at any depth."""
+    _db, out = site
+    shell = (export_static.WEB_APP / "404.html").read_text(encoding="utf-8")
+    views = [route for route in export_static.app_routes() if route["shell"]]
+    assert [route["path"] for route in views] == ["/", "/not-ranked/", "/matrix/", "/compare/", "/weights/", "/methodology/"]
+    assert (out / "index.html").read_bytes() == (export_static.WEB_APP / "index.html").read_bytes()
+    assert (out / "404.html").read_text(encoding="utf-8") == shell
+    for route in views[1:]:
+        page = (out / route["path"].strip("/") / "index.html").read_text(encoding="utf-8")
+        assert re.findall(r"<title>([^<]*)</title>", page) == [route["title"]], route["id"]
+        assert re.findall(r'<link rel="canonical" href="([^"]*)">', page) == [f"https://porchlamp.org{route['path']}"], route["id"]
+        # apart from the title and the canonical address, the page is 404.html: the app, with no page text of its own
+        assert re.sub(r'<title>[^<]*</title>\n  <link rel="canonical" href="[^"]*">', "", page) == re.sub(r"<title>[^<]*</title>", "", shell)
+    for page in [out / "index.html", out / "404.html", *(out / r["path"].strip("/") / "index.html" for r in views[1:])]:
+        urls = re.findall(r'<(?:link rel="(?:icon|stylesheet)"[^>]*href|script[^>]*src|img[^>]*src)="([^"]*)"', page.read_text(encoding="utf-8"))
+        assert len(urls) >= 6, (page, urls)
+        assert all(url.startswith("/") and not url.startswith("//") for url in urls), (page, urls)
+
+
 def test_answers_past_the_string_limit_are_streamed_not_stringified(tmp_path):
     """The 11,000-repo snapshot of 2026-10 has about 1 GB of answers, more than V8
     can hold in one string: one JSON.stringify of them all threw "RangeError:

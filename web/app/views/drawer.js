@@ -33,6 +33,7 @@ import * as copy from "../copy.js";
 import { renderCoverageBadge, renderQuadrant, renderTierCell, renderSuspicionIcon } from "../components/badge.js";
 import { PILLAR_ORDER } from "../components/table.js";
 import { renderNotInSnapshot } from "../components/livepanel.js";
+import { projectPath } from "../routes.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -676,7 +677,13 @@ export function renderDrawer(state, opts = {}) {
   const githubLink = `<a class="btn btn-secondary drawer-github-link" href="${escapeHtml(githubUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(copy.DRAWER_GITHUB_LABEL)}</a>`;
   const compareBtn = `<button type="button" class="btn btn-secondary drawer-compare-btn" data-drawer-compare="${escapeHtml(repoKey)}">${escapeHtml(copy.DRAWER_COMPARE_LABEL)}</button>`;
   const closeButton = `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button>`;
-  const headerActions = `<div class="drawer-actions">${githubLink}${compareBtn}${closeButton}</div>`;
+  // A project ranked under the balanced lens has its own page at the panel's address (the export writes one per
+  // ranked project); a plain link loads it. Any other project's address answers with this panel only.
+  const pageLink =
+    classifyKind(found) === "rated"
+      ? `<a class="btn btn-secondary drawer-page-link" href="${escapeHtml(projectPath(found.owner, found.name))}" data-drawer-page="true">${escapeHtml(copy.DRAWER_PAGE_LABEL)}</a>`
+      : "";
+  const headerActions = `<div class="drawer-actions">${pageLink}${githubLink}${compareBtn}${closeButton}</div>`;
   const identity = renderIdentity(kind, row, activePersona);
 
   const evidenceRows = state.evidenceByRepo[state.repo];
