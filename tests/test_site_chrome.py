@@ -71,8 +71,8 @@ def _pages(site: Path) -> dict[str, Page]:
         if route["shell"]:
             pages["index.html" if route["path"] == "/" else route["path"].strip("/") + "/index.html"] = app(route["id"])
     pages["404.html"] = app("notfound")
-    for rel in REPORT_PAGES:
-        pages[rel] = Page(json.dumps({"nav": "report"}), "page")
+    # /black-holes/ is the app's report view (a route above); its frozen copy is the same view on a page with no app
+    pages[REPORT_PAGES[1]] = Page(json.dumps({"view": "report"}), "page")
     for path in sorted(site.glob("projects/*/*/index.html")):
         pages[path.relative_to(site).as_posix()] = Page(nowhere, "project")
     pages["check/index.html"] = Page(nowhere, "check")
@@ -193,8 +193,9 @@ def test_every_page_carries_the_header_nav_and_footer_chrome_js_draws(built, tmp
     pages = _pages(site)
     assert len(pages) > 300 and {page.scripts for page in pages.values()} == {"app", "page", "project", "check"}
     expected = _expected_chrome(site, pages, tmp_path)
-    assert len({page.chrome for page in pages.values()}) == 9  # seven app views, the report, every page with no nav entry
-    assert expected[json.dumps({"nav": "report"})]["nav"].count('aria-current="page"') == 1
+    assert len({page.chrome for page in pages.values()}) == 9  # eight app views (the report among them), every page with no nav entry
+    report = expected[json.dumps({"view": "report"})]["nav"]
+    assert report.count('aria-current="page"') == 1 and 'href="/black-holes/" data-route-tab="report" aria-current="page"' in report
     assert 'aria-current' not in expected[json.dumps({"nav": None})]["nav"]
     assert chrome_problems(site, pages, expected) == []
 

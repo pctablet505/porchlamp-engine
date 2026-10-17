@@ -141,7 +141,7 @@ export function defaultState() {
     rankedPage: 1,
     rankedPageSize: DEFAULT_PAGE_SIZE,
     leaderboardSignature: null,
-    tab: "ranked", // a routes.js view: "ranked" | "notranked" | "matrix" | "compare" | "configure" | "methodology" | "notfound"
+    tab: "ranked", // a routes.js view: "ranked" | "notranked" | "matrix" | "compare" | "configure" | "methodology" | "report" | "notfound"
     repo: null, // "owner/name" | null: the open side panel, at /projects/<owner>/<name>/
     missingPath: null, // the address a "notfound" view answers (kept, so the address stays what was asked for)
     theme: "system", // the theme in force, as theme-init.js applied it: "system" | "light" | "dark"
@@ -181,6 +181,11 @@ export function defaultState() {
     // is none (the API's own server) or until it has loaded; `manifestLoad` is "idle" | "loading" | "done".
     sourceDbSha256: null,
     manifestLoad: "idle",
+
+    // ----------------------------------------------------- Report (/black-holes/, api.js fetchReport)
+    report: null,
+    reportLoading: false,
+    reportError: null,
 
     leaderboard: null, // the CURRENT page's LeaderboardResponse
     leaderboardLoading: false, // true only when there is NO data yet (skeleton)
@@ -412,13 +417,15 @@ export function hrefFor(state, tab) {
   return serializeLocation({ ...reduce(state, { type: "SET_TAB", tab }), repo: null });
 }
 
-/** The document title of a state: an open panel's project title (in the record's spelling once it has loaded), else its view's. */
+/** The document title of a state: an open panel's project title (in the record's spelling once it has loaded), the
+ *  report's own once it has loaded (it names its month), else its view's. */
 export function titleForState(state) {
   const panel = projectOf(state.repo);
   if (panel) {
     const record = state.repoDetailByKey ? state.repoDetailByKey[state.repo] : null;
     return routeTitle("project", record ? { owner: record.owner, name: record.name } : panel);
   }
+  if (state.tab === "report" && state.report && state.report.title) return state.report.title;
   return routeTitle(routeById(state.tab) ? state.tab : "notfound");
 }
 
@@ -885,6 +892,12 @@ export function reduce(state, action) {
       return { ...state, methodologyLoading: false, methodology: action.data, methodologyError: null };
     case "METHODOLOGY_ERROR":
       return { ...state, methodologyLoading: false, methodologyError: action.error };
+    case "REPORT_LOADING":
+      return { ...state, reportLoading: true, reportError: null };
+    case "REPORT_OK":
+      return { ...state, reportLoading: false, report: action.data, reportError: null };
+    case "REPORT_ERROR":
+      return { ...state, reportLoading: false, reportError: action.error };
     case "MANIFEST_LOADING":
       return { ...state, manifestLoad: "loading" };
     case "MANIFEST_DONE":

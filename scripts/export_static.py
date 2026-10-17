@@ -16,7 +16,7 @@ and canonical address, at each path ``web/app/routes.js`` marks ``shell``: ``not
 generated ``data-version.js`` naming the data directory, and ``.nojekyll``. GitHub Pages answers any other missing
 address with ``404.html``, where the app shows a project's panel or "page not found". Every page is built from
 ``web/app/404.html``; once all are written, ``web/prerender.mjs`` (Node) draws the one header, nav and footer into
-each (``web/app/components/chrome.js``) and the methodology view into ``methodology/`` (:func:`_prerender`).
+each (``web/app/components/chrome.js``), and the methodology and report views into their pages (:func:`_prerender`).
 ``scripts/verify_static_export.py`` checks the exported site against the API, request by request.
 
 The primary checkout cannot import ``porchlamp.serve.app`` while it carries the
@@ -26,9 +26,12 @@ run this from a clean tree::
     PYTHONPATH=<clean worktree> .venv/bin/python <clean worktree>/scripts/export_static.py \\
         --db ../cvi-scratch/bfs-run/cvi-L4a2.db --out ../cvi-scratch/static-site
 
-With ``--stats <stats-YYYY-MM-DD.json>`` (from ``surprise_stats.py``) the export also writes the report pages
-(``porchlamp/serve/report_pages.py``): ``black-holes/index.html`` and ``black-holes/<snapshot_id>/index.html`` with
-the CSV of the ranked projects beside it, then one page per ranked project (``porchlamp/serve/project_pages.py``:
+With ``--stats <stats-YYYY-MM-DD.json>`` (from ``surprise_stats.py``) the export also writes the report
+(``porchlamp/serve/report_pages.py``): its data, ``data/<snapshot_id>/report.json``, and its two pages, which the
+prerender draws the report view into: ``black-holes/index.html``, the app's page, and the frozen copy
+``black-holes/<snapshot_id>/index.html``, with its own ``styles.css`` and the CSV of the ranked projects beside it.
+Older frozen copies are not written here: a publish carries them from the published tree. Then one page per ranked
+project (``porchlamp/serve/project_pages.py``:
 ``projects/<owner>/<name>/index.html``, lower case), ``check/index.html`` with its search index
 ``check/projects.json``, and ``sitemap-projects.xml`` (every project page, in balanced-rank order), then ten landing pages
 (``porchlamp/serve/landing_pages.py``): ``rust/``, ``python/``, ``javascript/``, ``go/``, ``java/``, ``c-cpp/`` and the lenses
@@ -370,13 +373,18 @@ def view_page(route: dict, template: Path = APP_SHELL) -> str:
         raise SystemExit(f"export: {error}") from error
 
 
+#: Views whose page another writer makes, with a head of its own: the report (:func:`_write_report_pages`, which
+#: needs ``--stats``; without it ``/black-holes/`` is 404.html, where the app says the report did not load).
+VIEWS_WRITTEN_ELSEWHERE = frozenset({"report"})
+
+
 def _write_view_pages(out: Path) -> list[dict]:
     """The app's page at the address of each view it draws in place (``shell`` in the route table), so a static host
     serves every view at its own path; ``/`` is ``index.html`` itself. Written after every other page: a path two
     pages claim stops the export. Returns each page for :func:`_prerender`."""
     written = []
     for route in app_routes():
-        if not route["shell"] or route["path"] == "/":
+        if not route["shell"] or route["path"] == "/" or route["id"] in VIEWS_WRITTEN_ELSEWHERE:
             continue
         if not re.fullmatch(r"(/[a-z0-9-]+)+/", route["path"]):
             raise SystemExit(f"export: the {route['id']} view's address {route['path']!r} is not a plain directory path")
@@ -398,9 +406,10 @@ def data_version_js(snapshot_id: str) -> str:
 
 
 def _prerender(out: Path, pages: list[dict]) -> None:
-    """Draws every page's header, nav and footer, and the methodology view into its page (``web/prerender.mjs``), from
-    the data this export wrote, loaded through the site's own api.js. ``pages``: ``{"path", "view"}`` for a page of
-    the app, ``{"path", "nav"}`` (its nav entry, or None) for any other. The page list lives outside the site."""
+    """Draws every page's header, nav and footer, and the methodology and report views into their pages
+    (``web/prerender.mjs``), from the data this export wrote, loaded through the site's own api.js. ``pages``:
+    ``{"path", "view"}`` for a page of the app (``"frozen": true`` for the report's frozen copy), ``{"path", "nav"}``
+    (its nav entry, or None) for any other. The page list lives outside the site."""
     node = find_node()
     if node is None:
         raise SystemExit("export: no Node.js interpreter for web/prerender.mjs (PATH, PORCHLAMP_NODE_BIN or ~/.local/opt/node-*)")
@@ -489,23 +498,39 @@ def _report_facts(
         raise SystemExit(f"export: {error}") from error
 
 
+def _report_json(facts: Any) -> dict:
+    """``report.json``: the report's numbers and its guarded sentences (``report_pages.report_json``)."""
+    from porchlamp.serve import report_pages
+
+    try:
+        return report_pages.report_json(facts)
+    except report_pages.ReportError as error:
+        raise SystemExit(f"export: {error}") from error
+
+
 def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest: dict) -> list[dict]:
-    """The report (latest and frozen) and its CSV; returns the two pages for :func:`_prerender`."""
+    """The report's two pages, for the prerender to draw the report view into: ``black-holes/index.html``, the app's
+    page, and the frozen copy beside its own ``styles.css`` and the CSV. Returns them for :func:`_prerender`."""
     from porchlamp.core import constants
     from porchlamp.serve import report_pages
 
     exported_on = date.fromisoformat(manifest["exported_at"][:10])
-    sha = manifest["source_db_sha256"]
     lenses = sorted(constants.PERSONA_PRESETS)
     frozen = out / "black-holes" / facts.snapshot_id
-    for target, is_frozen in ((out / "black-holes", False), (frozen, True)):
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "index.html").write_text(
-            report_pages.render_report(facts, frozen=is_frozen, exported_on=exported_on, source_db_sha256=sha),
-            encoding="utf-8",
+    frozen.mkdir(parents=True, exist_ok=True)
+    try:
+        (out / "black-holes" / "index.html").write_text(
+            report_pages.report_page(facts, frozen=False, exported_on=exported_on), encoding="utf-8"
         )
+        (frozen / "index.html").write_text(report_pages.report_page(facts, frozen=True, exported_on=exported_on), encoding="utf-8")
+        (frozen / "styles.css").write_text(report_pages.frozen_stylesheet(), encoding="utf-8")
+    except report_pages.ReportError as error:
+        raise SystemExit(f"export: {error}") from error
     (frozen / facts.csv_name).write_text(report_pages.ranked_csv(boards, lenses), encoding="utf-8")
-    return [{"path": f"black-holes/{p}index.html", "nav": "report"} for p in ("", f"{facts.snapshot_id}/")]
+    return [
+        {"path": "black-holes/index.html", "view": "report"},
+        {"path": f"black-holes/{facts.snapshot_id}/index.html", "view": "report", "frozen": True},
+    ]
 
 
 def _write_project_pages(
@@ -653,6 +678,7 @@ def export(
         facts = None
         if stats is not None:
             facts = _report_facts(conn, snapshot, methodology, stats, boards, details)
+            sizes["report.json"] = _dump(data / "report.json", _report_json(facts))
         repo_bytes = sum(_dump(data / "repos" / f"{b}.json", records) for b, records in buckets.items())
         sizes[f"repos/ ({len(buckets)} files)"] = repo_bytes
         sizes["reproject.json"] = _dump(data / "reproject.json", _export_reproject(conn, snapshot_id, details))

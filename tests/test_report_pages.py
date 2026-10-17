@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import csv
 import importlib.util
+import html
 import json
 import re
 import shutil
@@ -250,18 +251,42 @@ def test_verify_report_proves_every_number_and_checks_more_than_thirty(built):
     assert verify_static_export.check_sitemap(site) == []
 
 
+def _fill(template: str, values: dict) -> str:
+    """A report.json template as the view fills it, as plain text."""
+    return re.sub(r"\{([a-z][a-z0-9_]*)\}", lambda m: values[m.group(1)], template)
+
+
 @pytest.mark.parametrize("rel", PAGES[:2])
 def test_a_planted_wrong_number_on_a_report_page_fails_verification_by_name(built, tmp_path, rel):
     site, db, stats_path, stats, _holes = built
     copy_dir = tmp_path / "site"
     shutil.copytree(site, copy_dir)
     page = (copy_dir / rel).read_text(encoding="utf-8")
-    wrong = f"{stats['black_holes']:,}"
-    paragraph = re.search(r'<p class="finding" id="finding-share">.*?</p>', page, re.S).group(0)
-    assert wrong in paragraph
-    (copy_dir / rel).write_text(page.replace(paragraph, paragraph.replace(wrong, f"{stats['black_holes'] + 1:,}", 1)), encoding="utf-8")
+    right = f"{stats['black_holes']:,}"
+    sentence = re.search(r'<p class="report-figure-text">.*?</p>', page, re.S).group(0)
+    hook = f'<span data-v="black_holes">{right}</span>'
+    assert hook in sentence
+    planted = sentence.replace(hook, f'<span data-v="black_holes">{stats["black_holes"] + 1:,}</span>')
+    (copy_dir / rel).write_text(page.replace(sentence, planted), encoding="utf-8")
     result = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)
-    assert any(rel in error and "finding-share" in error and wrong in error for error in result["errors"]), result["errors"]
+    assert any(error.startswith(f"{rel}: hook 'black_holes' shows") and right in error for error in result["errors"]), result["errors"]
+    assert any(error.startswith(f"{rel} #finding-share sentence") for error in result["errors"]), result["errors"]
+
+
+def test_a_changed_word_on_a_report_page_fails_verification_as_a_redraw(built, tmp_path):
+    """A copy.js word no sentence check reads: only the re-draw of the report from the values the verifier worked out
+    (ENG-17) sees it, and the frozen copy no longer matches the latest."""
+    site, db, stats_path, *_ = built
+    copy_dir = tmp_path / "site"
+    shutil.copytree(site, copy_dir)
+    caveat = report_pages.copy_js_string("REPORT_STARS_CAVEAT")
+    page = (copy_dir / PAGES[0]).read_text(encoding="utf-8")
+    assert page.count(caveat) == 1
+    (copy_dir / PAGES[0]).write_text(page.replace(caveat, caveat.replace("roughly fixed", "about fixed")), encoding="utf-8")
+    errors = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)["errors"]
+    assert sorted(error.split(":")[0] for error in errors) == [
+        "latest and frozen draw the same report", "the report is what the prerender draws from the values worked out here (bytes)",
+    ], errors
 
 
 def test_the_checker_api_serves_the_black_hole_evidence_the_export_wrote(built):
@@ -367,7 +392,8 @@ def test_a_share_of_exactly_a_quarter_is_more_than_1_in_5_never_1_in_4(built):
     facts = report_pages.build_facts(**inputs)
     assert facts.black_holes * 4 == facts.judged
     assert facts.one_in == 5
-    assert {i: lead for i, lead, _rest in report_pages.finding_paragraphs(facts)}["finding-share"] == "More than 1 in 5."
+    record = report_pages.report_json(facts)
+    assert _fill(record["findings"][0]["lead"], record["values"]) == "More than 1 in 5."
 
 
 def test_a_star_band_below_the_one_before_it_fails_the_guard(built):
@@ -380,7 +406,7 @@ def test_a_star_band_below_the_one_before_it_fails_the_guard(built):
         report_pages.build_facts(**inputs)
 
 
-def test_pypi_and_npm_must_each_beat_the_other_four_ecosystems(built):
+def test_python_and_javascript_must_each_beat_the_other_four_ecosystems(built):
     inputs = _inputs(built)
     # Turn six maven projects into black holes, so Maven's share passes npm's.
     rows, extra = [], 0
@@ -397,7 +423,39 @@ def test_pypi_and_npm_must_each_beat_the_other_four_ecosystems(built):
     )
     inputs["api_black_holes"] += extra
     inputs["evidence"] = inputs["evidence"] + inputs["evidence"][:extra]
-    with pytest.raises(report_pages.ReportError, match="guard: 'PyPI and npm go quiet more often"):
+    with pytest.raises(
+        report_pages.ReportError,
+        match=r"guard: 'Python and JavaScript projects go quiet more often than Rust, Go, Java or C and C\+\+ projects\.' is false",
+    ):
+        report_pages.build_facts(**inputs)
+
+
+@pytest.mark.parametrize("rho", [0.6, -0.6, 0.2, -0.2])
+def test_stars_barely_predict_an_answer_needs_a_rank_correlation_under_two_tenths(built, rho):
+    """"Barely" is a very weak correlation, under 0.2 either way (Evans' scale); at 0.2 the sentence would overstate it,
+    and the export stops for new words instead of choosing them."""
+    inputs = _inputs(built)
+    inputs["stats"]["spearman"]["porchlamp"]["rho"] = rho
+    with pytest.raises(
+        report_pages.ReportError,
+        match=r"guard: 'Stars barely predict an answer' needs a rank correlation under 0\.2 either way, got .*: the sentence "
+        r"needs new words, and new words need the owner",
+    ):
+        report_pages.build_facts(**inputs)
+
+
+@pytest.mark.parametrize("rho", [0.19, -0.19])
+def test_a_rank_correlation_just_under_two_tenths_keeps_stars_barely_predict_an_answer(built, rho):
+    inputs = _inputs(built)
+    inputs["stats"]["spearman"]["porchlamp"]["rho"] = rho
+    assert report_pages.build_facts(**inputs).rho == rho
+
+
+def test_fame_is_no_guarantee_needs_a_black_hole_among_the_most_starred(built):
+    inputs = _inputs(built)
+    assert inputs["stats"]["top100_stars_fate"]["black_hole"] > 0
+    inputs["stats"]["top100_stars_fate"]["black_hole"] = 0
+    with pytest.raises(report_pages.ReportError, match="guard: 'Fame is no guarantee' needs a black hole among the 100 most-starred"):
         report_pages.build_facts(**inputs)
 
 
@@ -483,7 +541,8 @@ def test_pages_load_nothing_from_outside(built, rel):
     site = built[0]
     text = _page(site, rel)
     assert external_violations(text) == []
-    assert script_srcs(text) == list(report_pages.PAGE_SCRIPTS["page"])
+    # the latest is the app's page, which the app takes over; the frozen copy loads no app
+    assert script_srcs(text) == list(report_pages.PAGE_SCRIPTS["app" if rel == PAGES[0] else "page"])
     assert inline_scripts(text) == ['<script type="application/ld+json">']
     assert "@font-face" not in text and "fonts.googleapis" not in text
 
@@ -491,7 +550,7 @@ def test_pages_load_nothing_from_outside(built, rel):
 def test_a_script_planted_in_the_template_turns_the_guard_red(built, monkeypatch):
     inputs = _inputs(built)
     facts = report_pages.build_facts(**inputs)
-    clean = report_pages.render_report(facts, frozen=False, exported_on=date(2026, 10, 17), source_db_sha256="a" * 64)
+    clean = report_pages.report_page(facts, frozen=False, exported_on=date(2026, 10, 17))
     assert external_violations(clean) == []
     original = report_pages.app_page
     monkeypatch.setattr(
@@ -499,7 +558,7 @@ def test_a_script_planted_in_the_template_turns_the_guard_red(built, monkeypatch
         "app_page",
         lambda *a, **k: original(*a, **k).replace("</body>", '<script src="https://cdn.example.com/x.js"></script></body>'),
     )
-    planted = report_pages.render_report(facts, frozen=False, exported_on=date(2026, 10, 17), source_db_sha256="a" * 64)
+    planted = report_pages.report_page(facts, frozen=False, exported_on=date(2026, 10, 17))
     assert external_violations(planted), "the guard did not see the planted script"
 
 
@@ -515,16 +574,16 @@ def test_json_ld_matches_the_visible_text(built, rel):
     page = _page(site, rel)
     nodes = {node["@type"]: node for node in _ld(page)["@graph"]}
     article, dataset = nodes["Article"], nodes["Dataset"]
-    h1 = re.search(r"<h1>(.*?)</h1>", page).group(1)
-    assert article["headline"] == h1
+    h1 = html.unescape(re.search(r'<h1 class="view-heading" id="report-title">(.*?)</h1>', page).group(1))
+    assert article["headline"] == h1 == report_pages.copy_js_string("REPORT_H1")
     assert dataset["license"] == "https://creativecommons.org/licenses/by/4.0/"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}", dataset["temporalCoverage"])
     [download] = dataset["distribution"]
     assert download["encodingFormat"] == "text/csv"
     assert download["contentUrl"] == f"https://porchlamp.org/black-holes/{SNAPSHOT}/porchlamp-{SNAPSHOT}-ranked.csv"
-    assert f'href="{download["contentUrl"].rsplit("/", 1)[1]}"' in page or f'href="{SNAPSHOT}/{download["contentUrl"].rsplit("/", 1)[1]}"' in page
+    assert f'href="{download["contentUrl"].removeprefix("https://porchlamp.org")}"' in page
     assert 50 <= len(dataset["description"]) <= 5000
-    visible = re.search(r'id="finding-share">.*?\(([\d.]+)%\)', page, re.S).group(1)
+    visible = re.search(r'<p class="report-figure-text">.*?\(<span data-v="share">([\d.]+)</span>%\)', page, re.S).group(1)
     assert f"({visible}%)" in dataset["description"]
     assert article["author"] == {"@id": "https://porchlamp.org/#creator"}
     assert dataset["creator"] == {"@id": "https://porchlamp.org/#creator"}
@@ -548,22 +607,170 @@ def test_each_page_is_its_own_canonical_and_the_titles_differ(built):
     assert titles[2] == "Porchlamp methodology: how open-source projects are measured and ranked | Porchlamp"
 
 
-def test_the_report_copy_follows_the_brief(built):
+def test_the_report_follows_the_approved_design(built):
+    """The design (report-design/SPEC.md): the lead figure, then four findings as cards, each chart a real table
+    with its caption, no "numbers behind the chart" disclosure and no "#" anchors, the old ids kept, the shorter
+    intro, the frozen copy linked from the cite, and the same report on the frozen copy."""
     site = built[0]
     page = _page(site, PAGES[0])
-    for ident in ("finding-share", "finding-stars", "finding-top100", "finding-correlation", "finding-prs"):
-        assert re.search(rf'<p class="finding" id="{ident}">.*?<a class="anchor" href="#{ident}"', page, re.S), ident
-    for heading in ("Key findings", "Do popular projects answer fewer pull requests?",
-                    "Which package ecosystems answer outside pull requests?", "How we measured", "What this is not",
-                    "Download the data", "Cite this report"):
-        assert f">{heading}</h2>" in page, heading
-    assert page.count("<details><summary>The numbers behind the chart</summary>") == 2
-    body = re.search(r"<main.*?</main>", page, re.S).group(0)  # the chrome draws its own icons outside <main>
-    assert body.count("<svg ") == 2 and body.count('role="img"') == 2
-    assert "<title>" in re.search(r"<svg.*?</svg>", body, re.S).group(0)
-    assert 'href="../methodology/"' in page and 'href="https://github.com/pctablet505/porchlamp"' in page
+    main = re.search(r"<main.*?</main>", page, re.S).group(0)  # the chrome draws its own icons outside <main>
+    assert re.search(r'<section class="report-lead" id="finding-share" aria-labelledby="finding-share-lead">', main)
+    for ident in ("finding-stars", "finding-top100", "finding-correlation", "finding-prs"):
+        assert f'<div class="finding" id="{ident}"><h3 class="finding-lead">' in main, ident
+    for ident in ("key-findings", "stars", "ecosystems", "how-we-measured", "what-this-is-not", "download", "cite"):
+        assert f' id="{ident}"' in main, ident
+    for name in ("REPORT_FINDINGS_HEADING", "REPORT_STARS_HEADING", "REPORT_ECOSYSTEMS_HEADING", "REPORT_METHOD_HEADING",
+                 "REPORT_LIMITS_HEADING", "REPORT_DOWNLOAD_HEADING", "REPORT_CITE_HEADING"):
+        assert f">{report_pages.copy_js_string(name)}</h2>" in main, name
+    assert "<details" not in main and 'class="anchor"' not in main and "<svg " not in main
+    assert main.count('<table class="bar-table" role="table"><caption class="sr-only">') == 2
+    intro = re.search(r'<p class="report-intro">(.*?)</p>', main).group(1)
+    assert intro == "You send a small fix to a project you use every day. Two weeks later, nobody has replied."
+    assert "normal experience" not in page
+    for href in ("/methodology/", "/", f"/black-holes/{SNAPSHOT}/", f"/black-holes/{SNAPSHOT}/porchlamp-{SNAPSHOT}-ranked.csv"):
+        assert f'href="{href}"' in main, href
+    assert 'href="https://github.com/pctablet505/porchlamp"' in page  # the footer's data link
     frozen = _page(site, PAGES[1])
-    assert 'href="../../methodology/"' in frozen
+    assert re.search(r"<main.*?</main>", frozen, re.S).group(0) == main.replace(' data-prerendered="report"', "")
+
+
+def test_report_json_is_the_facts_record_and_holds_only_what_the_page_prints(built):
+    """The export's report.json is ``report_json`` of the facts; every value is a hook the page prints, and every
+    hook the page prints is a value, a chart cell or the database digest (from the manifest, the one source)."""
+    site = built[0]
+    facts = report_pages.build_facts(**_inputs(built))
+    record = json.loads((site / "data" / SNAPSHOT / "report.json").read_text(encoding="utf-8"))
+    assert record == report_pages.report_json(facts)
+    hooks = dict(re.findall(r'<span data-v="([^"]+)">([^<]*)</span>', re.search(r"<main.*?</main>", _page(site, PAGES[0]), re.S).group(0)))
+    assert {k: v for k, v in hooks.items() if "." not in k and k != "source_db_sha256"} == record["values"]
+    manifest = json.loads((site / "data" / SNAPSHOT / "manifest.json").read_text(encoding="utf-8"))
+    assert hooks["source_db_sha256"] == manifest["source_db_sha256"] and "source_db_sha256" not in record["values"]
+    charts = {k for k in hooks if "." in k}
+    assert charts == {f"bands.{i}.{f}" for i in range(3) for f in ("label", "judged", "black_holes", "share")} | {
+        f"ecosystems.{i}.{f}" for i in range(6) for f in ("name", "judged", "black_holes", "share")}
+    assert [row["name"] for row in record["ecosystems"]] == [report_pages.ECOSYSTEM_NAMES[row["key"]] for row in record["ecosystems"]]
+
+
+def test_the_frozen_copy_carries_its_own_stylesheet_and_no_app(built):
+    """ENG-14: the frozen copy links one stylesheet beside it, the site's stylesheets joined at export, so a later
+    restyle of the app cannot alter a page that is never drawn again; it loads no app to redraw it."""
+    site = built[0]
+    frozen = _page(site, PAGES[1])
+    assert re.findall(r'<link rel="stylesheet" href="([^"]*)">', frozen) == [f"/black-holes/{SNAPSHOT}/styles.css"]
+    assert "/app.js" not in frozen and "data-prerendered" not in frozen
+    styles = (site / "black-holes" / SNAPSHOT / "styles.css").read_text(encoding="utf-8")
+    hrefs = re.findall(r'<link rel="stylesheet" href="([^"]*)">', (site / "404.html").read_text(encoding="utf-8"))
+    assert hrefs == ["/styles/tokens.css", "/styles/base.css", "/styles/components.css", "/styles/views.css"]
+    assert styles == "".join(f"/* {h} */\n" + (site / h.lstrip("/")).read_text(encoding="utf-8").rstrip("\n") + "\n" for h in hrefs)
+    assert ".report-page" in styles and ".bar-table" in styles
+
+
+# ---- the words: the published report, but for the owner's approved changes ---------------------------------------
+
+#: The export's report.json for the published snapshot 2026-10-17. web/app/tests/unit.test.mjs draws the view from it;
+#: the test below pins it to ``report_json`` of that snapshot's facts.
+REPORT_FIXTURE = ROOT / "tests" / "fixtures" / "report" / "report.json"
+#: The published database's sha256, which the report prints from the manifest.
+PUBLISHED_DB_SHA256 = "ff1d7a10f0c746e0a64ade264a85129aec9459674fcc6c0ce0b67f1a3215a6e1"
+#: What the published 2026-10-17 report said (porchlamp.org/black-holes/2026-10-17/, pages repo adac7c57), sentence by
+#: sentence, as the Python renderer the report view replaces printed it.
+PUBLISHED_REPORT = {
+    "finding-share lead": "More than 1 in 6.",
+    "finding-share": "In Porchlamp's 2026-10-17 snapshot, 720 of 3,613 active open-source projects (19.9%) left most "
+    "outside pull requests with no human reply, review or merge within 14 days.",
+    "finding-stars lead": "More stars, more silence.",
+    "finding-stars": "The share rises with stars: 16% of projects with 1,000 to 10,000 stars, 25% at 10,000 to 50,000, and "
+    "28% at 50,000 or more.",
+    "finding-top100 lead": "Fame is no guarantee.",
+    "finding-top100": "18 of the 100 most-starred projects are black holes, and only 9 of them reach Porchlamp's top 100.",
+    "finding-correlation lead": "Stars barely predict an answer.",
+    "finding-correlation": "Across 4,322 ranked projects, the rank correlation between stars and the Porchlamp score is 0.09.",
+    "finding-prs lead": "Most of those pull requests waited.",
+    "finding-prs": "Inside the black-hole projects, 38,671 of 49,188 counted outside pull requests got no human reply within "
+    "14 days.",
+    "lede": "The state of open-source black holes: how often a stranger's pull request goes unanswered, in the Porchlamp "
+    "snapshot of 17 October 2026.",
+    "intro": "You send a small fix to a project you use every day. Two weeks later, nobody has replied. At more than 1 in 6 "
+    "active open-source projects, that is the normal experience.",
+    "stars_answer": "They answer less often, on average. The black-hole share climbs at every step up in stars.",
+    "stars_not_charted": "Not charted: 1 judged project with fewer than 1,000 stars.",
+    "ecosystems_answer": "PyPI and npm projects go quiet more often than Rust, Go, Java or systems projects.",
+    "method 0": "We followed 615,200 pull requests from 148,801 outside contributors to 11,000 GitHub projects, from 20 "
+    "April to 17 October 2026.",
+    "method 1": "A project is judged only when it is licensed, maintained software with at least 10 counted outside pull "
+    "requests.",
+    "method 2": "Another 604 licensed, maintained projects with at least 10 outside pull requests on record are not judged "
+    "yet: those records were fetched before drafts and closes were recorded, and the rules need both.",
+    "method 3": "It is a black hole when, with 95% confidence, more than half of those pull requests got no substantive "
+    "reply, review or merge within 14 days.",
+    "download": "porchlamp-2026-10-17-ranked.csv: the 4,322 ranked projects with rank, owner, name, ecosystem, score, tier, "
+    "coverage, quadrant and the rank in each lens. Released under CC BY 4.0.",
+    "cite": "Porchlamp (2026). Stars don't review pull requests: the state of open-source black holes. Snapshot "
+    "2026-10-17. https://porchlamp.org/black-holes/2026-10-17/",
+    "hashes": f"Data licence: CC BY 4.0. Snapshot database SHA-256: {PUBLISHED_DB_SHA256}. Methodology constants hash: "
+    "6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94.",
+    "stars_chart_summary": "Black-hole share by stars: 16% of 2,065 projects with 1,000 to 10,000 stars; 25% of 1,307 "
+    "projects with 10,000 to 50,000 stars; 28% of 240 projects with 50,000 or more stars.",
+    "ecosystems_chart_summary": "Black-hole share by package ecosystem, highest first: PyPI 27.3% of 814; npm 20.8% of "
+    "1,078; crates.io (Rust) 16.6% of 488; Go 16.5% of 516; systems (C, C++ and Zig) 15.8% of 476; Maven (Java) 13.7% "
+    "of 241.",
+}
+#: The owner's approved changes (2026-10-17): the intro ends at "nobody has replied." (the lead card states the
+#: figure), and every ecosystem carries its plain name from copy.js's one list.
+APPROVED_CHANGES = {
+    "intro": "You send a small fix to a project you use every day. Two weeks later, nobody has replied.",
+    "ecosystems_answer": "Python and JavaScript projects go quiet more often than Rust, Go, Java or C and C++ projects.",
+    "ecosystems_chart_summary": "Black-hole share by package ecosystem, highest first: Python 27.3% of 814; JavaScript "
+    "20.8% of 1,078; Rust 16.6% of 488; Go 16.5% of 516; C and C++ 15.8% of 476; Java 13.7% of 241.",
+}
+
+
+def _published_facts() -> report_pages.Facts:
+    """The facts of the published snapshot 2026-10-17, as its export read them."""
+    ecosystems = (("pypi", 814, 222), ("npm", 1078, 224), ("crates", 488, 81), ("go", 516, 85), ("systems", 476, 75),
+                  ("maven", 241, 33))
+    bands = (("[1000,10000)", 2065, 329), ("[10000,50000)", 1307, 323), ("[50000,inf)", 240, 68))
+    facts = report_pages.Facts(
+        snapshot_id="2026-10-17", snapshot_date=date(2026, 10, 17), benchmark_version="2.0.0-rc1",
+        constants_hash="6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94",
+        manifest_root="f2eb5fc971de3fc0840b3bd1e828f229879a093ed03bfce8980cf0cec503da03",
+        canonical_dump_hash="e84ab8e5181fe6f1f0f7483ad08d1021917b1761bcbe4fdc7ec507b1acd6706b",
+        code_commit="663e9c781ae31b7424ecb104bd7d6560f21e3e67",
+        reproduce_command="python -m porchlamp.snapshot reproduce 2026-10-17",
+        judged=3613, black_holes=720,
+        ecosystems=tuple(report_pages.EcoRow(key, report_pages.ECOSYSTEM_NAMES[key], n, holes) for key, n, holes in ecosystems),
+        bands=tuple(report_pages.BandRow(key, report_pages.band_range_text(key), n, holes) for key, n, holes in bands),
+        below_bands_judged=1, lowest_band_text="1,000", ranked=4322, unanswered=38671, counted=49188,
+        window_start=date(2026, 4, 20), window_end=date(2026, 10, 17), rho=0.089, top100_overlap=9, top100_black_holes=18,
+        corpus_prs=615200, corpus_authors=148801, corpus_projects=11000, undecided_rule_inputs=604, min_n=10,
+        deadline_days=14, ci_percent=95,
+    )
+    report_pages.check_wording_guards(facts)
+    return facts
+
+
+def test_the_report_fixture_is_report_json_of_the_published_snapshot():
+    assert json.loads(REPORT_FIXTURE.read_text(encoding="utf-8")) == report_pages.report_json(_published_facts())
+
+
+def test_the_report_says_what_the_published_report_said_but_for_the_approved_changes():
+    """report.json's templates, filled with its values, word every sentence as the published report did, except where
+    the owner approved a change; the view adds only copy.js's number-free words."""
+    record = report_pages.report_json(_published_facts())
+    values = {**record["values"], "source_db_sha256": PUBLISHED_DB_SHA256}
+    sentences = record["sentences"]
+    said = {}
+    for finding in record["findings"]:
+        said[f"{finding['id']} lead"] = _fill(finding["lead"], values)
+        said[finding["id"]] = _fill(finding["text"], values)
+    for key in ("lede", "intro", "stars_answer", "stars_not_charted", "ecosystems_answer", "download", "cite"):
+        said[key] = _fill(sentences[key], values)
+    said.update({f"method {i}": _fill(text, values) for i, text in enumerate(sentences["method"])})
+    said["hashes"] = " ".join(_fill(part, values) for part in sentences["hashes"])
+    said["stars_chart_summary"] = sentences["stars_chart_summary"]
+    said["ecosystems_chart_summary"] = sentences["ecosystems_chart_summary"]
+    assert said == {**PUBLISHED_REPORT, **APPROVED_CHANGES}
+    assert all(PUBLISHED_REPORT[key] != text for key, text in APPROVED_CHANGES.items())
 
 
 def test_copy_js_names_cover_every_parameter_and_lens():
@@ -972,31 +1179,30 @@ def _swap_first(text: str, a: str, b: str) -> str:
     return text[:ma.start()] + mb.group(0) + text[ma.end():mb.start()] + ma.group(0) + text[mb.end():]
 
 
-@pytest.mark.parametrize("ident", ["finding-share", "finding-top100", "finding-stars", "finding-prs"])
-def test_two_numbers_swapped_inside_a_finding_fail_verification(built, tmp_path, ident):
-    """Every number still appears in its sentence, but in the other's place: the sentence is false. Both
-    report pages carry the swap, as a swapped template would write it."""
+@pytest.mark.parametrize("ident, a, b", [
+    ("finding-share", "black_holes", "judged"),
+    ("finding-top100", "top100_black_holes", "top100_overlap"),
+    ("finding-stars", "band1_share", "band3_share"),
+    ("finding-prs", "unanswered", "counted"),
+])
+def test_two_numbers_swapped_inside_a_finding_fail_verification(built, tmp_path, ident, a, b):
+    """Two hooks change places inside a finding, each still holding its own value (as a swapped template would draw
+    them): every hook agrees with its id, but the sentence is false, and the whole-sentence check names it."""
     site, db, stats_path, _stats, _holes = built
-    facts = report_pages.build_facts(**_inputs(built))
-    b1, _b2, b3 = facts.bands
-    a, b = {
-        "finding-share": (f"{facts.black_holes:,}", f"{facts.judged:,}"),
-        "finding-top100": (str(facts.top100_black_holes), str(facts.top100_overlap)),
-        "finding-stars": (report_pages.pct0(b1.black_holes, b1.judged) + "%", report_pages.pct0(b3.black_holes, b3.judged) + "%"),
-        "finding-prs": (f"{facts.unanswered:,}", f"{facts.counted:,}"),
-    }[ident]
-    assert a != b, "the fixture must give two different numbers to swap"
     copy_dir = tmp_path / "site"
     shutil.copytree(site, copy_dir)
     for rel in PAGES[:2]:
         page = (copy_dir / rel).read_text(encoding="utf-8")
-        paragraph = re.search(rf'<p class="finding" id="{ident}">.*?</p>', page, re.S).group(0)
-        planted = _swap_first(paragraph, a, b)
-        assert planted != paragraph
-        (copy_dir / rel).write_text(page.replace(paragraph, planted), encoding="utf-8")
+        where = r'<p class="report-figure-text">.*?</p>' if ident == "finding-share" else rf'<div class="finding" id="{ident}">.*?</div>'
+        sentence = re.search(where, page, re.S).group(0)
+        ha, hb = (re.search(rf'<span data-v="{name}">[^<]*</span>', sentence).group(0) for name in (a, b))
+        assert ha != hb
+        planted = sentence.replace(ha, "\x00").replace(hb, ha).replace("\x00", hb)
+        (copy_dir / rel).write_text(page.replace(sentence, planted), encoding="utf-8")
     result = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)
     for rel in PAGES[:2]:
-        assert any(error.startswith(f"{rel} #{ident}:") for error in result["errors"]), result["errors"]
+        assert any(error.startswith(f"{rel} #{ident}") for error in result["errors"]), result["errors"]
+        assert not any(error.startswith(f"{rel}: hook") for error in result["errors"]), "each hook still holds its own value"
 
 
 def test_a_stats_file_that_its_producer_does_not_reproduce_fails_verification(built, tmp_path):
@@ -1029,21 +1235,54 @@ def test_projects_left_undecided_for_their_records_get_their_own_measurement_bul
 
     def bullets(count):
         inputs["stats"]["gate5_undecided_rule_inputs"] = count
-        facts = report_pages.build_facts(**inputs)
-        page = report_pages.render_report(facts, frozen=False, exported_on=date(2026, 10, 17), source_db_sha256="a" * 64)
-        return facts, verify_static_export._items(verify_static_export._section(page, "how-we-measured"))
+        record = report_pages.report_json(report_pages.build_facts(**inputs))
+        return record, [_fill(t, record["values"]) for t in record["sentences"]["method"]]
 
-    facts, with_count = bullets(1234)
-    rebuilt = verify_static_export._report_sentences(
-        sid="S", judged=10, black_holes=1, deadline=14, min_n=facts.min_n,
-        bands=[(key, {"n": 10, "black_holes": 1}) for key in report_pages.STAR_BANDS], top100_black_holes=0,
-        top100_overlap=0, ranked=1, rho=0.1, unanswered=1, counted=10, corpus={"derived_repos": 1}, start=None,
-        end=None, ecosystems=[], undecided=1234,
+    record, with_count = bullets(1234)
+    assert len(with_count) == 4 and with_count[2] == (
+        "Another 1,234 licensed, maintained projects with at least 10 outside pull requests on record are not judged "
+        "yet: those records were fetched before drafts and closes were recorded, and the rules need both."
     )
-    assert len(with_count) == 6 and with_count[2] == rebuilt["bullet-undecided"]
-    assert with_count[2].startswith("Another 1,234 licensed, maintained projects with at least 10 outside pull requests")
-    _facts, without = bullets(0)
-    assert len(without) == 5 and not any("not judged yet" in bullet for bullet in without)
+    assert record["values"]["undecided_rule_inputs"] == "1,234"
+    record, without = bullets(0)
+    assert len(without) == 3 and not any("not judged yet" in bullet for bullet in without)
+    assert "undecided_rule_inputs" not in record["values"]
     del inputs["stats"]["gate5_undecided_rule_inputs"]
     with pytest.raises(report_pages.ReportError, match="gate5_undecided_rule_inputs"):
+        report_pages.build_facts(**inputs)
+
+
+def test_projects_whose_pr_record_is_cut_get_their_own_measurement_bullet(built):
+    """The stats file's gate5_undecided_cut_record is printed after the rule-inputs bullet, with the one cap the cut
+    records stopped at and the window's start; each number is a slot, so the view prints it as a hook. None gives no
+    bullet; a stats file without the count, or whose cut records name no single cap, is refused."""
+    inputs = _inputs(built)
+
+    def bullets(rule_inputs, cut, caps):
+        inputs["stats"].update(
+            gate5_undecided_rule_inputs=rule_inputs, gate5_undecided_cut_record=cut, gate5_undecided_cut_record_caps=caps
+        )
+        facts = report_pages.build_facts(**inputs)
+        record = report_pages.report_json(facts)
+        return facts, record, [_fill(t, record["values"]) for t in record["sentences"]["method"]]
+
+    facts, record, both = bullets(1234, 868, [500])
+    start = f"{facts.window_start.day} {facts.window_start:%B}"
+    assert len(both) == 5 and both[2].startswith("Another 1,234 licensed, maintained projects")
+    assert both[3] == (
+        f"We could not judge 868 busy projects yet: we hold only the newest 500 pull requests of each, and they do not "
+        f"reach back to {start}."
+    )
+    assert (record["values"]["undecided_cut"], record["values"]["pr_cap"]) == ("868", "500")
+    assert all(f"{{{slot}}}" in record["sentences"]["method"][3] for slot in ("undecided_cut", "pr_cap", "window_start"))
+    _facts, record, alone = bullets(0, 2001, [300])
+    assert len(alone) == 4 and alone[2].startswith("We could not judge 2,001 busy projects yet: we hold only the newest 300 ")
+    _facts, record, none = bullets(0, 0, [])
+    assert len(none) == 3 and not any("could not judge" in bullet for bullet in none)
+    assert "undecided_cut" not in record["values"] and "pr_cap" not in record["values"]
+    for caps in ([], [500, 1000], [None], [None, 500], None):
+        with pytest.raises(report_pages.ReportError, match="gate5_undecided_cut_record_caps"):
+            bullets(0, 7, caps)
+    del inputs["stats"]["gate5_undecided_cut_record"]
+    with pytest.raises(report_pages.ReportError, match="gate5_undecided_cut_record"):
         report_pages.build_facts(**inputs)

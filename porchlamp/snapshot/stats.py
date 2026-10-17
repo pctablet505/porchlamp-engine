@@ -36,6 +36,10 @@ The definitions:
     recorded PR window does not cover the window ending at ``--as-of``: the collector stopped at its PR cap
     before reaching the window's start, or the record does not say whether it did
     (:func:`porchlamp.derive.gate_evidence.pr_window_coverage_in`, the rule ``snapshot build`` records);
+``gate5_undecided_cut_record_caps``
+    the PR caps those records stopped at, as their envelopes record them (``cap``), each once, in
+    ascending order; ``null`` stands for a record that does not say it stopped at its cap (its
+    ``truncated`` is not true, or its ``cap`` is not a whole number);
 ``corpus``
     derived bundle files (``derived_repos``), how many of them have a recorded PR window
     (``pr_windows``), the outside PRs opened in the PR window ending at ``--as-of``
@@ -226,6 +230,7 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
     }
     window_start = now - timedelta(days=PR_WINDOW_DAYS)
     n_repo = n_window = n_pr = n_rule_inputs = n_cut_record = 0
+    cut_caps: set[Optional[int]] = set()
     authors: set[str] = set()
     for path in derived.glob("*.json"):
         n_repo += 1
@@ -241,11 +246,15 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
                 n_rule_inputs += 1
             elif pr_window_coverage_in(document, now)[0] is False:
                 n_cut_record += 1
+                cap = window.get("cap")
+                cut_at_cap = window.get("truncated") is True and isinstance(cap, int) and not isinstance(cap, bool)
+                cut_caps.add(cap if cut_at_cap else None)
         logins = outside_pr_authors(prs, start=window_start, end=now)
         n_pr += len(logins)
         authors.update(login for login in logins if login)
     out["gate5_undecided_rule_inputs"] = n_rule_inputs
     out["gate5_undecided_cut_record"] = n_cut_record
+    out["gate5_undecided_cut_record_caps"] = sorted(cut_caps, key=lambda cap: -1 if cap is None else cap)
     out["corpus"] = {
         "derived_repos": n_repo, "pr_windows": n_window,
         "human_outside_prs": n_pr, "distinct_outside_authors": len(authors),

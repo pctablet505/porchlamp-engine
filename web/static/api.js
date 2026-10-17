@@ -322,6 +322,14 @@ export function fetchManifest() {
   return answer("manifest.json", () => loadJson("manifest.json"));
 }
 
+/**
+ * The report's numbers and its guarded sentences (report.json; no API answers it): what views/report.js draws, in
+ * the app and at export, where web/prerender.mjs draws /black-holes/ through this same call.
+ */
+export function fetchReport() {
+  return answer("report.json", () => loadJson("report.json"));
+}
+
 // ---------------------------------------------------------- /reproject
 /**
  * SQLite's ROUND(x, n) for the values a composite takes (0..100). Exact

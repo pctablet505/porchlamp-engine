@@ -2304,3 +2304,394 @@
     background: CanvasText;
   }
 }
+
+/* ---- Report (views/report.js) ---- */
+.report-page {
+  max-width: 70rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  font-size: var(--text-body-lg);
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.report-page p {
+  margin: 0;
+}
+
+.report-head {
+  max-width: 72ch;
+  padding-top: var(--space-xs);
+}
+
+.report-head .view-heading {
+  margin: 0 0 var(--space-2xs);
+  line-height: 1.25;
+}
+
+.report-lede {
+  color: var(--text-secondary);
+}
+
+.report-page .report-intro {
+  margin-top: var(--space-sm);
+}
+
+/* The lead: the headline figure, its sentence and the one lead chart. */
+.report-lead {
+  padding: var(--space-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--lamp-glow);
+  border-radius: var(--radius-card);
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height) + var(--space-md));
+}
+
+.report-figure {
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.report-page .report-figure-text {
+  max-width: 72ch;
+  margin: var(--space-xs) 0 var(--space-md);
+}
+
+.share-track {
+  height: 20px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--text-muted);
+  border-radius: var(--radius-badge);
+  overflow: hidden;
+}
+
+.share-fill {
+  display: block;
+  height: 100%;
+  background: var(--spec-bar);
+}
+
+.share-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-lg);
+  margin-top: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.share-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.share-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--spec-bar);
+}
+
+.share-swatch-track {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--text-muted);
+}
+
+/* Sections: the app's card (views.css .doc-section), one per heading. */
+.report-section {
+  min-width: 0;
+  padding: var(--space-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.report-h2 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.3;
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height) + var(--space-md));
+}
+
+.report-page .report-section p + p {
+  margin-top: var(--space-sm);
+}
+
+.report-answer,
+.report-caveat {
+  max-width: 72ch;
+}
+
+.report-caveat,
+.report-note {
+  color: var(--text-secondary);
+}
+
+.report-note {
+  font-size: var(--text-body-md);
+}
+
+/* Findings: four cards, two by two on a wide screen. */
+.finding-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-md);
+}
+
+@media (min-width: 960px) {
+  .finding-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.finding {
+  padding: var(--space-md);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height) + var(--space-md));
+}
+
+.finding:target,
+.report-lead:target {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.finding-lead {
+  margin: 0 0 var(--space-2xs);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* The bar charts: each is its own data table, full width, with an axis. */
+.bar-table-wrap {
+  margin: var(--space-md) 0;
+}
+
+.bar-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-table th,
+.bar-table td {
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.bar-table thead th {
+  font-size: var(--text-body-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+  vertical-align: bottom;
+}
+
+.bar-table .num {
+  width: 7rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bar-label {
+  width: 13rem;
+  font-weight: 500;
+}
+
+.bar-scale {
+  position: relative;
+  display: block;
+  height: 28px;
+  margin-right: 3.5rem;
+  border-right: 1px solid var(--border-subtle);
+  background-image: linear-gradient(to right, var(--border-strong) 1px, transparent 1px);
+  background-size: calc(100% / var(--ticks)) 100%;
+}
+
+.bar-cell {
+  position: relative;
+}
+
+.bar {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: calc(var(--f) * 100%);
+  background: var(--spec-bar);
+  border-radius: 0 var(--radius-badge) var(--radius-badge) 0;
+}
+
+/* The share sits just past its bar's end: the cell's left padding plus the bar's length on the scale. */
+.bar-value {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--space-sm) + (100% - 2 * var(--space-sm) - 3.5rem) * var(--f));
+  transform: translateY(-50%);
+  margin-left: var(--space-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.axis {
+  display: block;
+  margin-top: var(--space-2xs);
+}
+
+.axis-scale {
+  height: 1.4em;
+  border-right: 0;
+  background: none;
+}
+
+.axis-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.axis-tick:first-child {
+  transform: none;
+}
+
+.axis-tick:last-child {
+  transform: translateX(-100%);
+}
+
+/* Method beside limits, data beside the citation. */
+.report-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-lg);
+}
+
+@media (min-width: 960px) {
+  .report-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.report-list {
+  margin: 0;
+  padding-left: var(--space-lg);
+}
+
+.report-list li + li {
+  margin-top: var(--space-xs);
+}
+
+.report-cite {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface-elevated);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  overflow-wrap: anywhere;
+}
+
+.report-hashes {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.report-hashes [data-v] {
+  font-family: var(--font-mono);
+}
+
+.app-footer a {
+  color: var(--accent-cyan);
+}
+
+/* ---- Phone ---- */
+@media (max-width: 767px) {
+  .report-page {
+    gap: var(--space-md);
+  }
+
+  .report-lead,
+  .report-section {
+    padding: var(--space-md);
+  }
+
+  /* Each chart row stacks: name, then the bar with its share, then the two counts. */
+  .bar-table,
+  .bar-table thead,
+  .bar-table tbody,
+  .bar-table thead tr {
+    display: block;
+  }
+
+  .bar-table thead th {
+    display: none;
+  }
+
+  .bar-table thead th.bar-head {
+    display: block;
+    padding: 0 0 var(--space-2xs);
+  }
+
+  .bar-table tbody tr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: var(--space-md);
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .bar-table tbody th,
+  .bar-table tbody td {
+    padding: 2px 0;
+    border: 0;
+  }
+
+  .bar-label {
+    grid-column: 1 / -1;
+    width: auto;
+    order: 1;
+  }
+
+  .bar-cell {
+    grid-column: 1 / -1;
+    order: 2;
+  }
+
+  /* The bar takes the full width; its share moves up to the end of the name's line. */
+  .bar-scale {
+    margin-right: 0;
+  }
+
+  .bar-table tbody .bar-label {
+    padding-right: 4rem;
+  }
+
+  .bar-value {
+    top: -1.6em;
+    left: auto;
+    right: 0;
+    transform: none;
+    margin-left: 0;
+  }
+
+  .bar-table .num {
+    order: 3;
+    width: auto;
+    text-align: left;
+    font-size: var(--text-body-md);
+    color: var(--text-secondary);
+  }
+
+  .bar-table .num::before {
+    content: attr(data-label) ": ";
+  }
+}

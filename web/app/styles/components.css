@@ -118,6 +118,13 @@ input.control {
   color: var(--text-primary);
 }
 
+/* A placeholder is text a reader must read (the search box's hint): the browser's own grey is under AA on this
+ * surface (measured in Chrome: 4.21:1 light, 3.17:1 dark), so it takes the secondary text colour, unfaded. */
+input.control::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
 .icon-button {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);

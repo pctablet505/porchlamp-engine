@@ -119,6 +119,7 @@ import {
   patchTable as patchCompareTable,
 } from "./views/compare.js";
 import { renderShell as renderMethodologyShell, shellShape as methodologyShellShape } from "./views/methodology.js";
+import { renderShell as renderReportShell, shellShape as reportShellShape } from "./views/report.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -165,6 +166,7 @@ export function boot(win = window, doc = document) {
   let currentConfigureShape = null;
   let currentCompareShape = null;
   let currentMethodologyShape = null;
+  let currentReportShape = null;
   let currentNotFoundShape = null;
   let scrollPatchScheduled = false;
   let wasDrawerOpen = false;
@@ -225,6 +227,8 @@ export function boot(win = window, doc = document) {
     if (tab === "configure" && !state.reproject && !state.reprojectLoading) runReproject();
     if (tab === "methodology" && !state.methodology && !state.methodologyLoading) loadMethodology();
     if (tab === "methodology" && state.manifestLoad === "idle") loadManifest();
+    if (tab === "report" && !state.report && !state.reportLoading) loadReport();
+    if (tab === "report" && state.manifestLoad === "idle") loadManifest();
     if (tab === "compare") {
       if (!state.methodology && !state.methodologyLoading) loadMethodology();
       for (const key of state.compareRepos) {
@@ -430,6 +434,7 @@ export function boot(win = window, doc = document) {
     if (keep !== "configure") currentConfigureShape = null;
     if (keep !== "compare") currentCompareShape = null;
     if (keep !== "methodology") currentMethodologyShape = null;
+    if (keep !== "report") currentReportShape = null;
     if (keep !== "notfound") currentNotFoundShape = null;
   }
 
@@ -549,6 +554,26 @@ export function boot(win = window, doc = document) {
       }
       patchCompareResults(main, state);
       if (shape === "table") patchCompareTable(main, state);
+      return;
+    }
+
+    if (state.tab === "report") {
+      const shape = reportShellShape(state);
+      if (prerendered) {
+        // The export drew this report from the same report.json and manifest: keep it until both have loaded.
+        if ((!state.report && !state.reportError) || state.manifestLoad !== "done") return;
+        prerendered = null;
+        currentTab = "report";
+        currentReportShape = shape;
+        forgetOtherShapes("report");
+        return;
+      }
+      if (currentTab !== "report" || shape !== currentReportShape) {
+        main.innerHTML = renderReportShell(state);
+        currentTab = "report";
+        currentReportShape = shape;
+        forgetOtherShapes("report");
+      }
       return;
     }
 
@@ -812,7 +837,18 @@ export function boot(win = window, doc = document) {
     });
   }
 
-  /** The published site's manifest, for the database digest the methodology prints; the API's server has none. */
+  function loadReport() {
+    store.dispatch({ type: "REPORT_LOADING" });
+    return api.fetchReport().then((result) => {
+      if (!result.ok) {
+        store.dispatch({ type: "REPORT_ERROR", error: result.error });
+        return;
+      }
+      store.dispatch({ type: "REPORT_OK", data: result.data });
+    });
+  }
+
+  /** The published site's manifest, for the database digest the methodology and the report print; the API's server has none. */
   function loadManifest() {
     store.dispatch({ type: "MANIFEST_LOADING" });
     return api.fetchManifest().then((result) => {
@@ -1131,8 +1167,9 @@ export function boot(win = window, doc = document) {
 
   function render() {
     const state = store.getState();
+    // A page the export drew carries its own title until the app has taken it over (the report's names its month).
     const title = titleForState(state);
-    if (doc.title !== title) doc.title = title;
+    if (!prerendered && doc.title !== title) doc.title = title;
     syncHeaderControls(state);
     syncFooter(state);
     syncNav(primaryNav, navEntryFor(state.tab), state);
@@ -1518,6 +1555,10 @@ export function boot(win = window, doc = document) {
     }
     if (evt.target.closest("[data-methodology-retry]")) {
       loadMethodology();
+      return;
+    }
+    if (evt.target.closest("[data-report-retry]")) {
+      loadReport();
       return;
     }
     const compareRetryBtn = evt.target.closest("[data-compare-retry]");

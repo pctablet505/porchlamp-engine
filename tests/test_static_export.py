@@ -179,8 +179,12 @@ def test_the_export_writes_the_app_s_page_at_every_view_s_address_and_404_html(s
     page works at any depth."""
     _db, out = site
     shell = (export_static.WEB_APP / "404.html").read_text(encoding="utf-8")
-    views = [route for route in export_static.app_routes() if route["shell"]]
+    views = [route for route in export_static.app_routes() if route["shell"] and route["id"] not in export_static.VIEWS_WRITTEN_ELSEWHERE]
     assert [route["path"] for route in views] == ["/", "/not-ranked/", "/matrix/", "/compare/", "/weights/", "/methodology/"]
+    # the report's page has a head of its own and needs the stats file (tests/test_report_pages.py): without it, the
+    # report's address is answered by 404.html, where the app says the report did not load
+    assert [r["id"] for r in export_static.app_routes() if r["shell"] and r not in views[1:] and r["path"] != "/"] == ["report"]
+    assert not (out / "black-holes").exists()
     uncommented = re.sub(r"\n *<!--.*?-->", "", shell, flags=re.S)
     frame_main = re.search(_MAIN, shell, re.S).group(0)
     assert _undraw((out / "index.html").read_text(encoding="utf-8")) == (export_static.WEB_APP / "index.html").read_text(encoding="utf-8")
