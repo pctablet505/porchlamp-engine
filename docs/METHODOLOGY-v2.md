@@ -7,7 +7,7 @@ tests/test_render_methodology.py fails if this file drifts from a fresh render. 
 
 **Benchmark version:** `2.0.0-rc1`
 **Schema version:** `2`
-**Constants hash:** `5dc93c2f7bd97ebe46185da3eab34916d2f203f366c4157b964b96b4a20792c7`
+**Constants hash:** `6f95d75a0aa5427288d3e7e8eadc5b9477d3a1816d636ab848b9defc7d6cea5a`
 
 Every number below is read directly from `porchlamp.core.constants` and the
 `porchlamp.core.params` registry (or, for detectors and the two audit release
@@ -200,6 +200,7 @@ the pre-release version-bump rule live in
 
 | Date | RFC | Summary | Hash before -> after |
 |---|---|---|---|
+| 2026-10-17 | RFC-0012 | D-IN-1's exact login list moves into the hashed constants as `BOT_LOGINS`, the one list for PR responses, maintainer evidence, PR authors and commits (it was two unhashed copies, in `porchlamp.core.commit_domains` and `porchlamp.collect.github_graphql`). It keeps the 20 generic logins and adds 75 service accounts GitHub types as users (`rustbot`, `k8s-ci-robot`, `flinkbot` and others), each named like a bot and behaving like one in the recorded data. On the 2026-10-17 data: judged 2,745 -> 2,745, black holes 632 -> 638. | `5dc93c2f7bd97ebe46185da3eab34916d2f203f366c4157b964b96b4a20792c7` -> `6f95d75a0aa5427288d3e7e8eadc5b9477d3a1816d636ab848b9defc7d6cea5a` |
 | 2026-10-17 | RFC-0011 | D-GATE-5 judges only a PR record that covers the whole window: a record cut at the collector's PR cap before the window start leaves the gate UNDECIDED, its cut-off recorded with the gate evidence. D-IN-2 counts the repository's own people, one definition in `porchlamp.core.gates`: a member, owner or collaborator, or an account that merged a PR or closed another author's PR in the record; bots never. Add `SUBSTANTIVE_COMMENT_MIN_CHARS = 40` (relocated) and `SUBSTANTIVE_COMMENT_CJK_WEIGHT = 3` (a Chinese, Japanese or Korean letter counts three characters), and Meta's two import notices to `GATE6_HANDOFF_NOTICES`. On the 2026-10-17 data: judged 3,613 -> 2,745, black holes 720 -> 632. | `6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94` -> `5dc93c2f7bd97ebe46185da3eab34916d2f203f366c4157b964b96b4a20792c7` |
 | 2026-10-17 | RFC-0010 | D-GATE-5 author self-close exclusion (RFC-0008 rule 2) applies only to a close within `GATE5_RESPONSE_DEADLINE_DAYS` (14) of clock start; a later self-close with no response counts as unanswered (owner ruling 2026-10-17). No constant added or changed, so the hash does not move. Not measurable on the recorded data (no close actor recorded). | `6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94` -> `6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94` |
 | 2026-10-14 | RFC-0008 | Add `GATE5_WILSON_Z = 1.6448536269514722` (D-GATE-5: 95% one-sided Wilson lower confidence bound on zero-response share, plus 5 false-positive reduction rules: draft exclusion/ready clock start, author self-close exclusion, <90d account exclusion, maintainer close within 14d as response). No rank movement on the fixture (no `pr_window` envelopes in its corpus). | `aca719a922264ba5edb6adcdab6c0c08eaff7a315d0e5818a567509e5b0d3ba9` -> `6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94` |

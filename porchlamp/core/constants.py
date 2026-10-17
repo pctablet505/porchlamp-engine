@@ -392,6 +392,35 @@ PIPELINE_DEFENSES_PROXY_MIN_N: int = 10
 #: Consumed by ``porchlamp.collect.github_graphql.derive_cohort_fields``.
 AUTHOR_UNMEASURED_MAX_FRACTION: float = 0.20
 
+#: D-IN-1 (02 section 3): the exact-match bot logins, compared lower-cased. An actor is
+#: also a bot when GitHub types it ``Bot`` or its login ends in ``[bot]``; there is no
+#: substring matching (F12). The first group are generic bot accounts. The second are
+#: service accounts GitHub types as users: each login says it is a bot and was found
+#: answering outside pull requests in the recorded data with templated text, or within
+#: minutes of nearly every opening (RFC-0012 gives the method and each account's evidence).
+BOT_LOGINS: frozenset[str] = frozenset({
+    # generic bot accounts
+    "allcontributors", "cla-bot", "claude", "codecov", "copilot", "dependabot", "easycla",
+    "github-actions", "google-cla", "greenkeeper", "imgbot", "mergify", "netlify",
+    "pre-commit-ci", "renovate", "semantic-release", "snyk-bot", "sonarcloud", "stale",
+    "vercel",
+    # service accounts GitHub types as users (RFC-0012)
+    "adk-bot", "agones-bot", "ansibot", "antennapod-bot", "apereocas-bot", "aseprite-bot",
+    "astrobot-houston", "atuin-bot", "aws-sam-cli-bot", "babel-bot", "bitwarden-bot",
+    "buggiebot", "cherry-markdown-bot", "coolbear-bot", "cosmistack-bot", "cypress-app-bot",
+    "dapr-bot", "docs-bot", "drahtbot", "element-bot", "eth-bot", "expo-bot", "flinkbot",
+    "frappe-pr-bot", "geky-bot", "geoserver-bot", "giteabot", "gopherbot", "gradio-pr-bot",
+    "haystackbot", "highsoft-bot", "hudi-bot", "hurl-bot", "is-a-dev-bot", "jenkins-x-bot",
+    "juce-push-bot", "k8s-ci-robot", "kangal-bot", "karmada-bot", "kruise-bot",
+    "kubeedge-bot", "ladybird-bot", "lestarch-autobot", "lightdash-bot", "litbot-9000",
+    "minikube-bot", "moz-tools-bot", "mysql-oca-bot", "nccl-bot", "nodejs-github-bot",
+    "openlibrary-bot", "posit-snyk-bot", "prowler-bot", "pytorchmergebot", "qgis-bot",
+    "qiskit-bot", "raycastbot", "react-native-community-bot", "robot-ci-heartex",
+    "rust-rfcbot", "rustbot", "shaka-bot", "shiftbot", "sre-ci-robot", "stdlib-bot",
+    "tekton-robot", "tempoxyz-bot", "theguild-bot", "ti-chi-bot", "volcano-sh-bot",
+    "voxel51-bot", "workweave-bot", "ydbot", "zerxlabbot", "zulipbot",
+})
+
 #: D-IN-3: for rate parameters (merge, decision, conversion, return) a PR
 #: author counts only if the account is at least this many days old at PR
 #: creation, mirroring StarScout's throwaway rule (defined in
@@ -551,6 +580,7 @@ def constants_dict() -> dict[str, object]:
         "AUTHOR_CAP_FRACTION": AUTHOR_CAP_FRACTION,
         "AUTHOR_UNMEASURED_MAX_FRACTION": AUTHOR_UNMEASURED_MAX_FRACTION,
         "BENCHMARK_VERSION": BENCHMARK_VERSION,
+        "BOT_LOGINS": tuple(sorted(BOT_LOGINS)),
         "CAREER_CAPITAL_MIN_COVERAGE": CAREER_CAPITAL_MIN_COVERAGE,
         "CAREER_CAPITAL_MIN_CRITICALITY": CAREER_CAPITAL_MIN_CRITICALITY,
         "CEILING_A_MIN_COVERAGE": CEILING_A_MIN_COVERAGE,

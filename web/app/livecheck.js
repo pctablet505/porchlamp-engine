@@ -102,10 +102,24 @@ export const OSI_APPROVED_LICENSES = Object.freeze([
 ]);
 //: porchlamp.core.commit_domains.KNOWN_BOT_LOGINS (= porchlamp.collect.github_graphql.BOT_LOGINS), D-IN-1.
 export const KNOWN_BOT_LOGINS = Object.freeze([
-  "allcontributors", "cla-bot", "claude", "codecov", "copilot", "dependabot",
-  "easycla", "github-actions", "google-cla", "greenkeeper", "imgbot", "mergify",
-  "netlify", "pre-commit-ci", "renovate", "semantic-release", "snyk-bot", "sonarcloud",
-  "stale", "vercel",
+  "adk-bot", "agones-bot", "allcontributors", "ansibot", "antennapod-bot",
+  "apereocas-bot", "aseprite-bot", "astrobot-houston", "atuin-bot", "aws-sam-cli-bot",
+  "babel-bot", "bitwarden-bot", "buggiebot", "cherry-markdown-bot", "cla-bot", "claude",
+  "codecov", "coolbear-bot", "copilot", "cosmistack-bot", "cypress-app-bot", "dapr-bot",
+  "dependabot", "docs-bot", "drahtbot", "easycla", "element-bot", "eth-bot", "expo-bot",
+  "flinkbot", "frappe-pr-bot", "geky-bot", "geoserver-bot", "giteabot", "github-actions",
+  "google-cla", "gopherbot", "gradio-pr-bot", "greenkeeper", "haystackbot",
+  "highsoft-bot", "hudi-bot", "hurl-bot", "imgbot", "is-a-dev-bot", "jenkins-x-bot",
+  "juce-push-bot", "k8s-ci-robot", "kangal-bot", "karmada-bot", "kruise-bot",
+  "kubeedge-bot", "ladybird-bot", "lestarch-autobot", "lightdash-bot", "litbot-9000",
+  "mergify", "minikube-bot", "moz-tools-bot", "mysql-oca-bot", "nccl-bot", "netlify",
+  "nodejs-github-bot", "openlibrary-bot", "posit-snyk-bot", "pre-commit-ci",
+  "prowler-bot", "pytorchmergebot", "qgis-bot", "qiskit-bot", "raycastbot",
+  "react-native-community-bot", "renovate", "robot-ci-heartex", "rust-rfcbot", "rustbot",
+  "semantic-release", "shaka-bot", "shiftbot", "snyk-bot", "sonarcloud", "sre-ci-robot",
+  "stale", "stdlib-bot", "tekton-robot", "tempoxyz-bot", "theguild-bot", "ti-chi-bot",
+  "vercel", "volcano-sh-bot", "voxel51-bot", "workweave-bot", "ydbot", "zerxlabbot",
+  "zulipbot",
 ]);
 //: porchlamp.collect.github_graphql.EXTERNAL_ASSOCIATIONS -- a PR author who is not a maintainer.
 export const EXTERNAL_ASSOCIATIONS = Object.freeze(["CONTRIBUTOR", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "NONE"]);
