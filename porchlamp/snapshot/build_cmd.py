@@ -9,7 +9,11 @@ bundle raw hashes, runs the two-pass ECDF population bootstrap, and writes
 from __future__ import annotations
 
 import json
+import multiprocessing
+import os
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
+from itertools import repeat
 from pathlib import Path
 
 from porchlamp.core import constants
@@ -49,6 +53,31 @@ ECDF_INPUT_IDS: tuple[str, ...] = (
 def _bundle_raw_hash(bundle: FeatureBundle) -> str:
     """sha256 of the canonical v2 bundle document."""
     return sha256_hex(canonical_json(dump_bundle(bundle)))
+
+
+def _load_repo(path: Path, raw_dir: Path, as_of: datetime) -> tuple[FeatureBundle, GateEvidence, str]:
+    """One repository's bundle, gate evidence and raw hash: all the build
+    reads per repository, a function of the files on disk alone."""
+    bundle = load_bundle(path, raw_root=raw_dir)
+    basename = f"{bundle.repo.owner}__{bundle.repo.name}"
+    return bundle, gate_evidence_for(raw_dir, basename, as_of=as_of), _bundle_raw_hash(bundle)
+
+
+def _load_repos(
+    paths: list[Path], raw_dir: Path, as_of: datetime, workers: int | None,
+) -> list[tuple[FeatureBundle, GateEvidence, str]]:
+    """:func:`_load_repo` for every path, on ``workers`` processes (``None``:
+    one per CPU). The results come back in ``paths`` order whatever the
+    worker count, so the build writes the same files as a serial one."""
+    count = workers if workers is not None else (os.cpu_count() or 1)
+    if count < 1:
+        raise ValueError(f"workers must be at least 1, got {count}")
+    if count == 1 or len(paths) < 2:
+        return [_load_repo(path, raw_dir, as_of) for path in paths]
+    # forkserver, not fork: forking a parent that has threads can deadlock the child.
+    context = multiprocessing.get_context("forkserver")
+    with ProcessPoolExecutor(max_workers=min(count, len(paths)), mp_context=context) as pool:
+        return list(pool.map(_load_repo, paths, repeat(raw_dir), repeat(as_of), chunksize=32))
 
 
 class _BootstrapPopulationLookup:
@@ -105,6 +134,7 @@ def build_snapshot_dir(
     snapshot_id: str,
     as_of: datetime,
     code_commit_sha: str | None = None,
+    workers: int | None = 1,
 ) -> FrozenFixture:
     """Build a v2 snapshot directory at ``out_dir`` from ``data_dir``.
 
@@ -114,6 +144,9 @@ def build_snapshot_dir(
        ``gate_evidence_for(data_dir / "raw", f"{owner}__{name}", as_of=as_of)``
        (D-GATE-4 counts commits in the 180 days ending at ``as_of``).
     3. Computes ``raw_hash = sha256_hex(canonical_json(dump_bundle(bundle)))``.
+       Steps 1-3 run per repository on ``workers`` processes (``None``: one
+       per CPU; ``porchlamp snapshot build``'s default); the files written do
+       not depend on the worker count.
     4. Pass 1: scores every bundle against an empty ``PopulationSet`` via
        ``score_snapshot`` to determine gate eligibility and rated status.
     5. Pass 2: builds ``PopulationMember`` items from eligible repos for
@@ -134,13 +167,11 @@ def build_snapshot_dir(
     gate_evidence: dict[RepoKey, GateEvidence] = {}
     raw_hashes: dict[RepoKey, str] = {}
 
-    for path in paths:
-        bundle = load_bundle(path, raw_root=raw_dir)
+    for bundle, evidence, raw_hash in _load_repos(paths, raw_dir, as_of, workers):
         bundles.append(bundle)
         key = repo_key(bundle)
-        basename = f"{bundle.repo.owner}__{bundle.repo.name}"
-        gate_evidence[key] = gate_evidence_for(raw_dir, basename, as_of=as_of)
-        raw_hashes[key] = _bundle_raw_hash(bundle)
+        gate_evidence[key] = evidence
+        raw_hashes[key] = raw_hash
 
     # Pass 1: score against bootstrap populations to obtain gate/rated status
     pass1 = score_snapshot(

@@ -13,6 +13,8 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from porchlamp.core import constants
 from porchlamp.core.models import sha256_hex
 from porchlamp.snapshot.build_cmd import build_snapshot_dir
@@ -231,3 +233,91 @@ def test_a_project_whose_last_human_commit_is_181_days_before_as_of_fails_the_vi
     reasons = {f"{r.repo.owner}/{r.repo.name}": r.gate.reason for r in scored.records}
     assert reasons[old_key] == "stale"
     assert reasons[recent_key] != "stale"
+
+
+def _files_of(out_dir: Path) -> dict[str, bytes]:
+    return {p.relative_to(out_dir).as_posix(): p.read_bytes() for p in sorted(out_dir.rglob("*")) if p.is_file()}
+
+
+def _with_review_handoff(data_dir: Path) -> str:
+    """Give the first repository a pr_window envelope whose PRs carry a hand-off notice, so its gate
+    evidence differs from the others'; returns its key."""
+    first = sorted((data_dir / "derived").glob("*.json"))[0]
+    notice = {"author": {"login": "gopherbot", "__typename": "User"}, "authorAssociation": "NONE",
+              "bodyText": "This PR has been imported to Gerrit for code review.",
+              "createdAt": "2026-09-01T01:00:00Z"}
+    prs = [{"number": n, "author": {"login": f"c{n}", "__typename": "User"}, "authorAssociation": "NONE",
+            "createdAt": "2026-09-01T00:00:00Z", "comments": {"nodes": [notice]}} for n in range(1, 6)]
+    envelope = {"data": {"prs": prs, "derived": [
+        {"number": n, "is_external": True, "is_bot_author": False} for n in range(1, 6)]}}
+    (data_dir / "raw" / "pr_window").mkdir(exist_ok=True)
+    (data_dir / "raw" / "pr_window" / first.name).write_text(json.dumps(envelope), encoding="utf-8")
+    return first.stem.replace("__", "/", 1)
+
+
+class _RecordingPool:
+    """Stands in for ``ProcessPoolExecutor`` in ``build_cmd`` and records each pool's size."""
+
+    sizes: list[int] = []
+
+    def __init__(self, max_workers: int, **options) -> None:
+        from concurrent.futures import ProcessPoolExecutor
+
+        _RecordingPool.sizes.append(max_workers)
+        self._pool = ProcessPoolExecutor(max_workers=max_workers, **options)
+
+    def __enter__(self):
+        return self._pool.__enter__()
+
+    def __exit__(self, *exc):
+        return self._pool.__exit__(*exc)
+
+
+def test_a_build_on_several_processes_writes_the_same_files_as_a_serial_one(tmp_path):
+    """The per-repository loading runs on a process pool; every file it leads to (bundles,
+    populations.json, manifest.json) is byte-identical to a one-process build's."""
+    data_dir = _make_data_dir(tmp_path, count=12)
+    handoff_key = _with_review_handoff(data_dir)
+    for name, workers in (("serial", 1), ("parallel", 3)):
+        build_snapshot_dir(data_dir, tmp_path / name, snapshot_id="TEST-WORKERS", as_of=_AS_OF,
+                           code_commit_sha=_COMMIT, workers=workers)
+    serial, parallel = _files_of(tmp_path / "serial"), _files_of(tmp_path / "parallel")
+    assert len(serial) == 12 + 2
+    assert parallel == serial
+    manifest = json.loads(parallel["manifest.json"])
+    by_repo = {f"{r['owner']}/{r['name']}": r["gate_evidence"] for r in manifest["repos"]}
+    assert by_repo[handoff_key]["review_handoff"] is True  # evidence computed in a worker came back
+
+
+def test_the_build_loads_on_one_process_per_cpu_unless_told_otherwise(tmp_path, monkeypatch):
+    """``None``: one process per CPU. A count: that many. One, the library default: no pool at all (a caller that
+    patches this module keeps its patch)."""
+    data_dir = _make_data_dir(tmp_path, count=6)
+    monkeypatch.setattr("porchlamp.snapshot.build_cmd.ProcessPoolExecutor", _RecordingPool)
+    monkeypatch.setattr("porchlamp.snapshot.build_cmd.os.cpu_count", lambda: 4)
+    sizes = []
+    for name, workers in (("auto", {"workers": None}), ("two", {"workers": 2}), ("one", {"workers": 1}), ("default", {})):
+        _RecordingPool.sizes = []
+        build_snapshot_dir(data_dir, tmp_path / name, snapshot_id="TEST-POOL", as_of=_AS_OF,
+                           code_commit_sha=_COMMIT, **workers)
+        sizes.append(_RecordingPool.sizes)
+    assert sizes == [[4], [2], [], []]
+
+
+def test_the_build_command_runs_on_every_cpu_unless_given_a_worker_count(tmp_path, monkeypatch):
+    from porchlamp.snapshot.cli import main
+
+    data_dir = _make_data_dir(tmp_path, count=4)
+    monkeypatch.setattr("porchlamp.snapshot.build_cmd.ProcessPoolExecutor", _RecordingPool)
+    monkeypatch.setattr("porchlamp.snapshot.build_cmd.os.cpu_count", lambda: 3)
+    argv = ["build", "--data-dir", str(data_dir), "--snapshot-id", "TEST-CLI",
+            "--as-of", "2026-09-12T00:00:00+00:00", "--code-commit", _COMMIT]
+    _RecordingPool.sizes = []
+    assert main([*argv, "--out-dir", str(tmp_path / "auto")]) == 0
+    assert _RecordingPool.sizes == [3]
+    _RecordingPool.sizes = []
+    assert main([*argv, "--out-dir", str(tmp_path / "out"), "--workers", "2"]) == 0
+    assert _RecordingPool.sizes == [2]
+    with pytest.raises(SystemExit) as refused:
+        main([*argv, "--out-dir", str(tmp_path / "zero"), "--workers", "0"])
+    assert refused.value.code == 2

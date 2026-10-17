@@ -209,3 +209,134 @@ def test_the_page_sitemap_lists_only_the_pages_the_export_wrote_dated_with_the_s
     assert xml.startswith('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n')
     assert re.findall(r"<loc>([^<]*)</loc>", xml) == [f"https://porchlamp.org/{rel}" for rel in written]
     assert re.findall(r"<lastmod>([^<]*)</lastmod>", xml) == ["2026-10-17"] * len(written)
+
+
+def _node() -> str:
+    node = verify_static_export.find_node()
+    if node is None:
+        if os.environ.get("PORCHLAMP_ALLOW_MISSING_NODE") == "1":
+            pytest.skip("no Node.js interpreter found (PORCHLAMP_ALLOW_MISSING_NODE=1)")
+        pytest.fail("no Node.js interpreter found on PATH, in PORCHLAMP_NODE_BIN, or in ~/.local/opt/node-*")
+    return node
+
+
+def test_a_mutant_run_hands_back_only_the_answers_it_changed(tmp_path):
+    """The verifier runs every mutant over the whole grid (about 1 GB of answers on the 11,000-repo snapshot). A
+    mutant run compares each answer's JSON with the site's own run and returns only those that differ, by index."""
+    node = _node()
+    site_dir = tmp_path / "site"
+    site_dir.mkdir()
+    (site_dir / "api.js").write_text(
+        "export async function same(x) { return { ok: true, data: { x } }; }\n"
+        "export async function moved(x) { return { ok: true, data: x * 2 }; }\n"
+        "export async function bad() { return { ok: false, error: { status: 404, detail: 'nope' } }; }\n",
+        encoding="utf-8")
+    (site_dir / "api.mutant.js").write_text(
+        "export async function same(x) { return { ok: true, data: { x } }; }\n"
+        "export async function moved(x) { return { ok: true, data: x * 3 }; }\n"
+        "export async function bad() { return { ok: false, error: { status: 500, detail: 'nope' } }; }\n",
+        encoding="utf-8")
+    requests = [{"fn": "same", "args": [1]}, {"fn": "moved", "args": [0]}, {"fn": "moved", "args": [2]},
+                {"fn": "bad", "args": []}, {"fn": "same", "args": [2]}]
+    digests = tmp_path / "digests.json"
+    answers = verify_static_export.run_static(node, site_dir, requests, digests_out=digests)
+    assert [a["ok"] for a in answers] == [True, True, True, False, True]
+    assert len(json.loads(digests.read_text(encoding="utf-8"))) == len(requests)
+    changed = verify_static_export.run_static_changed(node, site_dir, requests, "api.mutant.js", digests)
+    assert changed == {2: {"ok": True, "data": 6}, 3: {"ok": False, "status": 500, "detail": "nope"}}
+    assert verify_static_export.run_static_changed(node, site_dir, requests, "api.js", digests) == {}
+
+
+def test_the_mutant_runs_start_together(site, monkeypatch):
+    """Each mutant's run is independent of the others, so all of them run at once, one Node process each."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    db, out = site
+    sizes = []
+
+    class RecordingPool(ThreadPoolExecutor):
+        def __init__(self, max_workers: int) -> None:
+            sizes.append(max_workers)
+            super().__init__(max_workers=max_workers)
+
+    monkeypatch.setattr(verify_static_export, "ThreadPoolExecutor", RecordingPool)
+    monkeypatch.setattr(verify_static_export.os, "cpu_count", lambda: 64)
+    monkeypatch.setattr(verify_static_export, "MUTANTS", verify_static_export.MUTANTS[:3])
+    result = verify_static_export.verify(db, out, quick=True, log=lambda _line: None)
+    assert sizes == [3]
+    assert len(result["mutants"]) == 3 and None not in result["mutants"].values()
+
+
+def test_mutant_counts_equal_a_comparison_of_every_answer(site, tmp_path, monkeypatch):
+    """Comparing only the answers a mutant changed must credit it with exactly what comparing all of them
+    does: the answers it alone gets wrong. The site already gets one repository wrong (its bucket file is gone),
+    so some answers the mutants change were wrong before they changed them."""
+    node = _node()
+    db, site_dir = site
+    out = tmp_path / "site"
+    shutil.copytree(site_dir, out)
+    grid = verify_static_export.build_grid(db, quick=True)
+    owner, name = next(r["args"] for r, e in zip(grid.requests, grid.expected) if r["kind"] == "repo" and e["ok"])
+    (out / "data" / SNAPSHOT_ID / "repos" / f"{export_static.bucket_of(owner, name)}.json").unlink()
+    picked = tuple(m for m in verify_static_export.MUTANTS
+                   if m[0] in {"search ignores case", "sort order ignored", "repo looked up in the wrong bucket"})
+    assert len(picked) == 3
+    monkeypatch.setattr(verify_static_export, "MUTANTS", picked)
+    result = verify_static_export.verify(db, out, quick=True, log=lambda _line: None)
+    assert result["mismatches"]  # the missing bucket is seen
+
+    baseline = verify_static_export.mismatching(grid, verify_static_export.run_static(node, out, grid.requests))
+    source_text = (out / "api.js").read_text(encoding="utf-8")
+    full = {}
+    for name, old, new in picked:
+        (out / "api.full-mutant.js").write_text(source_text.replace(old, new), encoding="utf-8")
+        try:
+            bad = verify_static_export.mismatching(
+                grid, verify_static_export.run_static(node, out, grid.requests, "api.full-mutant.js"))
+        finally:
+            (out / "api.full-mutant.js").unlink()
+        full[name] = len(bad.keys() - baseline.keys())
+    assert sum(full.values()) > 0  # some mutant is caught, so the equality below is not 0 == 0
+    assert result["mutants"] == full
+
+
+def test_the_grid_holds_the_same_answers_on_one_and_several_processes(site, monkeypatch):
+    """The grid's requests whose answers it does not read are answered together on a process pool (``None``: one
+    process per CPU); the requests and their answers are the same as on one process."""
+    import porchlamp.serve.inprocess as inprocess
+
+    db, _out = site
+    serial = verify_static_export.build_grid(db, quick=True, workers=1)
+    sizes = []
+    real_pool = inprocess.ProcessPoolExecutor
+
+    def recording_pool(max_workers: int, **options):
+        sizes.append(max_workers)
+        return real_pool(max_workers=max_workers, **options)
+
+    monkeypatch.setattr(inprocess, "ProcessPoolExecutor", recording_pool)
+    monkeypatch.setattr(inprocess.os, "cpu_count", lambda: 3)
+    parallel = verify_static_export.build_grid(db, quick=True, workers=None)
+    assert sizes == [3]
+    assert parallel.requests == serial.requests
+    assert None not in parallel.expected
+    assert parallel.expected == serial.expected
+    assert sum(r["kind"] in ("repo", "evidence", "leaderboard") for r in parallel.requests) > 300
+    named = [(tuple(a.lower() for a in r["args"]), (e["data"]["owner"].lower(), e["data"]["name"].lower()))
+             for r, e in zip(parallel.requests, parallel.expected) if r["kind"] == "repo" and e["ok"]]
+    assert len(named) > 10 and all(asked == answered for asked, answered in named)  # each answer is its request's
+
+
+def test_the_verify_command_answers_the_grid_on_every_cpu(tmp_path, monkeypatch):
+    """The library's default is one process (a caller that patches the API keeps its patch); the command, the
+    publish step, asks for one per CPU."""
+    seen = {}
+
+    def recording_verify(db, site, **options):
+        seen.update(options)
+        return {"requests": 0, "mismatches": {}, "mutants": {}}
+
+    monkeypatch.setattr(verify_static_export, "verify", recording_verify)
+    (tmp_path / "site").mkdir()
+    verify_static_export.main(["--db", str(tmp_path / "db.sqlite"), "--site", str(tmp_path / "site")])
+    assert "workers" in seen and seen["workers"] is None
