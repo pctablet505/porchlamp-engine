@@ -323,11 +323,22 @@ export function renderOnboardingBanner() {
   );
 }
 
+/** One visible line under the onboarding banner: the headline finding and a link to the static report. */
+export function renderFindingsLine() {
+  return (
+    `<p class="onboarding-banner" data-findings-line="true">` +
+    `<span>${escapeHtml(copy.FINDINGS_LINE)}</span> ` +
+    `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}" class="onboarding-link" data-findings-link="true">${escapeHtml(copy.FINDINGS_LINK_LABEL)}</a>` +
+    `</p>`
+  );
+}
+
 export function renderShell(state, viewport = { isMobile: false }) {
   const { leaderboardLoading, leaderboardError, leaderboard } = state;
   const counts = leaderboard ? leaderboard.counts : null;
   const header =
     renderOnboardingBanner() +
+    renderFindingsLine() +
     renderTabs(state.tab, counts, personaVisibleForState(state)) +
     renderCountsStrip(counts, personaDeltaForState(state));
 
@@ -407,6 +418,17 @@ export function syncPager(root, page, pageSize, total, dataPrefix = "pager") {
 export function scrollDeltaToReveal(anchorTop, stickyHeight, gap = 8) {
   const target = stickyHeight + gap;
   return anchorTop >= target ? null : anchorTop - target;
+}
+
+/**
+ * The page to show instead, when `page` is past the end of a non-empty result: the last page. `null` when the page
+ * has rows, or when nothing matched at all (the empty state is then the right answer).
+ */
+export function lastPageWhenPastEnd(leaderboard, page, pageSize) {
+  if (!leaderboard || !Array.isArray(leaderboard.rows) || leaderboard.rows.length > 0) return null;
+  if (typeof leaderboard.total !== "number" || !(leaderboard.total > 0)) return null;
+  const lastPage = Math.max(1, Math.ceil(leaderboard.total / pageSize));
+  return page > lastPage ? lastPage : null;
 }
 
 /** Which of the four structural shapes `renderShell` would produce — used by app.js to decide whether a full shell replace is needed at all. Includes the mobile/desktop breakpoint since that changes the shell's markup (table vs. card-list container). */

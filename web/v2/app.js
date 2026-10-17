@@ -30,7 +30,6 @@ import {
   createStore,
   parseSearch,
   serializeSearch,
-  canonicalHrefForState,
   requestSignature,
   readPersistedTheme,
   writePersistedTheme,
@@ -58,6 +57,7 @@ import {
   scrollDeltaToReveal,
   personaDeltaForState,
   personaVisibleForState,
+  lastPageWhenPastEnd,
 } from "./views/leaderboard.js";
 import {
   renderShell as renderNotRankedShell,
@@ -71,7 +71,6 @@ import { parseRepoSlug, runLiveCheck } from "./livecheck.js";
 import { renderBrand } from "./components/brand.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
 import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom } from "./components/table.js";
-import { synthesizeRows } from "./perf-fixtures.js";
 import { renderPrimaryNav, syncPrimaryNav, centerActiveTab } from "./components/primarynav.js";
 import {
   renderShell as renderMatrixShell,
@@ -268,7 +267,9 @@ export function boot(win = window, doc = document) {
       `<span data-footer-hash="true"></span>` +
       `<span data-footer-manifest="true"></span>` +
       `<button type="button" class="icon-button" data-footer-retry="true" hidden>${escapeHtml(copy.RETRY_LABEL)}</button>` +
-      `<a href="#methodology" data-footer-verify="true">${escapeHtml(copy.FOOTER_VERIFY_LABEL)}</a>`;
+      `<a href="#methodology" data-footer-verify="true">${escapeHtml(copy.FOOTER_VERIFY_LABEL)}</a>` +
+      `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}" data-footer-report="true">${escapeHtml(copy.FOOTER_REPORT_LABEL)}</a>` +
+      `<a href="${escapeHtml(copy.METHODOLOGY_PAGE_HREF)}" data-footer-methodology-page="true">${escapeHtml(copy.FOOTER_METHODOLOGY_LABEL)}</a>`;
   }
 
   /**
@@ -452,9 +453,7 @@ export function boot(win = window, doc = document) {
    * `<canvas>` with nothing drawn on it — the actual paint call needs
    * real resolved colours (canvas cannot read `var(--x)`/`currentColor`
    * itself), which only app.js can resolve via `getComputedStyle`. A
-   * no-op when the SVG path is showing (the real fixture's 73 points
-   * never cross the budget; this only fires under the `?perfmatrix=`
-   * dev harness).
+   * no-op when the SVG path is showing (at most `SVG_MARKER_BUDGET` points).
    */
   function drawMatrixCanvasIfPresent(state) {
     const canvas = main.querySelector("[data-matrix-canvas]");
@@ -626,16 +625,6 @@ export function boot(win = window, doc = document) {
   // navigation step (pushState); `q` while typing is not — debounced
   // keystrokes use replaceState, and only an explicit commit (Enter or
   // blur) creates a pushState history entry.
-  const canonicalLink = typeof doc.querySelector === "function" ? doc.querySelector('link[rel="canonical"]') : null;
-  const canonicalBase = canonicalLink && typeof canonicalLink.getAttribute === "function"
-    ? (canonicalLink.getAttribute("href") || "").split("?")[0]
-    : "";
-
-  function syncCanonicalLink(state) {
-    if (canonicalLink && canonicalBase && typeof canonicalLink.setAttribute === "function") {
-      canonicalLink.setAttribute("href", canonicalHrefForState(canonicalBase, state));
-    }
-  }
   function pushUrl(state, opts = {}) {
     const search = serializeSearch(state);
     const target = `${win.location.pathname}${search}`;
@@ -643,12 +632,10 @@ export function boot(win = window, doc = document) {
     if (opts.force || target !== current) {
       win.history.pushState(null, "", target);
     }
-    syncCanonicalLink(state);
   }
   function replaceUrl(state) {
     const search = serializeSearch(state);
     win.history.replaceState(null, "", `${win.location.pathname}${search}`);
-    syncCanonicalLink(state);
   }
 
   // --------------------------------------------------------------- Loaders
@@ -1011,6 +998,14 @@ export function boot(win = window, doc = document) {
     if (!result.ok) {
       store.dispatch({ type: "LEADERBOARD_ERROR", error: result.error });
       announce(copy.apiErrorAnnouncement(result.error.endpoint, result.error.status));
+      return;
+    }
+    const lastPage = lastPageWhenPastEnd(result.data, requestedFromState.page, requestedFromState.pageSize);
+    if (lastPage !== null) {
+      // The address names a page past the end: show the last page, and make the address say so.
+      store.dispatch({ type: "SET_PAGE", page: lastPage });
+      replaceUrl(store.getState());
+      loadLeaderboard();
       return;
     }
     store.dispatch({ type: "LEADERBOARD_OK", data: result.data, signature });
@@ -2234,7 +2229,6 @@ export function boot(win = window, doc = document) {
       payload: { ...defaults, ...parseSearch(win.location.search) },
     });
     const s = store.getState();
-    syncCanonicalLink(s);
     const paramsChanged =
       s.persona !== previousState.persona || s.ecosystem !== previousState.ecosystem ||
       s.query !== previousState.query || s.sort !== previousState.sort ||
@@ -2287,75 +2281,26 @@ export function boot(win = window, doc = document) {
     initialThemeBtn.setAttribute("title", `Active theme: ${isDark ? "dark" : "light"}`);
   }
 
-  // Dev-only perf harness (U-19: "measured with the 1000-row page as the
-  // perf case"): `?perf=1000` synthesizes a page-shaped payload client-side
-  // instead of fetching, so windowing can be timed with `performance.now()`
-  // in a real browser without needing a 1000-row fixture on the server.
-  const perfParam = new URLSearchParams(win.location.search).get("perf");
-  if (perfParam) {
-    const n = parseInt(perfParam, 10) || 1000;
-    const t0 = win.performance.now();
-    const rows = synthesizeRows(n);
-    store.dispatch({
-      type: "LEADERBOARD_OK",
-      data: {
-        rows, total: rows.length, counts: { rated: rows.length, gated: 0, unrated: 0, total: rows.length },
-        page: 1, page_size: rows.length, persona: "balanced", ecosystem: null,
-      },
-    });
-    const t1 = win.performance.now();
-    // Dev-only timing readout (06 §7 budgets): never user-facing, exempt
-    // from copy.js.
-    // eslint-disable-next-line no-console
-    console.log(`[perf] synthesized ${n} rows in ${(t1 - t0).toFixed(1)}ms`);
-    render();
-    win.requestAnimationFrame(() => {
-      const t2 = win.performance.now();
-      patchLeaderboardBody(store.getState());
-      const t3 = win.performance.now();
-      // eslint-disable-next-line no-console
-      console.log(`[perf] initial windowed patch of ${n} rows: ${(t3 - t2).toFixed(1)}ms`);
-    });
-  } else if (new URLSearchParams(win.location.search).get("perfmatrix")) {
-    // Dev-only harness (06 §7: "matrix render < 150ms for 10k markers"):
-    // reuses `synthesizeRows` (its rows already carry leverage/friction/
-    // quadrant/stars_audited — a superset of `MatrixPoint`) so no second
-    // synthetic-data generator is needed for this budget.
-    const n = parseInt(new URLSearchParams(win.location.search).get("perfmatrix"), 10) || 10000;
-    const t0 = win.performance.now();
-    const points = synthesizeRows(n);
-    store.dispatch({ type: "SET_TAB", tab: "matrix" });
-    store.dispatch({ type: "MATRIX_OK", data: { points, excluded_count: 0, axis_coverage: {} } });
-    const t1 = win.performance.now();
-    // eslint-disable-next-line no-console
-    console.log(`[perf] synthesized ${n} matrix points in ${(t1 - t0).toFixed(1)}ms`);
-    const t2 = win.performance.now();
-    render();
-    const t3 = win.performance.now();
-    // eslint-disable-next-line no-console
-    console.log(`[perf] matrix render of ${n} points: ${(t3 - t2).toFixed(1)}ms`);
-  } else {
-    replaceUrl(store.getState());
-    render();
-    const initialState = store.getState();
-    const initialTab = initialState.tab;
-    if (initialTab === "ranked" || initialTab === "notranked") loadLeaderboard();
-    loadDataForTab(initialTab);
-    // U-7/U-15/U-16: a drawer opened straight from a URL (?repo=owner/name,
-    // no click ever happened) must fetch the same record+evidence a
-    // click-opened one does — see repoToLoadFromState's own docstring.
-    // `openRepo` is not reused here because the URL is already authoritative
-    // (repo/cursor/history are already correct); only the two fetches are missing.
-    // `renderDrawerAndKeymap` (called inside the `render()` just above)
-    // already focuses the drawer's close button for a URL-hydrated
-    // `state.repo` on this very first render (`wasDrawerOpen` starts
-    // `false`) — only the two fetches were missing.
-    const bootRepoToLoad = repoToLoadFromState(initialState);
-    if (bootRepoToLoad) {
-      store.dispatch({ type: "SET_CURSOR", key: initialState.repo });
-      loadRepoDetail(bootRepoToLoad.owner, bootRepoToLoad.name);
-      loadEvidence(bootRepoToLoad.owner, bootRepoToLoad.name);
-    }
+  replaceUrl(store.getState());
+  render();
+  const initialState = store.getState();
+  const initialTab = initialState.tab;
+  if (initialTab === "ranked" || initialTab === "notranked") loadLeaderboard();
+  loadDataForTab(initialTab);
+  // U-7/U-15/U-16: a drawer opened straight from a URL (?repo=owner/name,
+  // no click ever happened) must fetch the same record+evidence a
+  // click-opened one does — see repoToLoadFromState's own docstring.
+  // `openRepo` is not reused here because the URL is already authoritative
+  // (repo/cursor/history are already correct); only the two fetches are missing.
+  // `renderDrawerAndKeymap` (called inside the `render()` just above)
+  // already focuses the drawer's close button for a URL-hydrated
+  // `state.repo` on this very first render (`wasDrawerOpen` starts
+  // `false`) — only the two fetches were missing.
+  const bootRepoToLoad = repoToLoadFromState(initialState);
+  if (bootRepoToLoad) {
+    store.dispatch({ type: "SET_CURSOR", key: initialState.repo });
+    loadRepoDetail(bootRepoToLoad.owner, bootRepoToLoad.name);
+    loadEvidence(bootRepoToLoad.owner, bootRepoToLoad.name);
   }
   loadSnapshot();
 

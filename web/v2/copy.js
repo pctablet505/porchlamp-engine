@@ -342,15 +342,21 @@ export function suspicionTooltip(flags) {
   return `Flagged by: ${formatted.join(", ")}`;
 }
 
-export const BLACK_HOLE_EVIDENCE_HEADING = "How this Black hole status was determined (D-GATE-5)";
+export const BLACK_HOLE_EVIDENCE_HEADING = "How this Black hole status was determined";
 export const BLACK_HOLE_RULE_TEXT =
-  "Rule (D-GATE-5, RFC-0008): A repository is classified as a Black hole only when at least 10 eligible external non-bot PRs were observed for 14+ days in the 180-day window and the 95% one-sided Wilson lower confidence bound on the 14-day unanswered share exceeds 50%.";
+  "Black hole rule: A repository is classified as a Black hole only when at least 10 eligible external non-bot PRs were observed for 14+ days in the 180-day window and the 95% one-sided Wilson lower confidence bound on the 14-day unanswered share exceeds 50%.";
 export const BLACK_HOLE_EXCLUSIONS_TEXT =
-  "False-positive protections (RFC-0008): Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
+  "False-positive protections: Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
+/** What the "no response" count counted, ending the sentence that starts with "N of M (P%)". */
+export const BLACK_HOLE_STAT_PREDICATE =
+  "external non-bot PRs had no maintainer response, merge, or close within 14 days";
+/** The same, when this snapshot did not record a maintainer close: only a review, comment or merge was counted. */
+export const BLACK_HOLE_STAT_PREDICATE_CLOSE_NOT_COUNTED =
+  "external non-bot PRs had no maintainer review, comment or merge within 14 days (a close by a maintainer was not counted)";
 export const BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT =
   "The data of this snapshot was collected before drafts, self-closed pull requests and closes by a maintainer were recorded, so those two exclusions were not applied and a maintainer close was not counted as a response.";
 export const BLACK_HOLE_RECHECK_TEXT =
-  "Automatic recovery: Porchlamp re-evaluates the 180-day PR window whenever repository activity moves. If this project reviews patches off-GitHub (mailing list, Gerrit, Phabricator), open a re-check issue to route it under D-GATE-6 (RFC-0007).";
+  "Automatic recovery: Porchlamp re-evaluates the 180-day PR window whenever repository activity moves. If this project reviews patches off-GitHub (mailing list, Gerrit, Phabricator), open a re-check issue to have it judged by the off-GitHub review rule.";
 
 const BLACK_HOLE_RESPONSE_KIND_LABELS = Object.freeze({
   review_or_comment: "review or comment",
@@ -1037,6 +1043,16 @@ export const ONBOARDING_SUBTITLE =
   "Evidence-based open-source repository ranking across 5 pillars: Responsiveness, Criticality, Governance, Rigor, and Accessibility.";
 export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
 
+// --- Links to the static report and methodology pages (scripts/export_static.py --stats) ---------------
+// Relative, so they work from the site root and from a local copy. Real <a href> elements: a crawler that
+// runs the app finds the finding and the link to its page without a click.
+export const FINDINGS_LINE = "More than 1 in 4 active projects leave most strangers' pull requests unanswered for two weeks.";
+export const FINDINGS_LINK_LABEL = "Read the findings";
+export const REPORT_PAGE_HREF = "black-holes/";
+export const METHODOLOGY_PAGE_HREF = "methodology/";
+export const FOOTER_REPORT_LABEL = "Report";
+export const FOOTER_METHODOLOGY_LABEL = "Methodology";
+
 // --- Maintainer README badge (Screen C, inside the Composite section) -----
 // Offered when a repository's canonical (balanced) record is rated at tier A
 // or above with no suspicion flag. The image is one of the static files in
@@ -1099,17 +1115,27 @@ export function maintainerBadgeSpec(row) {
 }
 
 /**
- * The README Markdown: the badge image, linked to the repository's drawer on
- * the public site. `baseUrl` is that site's address (app.js reads it from
- * index.html), so a badge copied from a local server still points at the
- * public one.
+ * The address, relative to the site root, of a ranked project's own page: the
+ * exporter writes `projects/<owner>/<name>/` in lower case
+ * (porchlamp/serve/project_pages.py `project_path`). GitHub names have no
+ * characters that need escaping; the encoding is a guard.
+ */
+export function projectPath(owner, name) {
+  const part = (value) => encodeURIComponent(String(value).toLowerCase()).replace(/[()]/g, (ch) => (ch === "(" ? "%28" : "%29"));
+  return `projects/${part(owner)}/${part(name)}/`;
+}
+
+/**
+ * The README Markdown: the badge image, linked to the project's own page on
+ * the public site (a README written before that page existed links the
+ * drawer, `?repo=`, which still opens). `baseUrl` is that site's address
+ * (app.js reads it from index.html), so a badge copied from a local server
+ * still points at the public one.
  */
 export function maintainerBadgeMarkdown(row, baseUrl = "") {
   const spec = maintainerBadgeSpec(row);
   if (!spec) return "";
   const base = !baseUrl || baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  const encodeMdUrlPart = (val) =>
-    encodeURIComponent(val).replace(/[()]/g, (ch) => (ch === "(" ? "%28" : "%29"));
-  const target = `${base}?repo=${encodeMdUrlPart(row.owner)}%2F${encodeMdUrlPart(row.name)}`;
+  const target = `${base}${projectPath(row.owner, row.name)}`;
   return `[![${spec.alt}](${base}${spec.file})](${target} "${spec.alt}")`;
 }

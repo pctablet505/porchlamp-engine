@@ -21,6 +21,17 @@ run this from a clean tree::
 
     PYTHONPATH=<clean worktree> .venv/bin/python <clean worktree>/scripts/export_static.py \\
         --db ../cvi-scratch/bfs-run/cvi-L4a2.db --out ../cvi-scratch/static-site
+
+With ``--stats <stats-YYYY-MM-DD.json>`` (from ``surprise_stats.py``) the export also writes the report and
+methodology pages (``porchlamp/serve/report_pages.py``): ``black-holes/index.html``,
+``black-holes/<snapshot_id>/index.html`` with the CSV of the ranked projects beside it, and
+``methodology/index.html``, then one page per ranked project (``porchlamp/serve/project_pages.py``:
+``projects/<owner>/<name>/index.html``, lower case), ``check/index.html`` with its search index
+``check/projects.json``, and ``sitemap-projects.xml`` (the top 1,000 by balanced rank), then ten landing pages
+(``porchlamp/serve/landing_pages.py``): ``rust/``, ``python/``, ``javascript/``, ``go/``, ``java/``, ``c-cpp/`` and the lenses
+``first-timers/``, ``career/``, ``senior-systems/``, ``ai-assisted/``. The black-hole evidence the report sums is recomputed from the raw ``pr_window``
+envelopes, so set ``PORCHLAMP_DATA_ROOT`` to the data root that holds them. The export refuses when the
+stats file is for another snapshot or disagrees with the database, or when a guarded sentence would be false.
 """
 from __future__ import annotations
 
@@ -32,7 +43,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Optional
 from urllib.parse import quote
@@ -280,7 +291,7 @@ def _copy_web(out: Path) -> None:
 
 def _scan_for_forbidden(out: Path) -> None:
     for path in sorted(out.rglob("*")):
-        if not path.is_file() or path.suffix not in {".json", ".js", ".html", ".css"}:
+        if not path.is_file() or path.suffix not in {".json", ".js", ".html", ".css", ".csv"}:
             continue
         text = path.read_text(encoding="utf-8")
         for pattern, what in _FORBIDDEN:
@@ -289,9 +300,133 @@ def _scan_for_forbidden(out: Path) -> None:
                 raise SystemExit(f"export: {path.relative_to(out)} contains {what} ({match.group(0)[:40]!r}); not publishing")
 
 
-def export(db: Path, out: Path) -> dict:
+def _load_stats(path: Path) -> dict:
+    try:
+        stats = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"export: cannot read the stats file {path}: {error}") from error
+    if not isinstance(stats, dict):
+        raise SystemExit(f"export: the stats file {path} is not a JSON object")
+    return stats
+
+
+def _db_rows_for_report(conn: sqlite3.Connection, snapshot_id: str) -> tuple[list[tuple], int]:
+    rows = conn.execute(
+        "SELECT ecosystem, gate_reason, gate_undecided FROM repositories WHERE snapshot_id = ?", (snapshot_id,)
+    ).fetchall()
+    rated = conn.execute(
+        "SELECT COUNT(*) FROM repositories WHERE snapshot_id = ? AND rated = 1", (snapshot_id,)
+    ).fetchone()[0]
+    return rows, rated
+
+
+def _report_facts(
+    conn: sqlite3.Connection, snapshot: dict, methodology: dict, stats: dict, boards: dict[str, dict],
+    details: dict[tuple[str, str], dict],
+) -> Any:
+    """Every number the report prints, from its source (``porchlamp.serve.report_pages.build_facts``);
+    a stats file that disagrees with the database, or a guarded sentence that would be false, stops the export."""
+    from porchlamp.serve import report_pages
+
+    snapshot_id = snapshot["snapshot_id"]
+    db_rows, db_rated = _db_rows_for_report(conn, snapshot_id)
+    black_holes = [d for d in details.values() if d["gate_reason"] == "black_hole"]
+    try:
+        return report_pages.build_facts(
+            snapshot=snapshot, methodology=methodology, stats=stats, db_rows=db_rows, db_rated=db_rated,
+            api_ranked=boards["balanced"]["total"], api_black_holes=len(black_holes),
+            evidence=[d["black_hole_evidence"] for d in black_holes if d["black_hole_evidence"]],
+        )
+    except report_pages.ReportError as error:
+        raise SystemExit(f"export: {error}") from error
+
+
+def _write_report_pages(
+    out: Path, facts: Any, methodology: dict, boards: dict[str, dict], manifest: dict
+) -> None:
+    """The report (latest and frozen), its CSV, and the methodology page."""
+    from porchlamp.core import constants
+    from porchlamp.serve import report_pages
+
+    exported_on = date.fromisoformat(manifest["exported_at"][:10])
+    sha = manifest["source_db_sha256"]
+    lenses = sorted(constants.PERSONA_PRESETS)
+    frozen = out / "black-holes" / facts.snapshot_id
+    for target, is_frozen in ((out / "black-holes", False), (frozen, True)):
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "index.html").write_text(
+            report_pages.render_report(facts, frozen=is_frozen, exported_on=exported_on, source_db_sha256=sha),
+            encoding="utf-8",
+        )
+    (frozen / facts.csv_name).write_text(report_pages.ranked_csv(boards, lenses), encoding="utf-8")
+    (out / "methodology").mkdir(parents=True, exist_ok=True)
+    (out / "methodology" / "index.html").write_text(
+        report_pages.render_methodology(methodology, facts, source_db_sha256=sha), encoding="utf-8"
+    )
+
+
+def _write_project_pages(
+    out: Path, facts: Any, methodology: dict, boards: dict[str, dict], buckets: dict[str, dict[str, dict]], snapshot: dict
+) -> None:
+    """One page per ranked project (``projects/<owner>/<name>/``), the /check/ page with its search index, and
+    ``sitemap-projects.xml``. Every page is rendered from the project's own API record and evidence, as the
+    drawer shows them."""
+    from porchlamp.serve import project_pages as pp
+    from porchlamp.serve import report_pages
+
+    copy = pp.Copy.load()
+    try:
+        index = pp.ProjectIndex(boards, copy)
+        param_order = [p["input_id"] for p in methodology["parameters"]]
+        min_n = {p["input_id"]: p["min_n"] for p in methodology["parameters"]}
+        missing = sorted(set(param_order) - set(pp.PARAM_MEANINGS))
+        if missing:
+            raise report_pages.ReportError(f"no one-line meaning for the parameters {missing}")
+        as_of = date.fromisoformat(snapshot["as_of"][:10])
+        for owner, name in index.keys:
+            bucket = bucket_of(owner, name)
+            record = buckets[bucket][f"{owner}/{name}"]
+            target = out / pp.project_path(owner, name)
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "index.html").write_text(
+                pp.render_project(
+                    facts, detail=record["detail"], evidence=record["evidence"], index=index, copy=copy,
+                    param_order=param_order, min_n=min_n, bucket=bucket, as_of=as_of,
+                ),
+                encoding="utf-8",
+            )
+        (out / "check").mkdir(parents=True, exist_ok=True)
+        top = index.balanced[0]
+        (out / "check" / "index.html").write_text(
+            pp.render_check(facts, ranked=len(index.keys), example=top), encoding="utf-8"
+        )
+        (out / "check" / "projects.json").write_text(pp.dumps_json(pp.check_index(index)), encoding="utf-8")
+        (out / "sitemap-projects.xml").write_text(pp.sitemap_projects(index, as_of), encoding="utf-8")
+    except report_pages.ReportError as error:
+        raise SystemExit(f"export: {error}") from error
+
+
+def _write_landing_pages(out: Path, facts: Any, methodology: dict, boards: dict[str, dict]) -> None:
+    """The six ecosystem pages and the four lens pages (``<slug>/index.html``), each with its top-50 table."""
+    from porchlamp.serve import landing_pages as lp
+    from porchlamp.serve import project_pages as pp
+    from porchlamp.serve import report_pages
+
+    try:
+        copy = pp.Copy.load()
+        index = pp.ProjectIndex(boards, copy)
+        for landing in lp.build_landings(facts, methodology, index, copy):
+            (out / landing.slug).mkdir(parents=True, exist_ok=True)
+            (out / landing.slug / "index.html").write_text(lp.render_landing(facts, landing), encoding="utf-8")
+    except report_pages.ReportError as error:
+        raise SystemExit(f"export: {error}") from error
+
+
+def export(db: Path, out: Path, stats_path: Optional[Path] = None) -> dict:
     from porchlamp.core import constants
     from porchlamp.serve.app import _current_snapshot_id, _open_v2_connection
+
+    stats = _load_stats(stats_path) if stats_path is not None else None
 
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"export: {out} is not empty")
@@ -312,17 +447,27 @@ def export(db: Path, out: Path) -> dict:
         snapshot = api.get("/v1/porchlamp/snapshot")
         if snapshot["snapshot_id"] != snapshot_id:
             raise SystemExit("export: the API serves a different snapshot than the database's current one")
+        if stats is not None:  # refuse a stats file that is not this snapshot's before the long part
+            from porchlamp.serve import report_pages
+
+            try:
+                report_pages.check_stats_against_db(stats, snapshot_id, *_db_rows_for_report(conn, snapshot_id))
+            except report_pages.ReportError as error:
+                raise SystemExit(f"export: {error}") from error
         data = out / "data" / snapshot_id
         sizes: dict[str, int] = {}
         sizes["snapshot.json"] = _dump(data / "snapshot.json", snapshot)
-        sizes["methodology.json"] = _dump(data / "methodology.json", api.get("/v1/porchlamp/methodology"))
+        methodology = api.get("/v1/porchlamp/methodology")
+        sizes["methodology.json"] = _dump(data / "methodology.json", methodology)
         sizes["matrix.json"] = _dump(data / "matrix.json", api.get("/v1/porchlamp/matrix"))
 
         personas = sorted(constants.PERSONA_PRESETS)
         sorts = sort_keys(constants.PILLAR_NAMES)
+        boards: dict[str, dict] = {}
         for persona in personas:
             name = f"leaderboard-{persona}.json"
-            sizes[name] = _dump(data / name, _export_leaderboard(api, persona, sorts))
+            boards[persona] = _export_leaderboard(api, persona, sorts)
+            sizes[name] = _dump(data / name, boards[persona])
             name = f"not-ranked-{persona}.json"
             sizes[name] = _dump(data / name, _export_not_ranked(api, conn, snapshot_id, persona))
 
@@ -333,6 +478,9 @@ def export(db: Path, out: Path) -> dict:
         for owner, name, record in _repo_records(api, conn, snapshot_id):
             buckets.setdefault(bucket_of(owner, name), {})[f"{owner}/{name}"] = record
             details[(owner, name)] = record["detail"]
+        facts = None
+        if stats is not None:
+            facts = _report_facts(conn, snapshot, methodology, stats, boards, details)
         repo_bytes = sum(_dump(data / "repos" / f"{b}.json", records) for b, records in buckets.items())
         sizes[f"repos/ ({len(buckets)} files)"] = repo_bytes
         sizes["reproject.json"] = _dump(data / "reproject.json", _export_reproject(conn, snapshot_id, details))
@@ -352,6 +500,10 @@ def export(db: Path, out: Path) -> dict:
     }
     _dump(data / "manifest.json", manifest)
     _copy_web(out)
+    if facts is not None:
+        _write_report_pages(out, facts, methodology, boards, manifest)
+        _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
+        _write_landing_pages(out, facts, methodology, boards)
     (out / "data-version.js").write_text(
         f"// Generated by scripts/export_static.py: the data directory this build reads.\n"
         f"export const DATA_VERSION = {json.dumps(snapshot_id)};\n",
@@ -366,8 +518,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--db", type=Path, required=True, help="a promoted v2 snapshot database")
     parser.add_argument("--out", type=Path, required=True, help="an empty or absent directory for the site")
+    parser.add_argument(
+        "--stats", type=Path, default=None,
+        help="surprise_stats.py's stats-<snapshot>.json: also write the report and methodology pages",
+    )
     args = parser.parse_args(argv)
-    manifest = export(args.db.resolve(), args.out.resolve())
+    manifest = export(args.db.resolve(), args.out.resolve(), args.stats.resolve() if args.stats else None)
     print(json.dumps({k: manifest[k] for k in ("snapshot_id", "counts", "repos", "bytes")}, indent=2))
     return 0
 

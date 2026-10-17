@@ -7,7 +7,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -22,7 +22,6 @@ import {
   reduce,
   parseSearch,
   serializeSearch,
-  canonicalHrefForState,
   VALID_PERSONAS,
   VALID_TABS,
   countRankChanges,
@@ -39,7 +38,7 @@ import { normalizeWeights, applyPresetRespectingLocks, renderControls, renderShe
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
 import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, renderShell as renderMatrixShell, shellShape as matrixShellShape, clientToDomainCoords } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY, renderScatterSvg } from "../components/scatter.js";
-import { synthesizeRows } from "../perf-fixtures.js";
+import { synthesizeRows } from "./synthetic-rows.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape, renderShell as renderCompareShell, computeVerdict } from "../views/compare.js";
 import { renderDrawer, classifyKind, classifyKindForLens, renderPillarRadar, findRow, renderBlackHoleEvidence } from "../views/drawer.js";
 import {
@@ -374,7 +373,7 @@ function assertValidDistribution(weights, locks, before, label) {
   }
 }
 
-// Deterministic LCG (same shape as perf-fixtures.js's) so a "randomised"
+// Deterministic LCG (same shape as synthetic-rows.js's) so a "randomised"
 // walk is reproducible.
 function makeRng(seed) {
   let state = seed >>> 0;
@@ -541,7 +540,7 @@ test("repoToLoadFromState: a malformed repo (no slash) loads nothing rather than
 
 const PERF_POINTS = synthesizeRows(5000);
 
-test("perf-fixtures generates enough points to exceed SVG_MARKER_BUDGET (the canvas path this suite exercises)", () => {
+test("synthetic-rows generates enough points to exceed SVG_MARKER_BUDGET (the canvas path this suite exercises)", () => {
   assert.ok(PERF_POINTS.length > SVG_MARKER_BUDGET);
 });
 
@@ -1259,7 +1258,7 @@ test("index.html carries absolute link-preview tags and the preview image exists
   };
   // No URL literal here: tests/test_ui_no_external_resources.py scans this file too.
   const base = meta("property", "og:url");
-  assert.match(base, /^https:\/\/[^/]+\/porchlamp\/$/, "og:url is the absolute site root");
+  assert.match(base, /^https:\/\/[^/]+\/$/, "og:url is the absolute site root, a host root on the site's own domain");
   const canonical = html.match(/<link rel="canonical" href="([^"]*)">/);
   assert.ok(canonical && canonical[1] === base, "rel=canonical matches og:url");
   assert.equal(meta("property", "og:image"), base + "og.png");
@@ -1294,42 +1293,66 @@ test('SEO: "Porchlamp rankings" leads the title, description, static h1, structu
   assert.match(view, /id="leaderboard-heading"[^`]*\$\{escapeHtml\(copy\.LEADERBOARD_HEADING\)\}/);
 });
 
-test("SEO: canonicalHrefForState, robots.txt, sitemap.xml, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
+// E7: the Dataset lives on the report page (its licence is pinned in tests/test_report_pages.py); the home page
+// keeps the site, the person, the page and the top-10 list, and points the page's `about` at the report's Dataset.
+test("E7: the home JSON-LD has no SoftwareApplication or Dataset, names the report's Dataset, and lists project pages", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const html = readFileSync(path.join(here, "..", "index.html"), "utf8");
+  const base = html.match(/<link rel="canonical" href="([^"]*)">/)[1];
+  const ld = JSON.parse(html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/)[1]);
+  const types = ld["@graph"].map((n) => n["@type"]);
+  assert.ok(!types.includes("SoftwareApplication"), "no software-application markup");
+  assert.ok(!types.includes("Dataset"), "the report page carries the Dataset");
+  assert.deepEqual(types, ["Person", "WebSite", "WebPage", "ItemList"]);
+  const webpage = ld["@graph"].find((n) => n["@type"] === "WebPage");
+  assert.deepEqual(webpage.about, { "@id": `${base}black-holes/#dataset` }, "about names the report's Dataset @id");
+  const items = ld["@graph"].find((n) => n["@type"] === "ItemList").itemListElement;
+  assert.equal(items.length, 10);
+  for (const item of items) {
+    assert.ok(item.url.startsWith(`${base}projects/`), item.url);
+    assert.match(item.url.slice(base.length), /^projects\/[a-z0-9._-]+\/[a-z0-9._-]+\/$/, "a lower-case project page address");
+  }
+  assert.ok(!JSON.stringify(ld).includes("?repo="), "no address in the JSON-LD is a ?repo= link");
+});
+
+// The ten landing pages (porchlamp/serve/landing_pages.py): six ecosystems, then four lenses.
+const ECOSYSTEM_SLUGS = ["rust", "python", "javascript", "go", "java", "c-cpp"];
+const LANDING_SLUGS = [...ECOSYSTEM_SLUGS, "first-timers", "career", "senior-systems", "ai-assisted"];
+
+test("SEO: static canonical, root robots.txt on the site's own domain, canonical-only sitemap, lean head, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webRoot = path.join(here, "..");
   const html = readFileSync(path.join(webRoot, "index.html"), "utf8");
   const base = html.match(/<link rel="canonical" href="([^"]*)">/)[1];
 
-  // 1. canonicalHrefForState strips pre-existing query strings and serializes canonical state
-  assert.equal(canonicalHrefForState("", defaultState()), "");
-  assert.equal(canonicalHrefForState(base, defaultState()), base);
-  assert.equal(
-    canonicalHrefForState(`${base}?persona=balanced&page=1`, { ...defaultState(), ...parseSearch("?persona=balanced&page=1") }),
-    base,
-    "default persona and page=1 canonicalize to bare site root"
-  );
-  assert.equal(
-    canonicalHrefForState(base, { ...defaultState(), ...parseSearch("?persona=first_timer") }),
-    `${base}?persona=first_timer`
-  );
-  assert.equal(
-    canonicalHrefForState(base, { ...defaultState(), ...parseSearch("?tab=methodology") }),
-    `${base}?tab=methodology`
-  );
+  // 1. The canonical link is static: app.js never rewrites it, so every query view consolidates to the site root.
+  const appSrc = readFileSync(path.join(webRoot, "app.js"), "utf8");
+  assert.doesNotMatch(appSrc, /canonical[^\n]*\.setAttribute\(|setAttribute\(\s*["']href["'][^\n]*canonical/i, "app.js must not rewrite rel=canonical");
+  assert.doesNotMatch(appSrc, /canonicalHrefForState|syncCanonicalLink/, "no canonical rewrite helper in app.js");
 
-  // 2. robots.txt allows root and multi-engine crawlers, and points to the canonical sitemap.xml
+  // 2. The site is the root of its own domain, so robots.txt here is the host's robots.txt: it blocks nothing and names the sitemap.
+  const site = new URL(base);
+  assert.equal(site.pathname, "/", "the canonical base is a host root");
+  assert.equal(readFileSync(path.join(webRoot, "CNAME"), "utf8").trim(), site.host, "CNAME names the canonical host");
   const robots = readFileSync(path.join(webRoot, "robots.txt"), "utf8");
-  assert.match(robots, /^User-agent: \*\nAllow: \/\n\n/, "robots.txt header");
-  for (const bot of ["Googlebot", "Bingbot", "DuckDuckBot", "Bravebot", "Slurp", "Yandex", "Applebot", "OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "ClaudeBot"]) {
-    assert.ok(robots.includes(`User-agent: ${bot}\nAllow: /`), `robots.txt allows ${bot}`);
+  assert.match(robots, /^User-agent: \*$/m);
+  assert.doesNotMatch(robots, /^Disallow: \S/m, "robots.txt blocks nothing");
+  assert.ok(robots.includes(`Sitemap: ${base}sitemap.xml`), "robots.txt names the canonical sitemap");
+  for (const f of ["index.html", "sitemap.xml", "feed.xml", "llms.txt", "robots.txt"]) {
+    assert.ok(!readFileSync(path.join(webRoot, f), "utf8").includes("pctablet505.github.io/porchlamp"), `${f} keeps no old github.io address`);
   }
-  assert.ok(robots.trim().endsWith(`Sitemap: ${base}sitemap.xml`), "robots.txt names canonical sitemap");
+
+  // 2a. Lean head: no meta keywords, no googlebot/bingbot copies of the robots tag, no hreflang on a one-language site.
+  assert.doesNotMatch(html, /<meta name="(keywords|googlebot|bingbot)"/, "no ignored or duplicate meta tags");
+  assert.doesNotMatch(html, /hreflang=/, "no hreflang links");
+  assert.match(html, /<meta name="robots" content="index, follow/, "one robots meta tag stays");
 
   // 2b. JSON-LD @graph, feed.xml, llms.txt, and IndexNow key file
   const ldMatch = html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/);
   assert.ok(ldMatch, "JSON-LD structured data block present in index.html");
   const ldJson = JSON.parse(ldMatch[1]);
-  assert.ok(Array.isArray(ldJson["@graph"]) && ldJson["@graph"].length >= 5, "JSON-LD @graph contains rich entities");
+  assert.ok(Array.isArray(ldJson["@graph"]) && ldJson["@graph"].length >= 4, "JSON-LD @graph contains rich entities");
+  assert.ok(!ldJson["@graph"].some((n) => n["@type"] === "FAQPage"), "no FAQPage markup for text the page does not show");
   const feedXml = readFileSync(path.join(webRoot, "feed.xml"), "utf8");
   assert.ok(feedXml.includes(`<id>${base}</id>`), "feed.xml uses canonical base id");
   const llmsTxt = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
@@ -1342,30 +1365,36 @@ test("SEO: canonicalHrefForState, robots.txt, sitemap.xml, Search Console verifi
   const gsc = readFileSync(path.join(webRoot, gscFile), "utf8").trim();
   assert.equal(gsc, `google-site-verification: ${gscFile}`);
 
-  // 4. sitemap.xml: every <loc> starts with base, is unique, and round-trips through canonicalHrefForState
+  // 4. sitemap.xml is a sitemap index naming the two child sitemaps; the pages sitemap lists canonical addresses only,
+  //    with no priority or changefreq. (sitemap-projects.xml is written by the exporter, one entry per project page.)
   const sitemap = readFileSync(path.join(webRoot, "sitemap.xml"), "utf8");
-  const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
-  assert.equal(locs.length, 16, "root + 4 non-default personas + 6 ecosystems + 5 non-default primary tabs");
-  assert.equal(new Set(locs).size, locs.length, "no duplicate <loc> in sitemap.xml");
-  for (const loc of locs) {
-    assert.ok(loc.startsWith(base), `sitemap <loc> starts with base: ${loc}`);
-    const query = loc.slice(base.length);
-    const hydrated = { ...defaultState(), ...parseSearch(query) };
-    assert.equal(
-      canonicalHrefForState(base, hydrated),
-      loc,
-      `sitemap <loc> ${loc} must equal its canonical serialized state`
-    );
-  }
-  for (const persona of VALID_PERSONAS.filter((p) => p !== "balanced")) {
-    assert.ok(locs.includes(`${base}?persona=${persona}`), `sitemap includes persona=${persona}`);
-  }
-  for (const [eco] of copy.ECOSYSTEMS) {
-    assert.ok(locs.includes(`${base}?eco=${eco}`), `sitemap includes eco=${eco}`);
-  }
-  for (const tab of VALID_TABS.filter((t) => t !== "ranked")) {
-    assert.ok(locs.includes(`${base}?tab=${tab}`), `sitemap includes tab=${tab}`);
-  }
+  assert.match(sitemap, /<sitemapindex xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/, "sitemap.xml is a sitemap index");
+  assert.doesNotMatch(sitemap, /<urlset/, "the index lists sitemaps, not pages");
+  const children = [...sitemap.matchAll(/<sitemap>\s*<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  assert.deepEqual(
+    children,
+    [`${base}sitemap-pages.xml`, `${base}sitemap-projects.xml`],
+    "the sitemap index names both child sitemaps"
+  );
+  const pagesSitemap = readFileSync(path.join(webRoot, "sitemap-pages.xml"), "utf8");
+  const locs = [...pagesSitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  const snapshotId = html.match(/Snapshot <code>([\d-]+)<\/code>/)[1];
+  assert.deepEqual(
+    locs,
+    [
+      base, `${base}black-holes/`, `${base}black-holes/${snapshotId}/`, `${base}methodology/`, `${base}check/`,
+      ...LANDING_SLUGS.map((slug) => `${base}${slug}/`),
+    ],
+    "the pages sitemap lists the canonical root, the report (latest and frozen), the methodology page, the check page and the ten landing pages"
+  );
+  const llms = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
+  for (const loc of locs.slice(1)) assert.ok(llms.includes(loc), `llms.txt names ${loc}`);
+  for (const loc of [...children, ...locs]) assert.ok(!loc.includes("?"), `no query address in sitemap: ${loc}`);
+  for (const text of [sitemap, pagesSitemap]) assert.doesNotMatch(text, /<(priority|changefreq)>/, "no priority or changefreq");
+  assert.ok(
+    llms.includes(`To check a project, open ${base}projects/<owner>/<name>/ (lower case).`),
+    "llms.txt states the address of a project's page"
+  );
 
   // 5. index.html .seo-fallback: every internal link is canonical, U-2 excluded counts and U-6 hashes are present,
   //    and all 20 rows carry U-1 coverage, tier, and ?repo= drawer links.
@@ -1377,8 +1406,23 @@ test("SEO: canonicalHrefForState, robots.txt, sitemap.xml, Search Console verifi
 
   const hrefs = [...article.matchAll(/<a href="([^"]+)">/g)].map((m) => m[1]);
   assert.ok(hrefs.length >= 30, "persona, tab, ecosystem, and top-20 repo links");
+  // S2: the static article links the report after the findings and the methodology page where the numbers come from.
+  assert.match(
+    article,
+    /<\/ul>\s*<p><a href="black-holes\/">Read the report: Stars don't review pull requests<\/a><\/p>/,
+    "report link follows the findings list"
+  );
+  // E4: one line links the six ecosystem pages.
+  assert.match(
+    article,
+    /Browse by ecosystem:\s*<a href="rust\/">Rust<\/a> ·\s*<a href="python\/">Python<\/a> ·\s*<a href="javascript\/">JavaScript and TypeScript<\/a> ·\s*<a href="go\/">Go<\/a> ·\s*<a href="java\/">Java<\/a> ·\s*<a href="c-cpp\/">C, C\+\+ and Zig<\/a>/,
+    "the Browse by ecosystem line"
+  );
+  const whereFrom = article.match(/<h2>Where the numbers come from<\/h2>([\s\S]*?)<h2>/)[1];
+  assert.match(whereFrom, /<a href="methodology\/">[^<]+<\/a>/, "methodology link in 'Where the numbers come from'");
+  const pageLinks = ["black-holes/", "methodology/", ...ECOSYSTEM_SLUGS.map((slug) => `${slug}/`)];
   for (const href of hrefs) {
-    if (href === "./") continue;
+    if (href === "./" || pageLinks.includes(href)) continue;
     const hydrated = { ...defaultState(), ...parseSearch(href) };
     assert.equal(
       serializeSearch(hydrated),
@@ -1603,7 +1647,7 @@ test("maintainer badge: each image states its tier, '(capped)' when the ceiling 
   assert.deepEqual(files, ids.map((id) => `${id}.svg`).sort(), "every badge file is reachable, and only those exist");
 });
 
-test("maintainer badge: the Markdown links the image to the repository's drawer on the public site, with score, coverage and snapshot in alt and title (U-1, U-6)", () => {
+test("maintainer badge: the Markdown links the image to the project's own page on the public site, with score, coverage and snapshot in alt and title (U-1, U-6)", () => {
   const row = badgeRow({ porchlamp: 84.5, coverage: 0.85, tier: "A", tier_ceiling: "A", snapshot_id: "2026-10-13c" });
   const spec = copy.maintainerBadgeSpec(row);
   assert.equal(
@@ -1611,7 +1655,7 @@ test("maintainer badge: the Markdown links the image to the repository's drawer 
     "Porchlamp: \u2666 Sweet Spot \u00b7 Tier A (capped) \u00b7 Score 84.50 \u00b7 Coverage 85% \u00b7 Ceiling A \u00b7 Snapshot 2026-10-13c",
   );
   const md = copy.maintainerBadgeMarkdown(row, SITE_BASE);
-  assert.equal(md, `[![${spec.alt}](${SITE_BASE}badges/sweet-spot-tier-a-capped.svg)](${SITE_BASE}?repo=riverline%2Fhttpkit "${spec.alt}")`);
+  assert.equal(md, `[![${spec.alt}](${SITE_BASE}badges/sweet-spot-tier-a-capped.svg)](${SITE_BASE}projects/riverline/httpkit/ "${spec.alt}")`);
   assert.equal(copy.maintainerBadgeMarkdown(row, SITE_BASE.replace(/\/$/, "")), md, "a base without its trailing slash gives the same links");
   // Nothing that could end the alt text or the title early reaches the snippet.
   const hostile = copy.maintainerBadgeSpec({ ...row, snapshot_id: 'x"] [y\\' });
@@ -1627,7 +1671,7 @@ test("maintainer badge: the drawer shows the balanced badge at the end of Compos
   assert.ok(composite > -1 && composite < box && box < pillars, "the badge box is inside the Composite section");
   assert.equal((html.match(/<details[^>]*>/g) || []).length, 5, "a rated drawer still has five sections");
   assert.ok(html.includes('data-badge-copy="true"') && html.includes('data-badge-markdown="true"'));
-  assert.ok(html.includes(escapeHtml(`${SITE_BASE}?repo=riverline%2Fhttpkit`)), "the Markdown uses the address app.js passes in");
+  assert.ok(html.includes(escapeHtml(`${SITE_BASE}projects/riverline/httpkit/`)), "the Markdown uses the address app.js passes in");
   assert.ok(html.includes('src="badges/sweet-spot-tier-s.svg"'), "the preview loads from this site");
 
   // Balanced tier B, tier A under a lens: Composite shows the lens's A, but no badge is minted from it.
@@ -2594,3 +2638,288 @@ test("compare: empty and partial states render quick-start presets and suggestio
   assert.ok(verdict.includes(escapeHtml(copy.compareUnmeasuredNote([copy.paramName("mr_first_rate")]))));
 });
 
+
+
+// ---- E2: links to the static report and methodology pages (S2) ---------------------------------
+
+import { renderShell } from "../views/leaderboard.js";
+
+test("leaderboard: one visible findings line under the header links to the static report with a real relative href", () => {
+  assert.equal(
+    copy.FINDINGS_LINE,
+    "More than 1 in 4 active projects leave most strangers' pull requests unanswered for two weeks."
+  );
+  const html = renderShell({ ...defaultState(), leaderboardLoading: true, leaderboard: null });
+  assert.ok(html.includes(escapeHtml(copy.FINDINGS_LINE)), "the line is on the page");
+  assert.match(html, /<a href="black-holes\/"[^>]*>Read the findings<\/a>/);
+  assert.ok(
+    html.indexOf("data-onboarding-banner") < html.indexOf("data-findings-line"),
+    "the line sits under the onboarding banner"
+  );
+  assert.ok(html.indexOf("data-findings-line") < html.indexOf("data-primary-tab") || !html.includes("data-primary-tab"));
+});
+
+test("footer: Report and Methodology are real relative links", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const app = readFileSync(path.join(here, "..", "app.js"), "utf8");
+  assert.equal(copy.REPORT_PAGE_HREF, "black-holes/");
+  assert.equal(copy.METHODOLOGY_PAGE_HREF, "methodology/");
+  assert.match(app, /<a href="\$\{escapeHtml\(copy\.REPORT_PAGE_HREF\)\}"[^>]*>\$\{escapeHtml\(copy\.FOOTER_REPORT_LABEL\)\}<\/a>/);
+  assert.match(app, /<a href="\$\{escapeHtml\(copy\.METHODOLOGY_PAGE_HREF\)\}"[^>]*>\$\{escapeHtml\(copy\.FOOTER_METHODOLOGY_LABEL\)\}<\/a>/);
+  assert.equal(copy.FOOTER_REPORT_LABEL, "Report");
+  assert.equal(copy.FOOTER_METHODOLOGY_LABEL, "Methodology");
+});
+
+// ------------------------------------------------ E3: project pages (rows link to them; the badge targets them; /check/)
+import { rowCells, renderCard, handleRepoLinkClick, repoLinkHtml } from "../components/table.js";
+import { projectAddress, normalizeQuery, matchProjects, renderResults } from "../check.js";
+
+const E3_ROW = { owner: "FreeCAD", name: "FreeCAD", ecosystem: "systems", rank: 37, porchlamp: 70.1, tier: "B", tier_ceiling: "A", coverage: 0.9, quadrant: "Sweet Spot" };
+
+/** A click as the DOM delivers it: `target` answers `closest` for the link it is on (or none), and the two calls are recorded. */
+function clickOn(onLink, init = {}) {
+  const calls = [];
+  const evt = {
+    button: 0, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false,
+    target: { closest: (selector) => (onLink && selector === "a.repo-link" ? {} : null) },
+    preventDefault: () => calls.push("preventDefault"),
+    stopPropagation: () => calls.push("stopPropagation"),
+    ...init,
+  };
+  return { evt, calls };
+}
+
+test("E3: a ranked row and a card render the repository name as a real link to the lower-case project page", () => {
+  const repo = rowCells(E3_ROW, {}).cells.find((cell) => cell.key === "repository").html;
+  assert.match(repo, /^<a class="repo-link"[^>]* href="projects\/freecad\/freecad\/">/, "the cell starts with a real link");
+  assert.ok(repo.includes('<span class="repo-owner">FreeCAD/</span><span class="repo-name">FreeCAD</span></a>'), "the real spelling is shown");
+  assert.ok(repo.includes('<span class="eco-chip">systems</span>'), "the ecosystem chip is still there, outside the link");
+  assert.ok(renderCard(E3_ROW, {}).includes('href="projects/freecad/freecad/"'), "the card links too");
+  assert.ok(!repo.includes("style="), "the link carries no inline style");
+  const css = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles", "components.css"), "utf8");
+  assert.match(css, /\.repo-link \{\s*color: inherit;\s*text-decoration: none;\s*\}/, "components.css keeps the link looking like the row did");
+  assert.equal(repoLinkHtml({ ...E3_ROW, owner: "a<b" }).includes("<b"), false, "a name is escaped");
+  assert.equal(copy.projectPath("Ggml-Org", "Llama.CPP"), "projects/ggml-org/llama.cpp/");
+});
+
+test("E3: a plain left click on the link is kept from navigating (the drawer opens), a modified click follows the link", () => {
+  const plain = clickOn(true);
+  handleRepoLinkClick(plain.evt);
+  assert.deepEqual(plain.calls, ["preventDefault"], "a plain click prevents the navigation and goes on to the drawer");
+  for (const modifier of ["ctrlKey", "metaKey", "shiftKey", "altKey"]) {
+    const modified = clickOn(true, { [modifier]: true });
+    handleRepoLinkClick(modified.evt);
+    assert.deepEqual(modified.calls, ["stopPropagation"], `${modifier}: the link is followed and the drawer stays shut`);
+  }
+  const middle = clickOn(true, { button: 1 });
+  handleRepoLinkClick(middle.evt);
+  assert.deepEqual(middle.calls, ["stopPropagation"], "a non-primary button follows the link");
+  const elsewhere = clickOn(false);
+  handleRepoLinkClick(elsewhere.evt);
+  assert.deepEqual(elsewhere.calls, [], "a click anywhere else on the row is untouched");
+});
+
+test("E3: createRowElement and createCardElement listen for the link click", () => {
+  const seen = [];
+  const doc = {
+    createElement(tag) {
+      return {
+        tagName: tag.toUpperCase(), className: "", classList: { add() {} }, dataset: {}, children: [],
+        setAttribute() {}, appendChild() {},
+        addEventListener(type, handler) { seen.push([tag, type, handler]); },
+      };
+    },
+  };
+  createRowElement(doc, E3_ROW, {});
+  createCardElement(doc, E3_ROW, {});
+  const clicks = seen.filter(([, type]) => type === "click");
+  assert.deepEqual(clicks.map(([tag]) => tag), ["tr", "div"]);
+  for (const [, , handler] of clicks) assert.equal(handler, handleRepoLinkClick);
+});
+
+test("E3: the maintainer badge links to the project's page, and an old ?repo= link is not what a new badge carries", () => {
+  const row = badgeRow({ owner: "Riverline", name: "HttpKit" });
+  const md = copy.maintainerBadgeMarkdown(row, SITE_BASE);
+  assert.ok(md.includes(`](${SITE_BASE}projects/riverline/httpkit/ "`), md);
+  assert.ok(!md.includes("?repo="), md);
+  assert.ok(md.includes(`(${SITE_BASE}badges/`), "the image is unchanged");
+});
+
+test("E3: the sitemap index names both child sitemaps, and each is a file of the site", () => {
+  const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const index = readFileSync(path.join(webRoot, "sitemap.xml"), "utf8");
+  const children = [...index.matchAll(/<sitemap>\s*<loc>https:\/\/porchlamp\.org\/([^<]+)<\/loc>/g)].map((m) => m[1]);
+  assert.deepEqual(children, ["sitemap-pages.xml", "sitemap-projects.xml"]);
+  assert.ok(existsSync(path.join(webRoot, "sitemap-pages.xml")), "sitemap-pages.xml ships with the site");
+});
+
+test("E3: /check/ search: the address rule, pasted GitHub addresses, ranking of matches and real links", () => {
+  assert.equal(projectAddress("ggml-org/llama.cpp"), "projects/ggml-org/llama.cpp/");
+  assert.equal(projectAddress("FreeCAD/FreeCAD"), "projects/freecad/freecad/");
+  assert.equal(normalizeQuery("  https://github.com/Pallets/Flask/ "), "pallets/flask");
+  const names = ["psf/requests", "pallets/flask", "someone/flask-extras", "pallets/click", "FreeCAD/FreeCAD"];
+  assert.deepEqual(matchProjects(names, "flask"), ["pallets/flask", "someone/flask-extras"], "both start the name: rank order is kept");
+  assert.deepEqual(matchProjects(["ab/xflask", "cd/flask"], "flask"), ["cd/flask", "ab/xflask"], "a name that starts with it comes before one that only contains it");
+  assert.deepEqual(matchProjects(names, "pallets/flask"), ["pallets/flask"]);
+  assert.deepEqual(matchProjects(names, "FREECAD"), ["FreeCAD/FreeCAD"]);
+  assert.deepEqual(matchProjects(names, "   "), []);
+  assert.equal(matchProjects(names, "a", 2).length, 2, "the limit holds");
+  const html = renderResults(["FreeCAD/FreeCAD"], "freecad");
+  assert.equal(html, '<li><a href="../projects/freecad/freecad/">FreeCAD/FreeCAD</a></li>');
+  assert.ok(renderResults([], 'x<y"').includes("No ranked project matches"), "an empty result says so");
+  assert.ok(!renderResults([], "<img>").includes("<img>"), "the query is escaped");
+});
+
+// ------------------------------------------------ live-site fixes: no test harness, honest links, wording
+
+import { lastPageWhenPastEnd } from "../views/leaderboard.js";
+import { renderHoverCard } from "../views/matrix.js";
+
+const WEB_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Every relative module a file imports (`import ... from "./x.js"`, `import "./x.js"`), as absolute paths. */
+function relativeImports(file) {
+  const source = readFileSync(file, "utf8");
+  const found = [];
+  for (const m of source.matchAll(/(?:^|\n)\s*(?:import|export)\s[^;]*?from\s+["'](\.[^"']+)["']|(?:^|\n)\s*import\s+["'](\.[^"']+)["']/g)) {
+    found.push(path.resolve(path.dirname(file), m[1] || m[2]));
+  }
+  return found;
+}
+
+/** Every file reachable from `entry` through relative imports. */
+function moduleGraph(entry) {
+  const seen = new Set();
+  const queue = [entry];
+  while (queue.length) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    queue.push(...relativeImports(file));
+  }
+  return seen;
+}
+
+test("the page's module graph holds no synthetic-row generator and no perf harness entry", () => {
+  const graph = moduleGraph(path.join(WEB_ROOT, "app.js"));
+  assert.ok(graph.size > 10, `the walk must reach the real modules (reached ${graph.size})`);
+  assert.ok(graph.has(path.join(WEB_ROOT, "views", "leaderboard.js")), "the walk reaches views/leaderboard.js");
+  for (const file of graph) {
+    assert.ok(!file.includes(`${path.sep}tests${path.sep}`), `${file} is a test module imported by the page`);
+    assert.doesNotMatch(readFileSync(file, "utf8"), /synthesizeRows/, `${file} uses the synthetic-row generator`);
+  }
+  assert.ok(!existsSync(path.join(WEB_ROOT, "perf-fixtures.js")), "the generator no longer sits beside the shipped modules");
+  assert.ok(existsSync(path.join(WEB_ROOT, "tests", "synthetic-rows.js")), "the generator lives with the tests");
+});
+
+test("boot() reads no ?perf or ?perfmatrix parameter, so those addresses show the real board", () => {
+  const app = readFileSync(path.join(WEB_ROOT, "app.js"), "utf8");
+  const bootBody = app.slice(app.indexOf("export function boot("));
+  assert.ok(bootBody.length > 1000, "boot() was found");
+  assert.doesNotMatch(bootBody, /get\(\s*["']perf/, "boot() must not branch on a perf parameter");
+  assert.doesNotMatch(app, /perfmatrix/);
+  assert.doesNotMatch(app, /\[perf\]/);
+  // The real boot path is the one that loads the leaderboard.
+  assert.match(bootBody, /if \(initialTab === "ranked" \|\| initialTab === "notranked"\) loadLeaderboard\(\);/);
+});
+
+const LENS_ROW_WITHOUT_BALANCED_RANK = { ...E3_ROW, rank: 4, balanced_rank: null, rank_delta: null };
+const LENS_ROW_WITH_BALANCED_RANK = { ...E3_ROW, rank: 4, balanced_rank: 9, rank_delta: 5 };
+
+test("repoLinkHtml: under a lens, a row with no balanced rank is plain text; elsewhere the project page is linked", () => {
+  const plain = repoLinkHtml(LENS_ROW_WITHOUT_BALANCED_RANK, true);
+  assert.ok(!plain.includes("<a"), plain);
+  assert.ok(!plain.includes("href"), plain);
+  assert.ok(plain.includes('<span class="repo-owner">FreeCAD/</span><span class="repo-name">FreeCAD</span>'), "the name still shows");
+  assert.ok(repoLinkHtml(LENS_ROW_WITH_BALANCED_RANK, true).includes('href="projects/freecad/freecad/"'), "balanced rank: linked");
+  assert.ok(repoLinkHtml(LENS_ROW_WITHOUT_BALANCED_RANK, false).includes('href="projects/freecad/freecad/"'), "balanced lens: linked");
+  assert.ok(repoLinkHtml({ ...E3_ROW, balanced_rank: undefined }, true).indexOf("<a") === -1, "an absent balanced rank is not a rank");
+  assert.ok(repoLinkHtml({ ...E3_ROW, balanced_rank: 0 }, true).includes("href"), "a balanced rank of 0 is still a rank");
+});
+
+test("rows and cards on a lens link only the projects that have a page", () => {
+  const lens = { showPersonaDelta: true };
+  const cell = (row, opts) => rowCells(row, opts).cells.find((c) => c.key === "repository").html;
+  assert.ok(!cell(LENS_ROW_WITHOUT_BALANCED_RANK, lens).includes("<a"));
+  assert.ok(cell(LENS_ROW_WITH_BALANCED_RANK, lens).includes("<a"));
+  assert.ok(cell(LENS_ROW_WITHOUT_BALANCED_RANK, { showPersonaDelta: false }).includes("<a"));
+  assert.ok(!renderCard(LENS_ROW_WITHOUT_BALANCED_RANK, lens).includes('href="projects/'));
+  assert.ok(renderCard(LENS_ROW_WITH_BALANCED_RANK, lens).includes('href="projects/freecad/freecad/"'));
+});
+
+test("lastPageWhenPastEnd: a page past the end of a non-empty result goes to the last page; nothing else moves", () => {
+  const empty = (total) => ({ rows: [], total });
+  assert.equal(lastPageWhenPastEnd(empty(95), 99999, 20), 5);
+  assert.equal(lastPageWhenPastEnd(empty(100), 6, 20), 5, "an exact multiple of the page size");
+  assert.equal(lastPageWhenPastEnd(empty(95), 5, 20), null, "the last page itself, empty for another reason, stays put");
+  assert.equal(lastPageWhenPastEnd(empty(0), 3, 20), null, "nothing matched: the empty state is right");
+  assert.equal(lastPageWhenPastEnd({ rows: [{ owner: "a", name: "b" }], total: 95 }, 2, 20), null, "a page with rows stays");
+  assert.equal(lastPageWhenPastEnd(null, 2, 20), null);
+  assert.equal(lastPageWhenPastEnd({ rows: [], total: undefined }, 2, 20), null);
+});
+
+/** The text of every string literal in JavaScript source, with comments skipped. */
+function stringLiterals(source) {
+  const literals = [];
+  let i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    if (c === "/" && source[i + 1] === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+    } else if (c === "/" && source[i + 1] === "*") {
+      i = source.indexOf("*/", i + 2) + 2;
+      if (i < 2) break;
+    } else if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      let text = "";
+      while (j < source.length && source[j] !== c) {
+        if (source[j] === "\\") { text += source[j + 1]; j += 2; continue; }
+        text += source[j++];
+      }
+      literals.push(text);
+      i = j + 1;
+    } else {
+      i++;
+    }
+  }
+  return literals;
+}
+
+const REGISTER_ID = /D-[A-Z]+-\d|RFC-\d/;
+
+test("copy.js: no visible string holds a register id such as D-GATE-5 or RFC-0008", () => {
+  assert.ok(REGISTER_ID.test(stringLiterals('const x = "Rule (D-GATE-5, RFC-0008)"; // D-GATE-1')[0]), "the scan finds an id in a string");
+  assert.deepEqual(stringLiterals('// "D-GATE-5"\nconst k = 1; /* RFC-0008 */'), [], "comments are skipped");
+  const literals = stringLiterals(readFileSync(path.join(WEB_ROOT, "copy.js"), "utf8"));
+  assert.ok(literals.length > 200, `the scan must cover the file (${literals.length} literals)`);
+  assert.deepEqual(literals.filter((text) => REGISTER_ID.test(text)), []);
+});
+
+test("black-hole stat: the 'no response' sentence claims only what was counted", () => {
+  const measured = renderBlackHoleEvidence(FLAT_BLACK_HOLE_DETAIL);
+  assert.ok(measured.includes("12 of 15 (80.0%) external non-bot PRs had no maintainer response, merge, or close within 14 days"));
+  const notMeasured = renderBlackHoleEvidence({
+    ...FLAT_BLACK_HOLE_DETAIL,
+    black_hole_evidence: { ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence, rule_inputs_measured: false },
+  });
+  const stat = notMeasured.match(/<p class="black-hole-stat">(.*?)<\/p>/)[1];
+  assert.ok(stat.startsWith("12 of 15 (80.0%) external non-bot PRs had no maintainer review, comment or merge within 14 days"), stat);
+  assert.doesNotMatch(stat, /or close|response, merge/, "a close by a maintainer was not counted, so the sentence must not say it was");
+  assert.ok(stat.includes("a close by a maintainer was not counted"), stat);
+});
+
+test("matrix hover card: the tier shows '(capped)' like the table and the drawer, from the coverage ceiling", () => {
+  const point = { owner: "a", name: "b", porchlamp: 80.8, coverage: 0.9, tier: "A", friction: 10, leverage: 70, quadrant: "Sweet Spot" };
+  assert.ok(renderHoverCard(point).includes("A (capped)"), "coverage 0.9 puts the ceiling at A");
+  assert.ok(!renderHoverCard({ ...point, tier: "B" }).includes("capped"), "a tier below the ceiling is not capped");
+  assert.ok(!renderHoverCard({ ...point, coverage: 0.99 }).includes("capped"), "full coverage has no ceiling");
+  assert.ok(renderHoverCard({ ...point, coverage: 0.7, tier: "B" }).includes("B (capped)"), "coverage 0.7 puts the ceiling at B");
+  assert.ok(!renderHoverCard({ ...point, tier_ceiling: null }).includes("capped"), "an explicit ceiling of none wins");
+  // The card is rebuilt on every hover or focus move and ignores the pointer: it must hold no tab stop.
+  assert.doesNotMatch(renderHoverCard(point), /tabindex/, "a capped tier in the card is not a tab stop");
+  assert.doesNotMatch(renderHoverCard({ ...point, tier: undefined }), /tabindex/, "a missing tier in the card is not a tab stop");
+  assert.ok(renderHoverCard({ ...point, tier: undefined }).includes(copy.MISSING_VALUE), "a missing tier still shows the missing-value mark");
+  // the card agrees with the table row for the same project
+  const tableTier = rowCells({ ...E3_ROW, coverage: 0.9, tier: "A", tier_ceiling: "A" }, {}).cells.find((c) => c.key === "tier").html;
+  assert.ok(tableTier.includes("A (capped)"));
+});

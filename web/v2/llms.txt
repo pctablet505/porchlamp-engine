@@ -1,4 +1,4 @@
-# Porchlamp — Open-Source Contributor Value Index (https://pctablet505.github.io/porchlamp/)
+# Porchlamp — Open-Source Contributor Value Index (https://porchlamp.org/)
 
 > A porch lamp left on tells a visitor they are expected. Porchlamp ranks 11,000 open-source projects by what happens to a stranger's pull request, not by how many stars the project has. Every score traces back to recorded GitHub responses and SHA-256 content hashes (by Rahul Kumar, `pctablet505`).
 
@@ -12,6 +12,30 @@
   - `5,790` **Gated (Stage 0):** Black holes, archived, unmaintained, unlicensed, or non-software repositories (listed transparently under Not Ranked, never ranked).
   - `1,377` **Unrated:** Repositories passing Stage-0 gates but with `<60%` measured parameter coverage.
 - **Coverage Tier Ceilings:** Repositories with `<95%` parameter coverage have their tier capped (`A (capped)` for `[80%, 95%)`, `B (capped)` for `[60%, 80%)`) so missing data never inflates a rank tier.
+
+## Static Pages (readable without JavaScript)
+- [Stars don't review pull requests: the state of open-source black holes (latest snapshot)](https://porchlamp.org/black-holes/)
+- [The same report, frozen for citation (Snapshot `2026-10-14`)](https://porchlamp.org/black-holes/2026-10-14/)
+- [CSV of the 3,833 ranked projects (CC BY 4.0)](https://porchlamp.org/black-holes/2026-10-14/porchlamp-2026-10-14-ranked.csv)
+- [Methodology: every gate, pillar, lens, weight and parameter](https://porchlamp.org/methodology/)
+- [Check any project: a search over the 3,833 ranked projects](https://porchlamp.org/check/)
+
+## One page per ranked project (readable without JavaScript)
+To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case).
+Each page opens with the project's median time to a first human reply to an outside pull request, the share that got no reply within 14 days, and its rank overall and for first-time contributors. Example: [ggml-org/llama.cpp](https://porchlamp.org/projects/ggml-org/llama.cpp/)
+
+## Ecosystem and lens pages (readable without JavaScript)
+Each page lists the top 50 projects of its cut, with score and tier, and each name opens that project's page.
+- [Rust projects that answer outside pull requests](https://porchlamp.org/rust/)
+- [Python projects that answer outside pull requests](https://porchlamp.org/python/)
+- [JavaScript and TypeScript projects that answer outside pull requests](https://porchlamp.org/javascript/)
+- [Go projects that answer outside pull requests](https://porchlamp.org/go/)
+- [Java projects that answer outside pull requests](https://porchlamp.org/java/)
+- [C, C++ and Zig projects that answer outside pull requests](https://porchlamp.org/c-cpp/)
+- [Open-source projects for first-time contributors](https://porchlamp.org/first-timers/)
+- [Open-source projects for building career capital](https://porchlamp.org/career/)
+- [Open-source projects for senior systems engineers](https://porchlamp.org/senior-systems/)
+- [Open-source projects for AI-assisted contributors](https://porchlamp.org/ai-assisted/)
 
 ## 5 Pillars & 18 Parameters (Balanced Weights)
 1. **Responsiveness (25%):** Time to First Human Response (TTFHR), Decision Rate (90d), First-Timer Merge Rate, PR Ghost Rate (14d), and Time to Merge (p90).
@@ -43,32 +67,32 @@
 20. `moby/moby` (`go`) — Score `74.90` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
 
 ## Canonical Views, Contributor Lenses & Ecosystem Filters
-- [Balanced Leaderboard (Default, 3,833 ranked)](https://pctablet505.github.io/porchlamp/)
-- [First-Timer Persona (1,968 ranked)](https://pctablet505.github.io/porchlamp/?persona=first_timer)
-- [Career Capital Persona (823 ranked)](https://pctablet505.github.io/porchlamp/?persona=career_capital)
-- [Senior Systems Persona (1,206 ranked)](https://pctablet505.github.io/porchlamp/?persona=senior_systems)
-- [AI-Assisted Persona (3,929 ranked)](https://pctablet505.github.io/porchlamp/?persona=ai_assisted)
-- [Not Ranked — Gated & Unrated Repositories (5,790 gated + 1,377 unrated)](https://pctablet505.github.io/porchlamp/?tab=notranked)
-- [Leverage vs. Friction 2D Matrix](https://pctablet505.github.io/porchlamp/?tab=matrix)
-- [Side-by-Side Repository Comparator](https://pctablet505.github.io/porchlamp/?tab=compare)
-- [Custom Pillar Weight Configurator](https://pctablet505.github.io/porchlamp/?tab=configure)
-- [Full Methodology & SHA-256 Verification Hashes](https://pctablet505.github.io/porchlamp/?tab=methodology)
+- [Balanced Leaderboard (Default, 3,833 ranked)](https://porchlamp.org/)
+- [First-Timer Persona (1,968 ranked)](https://porchlamp.org/?persona=first_timer)
+- [Career Capital Persona (823 ranked)](https://porchlamp.org/?persona=career_capital)
+- [Senior Systems Persona (1,206 ranked)](https://porchlamp.org/?persona=senior_systems)
+- [AI-Assisted Persona (3,929 ranked)](https://porchlamp.org/?persona=ai_assisted)
+- [Not Ranked — Gated & Unrated Repositories (5,790 gated + 1,377 unrated)](https://porchlamp.org/?tab=notranked)
+- [Leverage vs. Friction 2D Matrix](https://porchlamp.org/?tab=matrix)
+- [Side-by-Side Repository Comparator](https://porchlamp.org/?tab=compare)
+- [Custom Pillar Weight Configurator](https://porchlamp.org/?tab=configure)
+- [Full Methodology & SHA-256 Verification Hashes](https://porchlamp.org/?tab=methodology)
 - **Ecosystem Filters:**
-  - [Python (PyPI)](https://pctablet505.github.io/porchlamp/?eco=pypi)
-  - [JavaScript & TypeScript (npm)](https://pctablet505.github.io/porchlamp/?eco=npm)
-  - [Rust (crates.io)](https://pctablet505.github.io/porchlamp/?eco=crates)
-  - [Go](https://pctablet505.github.io/porchlamp/?eco=go)
-  - [Java (Maven)](https://pctablet505.github.io/porchlamp/?eco=maven)
-  - [Systems (C/C++/Zig)](https://pctablet505.github.io/porchlamp/?eco=systems)
+  - [Python (PyPI)](https://porchlamp.org/?eco=pypi)
+  - [JavaScript & TypeScript (npm)](https://porchlamp.org/?eco=npm)
+  - [Rust (crates.io)](https://porchlamp.org/?eco=crates)
+  - [Go](https://porchlamp.org/?eco=go)
+  - [Java (Maven)](https://porchlamp.org/?eco=maven)
+  - [Systems (C/C++/Zig)](https://porchlamp.org/?eco=systems)
 
 ## Machine-Readable Static JSON Data Endpoints
-- [Snapshot Provenance & Verification Hashes](https://pctablet505.github.io/porchlamp/data/2026-10-14/snapshot.json)
-- [Balanced Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-balanced.json)
-- [First-Timer Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-first_timer.json)
-- [Career Capital Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-career_capital.json)
-- [Senior Systems Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-senior_systems.json)
-- [AI-Assisted Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-ai_assisted.json)
-- [2D Matrix Coordinates JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/matrix.json)
-- [Methodology Specification JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/methodology.json)
-- [Atom 1.0 Syndication Feed](https://pctablet505.github.io/porchlamp/feed.xml)
-- [XML Sitemap](https://pctablet505.github.io/porchlamp/sitemap.xml)
+- [Snapshot Provenance & Verification Hashes](https://porchlamp.org/data/2026-10-14/snapshot.json)
+- [Balanced Leaderboard JSON](https://porchlamp.org/data/2026-10-14/leaderboard-balanced.json)
+- [First-Timer Leaderboard JSON](https://porchlamp.org/data/2026-10-14/leaderboard-first_timer.json)
+- [Career Capital Leaderboard JSON](https://porchlamp.org/data/2026-10-14/leaderboard-career_capital.json)
+- [Senior Systems Leaderboard JSON](https://porchlamp.org/data/2026-10-14/leaderboard-senior_systems.json)
+- [AI-Assisted Leaderboard JSON](https://porchlamp.org/data/2026-10-14/leaderboard-ai_assisted.json)
+- [2D Matrix Coordinates JSON](https://porchlamp.org/data/2026-10-14/matrix.json)
+- [Methodology Specification JSON](https://porchlamp.org/data/2026-10-14/methodology.json)
+- [Atom 1.0 Syndication Feed](https://porchlamp.org/feed.xml)
+- [XML Sitemap index](https://porchlamp.org/sitemap.xml): [pages](https://porchlamp.org/sitemap-pages.xml) and [projects](https://porchlamp.org/sitemap-projects.xml)
