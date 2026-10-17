@@ -17,21 +17,33 @@ snapshot's ``as_of``). It is required with ``--all``, so a batch derivation neve
 the wall clock and two runs over the same cache give identical bundles. A pinned
 derivation reads only the cache: ``--fetch`` (which stamps its own fetch time) is refused
 with it.
+
+``--all`` derives every repo the data root's candidates file lists (``raw/candidates.jsonl``,
+else ``candidates.jsonl``), each with the ecosystem its line names, on ``--workers``
+processes. A line that cannot be derived as written is refused, never guessed at: one that
+is not a JSON object naming ``owner`` and ``name`` (by its line number), and a repo whose
+``ecosystem`` is missing or unknown (by name). A repo whose derivation or write raises is
+reported and skipped; the others are still written. Each failure goes to stderr, the last
+line on stdout counts them, and the exit status is 1 when any repo failed. Every bundle is
+written atomically, and the bytes written do not depend on ``--workers``.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
 import os
 import re
 import statistics
+import sys
 import urllib.request
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
 from itertools import pairwise
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, NamedTuple, Optional, Sequence
 
 from porchlamp.collect import commits as commit_domains
 from porchlamp.collect import validate
@@ -885,14 +897,130 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
             "provenance": b.prov, "confidence": b.conf}
 
 
+def _write_bundle(path: Path, bundle: dict[str, Any]) -> None:
+    """Write one bundle atomically: a reader sees the previous file or the whole new one.
+
+    The JSON goes to a hidden temporary file beside ``path``, which ``os.replace`` then renames
+    onto it (atomic within one filesystem). A write that fails part-way -- a full disk, a file
+    size limit -- leaves the previous bundle as it was, and the temporary file is removed.
+    """
+    text = json.dumps(bundle, indent=2, sort_keys=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except BaseException:  # review-ok: cleanup-then-reraise — remove the temp file, keep the error
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+class _Candidate(NamedTuple):
+    """One line of a candidates file: how reports name it, and the repo to derive or why not."""
+
+    label: str
+    repo: Optional[tuple[str, str, Ecosystem]]
+    refused: Optional[str]
+
+
+def _candidates_file(data_dir: Path) -> Optional[Path]:
+    """The batch's repo list: ``raw/candidates.jsonl``, else ``candidates.jsonl``, in the data root."""
+    for path in (data_dir / "raw" / "candidates.jsonl", data_dir / "candidates.jsonl"):
+        if path.is_file():
+            return path
+    return None
+
+
+def _read_candidates(path: Path) -> list[_Candidate]:
+    """One candidate per non-blank line of ``path``, in file order.
+
+    Nothing is guessed. A line that is not a JSON object naming ``owner`` and ``name`` is
+    refused by its line number. A repo whose ``ecosystem`` is missing or not an
+    :class:`Ecosystem` value is refused by name: derived as another ecosystem, its downloads
+    and their status would be looked up in another registry.
+    """
+    known = ", ".join(e.value for e in Ecosystem)
+    out: list[_Candidate] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            row = None
+        owner, name = (row.get("owner"), row.get("name")) if isinstance(row, dict) else (None, None)
+        if not (isinstance(owner, str) and owner and isinstance(name, str) and name):
+            out.append(_Candidate(f"{path.name} line {number}", None,
+                                  "not a JSON object naming owner and name"))
+            continue
+        eco = row.get("ecosystem")
+        try:
+            out.append(_Candidate(f"{owner}/{name}", (owner, name, Ecosystem(eco)), None))
+        except (ValueError, TypeError):
+            reason = "no ecosystem" if eco is None else f"unknown ecosystem {eco!r}"
+            out.append(_Candidate(f"{owner}/{name}", None, f"{reason} (known: {known})"))
+    return out
+
+
+def _derive_and_write(owner: str, name: str, ecosystem: Ecosystem, data_dir: Path,
+                      now: datetime) -> Optional[str]:
+    """Derive one repo at ``now`` and write its bundle; return why that failed, else None.
+
+    A batch job, module-level so that a worker process can run it. An exception comes back as
+    text instead of propagating, so one repo that cannot be derived is reported and the batch
+    goes on with the rest.
+    """
+    try:
+        bundle = derive_repo(owner, name, ecosystem, data_dir, fetch=False, now=now)
+        _write_bundle(data_dir / "derived" / f"{owner}__{name}.json", bundle)
+    except Exception as e:  # review-ok: per-repo isolation — the batch reports it and exits 1
+        return f"{type(e).__name__}: {e}"
+    return None
+
+
+def _derive_batch(repos: list[tuple[str, str, Ecosystem]], data_dir: Path, now: datetime,
+                  workers: int) -> list[Optional[str]]:
+    """Derive and write every repo; return why each one failed, or None, in the order given.
+
+    One worker derives in this process. More derive in fresh worker processes ("spawn"), so no
+    state of this process reaches them. A worker process that dies outright (killed, out of
+    memory) breaks the pool, and every repo whose result had not come back is reported failed.
+    """
+    if workers == 1:
+        return [_derive_and_write(*repo, data_dir, now) for repo in repos]
+    with ProcessPoolExecutor(max_workers=workers,
+                             mp_context=multiprocessing.get_context("spawn")) as pool:
+        futures = [pool.submit(_derive_and_write, *repo, data_dir, now) for repo in repos]
+        results: list[Optional[str]] = []
+        for future in futures:
+            try:
+                results.append(future.result())
+            except Exception as e:  # review-ok: per-repo isolation — a dead worker breaks the pool
+                results.append(f"{type(e).__name__}: {e}")
+        return results
+
+
+def _worker_count(text: str) -> int:
+    """``--workers``: a whole number of processes, at least 1."""
+    count = int(text)
+    if count < 1:
+        raise argparse.ArgumentTypeError(f"needs at least 1 process, not {count}")
+    return count
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     """CLI: derive one repo's bundle from the cache, or batch derive with --all."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("owner", nargs="?", default=None)
     ap.add_argument("name", nargs="?", default=None)
-    ap.add_argument("--all", action="store_true", help="derive all repos found in candidates.jsonl or raw/ cache")
-    ap.add_argument("--workers", type=int, default=1, help="concurrency for batch derivation")
-    ap.add_argument("--ecosystem", default="pypi", choices=[e.value for e in Ecosystem])
+    ap.add_argument("--all", action="store_true",
+                    help="derive every repo the data root's candidates file lists "
+                         "(raw/candidates.jsonl, else candidates.jsonl)")
+    ap.add_argument("--workers", type=_worker_count, default=1,
+                    help="processes deriving in parallel with --all (default 1: this process)")
+    ap.add_argument("--ecosystem", default=None, choices=[e.value for e in Ecosystem],
+                    help="the one repo's ecosystem (default pypi); --all reads each repo's "
+                         "from its candidates line")
     ap.add_argument("--data-dir", type=Path, default=DATA_DIR)
     ap.add_argument("--fetch", action="store_true", help="fetch uncached file bodies")
     ap.add_argument("--as-of", default=None,
@@ -913,59 +1041,30 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not a.all:
         if not a.owner or not a.name:
             ap.error("the following arguments are required: owner, name (or pass --all)")
-        bundle = derive_repo(a.owner, a.name, Ecosystem(a.ecosystem), a.data_dir, fetch=a.fetch, now=now)
+        ecosystem = Ecosystem(a.ecosystem or Ecosystem.PYPI.value)
+        bundle = derive_repo(a.owner, a.name, ecosystem, a.data_dir, fetch=a.fetch, now=now)
         out = a.data_dir / "derived" / f"{a.owner}__{a.name}.json"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(bundle, indent=2, sort_keys=True), encoding="utf-8")
+        _write_bundle(out, bundle)
         print(out)
         return 0
 
-    candidates_file = a.data_dir / "raw" / "candidates.jsonl"
-    if not candidates_file.is_file():
-        candidates_file = a.data_dir / "candidates.jsonl"
-    repos: list[tuple[str, str, Ecosystem]] = []
-    if candidates_file.is_file():
-        for line in candidates_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            r = json.loads(line)
-            if r.get("owner") and r.get("name"):
-                eco_str = r.get("ecosystem", a.ecosystem)
-                try:
-                    eco = Ecosystem(eco_str)
-                except ValueError:
-                    eco = Ecosystem(a.ecosystem)
-                repos.append((r["owner"], r["name"], eco))
-    else:
-        raw_dir = a.data_dir / "raw"
-        if raw_dir.is_dir():
-            seen: set[tuple[str, str]] = set()
-            for p in sorted(raw_dir.glob("*/*__*.json")):
-                parts = p.stem.split("__", 1)
-                if len(parts) == 2:
-                    seen.add((parts[0], parts[1]))
-            for o, n in sorted(seen):
-                repos.append((o, n, Ecosystem(a.ecosystem)))
-
-    def _derive_one(item: tuple[str, str, Ecosystem]) -> Path:
-        owner, name, eco = item
-        b = derive_repo(owner, name, eco, a.data_dir, fetch=a.fetch, now=now)
-        out_path = a.data_dir / "derived" / f"{owner}__{name}.json"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(b, indent=2, sort_keys=True), encoding="utf-8")
-        return out_path
-
-    if a.workers > 1:
-        from concurrent.futures import ThreadPoolExecutor
-
-        with ThreadPoolExecutor(max_workers=a.workers) as executor:
-            for out_path in executor.map(_derive_one, repos):
-                print(out_path)
-    else:
-        for item in repos:
-            print(_derive_one(item))
-    return 0
+    if a.ecosystem is not None:
+        ap.error("--ecosystem names one repo's ecosystem: --all reads each repo's from its candidates line")
+    candidates = _candidates_file(a.data_dir)
+    if candidates is None:
+        ap.error(f"--all needs a candidates file, {a.data_dir / 'raw' / 'candidates.jsonl'} or "
+                 f"{a.data_dir / 'candidates.jsonl'}: it lists the repos and names each one's ecosystem")
+    entries = _read_candidates(candidates)
+    outcomes = iter(_derive_batch([e.repo for e in entries if e.repo is not None],
+                                  a.data_dir, now, a.workers))
+    failed = 0
+    for entry in entries:
+        reason = entry.refused if entry.repo is None else next(outcomes)
+        if reason is not None:
+            failed += 1
+            print(f"derive failed: {entry.label}: {reason}", file=sys.stderr)
+    print(f"derived {len(entries) - failed} of {len(entries)} repos; {failed} failed")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
