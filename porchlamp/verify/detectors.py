@@ -52,8 +52,10 @@ wired into :class:`DetectorInputs` by
   :func:`newcomer_accounts_from_cohorts` builds
   :class:`NewcomerAccountSample` tuples straight from
   ``FeatureBundle.cohorts.newcomer_authors``.
-* ``closed_unread`` is computed directly from ``FeatureBundle.pr_window``
-  by :func:`closed_unread_share_from_pr_window`.
+* ``closed_unread`` reads the bundle's ``closed_unread`` counts
+  (:func:`porchlamp.derive.bundle.closed_unread_counts`), which derive
+  records from the ``pr_window`` envelope
+  (:func:`porchlamp.collect.github_graphql.closed_unread_counts`).
 * ``source_drift`` is a plain pass-through of the live-sample canary's
   per-repo hold verdict (``DetectorInputs.source_drift_held``), supplied by
   whichever caller has that ``LiveSampleReport`` in hand.
@@ -64,7 +66,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable, Optional
 
-from porchlamp.core.models import Cohorts, PRWindow, ScoreRecord
+from porchlamp.core.models import Cohorts, ScoreRecord
 
 # --------------------------------------------------------------------------- #
 # Detector names (03 section 6 table, in table order)                         #
@@ -116,10 +118,10 @@ MERGES_MR_FIRST_SCORE_MIN: float = 90.0
 MERGES_CONVERSION_OR_RETURN_SCORE_MAX: float = 20.0
 MERGES_WITHOUT_RETURN_MIN_N: int = 10
 
-#: ``closed_unread``: share floor (of external PRs, closed unmerged, with no
-#: substantive response ever recorded).
+#: ``closed_unread``: share floor (of the outside PRs in the PR window, the
+#: ones closed unmerged with no D-IN-2 response ever recorded).
 CLOSED_UNREAD_SHARE_MIN: float = 0.30
-#: ``closed_unread``: minimum external PR sample size threshold.
+#: ``closed_unread``: minimum number of outside PRs in the PR window.
 CLOSED_UNREAD_MIN_N: int = 10
 
 #: ``newcomer_burst`` (03 section 4 lockstep rule): minimum count of
@@ -233,11 +235,13 @@ class DetectorInputs:
     #: commits. Sourced from ``bundle`` sidecar via
     #: :func:`porchlamp.derive.bundle.top_email_domain_share`.
     top_email_domain_share: Optional[float] = None
-    #: ``closed_unread``: pre-aggregated (share, n) over external PRs
-    #: closed unmerged with no substantive response, computed by
-    #: :func:`closed_unread_share_from_pr_window` from the bundle's real
-    #: ``pr_window`` -- kept as a plain value here so this module's
-    #: predicates stay free of the ``FeatureBundle``/``PRWindow`` shape.
+    #: ``closed_unread``: the share of the outside PRs opened in the
+    #: recorded 180-day PR window (an external author association, a non-bot
+    #: author) that were closed unmerged with no D-IN-2 response ever
+    #: recorded, and how many outside PRs that is -- from the bundle's
+    #: ``closed_unread`` counts (``porchlamp.verify.pipeline_hook``), kept
+    #: as plain values here so this module's predicates stay free of the
+    #: ``FeatureBundle`` shape.
     closed_unread_share: Optional[float] = None
     closed_unread_n: Optional[int] = None
     #: ``newcomer_burst``: the sampled first-timer accounts, as built by
@@ -255,35 +259,6 @@ class DetectorInputs:
 #: Every field on :class:`DetectorInputs` defaults to "no evidence" so a
 #: caller with nothing extra to report can pass this shared instance.
 _EMPTY_INPUTS: DetectorInputs = DetectorInputs()
-
-
-def closed_unread_share_from_pr_window(pr_window: PRWindow) -> tuple[Optional[float], int]:
-    """The ``closed_unread`` (share, n) pair straight from a real
-    ``FeatureBundle.pr_window`` (03 section 6).
-
-    Population: external PR events in the window. Numerator: those closed
-    (``closed_at`` set) and never merged (``merged_at`` is ``None``) with no
-    substantive response ever recorded (``first_human_review_at`` is
-    ``None``, the v1 event's typed-response field). D-GATE-5 no longer reads
-    these events: it reads the ``gr14_ghost_rate`` input, computed from the
-    ``pr_window`` envelope by ``porchlamp.core.gates.zero_response_counts``.
-    ``share`` is ``None`` when the
-    external-PR population is empty (no evidence, never fires); ``n`` is
-    always the population size, 0 included, for the caller to store
-    alongside ``share``.
-    """
-    external = [event for event in pr_window.events if event.is_external]
-    n = len(external)
-    if n == 0:
-        return None, 0
-    numerator = sum(
-        1
-        for event in external
-        if event.closed_at is not None
-        and event.merged_at is None
-        and event.first_human_review_at is None
-    )
-    return numerator / n, n
 
 
 def newcomer_accounts_from_cohorts(cohorts: Cohorts) -> tuple[NewcomerAccountSample, ...]:
@@ -386,13 +361,13 @@ def detect_merges_without_return(
 def detect_closed_unread(
     current: ScoreRecord, previous: Optional[ScoreRecord], inputs: DetectorInputs
 ) -> bool:
-    """``closed_unread``: share of external PRs closed unmerged with no
-    substantive response ever recorded >= 0.30 (03 section 6). Reads
-    ``inputs.closed_unread_share`` (see
-    :func:`closed_unread_share_from_pr_window`). Unmeasured-never-fires:
-    ``None`` (no external-PR population, or the caller had nothing to
-    report) never fires, and neither does a share over fewer than
-    :data:`CLOSED_UNREAD_MIN_N` external PRs (``closed_unread_n``), or one
+    """``closed_unread``: share of the outside PRs in the recorded PR window
+    closed unmerged with no D-IN-2 response ever recorded >= 0.30 (03
+    section 6). Reads ``inputs.closed_unread_share`` (see
+    :class:`DetectorInputs`). Unmeasured-never-fires: ``None`` (no recorded
+    window, an empty population, or the caller had nothing to report) never
+    fires, and neither does a share over fewer than
+    :data:`CLOSED_UNREAD_MIN_N` outside PRs (``closed_unread_n``), or one
     whose population was not reported."""
     share = inputs.closed_unread_share
     n = inputs.closed_unread_n

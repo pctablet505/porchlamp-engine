@@ -166,7 +166,7 @@ Composite is rounded to 2 decimal place(s) before comparison.
 | `param_jump` | any parameter score moves by more than threshold_points between consecutive snapshots, with n at least min_n on both snapshots | magnitude | threshold_points=40, min_n=10 |
 | `speed_without_decisions` | TTFHR score >= ttfhr_score_min and DR_90 score <= dr90_score_max | compound | ttfhr_score_min=90, dr90_score_max=40 |
 | `merges_without_return` | MR_first score >= mr_first_score_min and (conversion or return) score <= conversion_or_return_score_max, with n at least min_n | compound | mr_first_score_min=90, conversion_or_return_score_max=20, min_n=10 |
-| `closed_unread` | share of external PRs closed unmerged with no substantive response ever recorded >= share_min | above | share_min=0.3 |
+| `closed_unread` | share of outside PRs (an external author association and a non-bot author, D-IN-1) opened in the trailing PR window that were closed unmerged with no substantive response ever recorded (D-IN-2: any review, or a comment of 40+ characters, by a non-author, non-bot member, owner or collaborator, or by an account that merged a PR in the window) >= share_min, over at least min_n outside PRs; a repository with no recorded PR window is not measured | above | share_min=0.3, min_n=10 |
 | `newcomer_burst` | at least min_accounts eligible-looking, all-merged first-timer accounts created within any window_days-day span | compound | min_accounts=5, window_days=7 |
 | `star_burst` | the StarScout lockstep penalty was applied to this repo at universe entry | boolean | — |
 | `label_spam` | newcomer-labelled issue count >= issue_count_min and newcomer conversion score <= conversion_score_max | compound | issue_count_min=50, conversion_score_max=10 |

@@ -16,12 +16,10 @@ Two things :func:`porchlamp.verify.detectors.run_detectors` needs that a bare
 
 * a :class:`~porchlamp.verify.detectors.DetectorInputs` per repo, built from that
   repo's *current* :class:`~porchlamp.core.models.FeatureBundle`
-  (:func:`detector_inputs_from_bundle`) -- reusing
-  :func:`porchlamp.verify.detectors.closed_unread_share_from_pr_window` rather
-  than recomputing the closed-unread share/n a second way (the only other
-  adapter in the codebase, ``porchlamp.audit.detectors_report._row_from_json``,
-  builds ``DetectorInputs`` from an interim JSON row format, not from a
-  real ``FeatureBundle`` -- there is no existing bundle-to-``DetectorInputs``
+  (:func:`detector_inputs_from_bundle`; the only other adapter in the
+  codebase, ``porchlamp.audit.detectors_report._row_from_json``, builds
+  ``DetectorInputs`` from an interim JSON row format, not from a real
+  ``FeatureBundle`` -- there is no existing bundle-to-``DetectorInputs``
   adapter to reuse, so this is the one definition of it, not a second one).
 * the previous snapshot's matching record, looked up by
   :func:`porchlamp.core.pipeline.repo_key` -- ``None`` when this repo was not in
@@ -36,8 +34,10 @@ All fields of :class:`~porchlamp.verify.detectors.DetectorInputs` except
 :func:`detector_inputs_from_bundle`:
 
 * ``newcomer_issue_count`` and ``elephant_factor`` from ``bundle.inputs``.
-* ``closed_unread_share`` and ``closed_unread_n`` from ``bundle.pr_window``
-  via :func:`porchlamp.verify.detectors.closed_unread_share_from_pr_window`.
+* ``closed_unread_share`` and ``closed_unread_n`` from the bundle's
+  ``closed_unread`` counts (:func:`porchlamp.derive.bundle.closed_unread_counts`:
+  outside PRs in the recorded 180-day PR window, and those closed unmerged
+  with no D-IN-2 response); never from ``bundle.pr_window``'s v1 events.
 * ``newcomer_accounts`` from ``bundle.cohorts`` via
   :func:`porchlamp.verify.detectors.newcomer_accounts_from_cohorts`.
 * ``top_email_domain_share`` from ``bundle`` sidecar via
@@ -57,12 +57,12 @@ from porchlamp.core.models import FeatureBundle, Measured, ScoreRecord
 from porchlamp.core.pipeline import DetectorsCallable, RepoKey, ScoredSnapshot, repo_key
 from porchlamp.derive.bundle import (
     TopEmailDomainShareMeasured,
+    closed_unread_counts as bundle_closed_unread_counts,
     star_velocity_flag as bundle_star_velocity_flag,
     top_email_domain_share as bundle_top_email_domain_share,
 )
 from porchlamp.verify.detectors import (
     DetectorInputs,
-    closed_unread_share_from_pr_window,
     newcomer_accounts_from_cohorts,
     run_detectors,
 )
@@ -98,6 +98,16 @@ def _top_email_domain_share(bundle: FeatureBundle) -> float | None:
     return fact.value if isinstance(fact, TopEmailDomainShareMeasured) else None
 
 
+def _closed_unread(bundle: FeatureBundle) -> tuple[float | None, int | None]:
+    """``closed_unread``'s (share, n) from the bundle's counts: ``(None, None)``
+    when nothing was measured, and no share over an empty population."""
+    counts = bundle_closed_unread_counts(bundle)
+    if counts is None:
+        return None, None
+    n = counts.population_n
+    return (counts.closed_unread / n if n else None), n
+
+
 def detector_inputs_from_bundle(
     bundle: FeatureBundle,
     source_drift_held: bool | None = None,
@@ -105,11 +115,11 @@ def detector_inputs_from_bundle(
     """Build :class:`~porchlamp.verify.detectors.DetectorInputs` from a real
     ``FeatureBundle`` (module docstring): raw ``elephant_factor`` and
     ``newcomer_issue_supply`` values when measured, closed-unread share/n
-    from ``bundle.pr_window``, ``newcomer_accounts`` from ``bundle.cohorts``,
-    ``top_email_domain_share`` from the bundle sidecar fact,
+    from the bundle's ``closed_unread`` counts, ``newcomer_accounts`` from
+    ``bundle.cohorts``, ``top_email_domain_share`` from the bundle sidecar fact,
     ``star_lockstep_penalty_applied`` from the bundle ``star_velocity_flag``
     sidecar fact, and optional ``source_drift_held``."""
-    share, n = closed_unread_share_from_pr_window(bundle.pr_window)
+    share, n = _closed_unread(bundle)
     newcomer_accounts = newcomer_accounts_from_cohorts(bundle.cohorts)
     return DetectorInputs(
         newcomer_issue_count=_measured_bundle_value(bundle, _NEWCOMER_ISSUE_SUPPLY_INPUT_ID),

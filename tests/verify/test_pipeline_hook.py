@@ -13,8 +13,9 @@ fixture (each on sourceable inputs -- only ``source_drift`` needs a
 
 * ``param_jump`` on ``jump/repo``: ``dr90_decision_rate`` moves from 0.0
   (score 0.0) to 1.0 (score 100.0), n=20 both sides.
-* ``closed_unread`` on ``closed/repo``: ``CLOSED_UNREAD_MIN_N`` external PRs,
-  closed unmerged, no recorded human review (share 1.0). This repo is *absent* from the
+* ``closed_unread`` on ``closed/repo``: its ``closed_unread`` counts say all
+  ``CLOSED_UNREAD_MIN_N`` outside PRs of its window were closed unmerged with
+  no response (share 1.0). This repo is *absent* from the
   previous snapshot entirely (the other deliverable case: "a repo absent
   from previous can still fire the single-snapshot detectors") -- it is
   also given the same dr90 jump as ``jump/repo`` to prove that specific
@@ -55,6 +56,7 @@ from porchlamp.core.models import (
     Unmeasured,
 )
 from porchlamp.core.pipeline import ScoredSnapshot, repo_key, score_snapshot
+from porchlamp.derive.bundle import ClosedUnreadCounts, set_closed_unread_counts
 from porchlamp.snapshot.populations import PopulationSet
 from porchlamp.verify.detectors import CLOSED_UNREAD_MIN_N, DETECTOR_NAMES
 from porchlamp.verify.pipeline_hook import build_detectors, detector_inputs_from_bundle
@@ -108,6 +110,8 @@ def _full_inputs(measured=None) -> dict:
 
 
 def _closed_unmerged_unread_event(pr_number: int) -> PRWindowEvent:
+    """A v1 ``pr_events`` record of an outside PR closed unmerged with no
+    review: what the 30-PR sample shows. ``closed_unread`` never reads it."""
     created = NOW - datetime.timedelta(days=10)
     return PRWindowEvent(
         pr_number=pr_number, created_at=_iso(created),
@@ -141,10 +145,9 @@ def _current_bundles() -> list[FeatureBundle]:
     param_jump_bundle = _bundle(_repo(owner, name), _full_inputs({"dr90_decision_rate": _m(1.0, n=20)}))
 
     owner, name = _owner_name(KEY_CLOSED_UNREAD)
-    closed_unread_bundle = _bundle(
-        _repo(owner, name), _full_inputs({"dr90_decision_rate": _m(1.0, n=20)}),
-        events=tuple(_closed_unmerged_unread_event(i) for i in range(1, CLOSED_UNREAD_MIN_N + 1)),
-    )
+    closed_unread_bundle = _bundle(_repo(owner, name), _full_inputs({"dr90_decision_rate": _m(1.0, n=20)}))
+    set_closed_unread_counts(closed_unread_bundle, ClosedUnreadCounts(
+        closed_unread=CLOSED_UNREAD_MIN_N, population_n=CLOSED_UNREAD_MIN_N))
 
     owner, name = _owner_name(KEY_LABEL_SPAM)
     label_spam_bundle = _bundle(
@@ -205,16 +208,19 @@ def _score_current_with_detection() -> tuple[ScoredSnapshot, ScoredSnapshot]:
 # detector_inputs_from_bundle: the adapter alone.
 # --------------------------------------------------------------------------- #
 def test_detector_inputs_from_bundle_reads_measured_bundle_facts() -> None:
+    """The closed-unread share and n come from the bundle's counts (3 of 12
+    outside PRs), not from the v1 event it also carries (1 of 1)."""
     bundle = _bundle(
         _repo("org", "alpha"),
         _full_inputs({"newcomer_issue_supply": _m(12.0, n=0), "elephant_factor": _m(3.0, n=30)}),
         events=(_closed_unmerged_unread_event(1),),
     )
+    set_closed_unread_counts(bundle, ClosedUnreadCounts(closed_unread=3, population_n=12))
     inputs = detector_inputs_from_bundle(bundle)
     assert inputs.newcomer_issue_count == 12.0
     assert inputs.elephant_factor == 3.0
-    assert inputs.closed_unread_share == 1.0
-    assert inputs.closed_unread_n == 1
+    assert inputs.closed_unread_share == 0.25
+    assert inputs.closed_unread_n == 12
     # top_email_domain_share is None here because this hand-built bundle
     # never had the top_email_domain_share sidecar fact set -- not because
     # it is an unsourceable field.
@@ -269,12 +275,25 @@ def test_ef_domain_mismatch_fires_through_the_real_composition() -> None:
 
 
 def test_detector_inputs_from_bundle_unmeasured_never_fires() -> None:
-    bundle = _bundle(_repo("org", "alpha"), _full_inputs())  # everything Unmeasured, no PR events
+    """Everything Unmeasured and no closed-unread counts: ten closed-unread
+    v1 events alone measure nothing."""
+    bundle = _bundle(
+        _repo("org", "alpha"), _full_inputs(),
+        events=tuple(_closed_unmerged_unread_event(i) for i in range(1, 11)),
+    )
     inputs = detector_inputs_from_bundle(bundle)
     assert inputs.newcomer_issue_count is None
     assert inputs.elephant_factor is None
     assert inputs.closed_unread_share is None
-    assert inputs.closed_unread_n == 0
+    assert inputs.closed_unread_n is None
+
+
+def test_detector_inputs_from_bundle_empty_population_has_no_share() -> None:
+    """A recorded window with no outside PR: n is 0 and there is no share."""
+    bundle = _bundle(_repo("org", "alpha"), _full_inputs())
+    set_closed_unread_counts(bundle, ClosedUnreadCounts(closed_unread=0, population_n=0))
+    inputs = detector_inputs_from_bundle(bundle)
+    assert (inputs.closed_unread_share, inputs.closed_unread_n) == (None, 0)
 
 
 # --------------------------------------------------------------------------- #
