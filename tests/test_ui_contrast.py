@@ -1,7 +1,8 @@
 """WCAG contrast test for `web/v2/styles/tokens.css` (06 §5 checklist item 9).
 
-Parses the actual CSS custom-property VALUES out of the two theme blocks
-(dark: bare `:root`; light: `:root[data-theme="light"]`) and computes
+Parses the actual CSS custom-property VALUES out of the theme blocks
+(dark: bare `:root`; light: both `:root[data-theme="light"]` and the
+`prefers-color-scheme: light` block most light visitors get) and computes
 real WCAG 2.1 relative-luminance contrast ratios — this is a test of the
 DESIGN TOKENS, not of rendered pixels (a real browser is needed for that;
 see the handoff's COULD NOT VERIFY list), but a wrong token value here is
@@ -74,7 +75,8 @@ def load_themes() -> dict[str, dict[str, str]]:
     css = TOKENS_CSS.read_text()
     dark = parse_tokens(extract_block(css, ":root {"))
     light = parse_tokens(extract_block(css, ':root[data-theme="light"]'))
-    return {"dark": dark, "light": light}
+    light_by_system = parse_tokens(extract_block(css, ':root:not([data-theme="dark"])'))
+    return {"dark": dark, "light": light, "light-system": light_by_system}
 
 
 THEMES = load_themes()
@@ -114,6 +116,19 @@ GRAPHIC_PAIRS = [
     ("spec-bar", "bg-surface"),
     ("coverage-full", "bg-surface"),
 ]
+
+
+#: Colours that paint text on the surfaces below: link colour (`a`) and the
+#: quadrant labels (`.quad-*`). WCAG AA normal text needs >= 4.5:1.
+LINK_AND_QUADRANT_TEXT_TOKENS = [
+    "accent-cyan",
+    "quad-sweet-spot",
+    "quad-crucible",
+    "quad-nursery",
+    "quad-graveyard",
+]
+TEXT_SURFACES = ["bg-base", "bg-surface", "bg-surface-elevated"]
+LIGHT_THEMES = ("light", "light-system")
 
 
 def _get(theme: dict[str, str], name: str) -> str:
@@ -159,6 +174,30 @@ class TestTextContrastMeetsAA:
         synthetic_ratio = contrast_ratio("#949494", "#FFFFFF")
         assert 2.0 < synthetic_ratio < 4.5, f"test fixture assumption broke: ratio was {synthetic_ratio}"
         assert not (synthetic_ratio >= 4.5), "a pair below AA must not be reported as passing"
+
+
+class TestLinkAndQuadrantTextContrast:
+    def test_link_and_quadrant_text_clear_4_5_to_1_in_both_light_blocks(self) -> None:
+        failures = []
+        for theme_name in LIGHT_THEMES:
+            theme = THEMES[theme_name]
+            for fg_tok in LINK_AND_QUADRANT_TEXT_TOKENS:
+                for bg_tok in TEXT_SURFACES:
+                    ratio = contrast_ratio(_get(theme, fg_tok), _get(theme, bg_tok))
+                    if ratio < 4.5:
+                        failures.append(f"{theme_name}: --{fg_tok} on --{bg_tok} = {ratio:.2f} (< 4.5)")
+        assert not failures, "AA link/quadrant text failures:\n" + "\n".join(failures)
+
+    def test_both_light_blocks_hold_the_same_values(self) -> None:
+        assert THEMES["light"] == THEMES["light-system"]
+
+    def test_light_text_tokens_are_overridden_not_inherited_from_dark(self) -> None:
+        for theme_name in LIGHT_THEMES:
+            for tok in LINK_AND_QUADRANT_TEXT_TOKENS:
+                assert tok in THEMES[theme_name], f"{theme_name} block must set --{tok}"
+                assert THEMES[theme_name][tok] != THEMES["dark"][tok], (
+                    f"{theme_name} block repeats the dark value of --{tok}"
+                )
 
 
 class TestGraphicContrastMeets3to1:

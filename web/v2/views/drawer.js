@@ -529,7 +529,11 @@ export function renderBlackHoleEvidence(row, evidenceRows) {
     const wPct = (effectiveWilson * 100).toFixed(1);
     const threshPct = (thresholdShare * 100).toFixed(1);
 
-    const statHtml = `<p class="black-hole-stat">${escapeHtml(unanswered)} of ${escapeHtml(populationN)} (${escapeHtml(pct)}%) external non-bot PRs had no maintainer response, merge, or close within 14 days</p>`;
+    const statPredicate =
+      evidence && evidence.rule_inputs_measured === false
+        ? copy.BLACK_HOLE_STAT_PREDICATE_CLOSE_NOT_COUNTED
+        : copy.BLACK_HOLE_STAT_PREDICATE;
+    const statHtml = `<p class="black-hole-stat">${escapeHtml(unanswered)} of ${escapeHtml(populationN)} (${escapeHtml(pct)}%) ${escapeHtml(statPredicate)}</p>`;
     const wilsonHtml = `<p class="black-hole-wilson">95% Wilson lower confidence bound: ${escapeHtml(wPct)}% (threshold: &gt; ${escapeHtml(threshPct)}%, min n = ${escapeHtml(minN)})</p>`;
 
     let windowHtml = "";

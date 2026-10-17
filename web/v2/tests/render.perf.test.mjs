@@ -20,7 +20,7 @@ import {
   rowKey,
   ROW_HEIGHT_PX,
 } from "../components/table.js";
-import { synthesizeRows } from "../perf-fixtures.js";
+import { synthesizeRows } from "./synthetic-rows.js";
 
 const FRAME_BUDGET_MS = 16;
 const FRAME_BUDGET_MARGIN = 3; // U-19: "3x margin, numbers reported"
