@@ -597,7 +597,7 @@ def report_hooks(
     *, sid: str, judged: int, black_holes: int, deadline: int, min_n: int, confidence: int, bands: list,
     below: int, lowest: int, top100_black_holes: int, top100_overlap: int, ranked: int, rho: float, unanswered: int,
     counted: int, corpus: dict, start: date, end: date, undecided: int, ecosystems: list, names: dict[str, str],
-    constants_hash: str, db_sha: str,
+    constants_hash: str, db_sha: str, undecided_cut: int = 0, pr_cap: int | None = None,
 ) -> dict[str, str]:
     """Every ``data-v`` hook the report prints (``web/app/views/report.js``), with the value worked out here from
     the database, the API and the stats file, in this file's own formatting: the page's hook count per type is the
@@ -653,6 +653,9 @@ def report_hooks(
         del out["below_bands_judged"], out["lowest_band"]  # the "not charted" note is left out
     if not undecided:
         del out["undecided_rule_inputs"]  # the measurement bullet is left out
+    if undecided_cut:  # the cut-record bullet, only when it is printed
+        out["undecided_cut"] = _thousands(undecided_cut)
+        out["pr_cap"] = _thousands(pr_cap)
     return out
 
 
@@ -740,6 +743,11 @@ def _report_sentences(hooks: dict[str, str], names: dict[str, str]) -> dict[str,
             f"Another {v['undecided_rule_inputs']} licensed, maintained projects with at least {v['min_n']} outside pull "
             "requests on record are not judged yet: those records were fetched before drafts and closes were recorded, "
             "and the rules need both."
+        )
+    if "undecided_cut" in v:
+        method.append(
+            f"We could not judge {v['undecided_cut']} busy projects yet: we hold only the newest {v['pr_cap']} pull "
+            f"requests of each, and they do not reach back to {v['window_start']}."
         )
     method.append(
         f"It is a black hole when, with {v['ci_percent']}% confidence, more than half of those pull requests got no "
@@ -912,6 +920,7 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         top100_black_holes=top100_black_holes, top100_overlap=stats["top100_overlap"], ranked=ranked, rho=rho,
         unanswered=unanswered, counted=counted, corpus=stats["corpus"], start=date.fromisoformat(start),
         end=date.fromisoformat(end), undecided=stats.get("gate5_undecided_rule_inputs", 0),
+        undecided_cut=stats.get("gate5_undecided_cut_record", 0), pr_cap=(stats.get("gate5_undecided_cut_record_caps") or [None])[0],
         ecosystems=[(e, *per_eco[e]) for e in eco_order], names=names, constants_hash=snapshot["constants_hash"],
         db_sha=db_sha,
     )
@@ -927,6 +936,10 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
     ledger.equal("'Stars barely predict an answer' holds (|rho| < 0.2)", abs(Decimal(str(rho))) < Decimal("0.2"), True)
     ledger.equal("'Fame is no guarantee' holds (a black hole in the 100 most-starred)", top100_black_holes > 0, True)
     ledger.equal("'Most of those pull requests waited' holds", unanswered * 2 > counted, True)
+    if stats.get("gate5_undecided_cut_record"):
+        caps = stats.get("gate5_undecided_cut_record_caps")
+        ledger.equal("'we hold only the newest N pull requests of each' holds (the cut records name one cap)",
+                     isinstance(caps, list) and len(caps) == 1 and type(caps[0]) is int, True)
 
     h2_expected = [rp.copy_js_string(n) for n in (
         "REPORT_FINDINGS_HEADING", "REPORT_STARS_HEADING", "REPORT_ECOSYSTEMS_HEADING", "REPORT_METHOD_HEADING",

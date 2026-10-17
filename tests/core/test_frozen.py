@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94"
+FROZEN_CONSTANTS_HASH = "5dc93c2f7bd97ebe46185da3eab34916d2f203f366c4157b964b96b4a20792c7"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -197,11 +197,16 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
             "has been imported to gerrit for code review",
             "welcome to gitgitgadget",
             "import it to our internal repository for further review",
+            "this pull request has been imported",
+            "has imported this pull request",
         ),
     ),
     ("GATE6_HANDOFF_RELAY_LOGIN_PREFIXES", constants.GATE6_HANDOFF_RELAY_LOGIN_PREFIXES, ("gitgitgadget",)),
     # RFC-0008: D-GATE-5 Wilson lower confidence bound normal quantile.
     ("GATE5_WILSON_Z", constants.GATE5_WILSON_Z, 1.6448536269514722),
+    # RFC-0011: D-IN-2 comment minimum, Chinese, Japanese and Korean letters counted three times.
+    ("SUBSTANTIVE_COMMENT_MIN_CHARS", constants.SUBSTANTIVE_COMMENT_MIN_CHARS, 40),
+    ("SUBSTANTIVE_COMMENT_CJK_WEIGHT", constants.SUBSTANTIVE_COMMENT_CJK_WEIGHT, 3),
 )
 
 

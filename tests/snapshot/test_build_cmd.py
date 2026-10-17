@@ -175,6 +175,34 @@ def test_the_stored_snapshot_reads_back_whether_each_pr_window_recorded_the_rule
     assert read_back[key(absent)].pr_rule_inputs_recorded is None
 
 
+def test_the_stored_snapshot_reads_back_whether_each_pr_window_covers_the_window(tmp_path):
+    """``snapshot store`` scores the gate evidence it reads back from ``manifest.json``, so a record cut at
+    the collector's PR cap must reach it as "does not cover the window", with its cut-off, or D-GATE-5 would
+    judge the newest weeks as the window (RFC-0011); an uncut record as covering; no record as no opinion."""
+    from porchlamp.snapshot.fixture_io import load_frozen_fixture
+
+    data_dir = _make_data_dir(tmp_path)
+    cut, uncut, absent = sorted((data_dir / "derived").glob("*.json"))
+    pr = {"number": 1, "author": {"login": "c1", "__typename": "User"}, "authorAssociation": "NONE",
+          "createdAt": "2026-08-20T00:00:00Z", "comments": {"nodes": []}, "isDraft": False,
+          "timelineItems": {"nodes": []}}
+    (data_dir / "raw" / "pr_window").mkdir()
+    for path, truncated in ((cut, True), (uncut, False)):
+        envelope = {"fetched_at": _AS_OF.isoformat(),
+                    "data": {"window_anchor": _AS_OF.isoformat(), "window_days": 180, "truncated": truncated,
+                             "prs": [pr], "derived": [{"number": 1, "is_external": True, "is_bot_author": False}]}}
+        (data_dir / "raw" / "pr_window" / path.name).write_text(json.dumps(envelope), encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    build_snapshot_dir(data_dir, out_dir, snapshot_id="TEST-WINDOW-COVERAGE", as_of=_AS_OF, code_commit_sha=_COMMIT)
+
+    read_back = load_frozen_fixture(out_dir).gate_evidence
+    key = lambda path: path.stem.replace("__", "/", 1)  # noqa: E731
+    covered = {k: (read_back[key(p)].pr_window_complete, read_back[key(p)].pr_window_cutoff)
+               for k, p in (("cut", cut), ("uncut", uncut), ("absent", absent))}
+    assert covered == {"cut": (False, "2026-08-20T00:00:00Z"), "uncut": (True, None), "absent": (None, None)}
+
+
 def test_commit_data_fetched_before_as_of_is_judged_at_its_fetch(tmp_path):
     """The commits were fetched 10 days before ``as_of``; nothing after the fetch was seen. A commit 175 days
     before the fetch (185 before ``as_of``) keeps the project out of ``stale``: the window ends where the data

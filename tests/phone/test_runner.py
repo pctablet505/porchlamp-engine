@@ -252,7 +252,8 @@ def _write_black_hole(raw: Path) -> None:
             "authorAssociation": "NONE", "reviews": {"nodes": []}, "comments": {"nodes": []},
             "timelineItems": {"nodes": []}} for i in range(1, 13)]
     write_envelope(raw / "pr_window" / "o__bh.json", "github-graphql:pr_window",
-                   {"window_anchor": now.isoformat(), "window_days": 180, "prs": prs, "derived": []}, now.isoformat())
+                   {"window_anchor": now.isoformat(), "window_days": 180, "truncated": False, "prs": prs,
+                    "derived": []}, now.isoformat())
 
 
 @pytest.mark.usefixtures("clean_env")

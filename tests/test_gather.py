@@ -75,6 +75,7 @@ def test_gather_one_black_hole_stops_deep_collectors(
 
     gather_mod._env("pr_window", key, "test", {
         "window_anchor": now.isoformat(),
+        "truncated": False,
         "prs": prs,
         "derived": [
             {
@@ -418,6 +419,7 @@ def test_gather_one_proceeds_to_deep_when_not_black_hole(
 
     gather_mod._env("pr_window", key, "test", {
         "window_anchor": now.isoformat(),
+        "truncated": False,
         "prs": prs,
     })
 

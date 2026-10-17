@@ -1000,8 +1000,9 @@ def is_confirmed_black_hole_in_raw(
     """True when the recorded pr_window envelope confirms the repo is a D-GATE-5 black hole.
 
     Returns False for review-handoff or off-platform repositories (which are routed
-    off-platform), when pr_window is missing/unreadable, or when the 14-day zero-response
-    count does not satisfy the black-hole threshold.
+    off-platform), when pr_window is missing/unreadable, when it stops short of the
+    window (:func:`porchlamp.core.gates.pr_window_coverage`: D-GATE-5 is undecided on
+    it), or when the 14-day zero-response count does not satisfy the black-hole threshold.
     """
     key = f"{owner}__{name}"
     if _review_handoff(raw_dir, key) is True:
@@ -1041,6 +1042,16 @@ def is_confirmed_black_hole_in_raw(
 
     obs_candidates = [dt for dt in (fetched_dt, anchor_dt) if dt is not None]
     observed_at = min(obs_candidates) if obs_candidates else None
+
+    # D-GATE-5 leaves a record that stops short of its window undecided (the
+    # PR cap), so the collector does not confirm a black hole from one either.
+    fetched_raw = getattr(env, "fetched_at", None)
+    covered, _ = gates.pr_window_coverage(
+        data, ref_now - timedelta(days=constants.PR_WINDOW_DAYS),
+        fetched_at=fetched_raw if isinstance(fetched_raw, str) else None,
+    )
+    if not covered:
+        return False
 
     derived = github_graphql.derive_pr_window(prs)
     derived_by_num = {

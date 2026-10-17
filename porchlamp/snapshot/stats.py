@@ -31,6 +31,15 @@ The definitions:
     least the minimum population and they hand no review off: their recorded PR window lacks the fields
     the rules read (:func:`porchlamp.derive.gate_evidence.pr_rule_inputs_recorded`), so they are left
     out of ``gate5_decided`` for when their data was fetched, not for what it shows;
+``gate5_undecided_cut_record``
+    the same kind of projects, with the rule inputs recorded, left undecided on gate 5 only because their
+    recorded PR window does not cover the window ending at ``--as-of``: the collector stopped at its PR cap
+    before reaching the window's start, or the record does not say whether it did
+    (:func:`porchlamp.derive.gate_evidence.pr_window_coverage_in`, the rule ``snapshot build`` records);
+``gate5_undecided_cut_record_caps``
+    the PR caps those records stopped at, as their envelopes record them (``cap``), each once, in
+    ascending order; ``null`` stands for a record that does not say it stopped at its cap (its
+    ``truncated`` is not true, or its ``cap`` is not a whole number);
 ``corpus``
     derived bundle files (``derived_repos``), how many of them have a recorded PR window
     (``pr_windows``), the outside PRs opened in the PR window ending at ``--as-of``
@@ -51,7 +60,13 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from porchlamp.core.constants import GATE5_MIN_N, PR_WINDOW_DAYS
-from porchlamp.derive.gate_evidence import _review_handoff, outside_pr_authors, pr_rule_inputs_recorded, pr_window_data
+from porchlamp.derive.gate_evidence import (
+    _review_handoff_in,
+    outside_pr_authors,
+    pr_rule_inputs_recorded,
+    pr_window_coverage_in,
+    pr_window_document,
+)
 
 __all__ = ["STAR_BUCKETS", "bucket_label", "compute_stats", "open_snapshot_db", "spearman"]
 
@@ -207,30 +222,39 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
     out["top100_stars_fate"] = dict(sorted(fate.items(), key=lambda x: -x[1]))
 
     # the corpus: outside PRs opened in the PR window, from the recorded pr_window envelopes; and the
-    # gate-5 undecided projects whose window lacks the rules' inputs
+    # gate-5 undecided projects whose window lacks the rules' inputs, or stops short of the window
     gate5_undecided = {
         key(r) for r in rows
         if r[2] in (None, "black_hole", "unrated: no_external_workflow") and "D-GATE-5" in json.loads(r[3] or "[]")
         and key(r) in populated
     }
     window_start = now - timedelta(days=PR_WINDOW_DAYS)
-    n_repo = n_window = n_pr = n_rule_inputs = 0
+    n_repo = n_window = n_pr = n_rule_inputs = n_cut_record = 0
+    cut_caps: set[Optional[int]] = set()
     authors: set[str] = set()
     for path in derived.glob("*.json"):
         n_repo += 1
-        window = pr_window_data(raw, path.stem)
-        prs = window.get("prs") if window is not None else None
+        document = pr_window_document(raw, path.stem)
+        window = document.get("data") if document is not None else None
+        prs = window.get("prs") if isinstance(window, dict) else None
         if not isinstance(prs, list):
             continue
         n_window += 1
         owner, _, name = path.stem.partition("__")
-        if ((owner.lower(), name.lower()) in gate5_undecided and not pr_rule_inputs_recorded(prs)
-                and _review_handoff(raw, path.stem) is not True):
-            n_rule_inputs += 1
+        if (owner.lower(), name.lower()) in gate5_undecided and _review_handoff_in(window) is not True:
+            if not pr_rule_inputs_recorded(prs):
+                n_rule_inputs += 1
+            elif pr_window_coverage_in(document, now)[0] is False:
+                n_cut_record += 1
+                cap = window.get("cap")
+                cut_at_cap = window.get("truncated") is True and isinstance(cap, int) and not isinstance(cap, bool)
+                cut_caps.add(cap if cut_at_cap else None)
         logins = outside_pr_authors(prs, start=window_start, end=now)
         n_pr += len(logins)
         authors.update(login for login in logins if login)
     out["gate5_undecided_rule_inputs"] = n_rule_inputs
+    out["gate5_undecided_cut_record"] = n_cut_record
+    out["gate5_undecided_cut_record_caps"] = sorted(cut_caps, key=lambda cap: -1 if cap is None else cap)
     out["corpus"] = {
         "derived_repos": n_repo, "pr_windows": n_window,
         "human_outside_prs": n_pr, "distinct_outside_authors": len(authors),
