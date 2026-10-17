@@ -106,6 +106,13 @@ GATE5_RESPONSE_DEADLINE_DAYS: int = 14
 GATE5_WILSON_Z: float = 1.6448536269514722
 #: D-GATE-5: pass ceiling on the share with zero substantive response.
 GATE5_MAX_ZERO_RESPONSE_SHARE: float = 0.50
+#: D-IN-2 (RFC-0011): a comment answers a pull request when its text, as GitHub renders it
+#: (``bodyText``: no markup, so an image alone has no text), is at least this long ...
+SUBSTANTIVE_COMMENT_MIN_CHARS: int = 40
+#: ... where each Chinese, Japanese or Korean letter (a Han ideograph, kana or Hangul) counts
+#: this many times: those scripts say in one letter about what Latin text says in three, so
+#: 14 of them reach the minimum.
+SUBSTANTIVE_COMMENT_CJK_WEIGHT: int = 3
 #: D-GATE-6: horizon for a decided external PR.
 GATE6_DECISION_WINDOW_DAYS: int = 365
 #: D-GATE-6 review hand-off (RFC-0007): a repository whose own notices send
@@ -124,6 +131,10 @@ GATE6_HANDOFF_NOTICES: tuple[str, ...] = (
     "has been imported to gerrit for code review",
     "welcome to gitgitgadget",
     "import it to our internal repository for further review",
+    # Meta imports outside PRs into its internal review system (RFC-0011); its bot words the
+    # notice both ways.
+    "this pull request has been imported",
+    "has imported this pull request",
 )
 #: ... or when its author's login (lower-cased) starts with one of these
 #: (GitGitGadget relays git/git pull requests to the mailing list).
@@ -601,6 +612,8 @@ def constants_dict() -> dict[str, object]:
         "STARS_SCOUT_LOCKSTEP_PENALTY": STARS_SCOUT_LOCKSTEP_PENALTY,
         "STARS_SCOUT_MIN_EVENTS": STARS_SCOUT_MIN_EVENTS,
         "STARS_SCOUT_WINDOW_DAYS": STARS_SCOUT_WINDOW_DAYS,
+        "SUBSTANTIVE_COMMENT_CJK_WEIGHT": SUBSTANTIVE_COMMENT_CJK_WEIGHT,
+        "SUBSTANTIVE_COMMENT_MIN_CHARS": SUBSTANTIVE_COMMENT_MIN_CHARS,
         "SUPPLY_SLOPE": SUPPLY_SLOPE,
         "TIER_CUTOFFS": TIER_CUTOFFS,
         "TIER_ORDER": TIER_ORDER,

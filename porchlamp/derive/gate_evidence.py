@@ -25,13 +25,16 @@ __all__ = [
     "_has_off_platform_marker",
     "_pr_has_review_handoff_notice",
     "_review_handoff",
+    "_review_handoff_in",
     "_tree_paths",
     "_vitality_commit_count",
     "black_hole_window_breakdown_from_raw",
     "gate_evidence_for",
     "outside_pr_authors",
     "pr_rule_inputs_recorded",
+    "pr_window_coverage_in",
     "pr_window_data",
+    "pr_window_document",
     "PR_SAMPLE_SIZE",
 ]
 
@@ -221,9 +224,9 @@ def _pr_has_review_handoff_notice(pr: Mapping[str, Any]) -> bool:
     return False
 
 
-def _envelope_data(raw_root: Path, layer: str, basename: str) -> Mapping[str, Any] | None:
-    """The ``data`` of ``raw/{layer}/{basename}.json``; ``None`` when the
-    envelope is absent or unreadable."""
+def _envelope_document(raw_root: Path, layer: str, basename: str) -> Mapping[str, Any] | None:
+    """The whole envelope ``raw/{layer}/{basename}.json`` (``data`` and its
+    ``fetched_at``); ``None`` when absent, unreadable or not a document."""
     path = raw_root / layer / f"{basename}.json"
     if not path.is_file():
         return None
@@ -231,8 +234,25 @@ def _envelope_data(raw_root: Path, layer: str, basename: str) -> Mapping[str, An
         document = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, OSError):
         return None
+    return document if isinstance(document, Mapping) else None
+
+
+def _document_data(document: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    """An envelope document's ``data``; ``None`` when it has none."""
     data = document.get("data") if isinstance(document, Mapping) else None
     return data if isinstance(data, Mapping) else None
+
+
+def _envelope_data(raw_root: Path, layer: str, basename: str) -> Mapping[str, Any] | None:
+    """The ``data`` of ``raw/{layer}/{basename}.json``; ``None`` when the
+    envelope is absent or unreadable."""
+    return _document_data(_envelope_document(raw_root, layer, basename))
+
+
+def pr_window_document(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
+    """The repository's whole ``pr_window`` envelope (its ``data`` and ``fetched_at``);
+    ``None`` when absent or unreadable."""
+    return _envelope_document(raw_root, "pr_window", basename)
 
 
 def pr_window_data(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
@@ -407,21 +427,39 @@ def _tree_flag(found: bool, truncated: bool) -> bool | None:
     return False
 
 
+def pr_window_coverage_in(document: Mapping[str, Any] | None, as_of: datetime | None) -> tuple[bool | None, str | None]:
+    """D-GATE-5 window coverage of a ``pr_window`` envelope document
+    (:func:`porchlamp.core.gates.pr_window_coverage`) against the window
+    ending at ``as_of`` (its own window without ``as_of``); ``(None, None)``
+    (no opinion) when there is no envelope or its ``data`` holds no ``prs``
+    list."""
+    data = document.get("data") if isinstance(document, Mapping) else None
+    if not isinstance(data, Mapping) or not isinstance(data.get("prs"), list):
+        return None, None
+    fetched = document.get("fetched_at")
+    start = as_of - timedelta(days=constants.PR_WINDOW_DAYS) if as_of is not None else None
+    return gates.pr_window_coverage(data, start, fetched_at=fetched if isinstance(fetched, str) else None)
+
+
 def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None = None) -> GateEvidence:
     """Derive one repo's :class:`~porchlamp.core.gates.GateEvidence` from the
     raw ``tree``/``commits_180d``/``pr_window``/``author_history``/``pr_events`` envelopes.
     ``as_of`` is the snapshot's reference time: D-GATE-4 counts only commits in
-    the 180 days ending there (:func:`_vitality_commit_count`), and D-GATE-6
-    only decisions in the 365 days ending there (:func:`_decided_external_pr_in`).
+    the 180 days ending there (:func:`_vitality_commit_count`), D-GATE-5 asks
+    whether the PR window record covers the window ending there
+    (:func:`pr_window_coverage_in`), and D-GATE-6 only counts decisions in the
+    365 days ending there (:func:`_decided_external_pr_in`).
     The ``pr_window`` envelope is read once, for the review hand-off, the
-    D-GATE-5 rule inputs and D-GATE-6. ``fork_parent_in_universe`` stays
+    D-GATE-5 rule inputs and window coverage, and D-GATE-6. ``fork_parent_in_universe`` stays
     ``None`` (undecided): every v1-loaded bundle's ``RepoIdentity.fork`` is
     hardcoded ``False`` by ``porchlamp.derive.bundle._load_v1`` (that loader never
     observes a real fork flag), so D-GATE-2's fork branch never reads this
     field for any repo this script scores -- ``None`` is correct, not a
     stand-in for missing data."""
     paths, truncated = _tree_envelope(raw_root, basename)
-    pr_window = pr_window_data(raw_root, basename)
+    window_document = pr_window_document(raw_root, basename)
+    pr_window = _document_data(window_document)
+    window_complete, window_cutoff = pr_window_coverage_in(window_document, as_of)
     author_history = _envelope_data(raw_root, "author_history", basename)
     return GateEvidence(
         manifest_found=None if paths is None else _tree_flag(_has_recognized_manifest(paths), truncated),
@@ -432,6 +470,8 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
         off_platform_marker=None if paths is None else _tree_flag(_has_off_platform_marker(paths), truncated),
         review_handoff=_review_handoff_in(pr_window),
         pr_rule_inputs_recorded=_rule_inputs_in(pr_window),
+        pr_window_complete=window_complete,
+        pr_window_cutoff=window_cutoff,
         decided_external_pr=_decided_external_pr_in(pr_window, author_history, _pr_sample(raw_root, basename), as_of),
     )
 
@@ -439,34 +479,16 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
 _EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
     {"NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "CONTRIBUTOR"}
 )
-_MAINTAINER_ASSOCIATIONS: frozenset[str] = frozenset(
-    {"MEMBER", "OWNER", "COLLABORATOR"}
-)
-_SUBSTANTIVE_COMMENT_CHARS: int = 40
 
-
-def _is_bot_node(actor: Mapping[str, Any] | None) -> bool:
-    if not isinstance(actor, Mapping):
-        return False
-    return is_bot(
-        CommitActor(
-            login=str(actor.get("login") or ""),
-            email="",
-            actor_type=str(actor.get("__typename") or ""),
-        )
-    )
+#: D-IN-1 over a GraphQL actor node (the core's one definition).
+_is_bot_node = gates.is_bot_actor_node
 
 
 def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.GhostRatePR]:
-    mergers: set[str] = set()
-    for pr in prs:
-        if not isinstance(pr, Mapping):
-            continue
-        mb = pr.get("mergedBy")
-        login = mb.get("login") if isinstance(mb, Mapping) else None
-        if isinstance(login, str) and login:
-            mergers.add(login.lower())
-
+    """D-GATE-5's records from recorded PR nodes, the responses by D-IN-2
+    (:func:`porchlamp.core.gates.first_substantive_response` over the window's
+    :func:`porchlamp.core.gates.maintainer_logins`)."""
+    maintainers = gates.maintainer_logins(prs)
     out: list[gates.GhostRatePR] = []
     for pr in prs:
         if not isinstance(pr, Mapping):
@@ -485,35 +507,8 @@ def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.G
         is_external = assoc in _EXTERNAL_ASSOCIATIONS
         bot_author = _is_bot_node(author)
 
-        best_at: str | None = None
-        best_dt: datetime | None = None
-        for kind, source in (("review", "reviews"), ("comment", "comments")):
-            conn_node = pr.get(source)
-            nodes = conn_node.get("nodes") if isinstance(conn_node, Mapping) else None
-            for raw in nodes if isinstance(nodes, list) else ():
-                if not isinstance(raw, Mapping):
-                    continue
-                raw_author = raw.get("author") if isinstance(raw.get("author"), Mapping) else {}
-                raw_login = str(raw_author.get("login") or "").lower()
-                if _is_bot_node(raw_author):
-                    continue
-                if raw_login and raw_login == author_login:
-                    continue
-                raw_assoc = str(raw.get("authorAssociation") or "").upper()
-                is_maint = raw_assoc in _MAINTAINER_ASSOCIATIONS or (bool(raw_login) and raw_login in mergers)
-                if not is_maint:
-                    continue
-                if kind == "comment" and len(str(raw.get("bodyText") or "")) < _SUBSTANTIVE_COMMENT_CHARS:
-                    continue
-                ts = raw.get("createdAt")
-                if not isinstance(ts, str):
-                    continue
-                try:
-                    dt = _parse_iso(ts)
-                except (ValueError, TypeError):
-                    continue
-                if best_dt is None or dt < best_dt:
-                    best_dt, best_at = dt, ts
+        response = gates.first_substantive_response(pr, maintainers)
+        best_at = response[0] if response is not None else None
 
         merged_raw = pr.get("mergedAt")
         merged_at: str | None = None

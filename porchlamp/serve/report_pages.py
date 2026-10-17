@@ -188,6 +188,10 @@ class Facts:
     min_n: int
     deadline_days: int
     ci_percent: int
+    #: Projects not judged because their PR record stops at the collector's cap before the window starts.
+    undecided_cut: int = 0
+    #: The cap those records stopped at, as their envelopes record it; None when no record is cut.
+    pr_cap: int | None = None
 
     @property
     def share_text(self) -> str:
@@ -358,6 +362,17 @@ def build_facts(
         raise ReportError("the stats file's corpus size differs from the snapshot's project count")
     if not isinstance(stats.get("gate5_undecided_rule_inputs"), int):
         raise ReportError("the stats file has no gate5_undecided_rule_inputs: rebuild it with `porchlamp.snapshot stats`")
+    if not isinstance(stats.get("gate5_undecided_cut_record"), int):
+        raise ReportError("the stats file has no gate5_undecided_cut_record: rebuild it with `porchlamp.snapshot stats`")
+    undecided_cut, pr_cap = stats["gate5_undecided_cut_record"], None
+    if undecided_cut:
+        caps = stats.get("gate5_undecided_cut_record_caps")
+        if not (isinstance(caps, list) and len(caps) == 1 and type(caps[0]) is int and caps[0] > 0):
+            raise ReportError(
+                "guard: 'we hold only the newest N pull requests of each' needs every cut record stopped at one "
+                f"recorded cap; the stats file's gate5_undecided_cut_record_caps is {caps!r}"
+            )
+        pr_cap = caps[0]
 
     facts = Facts(
         snapshot_id=snapshot_id,
@@ -389,6 +404,8 @@ def build_facts(
         min_n=min_n,
         deadline_days=deadline_days,
         ci_percent=ci_percent,
+        undecided_cut=undecided_cut,
+        pr_cap=pr_cap,
     )
     check_wording_guards(facts)
     return facts
@@ -733,9 +750,12 @@ def report_json(f: Facts) -> dict:
         "frozen_url": frozen_url,
         "constants_hash": f.constants_hash,
     })
-    # only what the page prints: the measurement bullet and the "not charted" note are left out when they have no number
+    # only what the page prints: the measurement bullets and the "not charted" note are left out when they have no number
     if not f.undecided_rule_inputs:
         del values["undecided_rule_inputs"]
+    if f.undecided_cut:
+        values["undecided_cut"] = fmt_int(f.undecided_cut)
+        values["pr_cap"] = fmt_int(f.pr_cap)
     if not f.below_bands_judged:
         del values["below_bands_judged"], values["lowest_band"]
     method = [
@@ -749,6 +769,11 @@ def report_json(f: Facts) -> dict:
             "Another {undecided_rule_inputs} licensed, maintained projects with at least {min_n} outside pull requests on "
             "record are not judged yet: those records were fetched before drafts and closes were recorded, and the "
             "rules need both."
+        )
+    if f.undecided_cut:
+        method.append(
+            "We could not judge {undecided_cut} busy projects yet: we hold only the newest {pr_cap} pull requests of "
+            "each, and they do not reach back to {window_start}."
         )
     method.append(
         "It is a black hole when, with {ci_percent}% confidence, more than half of those pull requests got no "

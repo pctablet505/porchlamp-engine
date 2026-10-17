@@ -1359,3 +1359,71 @@ def test_projects_left_undecided_for_their_records_get_their_own_measurement_bul
     del inputs["stats"]["gate5_undecided_rule_inputs"]
     with pytest.raises(report_pages.ReportError, match="gate5_undecided_rule_inputs"):
         report_pages.build_facts(**inputs)
+
+
+def test_projects_whose_pr_record_is_cut_get_their_own_measurement_bullet(built):
+    """The stats file's gate5_undecided_cut_record is printed after the rule-inputs bullet, with the one cap the cut
+    records stopped at and the window's start; each number is a slot, so the view prints it as a hook. None gives no
+    bullet; a stats file without the count, or whose cut records name no single cap, is refused."""
+    inputs = _inputs(built)
+
+    def bullets(rule_inputs, cut, caps):
+        inputs["stats"].update(
+            gate5_undecided_rule_inputs=rule_inputs, gate5_undecided_cut_record=cut, gate5_undecided_cut_record_caps=caps
+        )
+        facts = report_pages.build_facts(**inputs)
+        record = report_pages.report_json(facts)
+        return facts, record, [_fill(t, record["values"]) for t in record["sentences"]["method"]]
+
+    facts, record, both = bullets(1234, 868, [500])
+    start = f"{facts.window_start.day} {facts.window_start:%B}"
+    assert len(both) == 5 and both[2].startswith("Another 1,234 licensed, maintained projects")
+    assert both[3] == (
+        f"We could not judge 868 busy projects yet: we hold only the newest 500 pull requests of each, and they do not "
+        f"reach back to {start}."
+    )
+    assert (record["values"]["undecided_cut"], record["values"]["pr_cap"]) == ("868", "500")
+    assert all(f"{{{slot}}}" in record["sentences"]["method"][3] for slot in ("undecided_cut", "pr_cap", "window_start"))
+    _facts, record, alone = bullets(0, 2001, [300])
+    assert len(alone) == 4 and alone[2].startswith("We could not judge 2,001 busy projects yet: we hold only the newest 300 ")
+    _facts, record, none = bullets(0, 0, [])
+    assert len(none) == 3 and not any("could not judge" in bullet for bullet in none)
+    assert "undecided_cut" not in record["values"] and "pr_cap" not in record["values"]
+    for caps in ([], [500, 1000], [None], [None, 500], None):
+        with pytest.raises(report_pages.ReportError, match="gate5_undecided_cut_record_caps"):
+            bullets(0, 7, caps)
+    del inputs["stats"]["gate5_undecided_cut_record"]
+    with pytest.raises(report_pages.ReportError, match="gate5_undecided_cut_record"):
+        report_pages.build_facts(**inputs)
+
+
+def test_the_verifier_words_the_cut_record_bullet_as_the_report_does(built):
+    """The verifier works out the cut-record bullet on its own (its hooks and its sentence, from the stats file's count
+    and cap): for the same numbers, its values are report.json's and its method sentences the filled templates, with
+    the bullet and without it."""
+    inputs = _inputs(built)
+    for rule_inputs, cut, caps in ((1234, 868, [500]), (0, 2001, [300]), (0, 0, [])):
+        inputs["stats"].update(
+            gate5_undecided_rule_inputs=rule_inputs, gate5_undecided_cut_record=cut, gate5_undecided_cut_record_caps=caps
+        )
+        f = report_pages.build_facts(**inputs)
+        record = report_pages.report_json(f)
+        hooks = verify_static_export.report_hooks(
+            sid=f.snapshot_id, judged=f.judged, black_holes=f.black_holes, deadline=f.deadline_days, min_n=f.min_n,
+            confidence=f.ci_percent, bands=[(b.key, {"n": b.judged, "black_holes": b.black_holes}) for b in f.bands],
+            below=f.below_bands_judged, lowest=int(f.lowest_band_text.replace(",", "")),
+            top100_black_holes=f.top100_black_holes, top100_overlap=f.top100_overlap, ranked=f.ranked, rho=f.rho,
+            unanswered=f.unanswered, counted=f.counted,
+            corpus={"human_outside_prs": f.corpus_prs, "distinct_outside_authors": f.corpus_authors,
+                    "derived_repos": f.corpus_projects},
+            start=f.window_start, end=f.window_end, undecided=f.undecided_rule_inputs,
+            ecosystems=[(e.key, e.judged, e.black_holes) for e in f.ecosystems], names=dict(report_pages.ECOSYSTEM_NAMES),
+            constants_hash=f.constants_hash, db_sha="0" * 64,
+            undecided_cut=inputs["stats"]["gate5_undecided_cut_record"],
+            pr_cap=(inputs["stats"]["gate5_undecided_cut_record_caps"] or [None])[0],
+        )
+        values = {k: v for k, v in hooks.items() if "." not in k and k != "source_db_sha256"}
+        assert values == record["values"], (cut, caps)
+        method = verify_static_export._report_sentences(hooks, dict(report_pages.ECOSYSTEM_NAMES))["method"]
+        assert method == [_fill(t, record["values"]) for t in record["sentences"]["method"]], (cut, caps)
+        assert any("could not judge" in sentence for sentence in method) == bool(cut)

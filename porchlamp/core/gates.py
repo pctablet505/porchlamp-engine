@@ -37,9 +37,10 @@ import math
 import re
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from porchlamp.core import constants
+from porchlamp.core.commit_domains import CommitActor, is_bot
 from porchlamp.core.models import FeatureBundle, GateResult, Measured, PRWindowEvent
 
 #: Decision ids recorded in ``GateResult.undecided`` (02 section 2).
@@ -285,6 +286,18 @@ class GateEvidence:
     #: as answered and lowers it; an author's own close read as silence
     #: raises it), so neither a pass nor a failure can be read from it.
     pr_rule_inputs_recorded: bool | None = None
+    #: D-GATE-5 window coverage (:func:`pr_window_coverage`): ``True`` when the
+    #: recorded PR window holds every PR opened since the gate's window start,
+    #: ``False`` when it does not (the collector stopped at its PR cap, the
+    #: record's own window opens later, or the record does not say whether it
+    #: was cut), ``None`` when there is no readable PR window (no opinion). A
+    #: ``False`` leaves D-GATE-5 UNDECIDED: the PRs it holds are the newest
+    #: weeks, and their share is not the window's.
+    pr_window_complete: bool | None = None
+    #: With ``pr_window_complete`` ``False``: the time (ISO 8601) from which the
+    #: record holds every PR, the cut-off that leaves D-GATE-5 undecided; ``None``
+    #: when the record does not say.
+    pr_window_cutoff: str | None = None
     #: D-GATE-6 from the recorded PR envelopes (``pr_window``, the 365-day
     #: ``author_history`` and the v1 sample of the 30 newest PRs): ``True``
     #: when one of them holds an external PR merged or closed in the trailing
@@ -297,11 +310,13 @@ class GateEvidence:
         problems: list[str] = []
         for name in (
             "manifest_found", "license_file_present", "fork_parent_in_universe", "off_platform_marker",
-            "review_handoff", "pr_rule_inputs_recorded", "decided_external_pr",
+            "review_handoff", "pr_rule_inputs_recorded", "pr_window_complete", "decided_external_pr",
         ):
             value = getattr(self, name)
             if value is not None and not isinstance(value, bool):
                 problems.append(f"{name} must be a bool or None, got {value!r}")
+        if self.pr_window_cutoff is not None and not isinstance(self.pr_window_cutoff, str):
+            problems.append(f"pr_window_cutoff must be a str or None, got {self.pr_window_cutoff!r}")
         if not isinstance(self.is_curated_anchor, bool):
             problems.append(f"is_curated_anchor must be a bool, got {self.is_curated_anchor!r}")
         if self.vitality_commits_180d is not None and (
@@ -322,18 +337,211 @@ class GateEvidence:
 GHOST_RATE_INPUT_ID: str = "gr14_ghost_rate"
 
 
+# --------------------------------------------------------------------------- #
+# D-IN-2: who answers a pull request, and with what (02 section 3; RFC-0011).  #
+# The one definition: the collector's per-PR rows, GR_14 and D-GATE-5, the     #
+# served black-hole evidence and the closed_unread detector all read it.       #
+# --------------------------------------------------------------------------- #
+
+#: D-IN-2: the author associations GitHub gives a repository's own people.
+MAINTAINER_ASSOCIATIONS: frozenset[str] = frozenset({"MEMBER", "OWNER", "COLLABORATOR"})
+
+#: The Chinese, Japanese and Korean letters a comment's length counts
+#: ``constants.SUBSTANTIVE_COMMENT_CJK_WEIGHT`` times: Han ideographs (the
+#: unified, extension and compatibility blocks), hiragana and katakana (with
+#: the halfwidth forms) and Hangul (syllables and jamo). Punctuation, digits,
+#: spaces and Latin letters inside such text count once, as they do in Latin
+#: text. A fixed vocabulary of Unicode blocks, not a tunable, so not hashed.
+_CJK_LETTERS = re.compile(
+    "["
+    "ᄀ-ᇿ"          # Hangul Jamo
+    "぀-ヿ"          # Hiragana, Katakana
+    "㄰-㆏"          # Hangul Compatibility Jamo
+    "ㇰ-ㇿ"          # Katakana Phonetic Extensions
+    "㐀-䶿"          # CJK Unified Ideographs Extension A
+    "一-鿿"          # CJK Unified Ideographs
+    "가-힯"          # Hangul Syllables
+    "豈-﫿"          # CJK Compatibility Ideographs
+    "ｦ-ﾟ"          # Halfwidth Katakana
+    "\U00020000-\U0003134f"  # CJK Unified Ideographs Extensions B-H, Compatibility Supplement
+    "]"
+)
+
+
+def comment_length(text: str) -> int:
+    """D-IN-2 length of a comment's text: one per character, and
+    :data:`~porchlamp.core.constants.SUBSTANTIVE_COMMENT_CJK_WEIGHT` per
+    Chinese, Japanese or Korean letter (RFC-0011)."""
+    return len(text) + (constants.SUBSTANTIVE_COMMENT_CJK_WEIGHT - 1) * len(_CJK_LETTERS.findall(text))
+
+
+def is_substantive_comment(text: object) -> bool:
+    """D-IN-2: whether a comment's text (GraphQL ``bodyText``: no markup) is
+    long enough to answer a pull request, at least
+    :data:`~porchlamp.core.constants.SUBSTANTIVE_COMMENT_MIN_CHARS` by
+    :func:`comment_length`."""
+    return isinstance(text, str) and comment_length(text) >= constants.SUBSTANTIVE_COMMENT_MIN_CHARS
+
+
+def _node_login(actor: object) -> str:
+    """The lower-cased ``login`` of a GraphQL actor node; ``""`` for none (a deleted account)."""
+    login = actor.get("login") if isinstance(actor, Mapping) else None
+    return login.lower() if isinstance(login, str) else ""
+
+
+def is_bot_actor_node(actor: object) -> bool:
+    """D-IN-1 over a GraphQL actor node (``__typename`` and ``login``):
+    :func:`porchlamp.core.commit_domains.is_bot` with the node's type as the
+    actor type. ``False`` for no node."""
+    if not isinstance(actor, Mapping):
+        return False
+    return is_bot(CommitActor(
+        login=str(actor.get("login") or ""), email="", actor_type=str(actor.get("__typename") or ""),
+    ))
+
+
+def maintainer_logins(prs: Iterable[object]) -> frozenset[str]:
+    """D-IN-2: the accounts a recorded PR window shows holding access to the
+    repository, by lower-cased login. One merged a PR in the record
+    (``mergedBy``; merging takes write access), or closed a PR another account
+    opened (a ``ClosedEvent`` in the PR's timeline whose actor is not its
+    author; closing someone else's PR takes triage or write access, whatever
+    association GitHub shows: org membership can be private, and committers
+    who land changes outside GitHub show as ``CONTRIBUTOR``). Bots (D-IN-1)
+    never: the query records ``mergedBy`` with a login only, so a bot merger
+    is known by its login."""
+    out: set[str] = set()
+    for pr in prs:
+        if not isinstance(pr, Mapping):
+            continue
+        merged_by = pr.get("mergedBy")
+        login = _node_login(merged_by)
+        if login and not is_bot_actor_node(merged_by):
+            out.add(login)
+        author = _node_login(pr.get("author"))
+        timeline = pr.get("timelineItems")
+        events = timeline.get("nodes") if isinstance(timeline, Mapping) else None
+        for event in events if isinstance(events, list) else ():
+            if not isinstance(event, Mapping) or event.get("__typename") != "ClosedEvent":
+                continue
+            actor = event.get("actor")
+            login = _node_login(actor)
+            if login and login != author and not is_bot_actor_node(actor):
+                out.add(login)
+    return frozenset(out)
+
+
+def is_maintainer_response(node: object, pr_author: str, maintainers: frozenset[str]) -> bool:
+    """D-IN-2: whether a review or comment node on a PR opened by ``pr_author``
+    (lower-cased login) was written by the repository's own people: not a bot
+    (D-IN-1), not the PR's author, and a MEMBER, OWNER or COLLABORATOR
+    association or a login in ``maintainers`` (:func:`maintainer_logins` of
+    the same window)."""
+    if not isinstance(node, Mapping):
+        return False
+    author = node.get("author")
+    login = _node_login(author)
+    if is_bot_actor_node(author) or (login and login == pr_author):
+        return False
+    association = str(node.get("authorAssociation") or "").upper()
+    return association in MAINTAINER_ASSOCIATIONS or (bool(login) and login in maintainers)
+
+
+def first_substantive_response(pr: Mapping[str, Any], maintainers: frozenset[str]) -> tuple[str, str] | None:
+    """D-IN-2: ``(createdAt, kind)`` of the earliest substantive response
+    recorded on one PR node: a review in any state, or a comment whose text
+    is substantive (:func:`is_substantive_comment`), by the repository's own
+    people (:func:`is_maintainer_response`). ``kind`` is ``"review"`` or
+    ``"comment"``; a review wins a tie. ``None`` when there is none."""
+    pr_author = _node_login(pr.get("author"))
+    best: tuple[datetime, str, str] | None = None
+    for kind, source in (("review", "reviews"), ("comment", "comments")):
+        connection = pr.get(source)
+        nodes = connection.get("nodes") if isinstance(connection, Mapping) else None
+        for node in nodes if isinstance(nodes, list) else ():
+            if not is_maintainer_response(node, pr_author, maintainers):
+                continue
+            if kind == "comment" and not is_substantive_comment(node.get("bodyText")):
+                continue
+            stamp = node.get("createdAt")
+            if not isinstance(stamp, str):
+                continue
+            try:
+                when = _parse_iso(stamp)
+            except ValueError:
+                continue
+            if best is None or when < best[0]:
+                best = (when, stamp, kind)
+    return None if best is None else (best[1], best[2])
+
+
+def pr_window_coverage(
+    data: Mapping[str, Any], window_start: datetime | None, *, fetched_at: str | None = None,
+) -> tuple[bool, str | None]:
+    """D-GATE-5: whether a recorded ``pr_window`` envelope ``data`` holds every
+    PR opened since ``window_start`` (the gate's window start,
+    ``now - PR_WINDOW_DAYS``; ``None`` judges against the record's own window).
+
+    ``(True, None)`` when it does; else ``(False, cutoff)``, ``cutoff`` the time
+    (ISO 8601) from which the record holds every PR, ``None`` when it does not
+    say. The collector pages PRs newest first and stops at the first one
+    opened before the record's own window (``window_anchor`` minus
+    ``window_days``), at the end of the list, or at its PR cap, which it
+    records as ``truncated``. So:
+
+    * a record cut at the cap (``truncated`` true) holds every PR opened since
+      its oldest recorded PR and none before: it covers the window only when
+      that PR opened before ``window_start``, else that PR's ``createdAt`` is
+      the cut-off;
+    * an uncut record (``truncated`` false) holds every PR opened in its own
+      window (anchored at ``window_anchor``, else ``fetched_at``): it covers
+      the window when its own window opens at or before ``window_start``,
+      else its own window start is the cut-off;
+    * a record that does not say whether it was cut, or an uncut one with no
+      readable anchor, cannot show that it covers the window.
+    """
+    truncated = data.get("truncated")
+    if truncated is True:
+        oldest: tuple[datetime, str] | None = None
+        prs = data.get("prs")
+        for pr in prs if isinstance(prs, list) else ():
+            stamp = pr.get("createdAt") if isinstance(pr, Mapping) else None
+            try:
+                when = _parse_iso(stamp) if isinstance(stamp, str) else None
+            except ValueError:
+                when = None
+            if when is not None and (oldest is None or when < oldest[0]):
+                oldest = (when, stamp)
+        if oldest is None:
+            return False, None
+        if window_start is not None and oldest[0] < window_start:
+            return True, None
+        return False, oldest[1]
+    if truncated is not False:
+        return False, None
+    anchor_raw = data.get("window_anchor") if isinstance(data.get("window_anchor"), str) else fetched_at
+    days = data.get("window_days", constants.PR_WINDOW_DAYS)
+    try:
+        anchor = _parse_iso(anchor_raw) if isinstance(anchor_raw, str) else None
+    except ValueError:
+        anchor = None
+    if anchor is None or isinstance(days, bool) or not isinstance(days, int):
+        return False, None
+    record_start = anchor - timedelta(days=days)
+    if window_start is None or record_start <= window_start:
+        return True, None
+    return False, record_start.isoformat()
+
+
 @dataclass(frozen=True)
 class GhostRatePR:
     """One PR as the D-GATE-5 / 1.4 GR_14 measurement sees it.
 
     Built from the ``pr_window`` envelope (02 section 3 D-IN-4: PRs opened in
     the trailing 180 d), never from the 30-PR v1 ``pr_events`` sample.
-    ``first_substantive_response_at`` is the D-IN-2 response time: the
-    earliest review (any state) or comment of >= 40 characters by a
-    non-author, non-bot maintainer -- MEMBER/OWNER/COLLABORATOR, or an
-    account that merged a PR in the same window (owner ruling 2026-10-06,
-    ``porchlamp.collect.github_graphql.derive_pr_window``); ``None`` when
-    there is none. ``merged_at`` is the PR's ``mergedAt`` (``None`` when not
+    ``first_substantive_response_at`` is the D-IN-2 response time
+    (:func:`first_substantive_response`); ``None`` when there is none.
+    ``merged_at`` is the PR's ``mergedAt`` (``None`` when not
     merged). ``is_bot_author`` is D-IN-1 (``__typename == "Bot"``, ``[bot]``
     suffix, or the exact-match bot login list).
     """
@@ -637,7 +845,10 @@ def evaluate_gates(
     ghost rate) and D-GATE-6 routes it off-platform, whether or not it has a
     decided external PR. A repository whose ``evidence.pr_rule_inputs_recorded``
     is ``False`` is neither passed nor failed at D-GATE-5: it is recorded
-    UNDECIDED, because the exclusion rules could not run. D-GATE-6 fails a
+    UNDECIDED, because the exclusion rules could not run. Nor is one whose
+    ``evidence.pr_window_complete`` is ``False``: its record stops short of
+    the window (``evidence.pr_window_cutoff``), and a share of the newest
+    weeks is not the window's share. D-GATE-6 fails a
     repository only when ``evidence.decided_external_pr`` is ``False`` (a
     complete PR record with no decided external PR); the v1 ``pr_events`` can
     add a pass, never a failure. Gates 1-4 still decide as before."""
@@ -702,12 +913,15 @@ def evaluate_gates(
     # that hands review off is UNDECIDED too: its PRs are reviewed somewhere
     # GitHub cannot see, so an unanswered-on-GitHub share is not a verdict.
     # A window whose PR records lack the exclusion rules' inputs is UNDECIDED
-    # whatever its share: the missing fields move the share both ways.
+    # whatever its share: the missing fields move the share both ways. So is a
+    # record that stops short of the window (the collector's PR cap): its
+    # share is the newest weeks', never judged as the window's.
     handoff = evidence.review_handoff is True
     ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
     if (
         handoff
         or evidence.pr_rule_inputs_recorded is False
+        or evidence.pr_window_complete is False
         or not isinstance(ghost, Measured)
         or ghost.n < GATE5_MIN_N
     ):

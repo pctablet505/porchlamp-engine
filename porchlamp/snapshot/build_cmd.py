@@ -225,6 +225,8 @@ def build_snapshot_dir(
                 "off_platform_marker": gate_evidence[repo_key(bundle)].off_platform_marker,
                 "review_handoff": gate_evidence[repo_key(bundle)].review_handoff,
                 "pr_rule_inputs_recorded": gate_evidence[repo_key(bundle)].pr_rule_inputs_recorded,
+                "pr_window_complete": gate_evidence[repo_key(bundle)].pr_window_complete,
+                "pr_window_cutoff": gate_evidence[repo_key(bundle)].pr_window_cutoff,
                 "decided_external_pr": gate_evidence[repo_key(bundle)].decided_external_pr,
             },
         }

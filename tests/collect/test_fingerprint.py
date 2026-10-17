@@ -673,7 +673,10 @@ def test_two_fingerprint_passes_unchanged_universe_zero_dirty_on_pass_two(tmp_pa
     assert dirty_repos == {"org0__repo0": frozenset({"releases"})}
 
 
-def _make_pr_window_envelope(raw_dir: Path, owner: str, name: str, prs: list[dict], fetched_at: str) -> None:
+def _make_pr_window_envelope(raw_dir: Path, owner: str, name: str, prs: list[dict], fetched_at: str,
+                             *, truncated: bool = False) -> None:
+    """A ``pr_window`` envelope in the collector's shape: ``truncated`` says whether the
+    collector stopped at its PR cap, and the window is the 180 days before ``fetched_at``."""
     from porchlamp.collect.envelope import write_envelope
     prw_dir = raw_dir / "pr_window"
     prw_dir.mkdir(parents=True, exist_ok=True)
@@ -682,6 +685,8 @@ def _make_pr_window_envelope(raw_dir: Path, owner: str, name: str, prs: list[dic
         source="test-pr-window",
         data={
             "window_anchor": fetched_at,
+            "window_days": 180,
+            "truncated": truncated,
             "prs": prs,
             "derived": [
                 {
@@ -740,6 +745,28 @@ def test_is_confirmed_black_hole_in_raw_confirmed_black_hole_returns_true(tmp_pa
     ]
     _make_pr_window_envelope(raw_dir, owner, name, prs, NOW.isoformat())
     assert is_confirmed_black_hole_in_raw(raw_dir, owner, name, now=NOW) is True
+
+
+def test_is_confirmed_black_hole_in_raw_refuses_a_record_cut_at_the_pr_cap(tmp_path: Path):
+    """The same silent PRs in a record the collector cut at its PR cap: D-GATE-5 is
+    undecided on a record that does not reach back to the window's start (RFC-0011), so
+    the collector does not confirm a black hole from it either."""
+    from porchlamp.collect.fingerprint import is_confirmed_black_hole_in_raw
+    raw_dir = tmp_path / "raw"
+    owner, name = "busy", "project"
+    prs = [
+        {
+            "number": i,
+            "createdAt": (NOW - timedelta(days=30 + i)).isoformat(),
+            "authorAssociation": "NONE",
+            "author": {"login": f"user{i}", "__typename": "User"},
+            "comments": [],
+            "reviews": {"nodes": []},
+        }
+        for i in range(1, 16)
+    ]
+    _make_pr_window_envelope(raw_dir, owner, name, prs, NOW.isoformat(), truncated=True)
+    assert is_confirmed_black_hole_in_raw(raw_dir, owner, name, now=NOW) is False
 
 
 def test_run_fingerprint_pass_black_hole_strips_deep_collectors(tmp_path: Path):

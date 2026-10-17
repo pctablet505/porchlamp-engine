@@ -5,11 +5,9 @@ Collects the PRs a repository opened in the trailing 180 days (D-IN-4,
 derives the per-PR responsiveness inputs of ``02`` section 4:
 
 * D-IN-2 — ``first_substantive_response_at`` / ``ttfhr_hours`` (parameter
-  1.1): the earliest review (any state) or comment of at least 40 characters
-  posted by a non-author, non-bot account whose ``authorAssociation`` is
-  ``MEMBER``, ``OWNER`` or ``COLLABORATOR``, or that merged at least one PR
-  in the same window (``mergedBy``; owner ruling 2026-10-06: org membership
-  can be private, so a maintainer can show as ``CONTRIBUTOR``);
+  1.1): the earliest substantive response by the repository's own people,
+  as :func:`porchlamp.core.gates.first_substantive_response` defines it (the
+  one definition, which GR_14, D-GATE-5 and its served evidence also read);
 * 02 §4.3 — ``substantive_review``: at least one non-bot review with inline
   comments (``comments.totalCount >= 1``) or a review body of at least 80
   characters;
@@ -54,8 +52,6 @@ PR_WINDOW_DAYS: int = 180
 PR_CAP: int = 500
 #: One GraphQL page (``first``); the cap is reached in five full pages.
 PAGE_SIZE: int = 100
-#: D-IN-2: a maintainer comment counts as a response at exactly 40 chars.
-SUBSTANTIVE_COMMENT_CHARS: int = 40
 #: 02 §4.3: a review counts as substantive at an 80-char body or 1 inline.
 SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
 
@@ -69,8 +65,6 @@ BOT_LOGINS: frozenset[str] = frozenset({
     "vercel", "sonarcloud", "snyk-bot", "greenkeeper", "copilot", "claude",
 })
 
-#: D-IN-2: associations that mark a substantive human response.
-MAINTAINER_ASSOCIATIONS: frozenset[str] = frozenset({"MEMBER", "OWNER", "COLLABORATOR"})
 #: External (non-maintainer) associations, matching the v1 ``EXTERNAL_ASSOC``
 #: set used by ``scripts/derive.py`` for the same fact.
 EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
@@ -191,40 +185,6 @@ def _association(value: Any) -> str:
     return str(value or "").upper()
 
 
-def window_mergers(prs: Sequence[dict]) -> frozenset[str]:
-    """The lower-cased logins that merged at least one PR in a recorded
-    window (``mergedBy.login``). Empty for envelopes recorded before the
-    query asked for ``mergedBy``."""
-    out: set[str] = set()
-    for pr in prs:
-        merged_by = pr.get("mergedBy")
-        login = merged_by.get("login") if isinstance(merged_by, dict) else None
-        if login:
-            out.add(str(login).lower())
-    return frozenset(out)
-
-
-def _is_maintainer(login: Any, association: Any, author_login: str,
-                   typename: Any = None, mergers: frozenset[str] = frozenset()) -> bool:
-    """D-IN-2 responder: non-bot, not the PR author, and a maintainer: a
-    MEMBER/OWNER/COLLABORATOR association, or a login in ``mergers`` (the
-    window's :func:`window_mergers`; owner ruling 2026-10-06 -- merging
-    needs write access, whatever the association GitHub shows).
-
-    ``typename`` is the actor's GraphQL ``__typename``. It is the
-    authoritative bot signal (D-IN-1) -- a ``Bot`` node whose login does not
-    happen to end in ``[bot]`` is invisible to the login heuristics alone,
-    and was previously counted as a human maintainer response, inflating
-    responsiveness for exactly the repositories that automate it.
-    """
-    low = str(login or "").lower()
-    if is_bot_actor(typename, login):
-        return False
-    if low and low == author_login:
-        return False
-    return _association(association) in MAINTAINER_ASSOCIATIONS or (bool(low) and low in mergers)
-
-
 # --------------------------------------------------------------------------- #
 # Per-PR derivation (D-IN-2, 02 §4.3) over recorded GraphQL nodes             #
 # --------------------------------------------------------------------------- #
@@ -236,37 +196,22 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     fetch (the shape in :data:`PR_WINDOW_QUERY`). Each result dict carries
     ``number``, ``is_external``, ``is_bot_author``, ``decided``, ``merged``,
     ``first_substantive_response_at`` / ``_kind``, ``ttfhr_hours`` and
-    ``substantive_review``. A response candidate is a maintainer
-    (D-IN-2, :func:`_is_maintainer` with the window's
-    :func:`window_mergers`) review in any state or a comment of at least 40
-    characters, never the PR author and never a bot; ``ttfhr_hours`` is the opening-to-
+    ``substantive_review``. The response is D-IN-2's
+    (:func:`porchlamp.core.gates.first_substantive_response` over the
+    window's :func:`porchlamp.core.gates.maintainer_logins`); ``ttfhr_hours`` is the opening-to-
     response span in hours (None when there is no candidate or the recorded
     response predates the opening). ``substantive_review`` (02 §4.3) is any
     review with 1+ inline comments or an 80+ character body, by someone who
     is neither a bot nor the PR's own author.
     """
-    mergers = window_mergers(prs)
+    maintainers = gates.maintainer_logins(prs)
     out: list[dict] = []
     for pr in prs:
         author = pr.get("author") or {}
         author_login = str(author.get("login") or "").lower()
-        best_at: Optional[str] = None
-        best_kind: Optional[str] = None
-        best_dt: Optional[datetime] = None
-        for kind in ("review", "comment"):
-            source = "reviews" if kind == "review" else "comments"
-            for raw in ((pr.get(source) or {}).get("nodes") or []):
-                raw_author = raw.get("author") or {}
-                ok = _is_maintainer(
-                    raw_author.get("login"), raw.get("authorAssociation"),
-                    author_login, raw_author.get("__typename"), mergers)
-                if kind == "comment":
-                    ok = ok and len(str(raw.get("bodyText") or "")) >= SUBSTANTIVE_COMMENT_CHARS
-                if not ok:
-                    continue
-                dt = _parse_iso(raw.get("createdAt"))
-                if dt is not None and (best_dt is None or dt < best_dt):
-                    best_dt, best_at, best_kind = dt, raw["createdAt"], kind
+        response = gates.first_substantive_response(pr, maintainers)
+        best_at, best_kind = response if response is not None else (None, None)
+        best_dt = _parse_iso(best_at)
         ttfhr: Optional[float] = None
         if best_dt is not None:
             created_dt = _parse_iso(pr.get("createdAt"))
@@ -602,9 +547,7 @@ def closed_unread_counts(prs: Sequence[dict]) -> tuple[int, int]:
 
     ``outside`` counts the outside PRs: an external author association and a
     non-bot author (D-IN-1). ``closed_unread`` counts those closed and never
-    merged with no D-IN-2 response ever recorded: no maintainer review in any
-    state and no maintainer comment of at least 40 characters, never the
-    author, never a bot (:func:`derive_pr_window`'s
+    merged with no D-IN-2 response ever recorded (:func:`derive_pr_window`'s
     ``first_substantive_response_at``, recomputed from the recorded nodes as
     GR_14 and D-GATE-5 recompute it).
     """
