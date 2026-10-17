@@ -54,11 +54,11 @@ await sleep(300);
 
 _DRAWER = (
     """
-const drawer = await until(() => doc.querySelector('.drawer h1') && doc.querySelector('.drawer'), 20000);
+const drawer = await until(() => doc.querySelector('.drawer #drawer-title') && doc.querySelector('.drawer'), 20000);
 if (!drawer) return { missing: 'drawer' };
 await sleep(1500);
 // the longest name GitHub allows is 39 + 1 + 100 characters: a header must cope with a long one
-doc.querySelector('.drawer h1').textContent = 'a-long-organisation-name/an-even-longer-repository-name-here';
+doc.querySelector('.drawer #drawer-title').textContent = 'a-long-organisation-name/an-even-longer-repository-name-here';
 await sleep(200);
 const el = doc.querySelector('.drawer');
 return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, scrollLeft: el.scrollLeft };

@@ -32,10 +32,13 @@ top-20 table), ``llms.txt`` and ``feed.xml`` against the database, the API and t
 names) must have a page in the site.
 
 ``verify_projects`` (also run by ``--stats``) proves the project pages and /check/: every ranked project has its page
-at ``projects/<owner>/<name>/`` and no other page exists; every value on each page (the two answer sentences, the tier,
-the five pillars and their coverage, each lens rank or reason, each parameter's value, count and window, the five similar
-projects, the record hash and links) is recomputed from the API and compared; ``sitemap-projects.xml`` lists every
-ranked project in balanced-rank order; ``check/projects.json`` lists the ranked projects.
+at ``projects/<owner>/<name>/`` and no other page exists; every value each page prints (a ``data-v`` hook: the answer
+sentences, the key facts, the rating, the five pillars and their coverage, each parameter's value with its unit, score,
+count and window, each lens rank, the similar projects, the record's identity) is recomputed from the API with this
+file's own formatters and compared; so are the head (the title, and a description that names the project and its rank in
+at most 155 characters), the outline (one h1, no skipped level, nothing collapsed, the anchors), and the links;
+``sitemap-projects.xml`` lists every ranked project in balanced-rank order; ``check/projects.json`` lists the ranked
+projects.
 
 Whatever the flags, ``verify_chrome`` proves every page carries the one header, nav and footer
 (``web/app/components/chrome.js``, drawn at export by ``web/prerender.mjs``), one Content-Security-Policy and only the
@@ -68,6 +71,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Optional
@@ -536,11 +540,6 @@ def _by_id(page: str, ident: str) -> str:
     return _plain(match.group(2)) if match else ""
 
 
-def _section(page: str, ident: str) -> str:
-    match = re.search(rf'<h2 id="{re.escape(ident)}">(.*?)(?=<h2 id=|<footer)', page, re.S)
-    return match.group(1) if match else ""
-
-
 def _rows(fragment: str) -> list[list[str]]:
     body = re.search(r"<tbody>(.*?)</tbody>", fragment, re.S)
     rows = re.findall(r"<tr>(.*?)</tr>", body.group(1), re.S) if body else []
@@ -598,7 +597,7 @@ def report_hooks(
     *, sid: str, judged: int, black_holes: int, deadline: int, min_n: int, confidence: int, bands: list,
     below: int, lowest: int, top100_black_holes: int, top100_overlap: int, ranked: int, rho: float, unanswered: int,
     counted: int, corpus: dict, start: date, end: date, undecided: int, ecosystems: list, names: dict[str, str],
-    constants_hash: str, db_sha: str,
+    constants_hash: str, db_sha: str, undecided_cut: int = 0, pr_cap: int | None = None,
 ) -> dict[str, str]:
     """Every ``data-v`` hook the report prints (``web/app/views/report.js``), with the value worked out here from
     the database, the API and the stats file, in this file's own formatting: the page's hook count per type is the
@@ -654,6 +653,9 @@ def report_hooks(
         del out["below_bands_judged"], out["lowest_band"]  # the "not charted" note is left out
     if not undecided:
         del out["undecided_rule_inputs"]  # the measurement bullet is left out
+    if undecided_cut:  # the cut-record bullet, only when it is printed
+        out["undecided_cut"] = _thousands(undecided_cut)
+        out["pr_cap"] = _thousands(pr_cap)
     return out
 
 
@@ -741,6 +743,11 @@ def _report_sentences(hooks: dict[str, str], names: dict[str, str]) -> dict[str,
             f"Another {v['undecided_rule_inputs']} licensed, maintained projects with at least {v['min_n']} outside pull "
             "requests on record are not judged yet: those records were fetched before drafts and closes were recorded, "
             "and the rules need both."
+        )
+    if "undecided_cut" in v:
+        method.append(
+            f"We could not judge {v['undecided_cut']} busy projects yet: we hold only the newest {v['pr_cap']} pull "
+            f"requests of each, and they do not reach back to {v['window_start']}."
         )
     method.append(
         f"It is a black hole when, with {v['ci_percent']}% confidence, more than half of those pull requests got no "
@@ -913,6 +920,7 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         top100_black_holes=top100_black_holes, top100_overlap=stats["top100_overlap"], ranked=ranked, rho=rho,
         unanswered=unanswered, counted=counted, corpus=stats["corpus"], start=date.fromisoformat(start),
         end=date.fromisoformat(end), undecided=stats.get("gate5_undecided_rule_inputs", 0),
+        undecided_cut=stats.get("gate5_undecided_cut_record", 0), pr_cap=(stats.get("gate5_undecided_cut_record_caps") or [None])[0],
         ecosystems=[(e, *per_eco[e]) for e in eco_order], names=names, constants_hash=snapshot["constants_hash"],
         db_sha=db_sha,
     )
@@ -928,6 +936,10 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
     ledger.equal("'Stars barely predict an answer' holds (|rho| < 0.2)", abs(Decimal(str(rho))) < Decimal("0.2"), True)
     ledger.equal("'Fame is no guarantee' holds (a black hole in the 100 most-starred)", top100_black_holes > 0, True)
     ledger.equal("'Most of those pull requests waited' holds", unanswered * 2 > counted, True)
+    if stats.get("gate5_undecided_cut_record"):
+        caps = stats.get("gate5_undecided_cut_record_caps")
+        ledger.equal("'we hold only the newest N pull requests of each' holds (the cut records name one cap)",
+                     isinstance(caps, list) and len(caps) == 1 and type(caps[0]) is int, True)
 
     h2_expected = [rp.copy_js_string(n) for n in (
         "REPORT_FINDINGS_HEADING", "REPORT_STARS_HEADING", "REPORT_ECOSYSTEMS_HEADING", "REPORT_METHOD_HEADING",
@@ -1845,25 +1857,52 @@ def _half_up(x: float, scale: int) -> int:
     return math.floor(Fraction(repr(x)) * scale + Fraction(1, 2))
 
 
-def _tenths(x: float) -> str:
-    """``x`` rounded half up to one decimal, a trailing ``.0`` dropped."""
-    tenths = _half_up(x, 10)
-    return f"{tenths // 10}" if tenths % 10 == 0 else f"{tenths // 10}.{tenths % 10}"
+def _round_half_up(exact: Fraction, places: int) -> str:
+    """``exact`` (0 or more) rounded half up to ``places`` decimals, the decimals kept (``3.85`` -> ``3.9``)."""
+    scaled = math.floor(exact * 10 ** places + Fraction(1, 2))
+    digits = f"{scaled:0{places + 1}d}"
+    return f"{digits[:-places]}.{digits[-places:]}" if places else digits
+
+
+def _printed(x: float) -> Fraction:
+    """The decimal a record prints for ``x`` (Python's ``repr``, JavaScript's ``String``), exactly."""
+    return Fraction(repr(x))
+
+
+def _trimmed(text: str) -> str:
+    """A trailing ``.0`` dropped (``12.0`` -> ``12``), as the sentences print a rounded value."""
+    return text[:-2] if text.endswith(".0") else text
+
+
+def _days(hours: float) -> str:
+    """Hours as days to one decimal, a trailing ``.0`` dropped: the printed hours over 24, exactly, rounded half up."""
+    return _trimmed(_round_half_up(_printed(hours) / 24, 1))
 
 
 def _reply_time(hours: float) -> str:
+    """Hours under 48 (``3.9 hours``, ``1 hour``, ``under 0.1 hours``), else days (``6.2 days``)."""
     if hours < 48:
-        shown = _tenths(hours)
+        shown = _trimmed(_round_half_up(_printed(hours), 1))
         if shown == "0":
             return "under 0.1 hours"
         return f"{shown} {'hour' if shown == '1' else 'hours'}"
-    return f"{_tenths(hours / 24)} days"
+    return f"{_days(hours)} days"
 
 
 def _date_range(start: str, end: str) -> str:
     a, b = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
     left = f"{a.day} {_MONTHS[a.month - 1]}" + ("" if a.year == b.year else f" {a.year}")
     return f"{left} to {b.day} {_MONTHS[b.month - 1]} {b.year}"
+
+
+def _long_date(iso: str) -> str:
+    day = date.fromisoformat(iso[:10])
+    return f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
+
+
+def _js_fixed(x: float, places: int) -> str:
+    """JavaScript's ``toFixed`` for any finite number: the sign, then the magnitude's exact double rounded half up."""
+    return f"-{_tofixed(-x, places)}" if x < 0 else _tofixed(x, places)
 
 
 def _param_value(v: Any) -> str:
@@ -1880,44 +1919,232 @@ def _param_value(v: Any) -> str:
     return str(v)
 
 
-def _expected_answer(detail: dict, evidence: list[dict], min_n: dict[str, int]) -> tuple[str, str, str]:
-    """``(first sentence, the rest, description)`` of the reply answer, from the API's own evidence rows and the
-    methodology's minimum samples."""
+#: The parameters the project view prints with a unit: hours (with days), shares (a percent), counts (grouped).
+_HOURS_PARAMS = frozenset({"ttfhr_hours", "ttm_p90_hours"})
+_SHARE_PARAMS = frozenset({
+    "dr90_decision_rate", "mr_first_rate", "gr14_ghost_rate", "substantive_review_rate", "newcomer_conversion", "rr90_return_rate",
+})
+_COUNT_PARAMS = frozenset({"dependents_deduped", "elephant_factor", "newcomer_issue_supply"})
+#: The parameters whose value is a code the view prints as copy.js's plain label, by the name of that label map.
+_ENUM_LABELS = {"legal_ip": "LEGAL_IP_LABELS", "ai_posture": "AI_POSTURE_LABELS", "promotion_ladder": "PROMOTION_LADDER_LABELS"}
+
+
+def _param_text(pid: str, value: Any, words: dict[str, str], labels: dict[str, dict[str, str]]) -> str:
+    """A parameter's value as the project view prints it: with its unit, or an enum code's plain label."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        if pid in _HOURS_PARAMS:
+            return words["hours_and_days"].replace("{hours}", _round_half_up(_printed(value), 1)).replace("{days}", _days(value))
+        if pid in _SHARE_PARAMS:
+            return words["share"].replace("{percent}", _round_half_up(_printed(value) * 100, 1))
+        if pid == "downloads_monthly" and float(value).is_integer():
+            if value >= 1_000_000:
+                return words["downloads_million"].replace("{count}", _tofixed(value / 1e6, 1))
+            return words["downloads"].replace("{count}", f"{int(value):,}")
+        if pid in _COUNT_PARAMS and float(value).is_integer():
+            return f"{int(value):,}"
+    if pid in labels and value in labels[pid]:
+        return labels[pid][value]
+    return _param_value(value)
+
+
+def _key_fact_reply(hours: float, words: dict[str, str]) -> str:
+    """The key facts' median first reply: hours under 48, else days with the hours after them."""
+    if hours < 48:
+        shown = _trimmed(_round_half_up(_printed(hours), 1))
+        if shown == "0":
+            return words["under_tenth_hour"]
+        return words["hour" if shown == "1" else "hours"].replace("{n}", shown)
+    return words["days_and_hours"].replace("{days}", _days(hours)).replace("{hours}", _round_half_up(_printed(hours), 1))
+
+
+def _rank_band(rank: int, total: int) -> str:
+    """Where a rank sits, rounded up so that the claim holds: the top N% in the upper half, else the bottom N%."""
+    if 2 * rank <= total:
+        return f"the top {math.ceil(Fraction(100 * rank, total))}%"
+    return f"the bottom {math.ceil(Fraction(100 * (total - rank + 1), total))}%"
+
+
+def _expected_reply(detail: dict, evidence: list[dict], min_n: dict[str, int]) -> tuple[str, str, str]:
+    """``(first sentence, the rest, the first sentence as the head says it)`` of the reply answer, from the API's own
+    evidence rows and the methodology's minimum samples. The first sentence names the project; the head's form does
+    not, and has no bracket."""
     ev = {e["param_id"]: e for e in evidence}
     t, g = ev["ttfhr_hours"], ev["gr14_ghost_rate"]
     t_ok, g_ok = t["unmeasured_reason"] is None, g["unmeasured_reason"] is None
-    name = detail["name"]
+    who = f"{detail['owner']}/{detail['name']}"
 
     def prs(n: int) -> str:
         return f"{n:,} pull request" + ("" if n == 1 else "s")
 
     if t_ok:
+        median = f"got a first human reply in a median of {_reply_time(t['value'])}"
         bracket = f" ({prs(t['n'])}, {_date_range(t['window_start'], t['window_end'])})"
-        reply = f"Outside pull requests to {name} got a first human reply in a median of {_reply_time(t['value'])}"
         if g_ok:
-            first, rest = f"{reply}{bracket}; {_half_up(g['value'], 100)}% got none within 14 days.", ""
-        else:
-            first = f"{reply}{bracket}."
-            rest = f"The share with no reply within 14 days has too small a sample to measure ({prs(g['n'])} counted; {min_n['gr14_ghost_rate']} needed)."
-    elif g_ok:
-        bracket = ""
-        first = f"The reply time has too small a sample to measure ({prs(t['n'])} counted; {min_n['ttfhr_hours']} needed)."
+            tail = f"; {_half_up(g['value'], 100)}% got none within 14 days."
+            return f"Outside pull requests to {who} {median}{bracket}{tail}", "", f"Outside pull requests {median}{tail}"
+        return (
+            f"Outside pull requests to {who} {median}{bracket}.",
+            f"The share with no reply within 14 days has too small a sample to measure ({prs(g['n'])} counted; {min_n['gr14_ghost_rate']} needed).",
+            f"Outside pull requests {median}.",
+        )
+    if g_ok:
         noun = "pull request" if g["n"] == 1 else "pull requests"
-        rest = f"{_half_up(g['value'], 100)}% of {g['n']:,} outside {noun} got no reply within 14 days ({_date_range(g['window_start'], g['window_end'])})."
-    else:
-        bracket = ""
-        lo, hi = min_n["ttfhr_hours"], min_n["gr14_ghost_rate"]
-        needed = f"{lo} needed" if lo == hi else f"{lo} and {hi} needed"
-        first = f"The reply time and the share with no reply within 14 days both have too small a sample to measure ({t['n']:,} and {prs(g['n'])} counted; {needed})."
-        rest = ""
-    if len(first) < 160:
-        return first, rest, first
-    short = first.replace(bracket, "") if bracket else first
-    if len(short) < 160:
-        return first, rest, short
-    if ";" in short and len(short.split(";")[0] + ".") < 160:
-        return first, rest, short.split(";")[0] + "."
-    return first, rest, short[:158].rsplit(" ", 1)[0].rstrip(" ;,:") + "\u2026"
+        return (
+            f"For {who}, the reply time has too small a sample to measure ({prs(t['n'])} counted; {min_n['ttfhr_hours']} needed).",
+            f"{_half_up(g['value'], 100)}% of {g['n']:,} outside {noun} got no reply within 14 days ({_date_range(g['window_start'], g['window_end'])}).",
+            "The reply time has too small a sample to measure.",
+        )
+    lo, hi = min_n["ttfhr_hours"], min_n["gr14_ghost_rate"]
+    needed = f"{lo} needed" if lo == hi else f"{lo} and {hi} needed"
+    both = "the reply time and the share with no reply within 14 days both have too small a sample to measure"
+    return f"For {who}, {both} ({t['n']:,} and {prs(g['n'])} counted; {needed}).", "", f"T{both[1:]}."
+
+
+#: The longest description a project page may have.
+_DESCRIPTION_LIMIT = 155
+
+
+def _expected_description(who: str, rank: int, total: int, short: str) -> str:
+    """The project's name and rank, then the reply answer's head form; at most 155 characters: whole, else up to its
+    ``;``, else cut at a word with an ellipsis, never into the name and rank."""
+    lead = f"{who} ranks {rank:,} of {total:,}."
+    whole = f"{lead} {short}"
+    if len(whole) <= _DESCRIPTION_LIMIT:
+        return whole
+    clause = f"{lead} {short.split(';', 1)[0]}."
+    if ";" in short and len(clause) <= _DESCRIPTION_LIMIT:
+        return clause
+    cut = whole[: _DESCRIPTION_LIMIT - 1].rsplit(" ", 1)[0].rstrip(" ;,:.")
+    return f"{cut}\u2026" if len(cut) > len(lead) else lead
+
+
+def _project_copy() -> tuple[dict[str, Any], dict[str, dict[str, str]]]:
+    """The words the project view fills its numbers into (copy.js): the unit and reply-time templates, the coverage band
+    labels and the pillar order; and the plain label of each enum code, by parameter."""
+    from porchlamp.serve import report_pages as rp
+
+    words = {
+        "units": rp.copy_js_map("PARAM_UNIT_WORDS"), "reply": rp.copy_js_map("REPLY_TIME_WORDS"),
+        "bands": rp.copy_js_map("COVERAGE_BAND_LABELS"), "pillars": list(rp.copy_js_map("PILLAR_NAMES")),
+        "lenses": list(rp.copy_js_map("PERSONA_NAMES")),
+    }
+    return words, {pid: rp.copy_js_map(name) for pid, name in _ENUM_LABELS.items()}
+
+
+def _share(fraction: float) -> str:
+    """A fraction as a percent with one decimal, half up from its printed decimal (``0.3445`` -> ``34.5``)."""
+    return _round_half_up(_printed(fraction) * 100, 1)
+
+
+def _black_hole_hooks(detail: dict) -> dict[str, str]:
+    """The black-hole card's values (``views/project.js`` ``blackHoleBlock``): the counts and shares, the window, each
+    exclusion counted, and each counted pull request's number and date."""
+    holed = detail.get("gate_reason") == "black_hole" or "black_hole" in (detail.get("suspicion") or [])
+    ev = detail.get("black_hole_evidence") or {}
+    counts = [ev.get(key) for key in ("unanswered", "population_n")]
+    if not holed or not all(isinstance(n, int) and not isinstance(n, bool) for n in counts) or counts[1] <= 0:
+        return {}
+    hooks = {"bh.unanswered": str(counts[0]), "bh.population_n": str(counts[1])}
+    if isinstance(ev.get("unanswered_share"), (int, float)):
+        hooks["bh.unanswered_share"] = _share(ev["unanswered_share"])
+    if all(isinstance(ev.get(key), (int, float)) for key in ("wilson_lower_bound", "threshold_share", "min_n")):
+        hooks |= {"bh.wilson_lower_bound": _share(ev["wilson_lower_bound"]), "bh.threshold_share": _share(ev["threshold_share"]),
+                  "bh.min_n": str(ev["min_n"])}
+    if ev.get("window_start") and ev.get("window_end"):
+        hooks["bh.window"] = _date_range(ev["window_start"], ev["window_end"])
+    excluded = ev.get("excluded") or {}
+    # draft and self-closed counts exist only when the snapshot recorded them
+    measured = ["draft", "self_closed"] if ev.get("rule_inputs_measured") is True else []
+    for key in (*measured, "new_account", "bot", "internal", "under_14d"):
+        if (excluded.get(key) or 0) > 0:
+            hooks[f"bh.excluded.{key}"] = str(excluded[key])
+    prs = [pr for pr in ev.get("counted_prs") or [] if isinstance(pr.get("number"), int) and pr["number"] > 0]
+    for i, pr in enumerate(prs):
+        hooks[f"bh.counted_prs.{i}.number"] = str(pr["number"])
+        if pr.get("created_at"):
+            hooks[f"bh.counted_prs.{i}.created_at"] = _long_date(pr["created_at"])
+    return hooks
+
+
+def _expected_project_hooks(
+    detail: dict, evidence: Optional[list[dict]], standings: Optional[dict[str, tuple[Optional[int], int, Optional[str]]]],
+    similar: Optional[list[dict]], answer: Optional[str], words: dict[str, Any], labels: dict[str, dict[str, str]],
+    *, mode: str = "page",
+) -> dict[str, str]:
+    """Every value the project view (``views/project.js``) prints for a record (a ``data-v`` hook), as it formats it, from
+    the API's own record and evidence and, for a ranked project, its lens standings (``(rank, total, reason)`` per
+    lens), its similar projects and its answer (None where the record has none). ``mode`` is "page" or "panel"; only
+    the page prints the snapshot date."""
+    ranked = bool(detail["eligible"] and detail["rated"])
+    hooks = {"detail.snapshot_id": detail["snapshot_id"]}
+    if mode == "page":
+        hooks["detail.snapshot_date"] = _long_date(detail["snapshot_id"])
+    if answer is not None:
+        hooks["answer"] = answer
+    if detail["raw_hash"]:
+        hooks["detail.raw_hash"] = detail["raw_hash"]
+    if ranked:
+        # the key facts and the rating card, and the cite line
+        hooks["cite.year"] = detail["snapshot_id"][:4]
+        if detail["rank"] is not None:
+            hooks["detail.rank"] = f"{detail['rank']:,}"
+            if standings:
+                hooks["standings.balanced.total"] = f"{standings['balanced'][1]:,}"
+        if detail["porchlamp"] is not None:
+            hooks["detail.porchlamp"] = _js_fixed(detail["porchlamp"], 2)
+        cov = detail["coverage"]
+        band = "full" if cov >= 0.95 else "A" if cov >= 0.8 else "B" if cov >= 0.6 else "below"
+        hooks["detail.coverage"] = f"{math.floor(cov * 100 + 0.5)}% · {words['bands'].get(band, 'Below floor')}"
+        for key in ("leverage", "friction"):
+            if detail[key] is not None:
+                hooks[f"detail.{key}"] = _js_fixed(float(detail[key]), 1)
+            if detail[f"{key}_coverage"] is not None:
+                hooks[f"detail.{key}_coverage"] = f"{math.floor(detail[f'{key}_coverage'] * 100 + 0.5)}%"
+        by_id = {row["param_id"]: row for row in evidence or []}
+        reply, ghost = (by_id.get(pid) for pid in ("ttfhr_hours", "gr14_ghost_rate"))
+        if reply and not reply["unmeasured_reason"] and reply["value"] is not None:
+            hooks["facts.reply_time"] = _key_fact_reply(reply["value"], words["reply"])
+        if ghost and not ghost["unmeasured_reason"] and ghost["value"] is not None:
+            hooks["facts.no_reply_share"] = f"{_half_up(ghost['value'], 100)}%"
+        if standings:
+            first_rank, first_total, first_reason = standings["first_timer"]
+            if first_rank is not None:
+                hooks["standings.first_timer.rank"], hooks["standings.first_timer.total"] = f"{first_rank:,}", f"{first_total:,}"
+            elif first_reason:
+                hooks["standings.first_timer.reason"] = first_reason
+    hooks |= _black_hole_hooks(detail)
+    # the pillars
+    if any(detail[f"p_{p}"] is not None for p in words["pillars"]):
+        for p in words["pillars"]:
+            if detail[f"p_{p}"] is not None:
+                hooks[f"detail.p_{p}"] = _js_fixed(detail[f"p_{p}"], 1)
+            hooks[f"detail.c_{p}"] = f"{math.floor((detail[f'c_{p}'] or 0) * 100 + 0.5)}%"
+    # the parameters
+    for row in evidence or []:
+        if row["unmeasured_reason"]:
+            continue
+        ident = f"evidence.{row['param_id']}"
+        if row["value"] is not None:
+            hooks[f"{ident}.value"] = _param_text(row["param_id"], row["value"], words["units"], labels)
+        if row["score"] is not None:
+            hooks[f"{ident}.score"] = _js_fixed(row["score"], 1)
+        if row["n"]:
+            hooks[f"{ident}.n"] = f"{row['n']:,}"
+        if row["window_start"] and row["window_end"]:
+            hooks[f"{ident}.window"] = _date_range(row["window_start"], row["window_end"])
+    # the lens table: a lens the project is not gated from, with a composite
+    composites, gates = detail.get("persona_composites") or {}, detail.get("persona_gates") or {}
+    for lens in words["lenses"]:
+        if not detail["eligible"] or gates.get(lens) or not composites.get(lens):
+            continue
+        rank, total, _reason = (standings or {}).get(lens, (None, None, None))
+        if rank is not None:
+            hooks[f"standings.{lens}.rank"], hooks[f"standings.{lens}.total"] = f"{rank:,}", f"{total:,}"
+        if composites[lens].get("porchlamp") is not None:
+            hooks[f"detail.persona_composites.{lens}.porchlamp"] = _js_fixed(composites[lens]["porchlamp"], 2)
+    for i, row in enumerate(similar or []):
+        hooks[f"similar.{i}.rank"] = f"{row['rank']:,}"
+    return hooks
 
 
 def check_sitemap_files(site: Path) -> list[str]:
@@ -1937,7 +2164,8 @@ def check_sitemap_files(site: Path) -> list[str]:
 
 def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     """Recompute every value on every project page from the API (the leaderboards, ``/repos/{owner}/{name}`` and its
-    ``/evidence``) and compare with what the page prints; check the page set, the sitemaps and /check/.
+    ``/evidence``) and compare with what the page prints (its ``data-v`` hooks) and its head; check the page set, the
+    sitemaps and /check/.
     ``{"checked": n, "pages": m, "errors": [...]}``."""
     from fastapi.testclient import TestClient
 
@@ -1981,13 +2209,11 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
 
     sid, ranked = snapshot["snapshot_id"], boards["balanced"][0]
     as_of = snapshot["as_of"][:10]
-    copy_pillars, copy_personas = rp.copy_js_map("PILLAR_NAMES"), rp.copy_js_map("PERSONA_NAMES")
-    copy_params, copy_unmeasured = rp.copy_js_map("PARAM_NAMES"), rp.copy_js_map("UNMEASURED_REASON_NAMES")
     gate_copy = rp.copy_js_map("PERSONA_GATE_COPY")
     insufficient = rp.copy_js_string("PERSONA_INSUFFICIENT_EVIDENCE_TEXT")
-    capped_text = rp.copy_js_string("TIER_CAPPED_EXPLANATION")
-    band_labels = rp.copy_js_map("COVERAGE_BAND_LABELS")
-    order = [p["input_id"] for p in methodology["parameters"]]
+    words, labels = _project_copy()
+    issue_base, issue_prefix = rp.copy_js_string("ISSUE_BASE"), rp.copy_js_string("ISSUE_TITLE_PREFIX")
+    boilerplate = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', export_static.APP_SHELL.read_text(encoding="utf-8")).group(1))
     min_n = {p["input_id"]: p["min_n"] for p in methodology["parameters"]}
     lens_rank = {lens: {(r["owner"], r["name"]): r["rank"] for r in rows} for lens, (rows, _t) in boards.items()}
     lens_total = {lens: total for lens, (_r, total) in boards.items()}
@@ -2008,119 +2234,97 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     for extra in sorted(found_dirs - expected_dirs)[:5]:
         ledger.errors.append(f"project page {extra}/ is not a ranked project")
 
-    titles, canonicals = [], []
+    titles, canonicals, descriptions, hooks_checked = [], [], [], 0
     for (owner, name), (detail, evidence) in records.items():
         rel = f"projects/{owner.lower()}/{name.lower()}/index.html"
-        who = rel
+        who, key = rel, f"{owner}/{name}"
         path = site / rel
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8")
-        plain = _plain(text)
-        ledger.checked += 1
-        scanned = " ".join(_plain(part) for part in (
-            _by_id(text, "answer"), re.search(r'<ul class="facts">(.*?)</ul>', text, re.S).group(1),
-            _section(text, "pillars"), _section(text, "lenses")))
-        found_bad = _BAD_TEXT.search(scanned.replace(f"{owner}/{name}", "").replace(name, ""))  # a project may be called "null"
-        if found_bad:
-            ledger.errors.append(f"{who}: the page prints {found_bad.group(0)!r}")
+        main = _report_main(text)
+        if main is None:
+            ledger.errors.append(f"{who}: the page has no <main> the project view drew into")
+            continue
+        page = read_page(main)
+
+        # the head: title, canonical, the description (the project, its rank and its reply answer), previews
         canonical = re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1)
         ledger.equal(f"{who} canonical", canonical, f"{SITE_ORIGIN}/projects/{owner.lower()}/{name.lower()}/")
         canonicals.append(canonical)
         title = html.unescape(re.search(r"<title>(.*?)</title>", text, re.S).group(1))
         titles.append(title)
-        ledger.equal(f"{who} <title>", title, f"{owner}/{name}: pull request response time and contributor experience | Porchlamp")
-        ledger.equal(f"{who} <h1>", _plain(re.search(r"<h1>(.*?)</h1>", text, re.S).group(1)), f"{owner}/{name}")
-        s1, s1_rest, description = _expected_answer(detail, evidence, min_n)
-        found_description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1))
-        ledger.equal(f"{who} meta description", found_description, description)
-        ledger.equal(f"{who} meta description is under 160 characters", len(found_description) < 160, True)
-
-        # the two answer sentences
-        bal = lens_rank["balanced"][(owner, name)]
-        first_rank = lens_rank["first_timer"].get((owner, name))
-        if first_rank is not None:
-            s2 = f"It ranks {bal:,} of {lens_total['balanced']:,} overall and {first_rank:,} of {lens_total['first_timer']:,} for first-time contributors."
-        else:
-            code = detail["persona_gates"]["first_timer"]
-            reason = insufficient if code.startswith("insufficient_evidence:") else gate_copy[code]
-            reason = reason.rstrip(".")
-            s2 = f"It ranks {bal:,} of {lens_total['balanced']:,} overall. It is not ranked for first-time contributors: {reason[:1].lower() + reason[1:]}."
-        ledger.equal(f"{who} #answer", _by_id(text, "answer"), " ".join(part for part in (s1, s1_rest, s2) if part))
-        ledger.equal(f"{who} lede", _plain(re.search(r'<p class="lede">(.*?)</p>', text, re.S).group(1)),
-                     f"What happens to a stranger's pull request here, in the Porchlamp snapshot of {int(sid[8:10])} {_MONTHS[int(sid[5:7]) - 1]} {sid[:4]}.")
-
-        # rating
-        facts = _items(re.search(r'<ul class="facts">(.*?)</ul>', text, re.S).group(1))
-        cov = detail["coverage"]
-        band = "Full" if cov >= 0.95 else band_labels["A"] if cov >= 0.8 else band_labels["B"] if cov >= 0.6 else "Below floor"
-        capped = bool(detail["tier_ceiling"]) and detail["tier"] == detail["tier_ceiling"]
-        ledger.equal(f"{who} rating", facts, [
-            f"Score: {_tofixed(detail['porchlamp'], 2)}",
-            f"Coverage: {math.floor(cov * 100 + 0.5)}% · {band}",
-            f"Tier: {detail['tier']}{' (capped)' if capped else ''}",
-            f"Quadrant: {detail['quadrant']}",
-            f"Ecosystem: {rp.ECOSYSTEM_NAMES[detail['ecosystem']]}",
-        ])
-        ledger.contains(
-            f"{who} ecosystem link", text,
-            f'<li>Ecosystem: <a href="../../../{ECOSYSTEM_PAGE_SLUGS[detail["ecosystem"]]}/">',
+        ledger.equal(f"{who} <title>", title, f"{key}: pull request response time and contributor experience | Porchlamp")
+        bal, total = lens_rank["balanced"][(owner, name)], lens_total["balanced"]
+        ledger.equal(f"{who} the record's rank is the balanced leaderboard's", detail["rank"], bal)
+        first, rest, short = _expected_reply(detail, evidence, min_n)
+        description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1))
+        ledger.equal(f"{who} meta description", description, _expected_description(key, bal, total, short))
+        ledger.equal(
+            f"{who} meta description names the project and its rank in at most {_DESCRIPTION_LIMIT} characters",
+            len(description) <= _DESCRIPTION_LIMIT and description.startswith(f"{key} ranks {bal:,} of {total:,}.") and description != boilerplate,
+            True,
         )
-        ledger.equal(f"{who} capped note", capped_text in plain, capped)
-        pillars = _rows(_section(text, "pillars"))
-        ledger.equal(f"{who} pillar scores and coverage", pillars, [
-            [copy_pillars[p], _tofixed(detail[f"p_{p}"], 1) if detail[f"p_{p}"] is not None else "—",
-             f"{math.floor((detail[f'c_{p}'] or 0) * 100 + 0.5)}%"]
-            for p in copy_pillars
-        ])
+        descriptions.append(description)
+        for tag in ('property="og:description"', 'name="twitter:description"'):
+            found = re.search(rf'<meta {tag} content="([^"]*)"', text)
+            ledger.equal(f"{who} <meta {tag}>", html.unescape(found.group(1)) if found else None, description)
 
-        # lens ranks
-        expected_lenses = []
+        # every value the page prints, recomputed: the answer, the key facts, the rating, the pillars, the parameters,
+        # the lens table, the similar projects and the record's identity
+        standings = {}
         for lens in pp.LENS_ORDER:
             r = lens_rank[lens].get((owner, name))
             if r is not None:
-                status = f"Rank {r:,} of {lens_total[lens]:,}"
+                standings[lens] = (r, lens_total[lens], None)
             else:
                 code = detail["persona_gates"][lens]
-                status = "Not ranked: " + (insufficient if code.startswith("insufficient_evidence:") else gate_copy[code])
-            expected_lenses.append([copy_personas[lens], status])
-        ledger.equal(f"{who} lens ranks", _rows(_section(text, "lenses")), expected_lenses)
-
-        # parameters
-        details_html = re.search(r"<details>(.*?)</details>", text, re.S).group(1)
-        by_id = {e["param_id"]: e for e in evidence}
-        expected_params = []
-        for pid in order:
-            e = by_id[pid]
-            if e["unmeasured_reason"]:
-                expected_params.append([copy_params[pid], f"Not shown: {copy_unmeasured[e['unmeasured_reason']]}", "—", "—", pp.PARAM_MEANINGS[pid]])
-            else:
-                window = _date_range(e["window_start"], e["window_end"]) if e["window_start"] and e["window_end"] else "—"
-                expected_params.append([copy_params[pid], _param_value(e["value"]), f"{e['n']:,}" if e["n"] else "—", window, pp.PARAM_MEANINGS[pid]])
-        ledger.equal(f"{who} parameters", _rows(details_html), expected_params)
-
-        # similar projects: the five nearest by balanced rank in the same ecosystem
+                standings[lens] = (None, lens_total[lens], insufficient if code.startswith("insufficient_evidence:") else gate_copy[code])
+        first_rank, first_total, first_reason = standings["first_timer"]
+        if first_rank is not None:
+            timer = f"For first-time contributors it ranks {first_rank:,} of {first_total:,} ({_rank_band(first_rank, first_total)})."
+        else:
+            reason = (first_reason or "").rstrip(".")
+            timer = f"It is not ranked for first-time contributors: {reason[:1].lower() + reason[1:]}."
+        answer = " ".join(part for part in (first, rest, f"It ranks {bal:,} of {total:,} overall.", timer) if part)
         here = place_of[(owner, name)]
         near = sorted((q for q in by_eco[detail["ecosystem"]] if q != here), key=lambda q: (abs(q - here), q))[:5]
-        expected_similar = [f"projects/{ranked[q]['owner'].lower()}/{ranked[q]['name'].lower()}/" for q in sorted(near)]
-        similar = _section(text, "similar")
-        ledger.equal(f"{who} similar projects", re.findall(r'<li><a href="\.\./\.\./\.\./([^"]+)">', similar), expected_similar)
-        ledger.equal(f"{who} similar projects' ranks", [int(n.replace(",", "")) for n in re.findall(r"\(rank ([\d,]+)\)", similar)], [ranked[q]["rank"] for q in sorted(near)])
-        ledger.equal(f"{who} similar projects' names", re.findall(r'">([^<]+)</a> \(rank', similar), [f"{ranked[q]['owner']}/{ranked[q]['name']}" for q in sorted(near)])
+        similar = [ranked[q] for q in sorted(near)]
+        before = ledger.checked
+        _compare_hooks(ledger, who, page.hooks, _expected_project_hooks(detail, evidence, standings, similar, answer, words, labels))
+        hooks_checked += ledger.checked - before
+        found_bad = _BAD_TEXT.search(_plain(main).replace(key, "").replace(name, ""))  # a project may be called "null"
+        if found_bad:
+            ledger.errors.append(f"{who}: the page prints {found_bad.group(0)!r}")
 
-        # evidence and the correction link
-        evid = _section(text, "evidence")
-        ledger.contains(f"{who} record hash", evid, f"<code>{detail['raw_hash']}</code>")
+        # the outline: one h1 (the project), no level skipped, nothing collapsed, the anchors links into the page use
+        ledger.equal(f"{who} h1", [heading for tag, heading in page.headings if tag == "h1"], [key])
+        levels = [int(tag[1]) for tag, _ in page.headings]
+        ledger.equal(f"{who} no heading level skipped", all(b <= a + 1 for a, b in zip(levels, levels[1:])), True)
+        ledger.equal(f"{who} no collapsed section", "<details" in main, False)
+        anchors = {"answer", "key-facts", "rating", "pillars", "parameters", "lenses", "evidence", "correction", "similar"}
+        anchors |= {f"parameters-{row['pillar']}" for row in evidence}
+        for missing in sorted(anchors - page.ids):
+            ledger.errors.append(f"{who}: no element with id {missing!r}")
+
+        # the links: home, GitHub, Compare, the ecosystem's page, the record's file, the methodology, the issue form, and
+        # the similar projects' pages under their names
         bucket = export_static.bucket_of(owner, name)
-        ledger.contains(f"{who} JSON record link", evid, f'href="../../../data/{sid}/repos/{bucket}.json"')
-        ledger.contains(f"{who} data date", evid, f"data as of {int(as_of[8:10])} {_MONTHS[int(as_of[5:7]) - 1]} {as_of[:4]}")
-        ledger.contains(f"{who} issue link", text, 'href="https://github.com/pctablet505/porchlamp/issues/new?title=' + quote(f"Porchlamp record: {owner}/{name}", safe="") + '"')
-        ledger.contains(f"{who} link to the methodology", evid, 'href="../../../methodology/"')
+        for link in (
+            "/", f"https://github.com/{quote(owner, safe='')}/{quote(name, safe='')}", f"/compare/?cmp={quote(key, safe='')}",
+            f"/{ECOSYSTEM_PAGE_SLUGS[detail['ecosystem']]}/", f"/data/{sid}/repos/{bucket}.json", "/methodology/",
+            issue_base + quote(issue_prefix + key, safe="!*'()"),
+        ):
+            ledger.equal(f"{who} links to {link}", link in page.links, True)
+        similar_card = re.search(r'<section class="project-card" id="similar"[^>]*>(.*?)</section>', main, re.S)
+        listed = re.findall(r'<li><a href="(/projects/[^"]+)">([^<]+)</a>', similar_card.group(1) if similar_card else "")
+        ledger.equal(f"{who} similar projects", [(href, html.unescape(label)) for href, label in listed], [
+            (f"/projects/{r['owner'].lower()}/{r['name'].lower()}/", f"{r['owner']}/{r['name']}") for r in similar])
         ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
         ledger.equal(f"{who} breadcrumb", ld, {
             "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
                 {"@type": "ListItem", "position": 1, "name": "Porchlamp", "item": f"{SITE_ORIGIN}/"},
-                {"@type": "ListItem", "position": 2, "name": f"{owner}/{name}", "item": canonical}]})
+                {"@type": "ListItem", "position": 2, "name": key, "item": canonical}]})
     ledger.equal("project page titles are all different", len(set(titles)), len(titles))
     ledger.equal("project page canonicals are all different", len(set(canonicals)), len(canonicals))
 
@@ -2150,7 +2354,11 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     else:
         ledger.errors.append("check/index.html or check/projects.json is missing")
 
-    log(f"verify: project pages: checked {ledger.checked} values on {len(found_dirs & expected_dirs)} of {len(expected_dirs)} pages")
+    log(f"verify: project pages: checked {hooks_checked} printed values (data-v hooks) and {ledger.checked - hooks_checked} other "
+        f"values on {len(found_dirs & expected_dirs)} of {len(expected_dirs)} pages")
+    log(f"verify: project heads: {len(descriptions)} descriptions, each names the project and its rank; the longest is "
+        f"{max(map(len, descriptions), default=0)} characters (at most {_DESCRIPTION_LIMIT}); "
+        f"{sum(d == boilerplate for d in descriptions)} are the site's boilerplate")
     for error in ledger.errors[:50]:
         log(f"PROJECT MISMATCH {error}")
     if len(ledger.errors) > 50:
