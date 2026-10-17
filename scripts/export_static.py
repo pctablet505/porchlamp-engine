@@ -590,6 +590,24 @@ def _write_project_pages(
     return [*pages, {"path": "check/index.html", "nav": None}]
 
 
+def _write_home(out: Path, data: Path) -> None:
+    """The home page's description and structured data, ``llms.txt`` and ``feed.xml``
+    (``porchlamp/serve/home_pages.py``), from this export's own data files: the snapshot, the methodology, the report
+    and the balanced leaderboard. ``web/prerender.mjs`` draws the ranked view into the home page afterwards."""
+    from porchlamp.serve import home_pages, report_pages
+
+    def load(name: str) -> Any:
+        return json.loads((data / name).read_text(encoding="utf-8"))
+
+    try:
+        f = home_pages.home_facts(load("snapshot.json"), load("methodology.json"), load("report.json"), load("leaderboard-balanced.json")["rows"])
+        (out / "index.html").write_text(home_pages.home_page((WEB_APP / "index.html").read_text(encoding="utf-8"), f), encoding="utf-8")
+        (out / "llms.txt").write_text(home_pages.llms_txt(f), encoding="utf-8")
+        (out / "feed.xml").write_text(home_pages.feed_xml(f), encoding="utf-8")
+    except report_pages.ReportError as error:
+        raise SystemExit(f"export: {error}") from error
+
+
 def _write_landing_pages(out: Path, facts: Any, methodology: dict, boards: dict[str, dict]) -> list[dict]:
     """The six ecosystem pages and the four lens pages (``<slug>/index.html``), each with its top-50 table; returns
     them for :func:`_prerender` (the leaderboard's presets one day, no nav entry's today)."""
@@ -717,6 +735,7 @@ def export(
         pages += _write_report_pages(out, facts, boards, manifest)
         pages += _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
         pages += _write_landing_pages(out, facts, methodology, boards)
+        _write_home(out, out / "data" / snapshot_id)
     pages += _write_view_pages(out)
     (out / "data-version.js").write_text(data_version_js(snapshot_id), encoding="utf-8")
     _prerender(out, pages)

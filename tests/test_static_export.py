@@ -137,7 +137,7 @@ _MAIN = r'<main class="app-main" id="app-main" tabindex="-1"[^>]*>.*?</main>'
 
 def _undraw(page: str, main: str | None = None) -> str:
     """The page as the app's frame had it before the prerender: the header, the nav (and its aria-label) and the footer
-    put back to the empty frame elements and, given the frame's ``<main>``, the methodology view's main put back to it.
+    put back to the empty frame elements and, given the frame's ``<main>``, the view drawn into main put back to it.
     Each drawn element must be on the page exactly once and hold something, so a page the prerender skipped fails here
     instead of passing as an already-empty frame."""
     for drawn, empty in _DRAWN:
@@ -154,13 +154,15 @@ def _undraw(page: str, main: str | None = None) -> str:
 def test_the_site_is_web_app_with_only_api_js_replaced(site):
     _db, out = site
     assert (out / "api.js").read_bytes() == export_static.STATIC_API.read_bytes()
-    drawn_pages = {Path("index.html"), Path("404.html")}  # the prerender draws the chrome into these two
+    drawn_pages = {Path("index.html"), Path("404.html")}  # the prerender draws the chrome into these two, and the ranked view into /
     for entry in export_static.WEB_APP.rglob("*"):
         relative = entry.relative_to(export_static.WEB_APP)
         if entry.is_dir() or relative.parts[0] in export_static._WEB_SKIP or relative == Path("api.js"):
             continue
         if relative in drawn_pages:
-            assert _undraw((out / relative).read_text(encoding="utf-8")) == entry.read_text(encoding="utf-8"), relative
+            frame = entry.read_text(encoding="utf-8")
+            main = re.search(_MAIN, frame, re.S).group(0) if relative == Path("index.html") else None
+            assert _undraw((out / relative).read_text(encoding="utf-8"), main=main) == frame, relative
         else:
             assert (out / relative).read_bytes() == entry.read_bytes(), relative
     assert drawn_pages <= {e.relative_to(export_static.WEB_APP) for e in export_static.WEB_APP.iterdir()}
@@ -187,7 +189,9 @@ def test_the_export_writes_the_app_s_page_at_every_view_s_address_and_404_html(s
     assert not (out / "black-holes").exists()
     uncommented = re.sub(r"\n *<!--.*?-->", "", shell, flags=re.S)
     frame_main = re.search(_MAIN, shell, re.S).group(0)
-    assert _undraw((out / "index.html").read_text(encoding="utf-8")) == (export_static.WEB_APP / "index.html").read_text(encoding="utf-8")
+    home, home_frame = (out / "index.html").read_text(encoding="utf-8"), (export_static.WEB_APP / "index.html").read_text(encoding="utf-8")
+    assert 'data-prerendered="ranked"' in home  # the ranked view's first page, drawn into <main>
+    assert _undraw(home, main=re.search(_MAIN, home_frame, re.S).group(0)) == home_frame
     assert _undraw((out / "404.html").read_text(encoding="utf-8")) == shell
     for route in views[1:]:
         page = (out / route["path"].strip("/") / "index.html").read_text(encoding="utf-8")
@@ -407,7 +411,7 @@ def test_the_verify_command_answers_the_grid_on_every_cpu(tmp_path, monkeypatch)
 
     monkeypatch.setattr(verify_static_export, "verify", recording_verify)
     for page_check in ("verify_chrome", "verify_methodology"):  # every page of the site: not what this test is about
-        monkeypatch.setattr(verify_static_export, page_check, lambda db, site: {"errors": []})
+        monkeypatch.setattr(verify_static_export, page_check, lambda db, site, **_options: {"errors": []})
     (tmp_path / "site").mkdir()
     verify_static_export.main(["--db", str(tmp_path / "db.sqlite"), "--site", str(tmp_path / "site")])
     assert "workers" in seen and seen["workers"] is None

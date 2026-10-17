@@ -216,7 +216,17 @@ def _evidence_files(built):
     return PinnedEvidenceFiles(built[0].parent / "snapshot", built[0].parent / "data")
 
 
-PAGES = ("black-holes/index.html", f"black-holes/{SNAPSHOT}/index.html")
+@pytest.fixture(scope="module")
+def report_record(built):
+    """The report's record: the shipped templates with the values ``verify_report`` works out from the stats file and the
+    database, as the verifier's later checks get it (the methodology's and the home's finding lines)."""
+    site, db, stats_path, *_ = built
+    result = verify_static_export.verify_report(db, stats_path, site, evidence_files=_evidence_files(built), log=lambda _line: None)
+    assert result["errors"] == [] and result["record"] is not None, result["errors"][:3]
+    return result["record"]
+
+
+PAGES =("black-holes/index.html", f"black-holes/{SNAPSHOT}/index.html")
 #: The methodology is the app's own view at its address (owner, 2026-10-17): the export writes the app's page there.
 METHODOLOGY = "methodology/index.html"
 
@@ -1325,16 +1335,6 @@ def test_a_stats_file_that_its_producer_does_not_reproduce_fails_verification(bu
     result = verify_static_export.verify_report(db, path, site, evidence_files=_evidence_files(built), log=lambda _line: None)
     named = {error.split(" (")[0] for error in result["errors"]}
     assert named == {"stats file spearman", "stats file top100_stars_min"}, result["errors"]
-
-
-def test_the_hand_written_facts_come_from_the_database_and_agree_with_the_stats(built):
-    _site, db, _stats_path, stats, _holes = built
-    facts = verify_static_export.hand_written_facts(db, stats)
-    assert facts["total"] == facts["ranked"] + facts["gated"] + facts["unrated"] == stats["repos"]
-    assert facts["ranked"] == stats["rated"] == facts["lens_ranked"]["balanced"]
-    assert (facts["judged"], facts["black_holes"]) == (stats["gate5_decided"], stats["black_holes"])
-    assert facts["below_floor"] <= facts["unrated"] and sum(facts["unrated_by_reason"].values()) == facts["unrated"]
-    assert len(facts["top"]) == 20 and [row[0] for row in facts["top"]] == [str(n) for n in range(1, 21)]
 
 
 def test_projects_left_undecided_for_their_records_get_their_own_measurement_bullet(built):

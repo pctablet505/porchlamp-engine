@@ -54,6 +54,10 @@ export const ECOSYSTEMS = Object.freeze([
   ["maven", ECOSYSTEM_NAMES.maven],
   ["systems", ECOSYSTEM_NAMES.systems],
 ]);
+/** An ecosystem's plain name, from the engine's code (a row's `ecosystem`); the code itself where the list has none. */
+export function ecosystemName(code) {
+  return ECOSYSTEM_NAMES[code] || code;
+}
 
 export const PERSONA_NAMES = Object.freeze({
   balanced: "Balanced",
@@ -928,9 +932,13 @@ export const WHY_KICKERS = Object.freeze([
   "The Finding",
   "The Evidence",
 ]);
+//: "The Finding", a template: report.json's values fill the slots (views/leaderboard.js `fillFromReport`), each a hook of its own id.
+//: Without a report the paragraph is left out.
+export const WHY_FINDING_TEMPLATE =
+  "Stars do not review pull requests. In our measurements more than 1 in {one_in} active projects leave most pull requests from outside contributors without a human reply, review or merge for {deadline_days} days, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.";
 export const WHY_PARAGRAPHS = Object.freeze([
   "A porch lamp left on tells a visitor they are expected. Porchlamp ranks open-source projects the same way: by what happens to a stranger's pull request, not by how many stars the project has.",
-  "Stars do not review pull requests. In our measurements more than 1 in 6 active projects leave most pull requests from outside contributors without a human reply, review or merge for two weeks, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.",
+  WHY_FINDING_TEMPLATE,
   "Every number comes from public GitHub activity: how fast a person answered outside contributors, how many of their pull requests reached a decision, whether first-time contributors came back, and how much other software depends on the project.",
 ]);
 export const METHODOLOGY_LOADING_TEXT = "Loading the methodology…";
@@ -1073,8 +1081,14 @@ export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
 // From the site root, since the app runs at every view's address. A real <a href> element: a crawler that
 // runs the app finds the finding and the link to its page without a click. (The methodology page's address
 // is in routes.js.)
-export const FINDINGS_LINE = "More than 1 in 6 active projects leave most strangers' pull requests unanswered for two weeks.";
+//: A template: report.json's values fill the slots, each a hook of its own id (views/leaderboard.js `fillFromReport`).
+//: Without a report the line is left out and only the link below it is drawn.
+export const FINDINGS_LINE = "More than 1 in {one_in} active projects leave most strangers' pull requests unanswered for {deadline_days} days.";
 export const FINDINGS_LINK_LABEL = "Read the findings";
+/** The home's links to the ten landing pages (views/leaderboard.js `renderBrowseLinks`): the nav's name and the two lines' labels. */
+export const HOME_BROWSE_LABEL = "Browse";
+export const HOME_BROWSE_ECOSYSTEMS_LABEL = "Browse by ecosystem:";
+export const HOME_BROWSE_LENSES_LABEL = "Browse by contributor lens:";
 export const REPORT_PAGE_HREF = "/black-holes/";
 export const FOOTER_REPORT_LABEL = "Report";
 export const FOOTER_METHODOLOGY_LABEL = "Methodology";

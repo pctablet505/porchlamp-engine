@@ -26,9 +26,7 @@ With ``--stats`` it also proves the report and methodology pages (``verify_repor
 from the database, the API and the stats file and compared with what the page prints (set
 ``--snapshot-dir`` and ``--data-dir``, the files the export read, so the API serves the same black-hole evidence);
 ``--report-only`` skips the request
-grid. ``--stats`` also checks the hand-written numbers of ``index.html`` (the static article, its head and the
-top-20 table), ``llms.txt`` and ``feed.xml`` against the database, the API and the stats file
-(``verify_hand_written``). Whatever the flags, every ``<loc>`` of ``sitemap.xml`` (and, for a sitemap index, of each child sitemap it
+grid. Whatever the flags, every ``<loc>`` of ``sitemap.xml`` (and, for a sitemap index, of each child sitemap it
 names) must have a page in the site.
 
 ``verify_projects`` (also run by ``--stats``) proves the project pages and /check/: every ranked project has its page
@@ -48,8 +46,11 @@ own answers.
 
 ``verify_landing`` (also run by ``--stats``) proves the ten landing pages (six ecosystems, four lenses): each intro sentence
 and number, each of the top-50 table rows (rank, owner/name, score, tier and link target), the method links, the titles, and
-that the sitemap and ``llms.txt`` list them. ``verify_home`` proves the home page's JSON-LD (no SoftwareApplication, no Dataset,
-``about`` names the report's Dataset, every ItemList address is a project page of the export) and its ecosystem links.
+that the sitemap and ``llms.txt`` list them. ``verify_home`` (also run by ``--stats``) proves the files generated from the
+snapshot's data (``porchlamp/serve/home_pages.py``): the home page's description and JSON-LD, ``llms.txt`` and ``feed.xml``
+are byte for byte what the generators write from facts worked out here (the API's snapshot, methodology and first page
+of the balanced leaderboard, and the report's values from the stats file); the prerendered home holds the findings line
+and the first page of rows, and is byte for byte what ``web/prerender.mjs`` draws from those facts.
 """
 from __future__ import annotations
 
@@ -64,6 +65,7 @@ import math
 import os
 import random
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -1094,7 +1096,8 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
     )
     for error in ledger.errors[:60]:
         log(f"REPORT MISMATCH {error}")
-    return {"checked": ledger.checked, "hooks": len(hooks), "csv_cells": csv_cells, "errors": ledger.errors}
+    return {"checked": ledger.checked, "hooks": len(hooks), "csv_cells": csv_cells, "errors": ledger.errors,
+            "record": record if again is not None else None}
 
 
 def _redraw_report(site: Path, sid: str, snapshot: dict, methodology: dict, db_sha: str, record: dict) -> Optional[str]:
@@ -1469,12 +1472,13 @@ METHODOLOGY_SECTIONS = (
 )
 
 
-def verify_methodology(db: Path, site: Path, *, log=print) -> dict:
+def verify_methodology(db: Path, site: Path, *, report: Optional[dict] = None, log=print) -> dict:
     """``/methodology/``, the app's own view, drawn into the page at export so it reads without JavaScript: every hook
     it prints equals the value worked out here from the API and the database file (:func:`methodology_hooks`); its h1
     and h2 are the view's; the lens names link the lens pages, the check line links /check/, the old anchors stay and
     the Limits are copy.js's; and the page is byte for byte what ``web/prerender.mjs`` draws from the API's own answers
-    (ENG-17). ``{"checked", "hooks", "errors"}``."""
+    (ENG-17). With ``report`` (the report's record, holding the values :func:`verify_report` worked out), the "Why
+    Porchlamp" Finding prints its values. ``{"checked", "hooks", "errors"}``."""
     from porchlamp.serve import report_pages as rp
 
     ledger = _Ledger()
@@ -1487,6 +1491,8 @@ def verify_methodology(db: Path, site: Path, *, log=print) -> dict:
     page = read_page(text)
     hooks = [hook for hook in page.hooks if hook[0].split(".")[0] not in ("header", "footer")]  # the chrome's: verify_chrome
     expected = methodology_hooks(snapshot, methodology, db_sha, list(rp.copy_js_map("PILLAR_NAMES")))
+    if report is not None:
+        expected |= {key: report["values"][key] for key in _FINDING_SLOTS}
     _compare_hooks(ledger, "methodology", hooks, expected)
     labels = [rp.copy_js_string(f"METHODOLOGY_SECTION_{name}") for name in METHODOLOGY_SECTIONS]
     ledger.equal("methodology h1", [t for tag, t in page.headings if tag == "h1"], [rp.copy_js_string("METHODOLOGY_HEADING")])
@@ -1507,7 +1513,8 @@ def verify_methodology(db: Path, site: Path, *, log=print) -> dict:
         root = Path(tmp)
         data = root / "data" / snapshot["snapshot_id"]
         data.mkdir(parents=True)
-        for name, payload in (("snapshot", snapshot), ("methodology", methodology), ("manifest", {"source_db_sha256": db_sha})):
+        records = [("snapshot", snapshot), ("methodology", methodology), ("manifest", {"source_db_sha256": db_sha})]
+        for name, payload in records + ([("report", report)] if report is not None else []):
             (data / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
         (root / "api.js").write_bytes(export_static.STATIC_API.read_bytes())
         (root / "data-version.js").write_text(export_static.data_version_js(snapshot["snapshot_id"]), encoding="utf-8")
@@ -1525,300 +1532,6 @@ def verify_methodology(db: Path, site: Path, *, log=print) -> dict:
     for error in ledger.errors[:50]:
         log(f"METHODOLOGY MISMATCH {error}")
     return {"checked": ledger.checked, "hooks": len(hooks), "errors": ledger.errors}
-
-
-# --------------------------------------------------------------------------- #
-# The hand-written numbers: the home page's static article, llms.txt, feed.xml
-# --------------------------------------------------------------------------- #
-#: A count or a plain number, as the hand-written files print one (``11,000``, ``823``, ``9``).
-_N = r"(\d{1,3}(?:,\d{3})+|\d+)"
-#: A percentage's digits (``26.4`` of ``26.4%``).
-_P = r"(\d+(?:\.\d+)?)%"
-_BAND_TEXT = r"{p} (?:of projects with|at) 1k\u201310k stars, {p} at 10k\u201350k(?: stars)?, and {p} at 50k"
-
-
-class _Prefix:
-    """A truncated hash (``6e4f3e8e1d0c…``): at least 8 hex digits that begin the full value."""
-
-    def __init__(self, full: str) -> None:
-        self.full = full
-
-    def __call__(self, found: str) -> bool:
-        return len(found) >= 8 and self.full.startswith(found)
-
-    def __repr__(self) -> str:
-        return f"a prefix of {self.full[:16]}…"
-
-
-class _MoreThanOneIn:
-    """``More than 1 in N`` holds: the black-hole share is above 1/N."""
-
-    def __init__(self, black_holes: int, judged: int) -> None:
-        self.black_holes, self.judged = black_holes, judged
-
-    def __call__(self, found: str) -> bool:
-        return int(found) > 0 and self.black_holes * int(found) > self.judged
-
-    def __repr__(self) -> str:
-        return f"N with {self.black_holes} of {self.judged} above 1/N"
-
-
-def hand_written_facts(db: Path, stats: dict) -> dict:
-    """The values the hand-written files state, each from its source: counts by their own SQL on the database,
-    the ranked counts per lens, the top 20 and the snapshot's hashes from the API, the star figures and the
-    corpus from the stats file (which ``verify_report`` proves equal to its recomputation)."""
-    from fastapi.testclient import TestClient
-
-    from porchlamp.core import constants
-    from porchlamp.serve import report_pages as rp
-    from porchlamp.serve.app import create_app
-
-    with tempfile.TemporaryDirectory() as tmp:
-        copy = Path(tmp) / "snapshot.db"
-        source, target = sqlite3.connect(f"file:{db}?mode=ro", uri=True), sqlite3.connect(copy)
-        source.backup(target)
-        source.close()
-        target.close()
-        conn = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
-        client = TestClient(create_app(str(copy), web_dir=str(Path(tmp) / "__no_web__")))
-
-        def api(path: str, **params: Any) -> Any:
-            response = client.get(path, params=params)
-            if response.status_code != 200:
-                raise SystemExit(f"verify: GET {path} -> {response.status_code}")
-            return response.json()
-
-        snapshot = api("/v1/porchlamp/snapshot")
-        methodology = api("/v1/porchlamp/methodology")
-        sid = snapshot["snapshot_id"]
-
-        def one(sql: str) -> int:
-            return conn.execute(sql, (sid,)).fetchone()[0] or 0
-
-        total = one("SELECT COUNT(*) FROM repositories WHERE snapshot_id = ?")
-        rated = one("SELECT COUNT(*) FROM repositories WHERE snapshot_id = ? AND rated = 1")
-        gated = one("SELECT COUNT(*) FROM repositories WHERE snapshot_id = ? AND gate_reason IS NOT NULL "
-                    "AND gate_reason NOT LIKE 'unrated:%'")
-        unrated_by_reason = dict(conn.execute(
-            "SELECT COALESCE(unrated_reason, gate_reason, 'none'), COUNT(*) FROM repositories WHERE snapshot_id = ? "
-            "AND rated = 0 AND (gate_reason IS NULL OR gate_reason LIKE 'unrated:%') GROUP BY 1", (sid,)).fetchall())
-        judged, black_holes = conn.execute(
-            "SELECT COUNT(*), SUM(gate_reason = 'black_hole') FROM repositories WHERE snapshot_id = ? "
-            "AND (gate_reason IS NULL OR gate_reason IN ('black_hole', 'unrated: no_external_workflow')) "
-            "AND COALESCE(gate_undecided, '[]') NOT LIKE '%D-GATE-5%'", (sid,)).fetchone()
-        ecosystems = one("SELECT COUNT(DISTINCT ecosystem) FROM repositories WHERE snapshot_id = ?")
-        conn.close()
-        lens_ranked = {lens: api("/v1/porchlamp/leaderboard", persona=lens, page=1, page_size=1)["total"]
-                       for lens in sorted(constants.PERSONA_PRESETS)}
-        top = api("/v1/porchlamp/leaderboard", persona="balanced", page=1, page_size=20)["rows"]
-    black_holes = black_holes or 0
-    floor = round(constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE * 100)
-    bands = [stats["by_stars"][key] for key in rp.STAR_BANDS]
-    return {
-        "snapshot_id": sid, "benchmark_version": snapshot["benchmark_version"],
-        "constants_hash": snapshot["constants_hash"], "manifest_root": snapshot["manifest_root"],
-        "reproduce_command": snapshot["reproduce_command"],
-        "total": total, "ranked": rated, "gated": gated, "unrated": total - rated - gated,
-        "unrated_by_reason": unrated_by_reason, "coverage_floor": floor,
-        "below_floor": unrated_by_reason.get("unrated: insufficient_evidence", 0),
-        "judged": judged, "black_holes": black_holes, "share": rp.pct1(black_holes, judged) if judged else "",
-        "band_percents": [rp.pct0(b["black_holes"], b["n"]) for b in bands],
-        "top_band": {"n": bands[-1]["n"], "black_holes": bands[-1]["black_holes"]},
-        "rho": rp.rho_text(stats["spearman"]["porchlamp"]["rho"]), "top100_overlap": stats["top100_overlap"],
-        "corpus": stats["corpus"], "lens_ranked": lens_ranked, "ecosystems": ecosystems,
-        "parameters": len(methodology["parameters"]), "pillars": {p["name"]: p["weight"] for p in methodology["pillars"]},
-        "lenses": len(methodology["personas"]["presets"]),
-        "top": [
-            [str(r["rank"]), f"{r['owner']}/{r['name']}", r["ecosystem"], _tofixed(r["porchlamp"], 2),
-             f"{_half_up(r['coverage'], 100)}%",
-             f"{r['tier']} (capped)" if r["tier_ceiling"] and r["tier"] == r["tier_ceiling"] else r["tier"],
-             r["quadrant"] or ""]
-            for r in top
-        ],
-    }
-
-
-def _hand_written_claims(name: str, f: dict) -> list[tuple[str, str, tuple]]:
-    """``(what, pattern, expected groups)`` for one file. Each statement must be found (a reworded file must
-    update its check, never slip past it), and every place it is found must carry the expected values."""
-    fmt = lambda n: f"{n:,}"  # noqa: E731
-    T, R, G, U = fmt(f["total"]), fmt(f["ranked"]), fmt(f["gated"]), fmt(f["unrated"])
-    J, B, S = fmt(f["judged"]), fmt(f["black_holes"]), f["share"]
-    c = f["corpus"]
-    PRS, AUTH, PROJ = fmt(c["human_outside_prs"]), fmt(c["distinct_outside_authors"]), fmt(c["derived_repos"])
-    sid, bv = f["snapshot_id"], f["benchmark_version"]
-    lens = {k: fmt(v) for k, v in f["lens_ranked"].items()}
-    share = (r"Of (?:the )?" + _N + r" licensed, maintained software projects (?:that received|receiving) at least "
-             r"(?:ten|10) outside pull requests in six months, " + _N + r" \(" + _P + r"\)", (J, B, S))
-    bands = (_BAND_TEXT.format(p=_P), tuple(f["band_percents"]))
-    one_in = (r"More than 1 in (\d+)", (_MoreThanOneIn(f["black_holes"], f["judged"]),))
-    top_band_one_in = (r"more than 1 in (\d+) of the most-starred",
-                       (_MoreThanOneIn(f["top_band"]["black_holes"], f["top_band"]["n"]),))
-    corpus = (_N + r" pull requests from " + _N + r" outside contributors (?:to|tracked across|across) " + _N
-              + r" (?:open-source )?(?:GitHub )?(?:projects|repositories)", (PRS, AUTH, PROJ))
-    correlation = (r"Across (?:the |all )?" + _N + r" ranked projects,? the rank correlation between (?:GitHub )?stars "
-                   r"and the Porchlamp score is (\d\.\d+), and (?:only )?(\d+) of the 100 most-starred projects make "
-                   r"the top 100", (R, f["rho"], str(f["top100_overlap"])))
-    balanced_sid = (r"\(Balanced [Ss]napshot (\S+?)\)", (sid,))
-    pillar_weights = [
-        (f"{p.capitalize()} weight", rf"\b{p.capitalize()} \((\d+)%\)", (str(round(w * 100)),))
-        for p, w in f["pillars"].items()
-    ]
-    if name == "index.html":
-        claims = [
-            ("projects ranked", r"\b" + _N + r" open-source projects ranked", (T,)),
-            ("projects evaluated", r"\b" + _N + r" repositories evaluated across (\d+) parameters, (\d+) pillars, and "
-             r"(\d+) contributor personas", (T, str(f["parameters"]), str(len(f["pillars"])), str(f["lenses"]))),
-            ("ranks N projects", r"\bPorchlamp ranks " + _N + r" open-source projects", (T,)),
-            ("black-hole share", *share), ("more than 1 in N", *one_in), ("star bands", *bands),
-            ("most-starred band, more than 1 in N", *top_band_one_in),
-            ("correlation and top 100", *correlation), ("corpus", *corpus),
-            ("parameters, pillars, personas", r"\b(\d+) parameters across (\d+) pillars and (\d+) contributor personas",
-             (str(f["parameters"]), str(len(f["pillars"])), str(f["lenses"]))),
-            ("universe counts", _N + r" ranked, " + _N + r" gated, and " + _N + r" unrated of " + _N
-             + r" evaluated repositories", (R, G, U, T)),
-            ("table heading", *balanced_sid),
-            ("snapshot line", r"Snapshot (\S+) · benchmark (\S+) · constants ([0-9a-f]+)… · manifest ([0-9a-f]+)… · "
-             r"reproduce: (python -m porchlamp\.snapshot reproduce \S+)",
-             (sid, bv, _Prefix(f["constants_hash"]), _Prefix(f["manifest_root"]), f["reproduce_command"])),
-            *pillar_weights,
-        ]
-    elif name == "llms.txt":
-        claims = [
-            ("ranks N projects", r"\bPorchlamp ranks " + _N + r" open-source projects", (T,)),
-            ("snapshot heading", r"\(Snapshot (\S+), Benchmark (\S+)\)", (sid, bv)),
-            ("corpus", *corpus), ("ecosystems", r"\bacross (\d+) ecosystems", (str(f["ecosystems"]),)),
-            ("black-hole share", *share), ("more than 1 in N", *one_in), ("star bands", *bands),
-            ("most-starred band, more than 1 in N", *top_band_one_in),
-            ("correlation and top 100", *correlation),
-            ("universe total", r"Universe Breakdown \(" + _N + r" Total\)", (T,)),
-            ("ranked", r"\b" + _N + r" Ranked \(Rated\)", (R,)),
-            ("gated", r"\b" + _N + r" Gated \(Stage 0\)", (G,)),
-            ("unrated", r"\b" + _N + r" Unrated:", (U,)),
-            ("frozen copy", r"frozen for citation \(Snapshot (\S+?)\)", (sid,)),
-            ("CSV and check counts", r"(?:CSV of|search over) the " + _N + r" ranked projects", (R,)),
-            ("pillars and parameters", r"\b(\d+) Pillars & (\d+) Parameters", (str(len(f["pillars"])), str(f["parameters"]))),
-            ("top-20 heading", r"Top (\d+) Ranked Open-Source Repositories", (str(len(f["top"])),)),
-            ("top-20 heading snapshot", *balanced_sid),
-            ("balanced lens", r"Balanced Leaderboard \(Default, " + _N + r" ranked\)", (lens["balanced"],)),
-            ("first-timer lens", r"First-Timer Persona \(" + _N + r" ranked\)", (lens["first_timer"],)),
-            ("career-capital lens", r"Career Capital Persona \(" + _N + r" ranked\)", (lens["career_capital"],)),
-            ("senior-systems lens", r"Senior Systems Persona \(" + _N + r" ranked\)", (lens["senior_systems"],)),
-            ("ai-assisted lens", r"AI-Assisted Persona \(" + _N + r" ranked\)", (lens["ai_assisted"],)),
-            ("not-ranked counts", r"\(" + _N + r" gated \+ " + _N + r" unrated\)", (G, U)),
-            ("report addresses", r"porchlamp\.org/black-holes/(\d{4}-\d\d-\d\d\w*)/", (sid,)),
-            ("data addresses", r"porchlamp\.org/data/([^/\s)]+)/", (sid,)),
-            *pillar_weights,
-        ]
-    elif name == "copy.js":
-        # the app's own finding line and "why" paragraph
-        claims = [("more than 1 in N", r"[Mm]ore than 1 in (\d+)", (_MoreThanOneIn(f["black_holes"], f["judged"]),))]
-    else:  # feed.xml
-        claims = [
-            ("subtitle corpus", _N + r" pull requests across " + _N + r" repositories", (PRS, PROJ)),
-            ("entry dates", r"<updated>(\d{4}-\d\d-\d\d)T", (sid[:10],)),
-            ("snapshot entry title", r"Snapshot (\S+) \(Benchmark (\S+)\): " + _N + r" Open-Source Repositories",
-             (sid, bv, T)),
-            ("snapshot entry id", r"#snapshot-(\S+?)</id>", (sid,)),
-            ("corpus", *corpus),
-            ("universe counts", _N + r" repositories ranked, " + _N + r" gated at Stage 0 \(including " + _N
-             + r" pull-request black holes\), and " + _N + r" unrated", (R, G, B, U)),
-            ("report title share", r"Pull Requests: " + _P + r" of Active Open-Source Projects", (S,)),
-            ("black-hole share", *share), ("star bands", *bands),
-            ("first-timer lens", r"First-Time Contributors \(" + _N + r" Ranked Repositories\)", (lens["first_timer"],)),
-            ("ai-assisted lens", r"AI-Assisted Contributors \(" + _N + r" Ranked Repositories\)", (lens["ai_assisted"],)),
-            ("parameters", r"\b(\d+) Parameters, Stage-0", (str(f["parameters"]),)),
-            ("pillars and parameters", r"\b(\d+) pillars, (\d+) parameters", (str(len(f["pillars"])), str(f["parameters"]))),
-            ("hashes", r"constants_hash ([0-9a-f]+)…, manifest_root ([0-9a-f]+)…",
-             (_Prefix(f["constants_hash"]), _Prefix(f["manifest_root"]))),
-        ]
-    return claims
-
-
-def _below_floor_counts(text: str, f: dict) -> list[tuple[str, str]]:
-    """``(count, line)`` for every count a line gives for the projects below the coverage floor: the number
-    nearest before ``<60%`` in its line or sentence. Only ``unrated: insufficient_evidence`` projects are
-    unrated for coverage; the other unrated reasons are not a coverage shortfall."""
-    marker = f"<{f['coverage_floor']}%"
-    found = []
-    for line in re.split(r"\n|(?<=[.;])\s+(?=[A-Z0-9])", text):
-        if marker not in line:
-            continue
-        numbers = re.findall(r"(?<![\w.\-<>=])(\d{1,3}(?:,\d{3})+|\d+)(?![\w%]|[.,]\d)", line[: line.index(marker)])
-        if numbers:
-            found.append((numbers[-1], line.strip()))
-    return found
-
-
-def _flatten(name: str, raw: str) -> str:
-    """The text a reader sees: markup and entities resolved for HTML and XML, emphasis marks dropped for
-    Markdown, whitespace collapsed (newlines kept, for the line-by-line checks)."""
-    if name in ("llms.txt", "copy.js"):
-        text = raw.replace("`", "").replace("**", "")
-    else:
-        # a <meta> tag's text is in its content attribute: keep it, one line each
-        metas = "\n".join(re.findall(r'<meta [^>]*content="([^"]*)"', raw))
-        text = html.unescape(re.sub(r"<(?!updated>|/id>)[^>]+>", " ", raw + "\n" + metas))
-    return "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines())
-
-
-#: The shipped files whose numbers are written by hand, and so checked against the data.
-HAND_WRITTEN_FILES = ("index.html", "llms.txt", "feed.xml", "copy.js")
-
-
-def check_hand_written(site: Path, f: dict) -> dict:
-    """Compare every number of the hand-written ``index.html`` (its static article, head and top-20 table),
-    ``llms.txt``, ``feed.xml`` and the app's finding line in ``copy.js`` with ``f`` (:func:`hand_written_facts`).
-    ``{"checked": n, "errors": [...]}``."""
-    ledger = _Ledger()
-    for name in HAND_WRITTEN_FILES:
-        path = site / name
-        if not path.is_file():
-            ledger.checked += 1
-            ledger.errors.append(f"{name} is missing")
-            continue
-        raw = path.read_text(encoding="utf-8")
-        text = _flatten(name, raw)
-        for what, pattern, expected in _hand_written_claims(name, f):
-            matches = list(re.finditer(pattern, text))
-            ledger.checked += 1
-            if not matches:
-                ledger.errors.append(f"{name}: {what}: statement not found (update the check with the text)")
-                continue
-            for match in matches:
-                wrong = [(got, want) for got, want in zip(match.groups(), expected)
-                         if not (want(got) if callable(want) else got == want)]
-                if wrong:
-                    ledger.errors.append(
-                        f"{name}: {what}: {match.group(0)!r}: " + "; ".join(f"found {g!r}, expected {w!r}" for g, w in wrong))
-        for count, line in _below_floor_counts(text, f):
-            ledger.checked += 1
-            if count != f"{f['below_floor']:,}":
-                others = ", ".join(f"{n:,} {reason}" for reason, n in sorted(f["unrated_by_reason"].items())
-                                   if reason != "unrated: insufficient_evidence")
-                ledger.errors.append(
-                    f"{name}: coverage below {f['coverage_floor']}%: the line {line[:160]!r} gives {count}, but "
-                    f"{f['below_floor']:,} projects are unrated for coverage below {f['coverage_floor']}% "
-                    f"(the other unrated: {others or 'none'})")
-        if name == "index.html":
-            article = re.search(r'<article class="seo-fallback">(.*?)</article>', raw, re.S)
-            rows = _rows(article.group(1)) if article else []
-            ledger.equal("index.html top-20 table", rows, f["top"])
-        elif name == "llms.txt":
-            listed = [list(m.groups()) for m in re.finditer(
-                r"^(\d+)\. (\S+/\S+) \((\w+)\) — Score (\d+\.\d\d) · Coverage (\d+%) · Tier (.+?) · (.+)$", text, re.M)]
-            ledger.equal("llms.txt top-20 list", listed, f["top"])
-    return {"checked": ledger.checked, "errors": ledger.errors}
-
-
-def verify_hand_written(db: Path, stats_path: Path, site: Path, *, log=print) -> dict:
-    """:func:`check_hand_written` with the facts of ``db`` and the stats file."""
-    stats = json.loads(stats_path.read_text(encoding="utf-8"))
-    result = check_hand_written(site, hand_written_facts(db, stats))
-    log(f"verify: hand-written numbers: checked {result['checked']} statements in index.html, llms.txt and feed.xml")
-    for error in result["errors"]:
-        log(f"HAND-WRITTEN MISMATCH {error}")
-    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -2561,47 +2274,138 @@ def _section_after(page: str, ident: str) -> str:
 _PROJECT_ADDRESS = re.compile(r"https://porchlamp\.org/projects/([a-z0-9._-]+)/([a-z0-9._-]+)/")
 
 
-def verify_home(site: Path, *, log=print) -> dict:
-    """The home page's JSON-LD and ecosystem links: no SoftwareApplication, no Dataset (the report page carries it),
-    the WebPage's ``about`` names the report's Dataset ``@id``, every ItemList address is a project page of this export;
-    the static article links the six ecosystem pages."""
+#: The report values the app's finding lines print (copy.js ``FINDINGS_LINE`` and the methodology's Finding), each in a
+#: hook of the report view's own id.
+_FINDING_SLOTS = ("one_in", "deadline_days")
+
+
+def keyed_items(fragment: str, tag: str, cls: Optional[str] = None) -> list[tuple[str, str]]:
+    """``(owner, name)`` of each ``tag`` element in ``fragment`` that carries ``data-owner`` and ``data-name`` (and the
+    class ``cls``, if given), in page order, whatever the order of its attributes."""
+    found = []
+    for match in re.finditer(rf"<{tag}\b[^>]*>", fragment):
+        attrs = dict(re.findall(r'([a-z][a-z-]*)="([^"]*)"', match.group(0)))
+        if "data-owner" in attrs and "data-name" in attrs and (cls is None or cls in attrs.get("class", "").split()):
+            found.append((html.unescape(attrs["data-owner"]), html.unescape(attrs["data-name"])))
+    return found
+
+
+_SITE_ADDRESS = re.compile(r"https://porchlamp\.org/([^\s)\"<>#]*)")
+
+
+def _site_addresses(text: str) -> list[str]:
+    """The site paths ``text`` gives as addresses; a pattern such as ``/projects/<owner>/<name>/`` is not one."""
+    return sorted({m.group(1) for m in _SITE_ADDRESS.finditer(text) if not re.match(r"<[a-z]", text[m.end():m.end() + 2])})
+
+
+def _home_view(text: str) -> Optional[str]:
+    found = re.search(r'<main class="app-main" id="app-main" tabindex="-1"[^>]*>(.*?)\n *</main>', text, re.S)
+    return found.group(1) if found else None
+
+
+def verify_home(db: Path, site: Path, *, report: Optional[dict], log=print) -> dict:
+    """``/`` and the files generated beside it (``porchlamp/serve/home_pages.py``), from facts worked out here: the API's
+    snapshot, methodology and first page of the balanced leaderboard, and ``report`` (the report's record, holding the
+    values :func:`verify_report` worked out).
+
+    - ``llms.txt`` and ``feed.xml`` are byte for byte what the generators write from those facts.
+    - The home page is byte for byte what ``web/prerender.mjs`` draws into the generated head (its description and
+      JSON-LD) from those facts: the header, nav and footer, and the ranked view.
+    - Read without JavaScript (Python's HTML parser), the page holds the findings line with the report's values and the
+      first page of rows, in rank order, each linking its project's page.
+    - The JSON-LD has no SoftwareApplication, no Dataset and no search action; its page is about the report's Dataset;
+      every ItemList address is a project page of this export.
+    ``{"checked", "rows", "errors"}``."""
+    from porchlamp.serve import home_pages as hp
+    from porchlamp.serve import report_pages as rp
+
     ledger = _Ledger()
-    home = site / "index.html"
-    report = site / "black-holes" / "index.html"
-    if not home.is_file() or not report.is_file():
-        return {"checked": 0, "errors": ["index.html or black-holes/index.html is missing"]}
+    home, report_page = site / "index.html", site / "black-holes" / "index.html"
+    if report is None or not home.is_file() or not report_page.is_file():
+        return {"checked": 0, "rows": 0, "errors": ["the report's record, index.html or black-holes/index.html is missing"]}
     text = home.read_text(encoding="utf-8")
+    template = (REPO_ROOT / "web" / "app" / "index.html").read_text(encoding="utf-8")
+    page_size = hp.TOP_ROWS
+    snapshot, methodology, board = _api_answers(
+        db, "/v1/porchlamp/snapshot", "/v1/porchlamp/methodology", f"/v1/porchlamp/leaderboard?persona=balanced&page=1&page_size={page_size}")
+    facts = hp.home_facts(snapshot, methodology, report, board["rows"])
+    sid = snapshot["snapshot_id"]
+
+    # the generated files, re-generated here; every address they give is a file of this export
+    for name, expected in (("llms.txt", hp.llms_txt(facts)), ("feed.xml", hp.feed_xml(facts))):
+        path = site / name
+        shipped = path.read_text(encoding="utf-8") if path.is_file() else None
+        ledger.equal(f"{name} is what home_pages writes from the facts worked out here (bytes)", shipped, expected)
+        for address in _site_addresses(shipped or ""):
+            target = site / address / "index.html" if address == "" or address.endswith("/") else site / address
+            ledger.equal(f"{name} links https://porchlamp.org/{address}, a file of the export", target.is_file(), True)
+
+    # the page again: the generated head, then the prerender's chrome and ranked view, from those facts
+    export_static = _export_static()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        data = root / "data" / sid
+        data.mkdir(parents=True)
+        db_sha = hashlib.sha256(db.read_bytes()).hexdigest()
+        # the leaderboard file and the sort allow-list api.js checks ``sort`` against: the request grid proves both, request
+        # by request, equal to the API (verify)
+        shipped = json.loads((site / "data" / sid / "manifest.json").read_text(encoding="utf-8"))
+        manifest = {"source_db_sha256": db_sha, "sort_fields": shipped.get("sort_fields", [])}
+        for name, payload in (("snapshot", snapshot), ("methodology", methodology), ("manifest", manifest), ("report", report)):
+            (data / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+        shutil.copyfile(site / "data" / sid / "leaderboard-balanced.json", data / "leaderboard-balanced.json")
+        (root / "api.js").write_bytes(export_static.STATIC_API.read_bytes())
+        (root / "data-version.js").write_text(export_static.data_version_js(sid), encoding="utf-8")
+        (root / "index.html").write_text(hp.home_page(template, facts), encoding="utf-8")
+        (root / "job.json").write_text(json.dumps({"pages": [{"path": "index.html", "view": "ranked"}]}), encoding="utf-8")
+        ran = subprocess.run([find_node(), str(REPO_ROOT / "web" / "prerender.mjs"), str(root), str(root / "job.json")],
+                             capture_output=True, text=True, timeout=120, check=False)
+        again = (root / "index.html").read_text(encoding="utf-8") if ran.returncode == 0 else f"prerender failed: {ran.stderr[-600:]}"
+    ledger.equal("index.html is what the prerender draws into the generated head from the facts worked out here (bytes)",
+                 again == text, True)
+
+    # read without JavaScript: the findings line and the first page of rows
+    view = _home_view(text) or ""
+    page = read_page(view)
+    findings = [(ident, value) for ident, value in page.hooks if ident in _FINDING_SLOTS]
+    _compare_hooks(ledger, "home findings line", findings, {key: report["values"][key] for key in _FINDING_SLOTS})
+    line = re.search(r'<span data-findings-text="true">(.*?)</span> <a\b', view, re.S)
+    filled = hp.fill(rp.copy_js_string("FINDINGS_LINE"), {key: report["values"][key] for key in _FINDING_SLOTS})
+    ledger.equal("home findings line", _plain(line.group(1)) if line else None, filled)
+    table = re.search(r'<tbody data-leaderboard-tbody="true"[^>]*>(.*?)</tbody>', view, re.S)
+    shown = keyed_items(table.group(1) if table else "", "tr")
+    first = [(r["owner"], r["name"]) for r in board["rows"]]
+    ledger.equal(f"home table rows are the first {page_size} of the balanced leaderboard, in rank order", shown, first)
+    cards = keyed_items(view, "div", "leaderboard-card")
+    ledger.equal("home cards are the same rows", cards, first)
+    for owner, name in first:
+        ledger.equal(f"home links {owner}/{name}'s page", f"/projects/{owner.lower()}/{name.lower()}/" in page.links, True)
+    for slug in (*rp.ECOSYSTEM_SLUGS.values(), *rp.LENS_SLUGS.values()):
+        ledger.equal(f"home links the landing page /{slug}/", f"/{slug}/" in page.links, True)
+
+    # the structured data
     ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
     graph = ld["@graph"]
     types = [n["@type"] for n in graph]
     for gone in ("SoftwareApplication", "Dataset"):
         ledger.equal(f"home JSON-LD has no {gone}", gone in types, False)
-    report_ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', report.read_text(encoding="utf-8"), re.S).group(1))
+    website = next((n for n in graph if n["@type"] == "WebSite"), {})
+    ledger.equal("home WebSite has no search action (/?q= needs JavaScript to answer)", "potentialAction" in website, False)
+    report_ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', report_page.read_text(encoding="utf-8"), re.S).group(1))
     dataset_ids = [n["@id"] for n in report_ld["@graph"] if n["@type"] == "Dataset"]
-    ledger.equal("the report page carries one Dataset", len(dataset_ids), 1)
     webpage = next((n for n in graph if n["@type"] == "WebPage"), {})
     ledger.equal("home WebPage about names the report's Dataset @id", webpage.get("about"), {"@id": dataset_ids[0]} if dataset_ids else None)
-    items = next((n for n in graph if n["@type"] == "ItemList"), {}).get("itemListElement", [])
-    ledger.equal("home ItemList has items", len(items) > 0, True)
-    ledger.equal("home ItemList numberOfItems", next((n for n in graph if n["@type"] == "ItemList"), {}).get("numberOfItems"), len(items))
-    for item in items:
-        url = item.get("url", "")
-        match = _PROJECT_ADDRESS.fullmatch(url)
-        ledger.equal(f"home ItemList address {url} is a project page address", match is not None, True)
-        if match:
-            ledger.equal(f"home ItemList address {url} has a page in the export",
-                         (site / "projects" / match.group(1) / match.group(2) / "index.html").is_file(), True)
-    article = re.search(r'<article class="seo-fallback">(.*?)</article>', text, re.S)
-    browse = re.search(r"Browse by ecosystem:(.*?)</p>", article.group(1), re.S) if article else None
-    ledger.equal("home article has a 'Browse by ecosystem' line", browse is not None, True)
-    if browse:
-        ledger.equal("home 'Browse by ecosystem' links", re.findall(r'<a href="([^"]*)">([^<]*)</a>', browse.group(1)), [
-            ("rust/", "Rust"), ("python/", "Python"), ("javascript/", "JavaScript and TypeScript"), ("go/", "Go"),
-            ("java/", "Java"), ("c-cpp/", "C, C++ and Zig")])
-    log(f"verify: home page: checked {ledger.checked} values")
-    for error in ledger.errors:
+    for item in next((n for n in graph if n["@type"] == "ItemList"), {}).get("itemListElement", []):
+        match = _PROJECT_ADDRESS.fullmatch(item.get("url", ""))
+        ledger.equal(f"home ItemList address {item.get('url')} has a page in the export",
+                     bool(match) and (site / "projects" / match.group(1) / match.group(2) / "index.html").is_file(), True)
+
+    log(f"verify: home page: {len(shown)} rows and {len(cards)} cards, the findings line, the head and the JSON-LD; "
+        f"re-drawn from the facts worked out here {'byte-identical' if again == text else 'DIFFERENT'}; llms.txt and "
+        f"feed.xml re-generated; checked {ledger.checked} values")
+    for error in ledger.errors[:40]:
         log(f"HOME MISMATCH {error}")
-    return {"checked": ledger.checked, "errors": ledger.errors}
+    return {"checked": ledger.checked, "rows": len(shown), "errors": ledger.errors}
 
 
 def conn_names(db: Path, snapshot_id: str) -> list[tuple[str, str]]:
@@ -2649,13 +2453,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"SITEMAP {problem}")
     ok = ok and not problems
     ok = not verify_chrome(args.db.resolve(), site)["errors"] and ok
-    ok = not verify_methodology(args.db.resolve(), site)["errors"] and ok
+    record = None
     if args.stats is not None:
-        ok = not verify_report(args.db.resolve(), args.stats.resolve(), site, evidence_files=evidence_files)["errors"] and ok
-        ok = not verify_hand_written(args.db.resolve(), args.stats.resolve(), site)["errors"] and ok
+        result = verify_report(args.db.resolve(), args.stats.resolve(), site, evidence_files=evidence_files)
+        ok, record = not result["errors"] and ok, result.get("record")
+    ok = not verify_methodology(args.db.resolve(), site, report=record)["errors"] and ok
+    if args.stats is not None:
         ok = not verify_projects(args.db.resolve(), site)["errors"] and ok
         ok = not verify_landing(args.db.resolve(), site)["errors"] and ok
-        ok = not verify_home(site)["errors"] and ok
+        ok = not verify_home(args.db.resolve(), site, report=record)["errors"] and ok
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 

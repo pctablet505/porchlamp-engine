@@ -3263,3 +3263,20 @@ a.project-eco:hover {
     min-width: 0;
   }
 }
+
+/* The home's first page as the export draws it (views/leaderboard.js renderPrerenderedBoard): both layouts are in
+ * the page, because the export cannot know the width. Below 768px the cards show and the table hides; from 768px
+ * the table shows and the cards and their sort bar hide: the breakpoint the app draws them at. The app takes the
+ * board over and removes this class with the layout it does not use. */
+@media (max-width: 767px) {
+  .prerendered-board .leaderboard-table {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .prerendered-board .leaderboard-cards,
+  .prerendered-board .mobile-sort-bar {
+    display: none;
+  }
+}

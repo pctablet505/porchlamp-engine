@@ -206,6 +206,11 @@ function deltaHtml(row) {
   return `<span class="delta-flat">—</span>`;
 }
 
+/** A count with commas between the thousands (`1,234`), the same bytes in every locale: the export prints it too. */
+export function groupThousands(n) {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 /**
  * The single source of truth for a row's per-cell HTML, in column order
  * (respecting `showPersonaDelta`). Both `createRowElement` (new nodes) and
@@ -223,7 +228,7 @@ export function rowCells(row, opts) {
     { key: "rank", html: `${row.rank}${tieMark}`, numeric: true },
     {
       key: "repository",
-      html: `${repoLinkHtml(row, showPersonaDelta)}<span class="eco-chip">${escapeHtml(row.ecosystem)}</span>`,
+      html: `${repoLinkHtml(row, showPersonaDelta)}<span class="eco-chip">${escapeHtml(copy.ecosystemName(row.ecosystem))}</span>`,
     },
     { key: "porchlamp", html: row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE, numeric: true },
     { key: "coverage", html: renderCoverageBadge(row.coverage) },
@@ -235,7 +240,7 @@ export function rowCells(row, opts) {
   cells.push({ key: "suspicion", html: renderSuspicionIcon(row.suspicion) });
   cells.push({
     key: "stars",
-    html: row.stars_audited == null ? copy.MISSING_VALUE : row.stars_audited.toLocaleString(),
+    html: row.stars_audited == null ? copy.MISSING_VALUE : groupThousands(row.stars_audited),
     numeric: true,
   });
   return { cells, tied };
@@ -392,7 +397,7 @@ function cardInnerHtml(row, opts) {
     `<span class="cell-numeric">#${row.rank}${tieMark}</span>` +
     `<span>${renderCoverageBadge(row.coverage)}</span>` +
     `</div>` +
-    `<div>${repoLinkHtml(row, showPersonaDelta)}<span class="eco-chip">${escapeHtml(row.ecosystem)}</span></div>` +
+    `<div>${repoLinkHtml(row, showPersonaDelta)}<span class="eco-chip">${escapeHtml(copy.ecosystemName(row.ecosystem))}</span></div>` +
     `<div class="cell-numeric">${copy.COLUMN_PORCHLAMP} ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
     `<div class="leaderboard-card-line-4">${renderQuadrant(row.quadrant)} ${pillarBarsHtml(row)}${showPersonaDelta ? ` ${deltaHtml(row)}` : ""}</div>` +
     `<div>${renderSuspicionIcon(row.suspicion)}</div>`;

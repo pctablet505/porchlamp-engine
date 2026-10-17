@@ -15,6 +15,11 @@
 import * as copy from "../copy.js";
 import {
   rowKey,
+  rowCells,
+  isTieMate,
+  renderCard,
+  handleRepoLinkClick,
+  columnCount,
   createRowElement,
   updateRowElement,
   createSpacerElement,
@@ -24,7 +29,6 @@ import {
   createCardSpacerElement,
   updateCardSpacerElement,
   computeVisibleRange,
-  columnCount,
   renderColumnHeader,
   renderCardList,
   sortDirectionLabel,
@@ -33,7 +37,8 @@ import {
   CARD_HEIGHT_PX,
 } from "../components/table.js";
 import { patchRows } from "../components/patch.js";
-import { PAGE_SIZES, hrefFor } from "../state.js";
+import { fill, hook } from "../components/fill.js";
+import { PAGE_SIZES, hrefFor, requestSignature } from "../state.js";
 import { routePath } from "../routes.js";
 import { parseRepoSlug } from "../livecheck.js";
 
@@ -335,24 +340,119 @@ export function renderOnboardingBanner() {
   );
 }
 
-/** One visible line under the onboarding banner: the headline finding and a link to the static report. */
-export function renderFindingsLine() {
+const SLOT = /\{([a-z][a-z0-9_]*)\}/g;
+
+/**
+ * `template` (a text from the copy module with `{slot}`s) filled from `report.values`, each slot a hook of its own id, as the
+ * report view prints the same values (views/report.js). `null` when there is no report, or its values lack a slot
+ * the template names: the sentence is left out rather than drawn with a gap or a guess.
+ */
+export function fillFromReport(template, report) {
+  const values = report && report.values;
+  if (!values) return null;
+  const slots = {};
+  for (const [, id] of String(template).matchAll(SLOT)) {
+    if (!Object.prototype.hasOwnProperty.call(values, id)) return null;
+    slots[id] = hook(id, values[id]);
+  }
+  return fill(template, slots);
+}
+
+/**
+ * One visible line under the onboarding banner: the headline finding, filled from the report, and a link to the
+ * report page. Without a report (the dev API serves none; an export without `--stats` has none) only the link.
+ */
+export function renderFindingsLine(report = null) {
+  const finding = fillFromReport(copy.FINDINGS_LINE, report);
   return (
     `<p class="onboarding-banner" data-findings-line="true">` +
-    `<span>${escapeHtml(copy.FINDINGS_LINE)}</span> ` +
+    (finding ? `<span data-findings-text="true">${finding}</span> ` : "") +
     `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}" class="onboarding-link" data-findings-link="true">${escapeHtml(copy.FINDINGS_LINK_LABEL)}</a>` +
     `</p>`
+  );
+}
+
+/**
+ * A report that arrives after the shell is drawn: puts the finding into the line in place, or, where the line already
+ * has it, rewrites only a value that differs. Never rebuilds the shell, so nothing under it moves or loses focus.
+ */
+export function syncFindingsLine(root, report) {
+  const line = root.querySelector("[data-findings-line]");
+  const finding = line ? fillFromReport(copy.FINDINGS_LINE, report) : null;
+  if (!finding) return;
+  const text = line.querySelector("[data-findings-text]");
+  if (!text) {
+    line.insertAdjacentHTML("afterbegin", `<span data-findings-text="true">${finding}</span> `);
+    return;
+  }
+  for (const [, id] of String(copy.FINDINGS_LINE).matchAll(SLOT)) {
+    const slot = text.querySelector(`[data-v="${id}"]`);
+    if (slot && slot.textContent !== report.values[id]) slot.textContent = report.values[id];
+  }
+}
+
+//: The landing pages the home links, in the order the lines print them: ecosystems, then contributor lenses.
+const BROWSE_ECOSYSTEMS = Object.freeze(["crates", "pypi", "npm", "go", "maven", "systems"]);
+const BROWSE_LENSES = Object.freeze(["first_timer", "career_capital", "senior_systems", "ai_assisted"]);
+
+/** The home's links to the ten landing pages, as real paths, so a reader and a crawler without JavaScript reach each one. */
+export function renderBrowseLinks() {
+  const ecosystemNames = Object.fromEntries(copy.ECOSYSTEMS);
+  const link = (href, label) => `<a href="${escapeHtml(href)}" class="onboarding-link">${escapeHtml(label)}</a>`;
+  // A middle dot between the names, as the views separate items: "C and C++" and "Career capital" are names of their own.
+  const line = (label, links) => `<div><span>${escapeHtml(label)}</span> ${links.join(" · ")}</div>`;
+  return (
+    `<nav class="onboarding-banner" aria-label="${escapeHtml(copy.HOME_BROWSE_LABEL)}" data-home-browse="true">` +
+    line(copy.HOME_BROWSE_ECOSYSTEMS_LABEL, BROWSE_ECOSYSTEMS.map((key) => link(`/${copy.ECOSYSTEM_SLUGS[key]}/`, ecosystemNames[key]))) +
+    line(copy.HOME_BROWSE_LENSES_LABEL, BROWSE_LENSES.map((lens) => link(copy.LENS_PAGE_HREFS[lens], copy.PERSONA_NAMES[lens]))) +
+    `</nav>`
+  );
+}
+
+/** The shell's head, the same in every shape and in the prerendered board: banner, findings, tabs, counts. */
+function shellHeader(state) {
+  const counts = state.leaderboard ? state.leaderboard.counts : null;
+  return (
+    renderOnboardingBanner() +
+    renderFindingsLine(state.report) +
+    renderBrowseLinks() +
+    renderTabs(state.tab, counts, personaVisibleForState(state), null, tabHrefs(state)) +
+    renderCountsStrip(counts, personaDeltaForState(state))
+  );
+}
+
+/** The controls a page of rows sits between, shared by the shell and the prerendered board so the two cannot differ. */
+function boardParts(state) {
+  const total = state.leaderboard.total;
+  return {
+    showPersonaDelta: state.persona !== "balanced",
+    sortBar: renderMobileSortBar(state.sort),
+    pager: renderPager(state.page, state.pageSize, total, "pager"),
+    progressAndError:
+      `<div class="refetch-progress" data-refetch-progress="true" hidden></div>` +
+      `<div class="error-banner" role="alert" data-leaderboard-error="true" hidden></div>`,
+    bottomPager: renderPager(state.page, state.pageSize, total, "pager", { bottom: true }),
+  };
+}
+
+function tableOpenTag(extraClass = "") {
+  return `<table class="leaderboard-table${extraClass}" role="table" aria-label="${escapeHtml(copy.NAV_LEADERBOARD)}">`;
+}
+
+function shellSection(header, body, attrs = "") {
+  return (
+    `<section aria-labelledby="leaderboard-heading"${attrs}>` +
+    `<h1 id="leaderboard-heading" class="view-heading sr-only">${escapeHtml(copy.LEADERBOARD_HEADING)}</h1>` +
+    header +
+    body +
+    `</section>`
   );
 }
 
 export function renderShell(state, viewport = { isMobile: false }) {
   const { leaderboardLoading, leaderboardError, leaderboard } = state;
   const counts = leaderboard ? leaderboard.counts : null;
-  const header =
-    renderOnboardingBanner() +
-    renderFindingsLine() +
-    renderTabs(state.tab, counts, personaVisibleForState(state), null, tabHrefs(state)) +
-    renderCountsStrip(counts, personaDeltaForState(state));
+  const header = shellHeader(state);
 
   let body;
   if (leaderboardLoading && !leaderboard) {
@@ -362,21 +462,16 @@ export function renderShell(state, viewport = { isMobile: false }) {
   } else if (leaderboard && leaderboard.rows.length === 0) {
     body = renderEmptyState(counts.gated, counts.unrated, { query: state.query || "", ecosystem: state.ecosystem || "" });
   } else if (leaderboard) {
-    const showPersonaDelta = state.persona !== "balanced";
-    const progressAndError =
-      `<div class="refetch-progress" data-refetch-progress="true" hidden></div>` +
-      `<div class="error-banner" role="alert" data-leaderboard-error="true" hidden></div>`;
-    const pager = renderPager(state.page, state.pageSize, leaderboard.total, "pager");
-    const bottomPager = renderPager(state.page, state.pageSize, leaderboard.total, "pager", { bottom: true });
+    const { showPersonaDelta, sortBar, pager, progressAndError, bottomPager } = boardParts(state);
     body = viewport.isMobile
-      ? renderMobileSortBar(state.sort) +
+      ? sortBar +
         pager +
         progressAndError +
         `<div class="leaderboard-cards" data-leaderboard-cards="true"></div>` +
         bottomPager
       : pager +
         progressAndError +
-        `<table class="leaderboard-table" role="table" aria-label="${escapeHtml(copy.NAV_LEADERBOARD)}">` +
+        tableOpenTag() +
         `<thead>${renderColumnHeader(state.sort, showPersonaDelta)}</thead>` +
         `<tbody data-leaderboard-tbody="true"></tbody>` +
         `</table>` +
@@ -385,13 +480,122 @@ export function renderShell(state, viewport = { isMobile: false }) {
     body = "";
   }
 
+  return shellSection(header, body);
+}
+
+// --- The prerendered board: the first page of the ranked view, drawn into the exported page ---------------
+//
+// web/prerender.mjs draws it into `/`; the app takes it over (`adoptPrerenderedBoard`) with nothing redrawn. The page
+// cannot know the reader's width, so the board holds both layouts the app draws, the table (from 768px) and the cards
+// with their sort bar (below), and the stylesheet hides the one the width does not use. Every row, card and spacer is
+// what components/table.js's DOM builders make for the same data (attributes in the order they set them, `data-key`
+// last, as `patchRows` adds it), so the app finds each node in place and patches it rather than building another.
+
+//: Marks the board while it is prerendered; the stylesheet hides one layout under it, `adoptPrerenderedBoard` removes it.
+export const PRERENDERED_BOARD_CLASS = "prerendered-board";
+
+const SPACER_STYLE = `style="height: 0px;" hidden=""`;
+
+function classAttr(...names) {
+  return names.filter(Boolean).join(" ");
+}
+
+/** The `<tr>` `createRowElement` builds for `row`, with the `data-key` `patchRows` gives it. */
+export function renderRowHtml(row, opts) {
+  const { selected = false } = opts || {};
+  const { cells, tied } = rowCells(row, opts);
+  const cellHtml = cells
+    .map(
+      (cell) =>
+        `<td data-cell="${escapeHtml(cell.key)}"${cell.numeric ? ` class="cell-numeric"` : ""} data-rendered="${escapeHtml(cell.html)}">${cell.html}</td>`
+    )
+    .join("");
   return (
-    `<section aria-labelledby="leaderboard-heading">` +
-    `<h1 id="leaderboard-heading" class="view-heading sr-only">${escapeHtml(copy.LEADERBOARD_HEADING)}</h1>` +
-    header +
-    body +
-    `</section>`
+    `<tr data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}" tabindex="0" role="button" ` +
+    `aria-label="${escapeHtml(`Open ${escapeHtml(row.owner)}/${escapeHtml(row.name)}`)}" title="${escapeHtml(copy.ROW_OPEN_HINT)}" ` +
+    `class="${classAttr(tied && "row-tied", selected && "row-selected")}" data-key="${escapeHtml(rowKey(row))}">${cellHtml}</tr>`
   );
+}
+
+/** The card `createCardElement` builds for `row`, with its `data-key`. */
+export function renderCardHtml(row, opts) {
+  const { selected = false, previousRow = null } = opts || {};
+  const drawn = renderCard(row, opts);
+  const inner = drawn.slice(drawn.indexOf(">") + 1, drawn.length - "</div>".length);
+  return (
+    `<div data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}" tabindex="0" role="button" ` +
+    `aria-label="${escapeHtml(`Open ${escapeHtml(row.owner)}/${escapeHtml(row.name)}`)}" title="${escapeHtml(copy.ROW_OPEN_HINT)}" ` +
+    `class="${classAttr("leaderboard-card", isTieMate(row, previousRow) && "row-tied", selected && "row-selected")}" ` +
+    `data-rendered="${escapeHtml(inner)}" data-key="${escapeHtml(rowKey(row))}">${inner}</div>`
+  );
+}
+
+/**
+ * The ranked view with its first page drawn in, for the export. `state` is `defaultState()` with the page the app
+ * would fetch for it (`leaderboard`), the snapshot and the report. The board's `data-prerendered-board` is the key of
+ * what it shows (`requestSignature`: lens, ecosystem, search, sort, page, page size).
+ */
+export function renderPrerenderedBoard(state) {
+  const { leaderboard } = state;
+  if (!leaderboard || !Array.isArray(leaderboard.rows) || leaderboard.rows.length === 0) {
+    throw new Error("the prerendered board needs a page of rows");
+  }
+  const { rows } = leaderboard;
+  const { showPersonaDelta, sortBar, pager, progressAndError, bottomPager } = boardParts(state);
+  const optsAt = (i) => ({ previousRow: i > 0 ? rows[i - 1] : null, showPersonaDelta, selected: false });
+  const tableSpacer = (name) =>
+    `<tr data-key="${name}" aria-hidden="true" ${SPACER_STYLE}><td colspan="${columnCount(showPersonaDelta)}"></td></tr>`;
+  const cardSpacer = (name) => `<div data-key="${name}" aria-hidden="true" ${SPACER_STYLE}></div>`;
+  const body =
+    sortBar +
+    pager +
+    progressAndError +
+    tableOpenTag(copy.hasAuditedStars(rows) ? "" : " stars-unaudited") +
+    `<thead>${renderColumnHeader(state.sort, showPersonaDelta)}</thead>` +
+    `<tbody data-leaderboard-tbody="true">` +
+    tableSpacer("__spacer-top__") +
+    rows.map((row, i) => renderRowHtml(row, optsAt(i))).join("") +
+    tableSpacer("__spacer-bottom__") +
+    `</tbody></table>` +
+    `<div class="leaderboard-cards" data-leaderboard-cards="true">` +
+    cardSpacer("__spacer-top__") +
+    rows.map((row, i) => renderCardHtml(row, optsAt(i))).join("") +
+    cardSpacer("__spacer-bottom__") +
+    `</div>` +
+    bottomPager;
+  const key = requestSignature({ ...state, tab: "ranked" });
+  return shellSection(shellHeader(state), body, ` class="${PRERENDERED_BOARD_CLASS}" data-prerendered-board="${escapeHtml(key)}"`);
+}
+
+/** The key of the board a page carries (what it shows), or `null` where the page has none. */
+export function prerenderedBoardKey(root) {
+  const board = root.querySelector("[data-prerendered-board]");
+  return board ? board.getAttribute("data-prerendered-board") : null;
+}
+
+/**
+ * Takes the prerendered board over for `state` and `viewport`, leaving the DOM `renderShell` would draw: removes the
+ * layout this width does not use and the board's marks, and puts the click listener on each row or card. Returns
+ * `false`, touching nothing, when the board shows something else than `state` asks for (its key differs) or `state`
+ * has no page of rows to show. The caller then patches the rows in place (`patchTableBody` / `patchCardBody`),
+ * which finds every node by its `data-key`: no row is replaced.
+ */
+export function adoptPrerenderedBoard(root, state, viewport) {
+  const board = root.querySelector("[data-prerendered-board]");
+  if (!board || board.getAttribute("data-prerendered-board") !== requestSignature(state)) return false;
+  if (!shellShape(state, viewport).startsWith("table")) return false;
+  const kept = board.querySelector(viewport.isMobile ? "[data-leaderboard-cards]" : "[data-leaderboard-tbody]");
+  const dropped = viewport.isMobile
+    ? [board.querySelector(".leaderboard-table")]
+    : [board.querySelector("[data-leaderboard-cards]"), board.querySelector("[data-mobile-sort-bar]")];
+  if (!kept || dropped.some((el) => !el)) return false;
+  for (const el of dropped) el.remove();
+  board.removeAttribute("class");
+  board.removeAttribute("data-prerendered-board");
+  for (const el of Array.from(kept.children)) {
+    if (el.getAttribute("data-owner") !== null) el.addEventListener("click", handleRepoLinkClick);
+  }
+  return true;
 }
 
 /**
