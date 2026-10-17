@@ -163,6 +163,14 @@ export function fetchManifest() {
 }
 
 /**
+ * The report (web/static/api.js answers it on the published site from the export's report.json, which needs the
+ * stats file). The API serves no report: an error, without a request, which the report view shows.
+ */
+export function fetchReport() {
+  return Promise.resolve({ ok: false, error: new ApiError("report.json", 404, "the API serves no report; the static export writes it") });
+}
+
+/**
  * Screen D (Configure weights): `POST /v1/porchlamp/reproject` with a
  * five-pillar weight vector (`ReprojectRequest`) -> `ReprojectResponse`.
  * Shares `getJson`'s timeout/typed-error contract (U-15) via a small POST

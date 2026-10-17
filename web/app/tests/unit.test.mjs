@@ -38,6 +38,8 @@ import {
 import * as copy from "../copy.js";
 import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, renderMobileSortBar, personaVisibleForState } from "../views/leaderboard.js";
 import { renderShell as notRankedRenderShell } from "../views/notranked.js";
+import { renderReport, renderShell as reportRenderShell, shellShape as reportShellShape, axisFor } from "../views/report.js";
+import { fill as fillTemplate } from "../components/fill.js";
 import { centeredScrollLeft, renderNav, navEntryFor, renderFooter, renderHeader, renderAppHeader, headerControlsFor } from "../components/chrome.js";
 import { ROUTES, matchRoute, projectPath, routeById, routePath, routeTitle } from "../routes.js";
 import { fetchManifest, postReproject } from "../api.js";
@@ -3100,6 +3102,7 @@ const EXPECTED_ROUTES = {
   compare: ["/compare/", ["persona", "cmp"]],
   configure: ["/weights/", ["eco", "q", "sort", "page", "page_size", "w"]],
   methodology: ["/methodology/", []],
+  report: ["/black-holes/", []],
   project: ["/projects/{owner}/{name}/", ["persona"]],
   notfound: [null, []],
 };
@@ -3124,7 +3127,7 @@ function addressOf(route) {
 
 test("routes: the table holds every view at its address, with the query fields it keeps", () => {
   assert.deepEqual(Object.fromEntries(ROUTES.map((route) => [route.id, [route.path, [...route.query]]])), EXPECTED_ROUTES);
-  assert.deepEqual(ROUTES.filter((route) => route.shell).map((route) => route.id), ["ranked", "notranked", "matrix", "compare", "configure", "methodology"]);
+  assert.deepEqual(ROUTES.filter((route) => route.shell).map((route) => route.id), ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "report"]);
 });
 
 test("routes: every route round-trips through parseLocation and serializeLocation", () => {
@@ -3223,24 +3226,27 @@ test("routes: every old link lands on its view's address, keeping every other fi
   for (const tab of VALID_TABS) assert.ok(routeById(tab)?.shell, tab);
 });
 
-test("routes: every primary nav link is a view's address, opened in place, or the report's page, with the shown view current", () => {
-  for (const tab of ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "notfound"]) {
+test("routes: every primary nav link is a view's address, opened in place, with the shown view current", () => {
+  for (const tab of ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "report", "notfound"]) {
     const state = { ...defaultState(), tab, persona: "first_timer", ecosystem: "npm", query: "widget", missingPath: tab === "notfound" ? "/x/" : null };
     const links = [...renderNav(navEntryFor(tab), state).matchAll(/<a class="primary-tab" href="([^"]*)"( data-route-tab="([^"]*)")?( aria-current="page")?>/g)];
     assert.equal(links.length, 6, `${tab}: six links`);
-    const [report, ...views] = [links[5], ...links.slice(0, 5)];
-    for (const [, rawHref, , linkTab] of views) {
+    for (const [, rawHref, , linkTab] of links) {
       const href = rawHref.replace(/&amp;/g, "&");
       const { route } = matchRoute(new URL(href, SITE_BASE).pathname);
       assert.ok(route.shell, `${tab}: ${href} is the address of a view the app draws`);
       assert.equal(linkTab, route.id, `${tab}: ${href} opens its own view in place`);
       assert.equal(href, hrefFor(state, route.id), `${tab}: ${href} is where a click goes from here`);
     }
-    assert.deepEqual([report[1], report[3]], ["/black-holes/", undefined], `${tab}: the report is a page of its own, loaded`);
+    assert.equal(links[5][1], "/black-holes/", `${tab}: the report is the last entry`);
     const current = links.filter((link) => link[4]).map((link) => link[3]);
     assert.deepEqual(current, tab === "notfound" ? [] : [tab === "notranked" ? "ranked" : tab], `${tab}: the current entry`);
   }
-  assert.match(renderNav("report"), /<a class="primary-tab" href="\/black-holes\/" aria-current="page">Report<\/a><\/div>$/, "the report's own page marks it");
+  assert.match(
+    renderNav("report"),
+    /<a class="primary-tab" href="\/black-holes\/" data-route-tab="report" aria-current="page">Report<\/a><\/div>$/,
+    "the report's page marks it, on a page drawn without the reader's state too"
+  );
   // The Leaderboard's Ranked and Not ranked links are addresses too, carrying the reader's lens and filters.
   const lb = leaderboardRenderShell({ ...defaultState(), persona: "first_timer", ecosystem: "npm", leaderboardLoading: true });
   assert.ok(lb.includes('<a class="tab" href="/?persona=first_timer&amp;eco=npm" data-route-tab="ranked" aria-current="page">'), lb);
@@ -3290,12 +3296,18 @@ test("routes: every route sets its own document title, and the pages the export 
   assert.equal(new Set(titles.values()).size, ROUTES.length, "no two views share a title");
   const loaded = { ...defaultState(), repo: "acme/widget", repoDetailByKey: { "acme/widget": { owner: "Acme", name: "Widget" } } };
   assert.equal(titleForState(loaded), routeTitle("project", { owner: "Acme", name: "Widget" }), "the record's spelling once it has loaded");
+  const report = { ...defaultState(), tab: "report", report: { title: "Open-source black holes (October 2026) | Porchlamp" } };
+  assert.equal(titleForState(report), report.report.title, "the report's own title, naming its month, once it has loaded");
   const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
   const titleOf = (file) => readFileSync(path.join(webRoot, file), "utf8").match(/<title>([^<]*)<\/title>/)[1];
   assert.equal(titleOf("index.html"), titles.get("ranked"), "index.html is the leaderboard's page");
   assert.equal(titleOf("404.html"), titles.get("notfound"), "404.html is the not-found page");
   const app = readFileSync(path.join(webRoot, "app.js"), "utf8");
-  assert.match(app, /const title = titleForState\(state\);\s*if \(doc\.title !== title\) doc\.title = title;/, "app.js sets it on every render");
+  assert.match(
+    app,
+    /const title = titleForState\(state\);\s*if \(!prerendered && doc\.title !== title\) doc\.title = title;/,
+    "app.js sets it on every render, once it has taken over a page the export drew (that page carries its own)"
+  );
 });
 
 test("routes: a panel's history entry brings back the view under it; loaded directly it opens over the leaderboard", () => {
@@ -3365,4 +3377,159 @@ test("routes: the panel's README badge preview loads from the site root, since t
   const src = html.match(/<img class="maintainer-badge-preview" src="([^"]*)"/)[1];
   assert.match(src, /^\/badges\/[a-z0-9-]+\.svg$/, src);
   assert.ok(existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", src.slice(1))), `${src} is a file of the site`);
+});
+
+// --- report (views/report.js)
+// The data is the example report.json of the report-view contract (the file the export writes beside snapshot.json).
+//: The export's report.json for the published snapshot 2026-10-17 (tests/test_report_pages.py pins it to report_json).
+const REPORT_EXAMPLE_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tests", "fixtures", "report", "report.json");
+const REPORT_EXAMPLE = JSON.parse(readFileSync(REPORT_EXAMPLE_PATH, "utf8"));
+const REPORT_DIGEST = "ff1d7a10" + "0".repeat(48) + "a6e1";
+const reportCopy = () => structuredClone(REPORT_EXAMPLE);
+const unescapeHtml = (t) => t.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+const REPORT_HOOK = /<span data-v="([^"]+)">([^<]*)<\/span>/g;
+const reportHooks = (html) => [...html.matchAll(REPORT_HOOK)].map((m) => ({ id: m[1], text: unescapeHtml(m[2]) }));
+
+/** What a hook id must print: a `values` entry, the digest option, or a field of a chart row. */
+function reportExpected(report, id, digest) {
+  if (id === "source_db_sha256") return digest;
+  if (Object.prototype.hasOwnProperty.call(report.values, id)) return report.values[id];
+  const m = /^(bands|ecosystems)\.(\d+)\.(label|name|judged|black_holes|share)$/.exec(id);
+  if (!m) return undefined;
+  const row = report[m[1]][Number(m[2])];
+  const field = { label: "label", name: "name", judged: "judged_text", black_holes: "black_holes_text", share: "share_text" }[m[3]];
+  return row ? row[field] : undefined;
+}
+
+/** The article's reading text: hooks removed, and nothing inside an aria-hidden element or a chart <caption>. */
+function reportProse(html) {
+  const out = [];
+  const stack = []; // true where that open element hides its content
+  let hiddenDepth = 0;
+  for (const tok of html.replace(REPORT_HOOK, "").match(/<[^>]+>|[^<]+/g)) {
+    if (tok[0] !== "<") {
+      if (!hiddenDepth) out.push(unescapeHtml(tok));
+    } else if (tok[1] === "/") {
+      if (stack.pop()) hiddenDepth--;
+    } else {
+      // The captions are plain sentences Python filled, numbers inline: scripts/verify_static_export.py checks each whole.
+      const hides = /aria-hidden="true"/.test(tok) || /^<caption[\s>]/.test(tok);
+      stack.push(hides);
+      if (hides) hiddenDepth++;
+    }
+  }
+  return out.join(" ");
+}
+
+const REPORT_HOOK_COUNT = reportHooks(renderReport(REPORT_EXAMPLE, { sourceDbSha256: REPORT_DIGEST })).length;
+
+test(`report: every data-v equals its report.values value or row field (${REPORT_HOOK_COUNT} hooks)`, () => {
+  const html = renderReport(REPORT_EXAMPLE, { sourceDbSha256: REPORT_DIGEST });
+  const hooks = reportHooks(html);
+  assert.ok(hooks.length > 60, `${hooks.length} hooks`);
+  for (const h of hooks) {
+    const want = reportExpected(REPORT_EXAMPLE, h.id, REPORT_DIGEST);
+    assert.notEqual(want, undefined, `${h.id} names a value`);
+    assert.equal(h.text, String(want), `${h.id} of ${hooks.length} hooks`);
+  }
+});
+
+test("report: no digit in the article's text outside a hook, but the template literals and aria-hidden or caption text", () => {
+  const text = reportProse(renderReport(REPORT_EXAMPLE, { sourceDbSha256: REPORT_DIGEST }));
+  assert.ok(text.length > 1500, "the scanned text is not empty");
+  const stripped = text.replace(/1 in|CC BY 4\.0|SHA-256|100/g, "");
+  assert.doesNotMatch(stripped, /\d/, stripped.match(/.{0,30}\d.{0,30}/)?.[0]);
+});
+
+test("report: the two chart captions are the report.json summaries", () => {
+  const html = renderReport(REPORT_EXAMPLE);
+  const captions = [...html.matchAll(/<caption class="sr-only">([^<]*)<\/caption>/g)].map((m) => unescapeHtml(m[1]));
+  assert.deepEqual(captions, [REPORT_EXAMPLE.sentences.stars_chart_summary, REPORT_EXAMPLE.sentences.ecosystems_chart_summary]);
+});
+
+test("report: one h1 and no skipped heading level", () => {
+  const html = renderReport(REPORT_EXAMPLE);
+  const levels = [...html.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
+  assert.equal(levels.filter((l) => l === 1).length, 1);
+  assert.equal(levels[0], 1);
+  levels.forEach((l, i) => { if (i) assert.ok(l <= levels[i - 1] + 1, `h${l} after h${levels[i - 1]}`); });
+  assert.deepEqual(levels, [1, 2, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2]);
+});
+
+test("report: the axis maximum follows the data (a planted share of 0.45 gives ticks up to 50%)", () => {
+  assert.deepEqual(axisFor(REPORT_EXAMPLE.bands).ticks, [0, 10, 20, 30]);
+  const planted = reportCopy();
+  planted.bands[0].judged = 100;
+  planted.bands[0].black_holes = 45;
+  assert.deepEqual(axisFor(planted.bands).ticks, [0, 10, 20, 30, 40, 50]);
+  const html = renderReport(planted);
+  assert.ok(html.includes('<span class="axis-tick" style="left:100%">50%</span>'));
+  assert.ok(!html.includes(">60%<"));
+  assert.deepEqual(axisFor([{ judged: 10, black_holes: 3 }]).ticks, [0, 10, 20, 30], "an exact ten does not add a step");
+});
+
+test("report: the old ids are present, each once, and no # anchor links", () => {
+  const html = renderReport(REPORT_EXAMPLE);
+  for (const id of ["finding-share", "finding-stars", "finding-top100", "finding-correlation", "finding-prs", "key-findings", "stars", "ecosystems", "how-we-measured", "what-this-is-not", "download", "cite"]) {
+    assert.equal(html.split(`id="${id}"`).length - 1, 1, id);
+  }
+  assert.ok(!/href="#/.test(html), "no # anchors");
+});
+
+test("report: fill throws on a template slot with no value, and so does a report whose values lack one", () => {
+  assert.throws(() => fillTemplate("{a} and {b}", { a: "1" }), /no value for the slot \{b\}/);
+  const broken = reportCopy();
+  delete broken.values.share;
+  assert.throws(() => renderReport(broken), /\{share\}/);
+});
+
+test("report: without a digest the hashes part is gone; with one it is a hook", () => {
+  const without = renderReport(REPORT_EXAMPLE);
+  assert.ok(!without.includes("SHA-256") && !without.includes('data-v="source_db_sha256"'));
+  assert.ok(without.includes('data-v="constants_hash"') && without.includes("Data licence"), "the other two parts stay");
+  const withDigest = renderReport(REPORT_EXAMPLE, { sourceDbSha256: REPORT_DIGEST });
+  assert.ok(withDigest.includes(`<span data-v="source_db_sha256">${REPORT_DIGEST}</span>`));
+  assert.ok(withDigest.includes("SHA-256"));
+});
+
+test("report: the stars note is left out when no judged project sits under the lowest band", () => {
+  assert.match(renderReport(REPORT_EXAMPLE), /Not charted/);
+  const planted = reportCopy();
+  planted.sentences.stars_not_charted = null;
+  const html = renderReport(planted);
+  assert.ok(!html.includes("Not charted") && !html.includes('data-v="below_bands_judged"'));
+  assert.ok(html.includes('class="report-caveat"'));
+  const notes = (h) => h.split('class="report-note"').length - 1;
+  assert.equal(notes(html), notes(renderReport(REPORT_EXAMPLE)) - 1, "no empty note paragraph is left");
+});
+
+test("report: the cite links the frozen copy, the download links the csv, each ecosystem row links its path", () => {
+  const html = renderReport(REPORT_EXAMPLE);
+  const u = REPORT_EXAMPLE.urls;
+  assert.ok(html.includes(`<a href="${u.frozen}"><span data-v="frozen_url">`));
+  assert.ok(html.includes(`<a href="${u.csv}"><span data-v="csv_name">`));
+  REPORT_EXAMPLE.ecosystems.forEach((r, i) => {
+    assert.ok(html.includes(`<a href="${r.path}"><span data-v="ecosystems.${i}.name">${r.name}</span></a>`), r.path);
+  });
+  assert.ok(!/class="bar-label"><a [^>]*><span data-v="bands\./.test(html), "a band name is not a link");
+  assert.ok(html.includes(`<span data-v="bands.0.label">${REPORT_EXAMPLE.bands[0].label}</span> stars`));
+});
+
+test("report: the shell is loading, error, empty or the body, the body keyed by the digest", () => {
+  const base = { report: null, reportLoading: false, reportError: null, sourceDbSha256: null };
+  assert.equal(reportShellShape({ ...base, reportLoading: true }), "loading");
+  assert.equal(reportShellShape({ ...base, reportError: { endpoint: "/report.json", status: 500 } }), "error");
+  assert.equal(reportShellShape(base), "empty");
+  assert.equal(reportShellShape({ ...base, report: REPORT_EXAMPLE }), "body:nodb");
+  assert.equal(reportShellShape({ ...base, report: REPORT_EXAMPLE, sourceDbSha256: REPORT_DIGEST }), "body:db");
+  assert.equal(reportShellShape({ ...base, report: REPORT_EXAMPLE, reportLoading: true }), "body:nodb", "a loaded report stays while it reloads");
+
+  const loading = reportRenderShell({ ...base, reportLoading: true });
+  assert.ok(loading.startsWith(`<h1 class="view-heading">${escapeHtml(copy.REPORT_H1)}</h1>`));
+  assert.ok(loading.includes(`<div class="empty-state" aria-busy="true">${copy.REPORT_LOADING_TEXT}</div>`));
+  const error = reportRenderShell({ ...base, reportError: { endpoint: "/report.json", status: 500, detail: "" } });
+  assert.ok(error.includes(`<div class="error-banner" role="alert">${copy.reportErrorText("/report.json", 500, "")}`));
+  assert.ok(error.includes(`<button type="button" class="icon-button" data-report-retry="true">${copy.RETRY_LABEL}</button>`));
+  assert.equal((reportRenderShell(base).match(/<h1/g) || []).length, 1);
+  assert.equal(reportRenderShell({ ...base, report: REPORT_EXAMPLE, sourceDbSha256: REPORT_DIGEST }), renderReport(REPORT_EXAMPLE, { sourceDbSha256: REPORT_DIGEST }));
 });

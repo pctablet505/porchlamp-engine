@@ -536,11 +536,6 @@ def _by_id(page: str, ident: str) -> str:
     return _plain(match.group(2)) if match else ""
 
 
-def _svg_label(page: str, ident: str) -> str:
-    match = re.search(rf'<svg[^>]* id="{re.escape(ident)}"[^>]* aria-label="([^"]*)"', page)
-    return html.unescape(match.group(1)) if match else ""
-
-
 def _section(page: str, ident: str) -> str:
     match = re.search(rf'<h2 id="{re.escape(ident)}">(.*?)(?=<h2 id=|<footer)', page, re.S)
     return match.group(1) if match else ""
@@ -579,84 +574,182 @@ class _Ledger:
             self.errors.append(f"{where}: expected {expected!r}, found {found!r}")
 
 
+#: The report's findings, in page order: the first is the page's lead figure, the others its Key findings.
 _FINDINGS = ("finding-share", "finding-stars", "finding-top100", "finding-correlation", "finding-prs")
 
 
-def _report_sentences(
-    *, sid: str, judged: int, black_holes: int, deadline: int, min_n: int, bands: list, top100_black_holes: int,
-    top100_overlap: int, ranked: int, rho: float, unanswered: int, counted: int, corpus: dict, start: Optional[date],
-    end: Optional[date], ecosystems: list, undecided: int = 0,
-) -> dict[str, str]:
-    """Every report sentence that carries a number, rebuilt here from the data (the page's text after tags are
-    dropped; a finding ends with its ``#`` link). Written independently of ``report_pages``' templates, so a
-    number the page puts in the wrong place, or a template that does, is a mismatch."""
-    from porchlamp.serve import report_pages as rp
+def _thousands(value: int) -> str:
+    return f"{value:,}"
 
-    fmt, pct0, pct1 = rp.fmt_int, rp.pct0, rp.pct1
-    share = pct1(black_holes, judged)
-    (k1, b1), (k2, b2), (k3, b3) = bands
-    p1, p2, p3 = (pct0(b["black_holes"], b["n"]) for b in (b1, b2, b3))
-    l1, l2, l3 = (rp.band_range_text(k) for k in (k1, k2, k3))
-    one_in = judged // black_holes + 1  # the smallest N with N * black_holes > judged
+
+def _share_text(numerator: int, denominator: int, places: int) -> str:
+    """``numerator / denominator`` as a percentage, rounded half up to ``places`` decimals (26.4 for 1,133 of 4,297)."""
+    step = Decimal(1).scaleb(-places)
+    return str((Decimal(numerator) * 100 / Decimal(denominator)).quantize(step, rounding=ROUND_HALF_UP))
+
+
+def _band_text(key: str) -> str:
+    """A star band's key in the stats file as the page names it: ``[1000,10000)`` -> ``1,000 to 10,000``."""
+    low, high = re.fullmatch(r"\[(\d+),(\d+|inf)\)", key).groups()
+    return f"{int(low):,} or more" if high == "inf" else f"{int(low):,} to {int(high):,}"
+
+
+def report_hooks(
+    *, sid: str, judged: int, black_holes: int, deadline: int, min_n: int, confidence: int, bands: list,
+    below: int, lowest: int, top100_black_holes: int, top100_overlap: int, ranked: int, rho: float, unanswered: int,
+    counted: int, corpus: dict, start: date, end: date, undecided: int, ecosystems: list, names: dict[str, str],
+    constants_hash: str, db_sha: str,
+) -> dict[str, str]:
+    """Every ``data-v`` hook the report prints (``web/app/views/report.js``), with the value worked out here from
+    the database, the API and the stats file, in this file's own formatting: the page's hook count per type is the
+    size of this map, so a hook that goes missing is a failure. ``bands``: ``[(key, stats band)]`` in page order;
+    ``ecosystems``: ``[(key, judged, black_holes)]`` highest share first."""
+    day = date.fromisoformat(sid)
     out = {
-        "finding-share": (
-            f"More than 1 in {one_in}. In Porchlamp's {sid} snapshot, {fmt(black_holes)} of {fmt(judged)} active open-source "
-            f"projects ({share}%) left most outside pull requests with no human reply, review or merge within {deadline} "
-            "days. #"
+        "snapshot_id": sid,
+        "snapshot_date": f"{day.day} {day:%B %Y}",
+        "year": str(day.year),
+        "one_in": _thousands(judged // black_holes + 1),  # the smallest N with N * black_holes > judged
+        "black_holes": _thousands(black_holes),
+        "judged": _thousands(judged),
+        "share": _share_text(black_holes, judged, 1),
+        "deadline_days": _thousands(deadline),
+    }
+    for i, (key, band) in enumerate(bands, 1):
+        out[f"band{i}_share"] = _share_text(band["black_holes"], band["n"], 0)
+        out[f"band{i}_label"] = _band_text(key)
+    out.update({
+        "top100_black_holes": _thousands(top100_black_holes),
+        "top100_overlap": _thousands(top100_overlap),
+        "ranked": _thousands(ranked),
+        "rho": str(Decimal(str(rho)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+        "unanswered": _thousands(unanswered),
+        "counted": _thousands(counted),
+        "corpus_prs": _thousands(corpus["human_outside_prs"]),
+        "corpus_authors": _thousands(corpus["distinct_outside_authors"]),
+        "corpus_projects": _thousands(corpus["derived_repos"]),
+        "window_start": f"{start.day} {start:%B}",
+        "window_end": f"{end.day} {end:%B %Y}",
+        "min_n": _thousands(min_n),
+        "ci_percent": _thousands(confidence),
+        "undecided_rule_inputs": _thousands(undecided),
+        "below_bands_judged": _thousands(below),
+        "lowest_band": _thousands(lowest),
+        "csv_name": f"porchlamp-{sid}-ranked.csv",
+        "frozen_url": f"{SITE_ORIGIN}/black-holes/{sid}/",
+        "source_db_sha256": db_sha,
+        "constants_hash": constants_hash,
+    })
+    for i, (key, band) in enumerate(bands):
+        out[f"bands.{i}.label"] = _band_text(key)
+        out[f"bands.{i}.judged"] = _thousands(band["n"])
+        out[f"bands.{i}.black_holes"] = _thousands(band["black_holes"])
+        out[f"bands.{i}.share"] = _share_text(band["black_holes"], band["n"], 0)
+    for i, (key, n, holes) in enumerate(ecosystems):
+        out[f"ecosystems.{i}.name"] = names[key]
+        out[f"ecosystems.{i}.judged"] = _thousands(n)
+        out[f"ecosystems.{i}.black_holes"] = _thousands(holes)
+        out[f"ecosystems.{i}.share"] = _share_text(holes, n, 1)
+    if not below:
+        del out["below_bands_judged"], out["lowest_band"]  # the "not charted" note is left out
+    if not undecided:
+        del out["undecided_rule_inputs"]  # the measurement bullet is left out
+    return out
+
+
+def _report_sentences(hooks: dict[str, str], names: dict[str, str]) -> dict[str, str]:
+    """Every report sentence that carries a number or a claim, worded here again from the hooks' values (the text a
+    reader sees, tags dropped). Written independently of ``report_pages``' templates, so a number the page puts in
+    the wrong place, or a template that does, is a mismatch."""
+    v = hooks
+    rows = sorted({int(k.split(".")[1]) for k in v if k.startswith("ecosystems.")})
+    bands = sorted({int(k.split(".")[1]) for k in v if k.startswith("bands.")})
+    out = {
+        "finding-share": f"More than 1 in {v['one_in']}.",
+        "finding-share text": (
+            f"In Porchlamp's {v['snapshot_id']} snapshot, {v['black_holes']} of {v['judged']} active open-source projects "
+            f"({v['share']}%) left most outside pull requests with no human reply, review or merge within "
+            f"{v['deadline_days']} days."
         ),
-        "finding-stars": (
-            f"More stars, more silence. The share rises with stars: {p1}% of projects with {l1} stars, {p2}% at {l2}, "
-            f"and {p3}% at {l3}. #"
+        "finding-stars": "More stars, more silence.",
+        "finding-stars text": (
+            f"The share rises with stars: {v['band1_share']}% of projects with {v['band1_label']} stars, "
+            f"{v['band2_share']}% at {v['band2_label']}, and {v['band3_share']}% at {v['band3_label']}."
         ),
-        "finding-top100": (
-            f"Fame is no guarantee. {top100_black_holes} of the 100 most-starred projects are black holes, and only "
-            f"{top100_overlap} of them reach Porchlamp's top 100. #"
+        "finding-top100": "Fame is no guarantee.",
+        "finding-top100 text": (
+            f"{v['top100_black_holes']} of the 100 most-starred projects are black holes, and only {v['top100_overlap']} "
+            "of them reach Porchlamp's top 100."
         ),
-        "finding-correlation": (
-            f"Stars barely predict an answer. Across {fmt(ranked)} ranked projects, the rank correlation between stars "
-            f"and the Porchlamp score is {rp.rho_text(rho)}. #"
+        "finding-correlation": "Stars barely predict an answer.",
+        "finding-correlation text": (
+            f"Across {v['ranked']} ranked projects, the rank correlation between stars and the Porchlamp score is {v['rho']}."
         ),
-        "finding-prs": (
-            f"Most of those pull requests waited. Inside the black-hole projects, {fmt(unanswered)} of {fmt(counted)} "
-            f"counted outside pull requests got no human reply within {deadline} days. #"
+        "finding-prs": "Most of those pull requests waited.",
+        "finding-prs text": (
+            f"Inside the black-hole projects, {v['unanswered']} of {v['counted']} counted outside pull requests got no "
+            f"human reply within {v['deadline_days']} days."
+        ),
+        "lede": (
+            "The state of open-source black holes: how often a stranger's pull request goes unanswered, in the "
+            f"Porchlamp snapshot of {v['snapshot_date']}."
+        ),
+        "intro": "You send a small fix to a project you use every day. Two weeks later, nobody has replied.",
+        "stars answer": "They answer less often, on average. The black-hole share climbs at every step up in stars.",
+        "ecosystems answer": (
+            f"{names['pypi']} and {names['npm']} projects go quiet more often than {names['crates']}, {names['go']}, "
+            f"{names['maven']} or {names['systems']} projects. Each share is computed within its own ecosystem."
+        ),
+        "stars caption": "Black-hole share by stars: " + "; ".join(
+            f"{v[f'bands.{i}.share']}% of {v[f'bands.{i}.judged']} projects with {v[f'bands.{i}.label']} stars" for i in bands
+        ) + ".",
+        "ecosystems caption": "Black-hole share by package ecosystem, highest first: " + "; ".join(
+            f"{v[f'ecosystems.{i}.name']} {v[f'ecosystems.{i}.share']}% of {v[f'ecosystems.{i}.judged']}" for i in rows
+        ) + ".",
+        "download": (
+            f"{v['csv_name']}: the {v['ranked']} ranked projects with rank, owner, name, ecosystem, score, tier, coverage, "
+            "quadrant and the rank in each lens. Released under CC BY 4.0."
+        ),
+        "cite": (
+            f"Porchlamp ({v['year']}). Stars don't review pull requests: the state of open-source black holes. Snapshot "
+            f"{v['snapshot_id']}. {v['frozen_url']}"
+        ),
+        "hashes": (
+            f"Data licence: CC BY 4.0. Snapshot database SHA-256: {v['source_db_sha256']}. Methodology constants hash: "
+            f"{v['constants_hash']}."
         ),
         "description": (
-            f"{share}% of active open-source projects left most outside pull requests unanswered for two weeks. The "
-            f"share rises with stars. Data on {fmt(corpus['derived_repos'])} GitHub projects."
+            f"{v['share']}% of active open-source projects left most outside pull requests unanswered for two weeks. The "
+            f"share rises with stars. Data on {v['corpus_projects']} GitHub projects."
         ),
         "dataset": (
-            f"{fmt(black_holes)} of {fmt(judged)} active open-source projects ({share}%) left most outside pull requests "
-            f"with no human reply, review or merge within {deadline} days, in Porchlamp's {sid} snapshot. The share "
-            f"rises with stars: {p1}% at {l1} stars, {p2}% at {l2}, {p3}% at {l3}. Includes the {fmt(ranked)} ranked "
-            "projects with rank, score, tier, coverage and quadrant."
-        ),
-        "chart-stars": "Black-hole share by stars: " + "; ".join(
-            f"{pct0(b['black_holes'], b['n'])}% of {fmt(b['n'])} projects with {rp.band_range_text(k)} stars" for k, b in bands
-        ) + ".",
-        "chart-ecosystems": "Black-hole share by package ecosystem, highest first: " + "; ".join(
-            f"{name} {pct1(bh, n)}% of {fmt(n)}" for name, n, bh in ecosystems
-        ) + ".",
-        "bullet-2": (
-            f"A project is judged only when it is licensed, maintained software with at least {min_n} counted outside "
-            "pull requests."
-        ),
-        "bullet-3": (
-            "It is a black hole when, with 95% confidence, more than half of those pull requests got no substantive "
-            f"reply, review or merge within {deadline} days."
+            f"{v['black_holes']} of {v['judged']} active open-source projects ({v['share']}%) left most outside pull "
+            f"requests with no human reply, review or merge within {v['deadline_days']} days, in Porchlamp's "
+            f"{v['snapshot_id']} snapshot. The share rises with stars: {v['band1_share']}% at {v['band1_label']} stars, "
+            f"{v['band2_share']}% at {v['band2_label']}, {v['band3_share']}% at {v['band3_label']}. Includes the "
+            f"{v['ranked']} ranked projects with rank, score, tier, coverage and quadrant."
         ),
     }
-    if undecided:
-        out["bullet-undecided"] = (
-            f"Another {fmt(undecided)} licensed, maintained projects with at least {min_n} outside pull requests on "
-            "record are not judged yet: those records were fetched before drafts and closes were recorded, and the "
-            "rules need both."
+    method = [
+        f"We followed {v['corpus_prs']} pull requests from {v['corpus_authors']} outside contributors to "
+        f"{v['corpus_projects']} GitHub projects, from {v['window_start']} to {v['window_end']}.",
+        f"A project is judged only when it is licensed, maintained software with at least {v['min_n']} counted outside "
+        "pull requests.",
+    ]
+    if "undecided_rule_inputs" in v:
+        method.append(
+            f"Another {v['undecided_rule_inputs']} licensed, maintained projects with at least {v['min_n']} outside pull "
+            "requests on record are not judged yet: those records were fetched before drafts and closes were recorded, "
+            "and the rules need both."
         )
-    if start is not None and end is not None:
-        out["bullet-1"] = (
-            f"We followed {fmt(corpus['human_outside_prs'])} pull requests from {fmt(corpus['distinct_outside_authors'])} "
-            f"outside contributors to {fmt(corpus['derived_repos'])} GitHub projects, from {start.day} {start:%B} to "
-            f"{end.day} {end:%B %Y}."
-        )
+    method.append(
+        f"It is a black hole when, with {v['ci_percent']}% confidence, more than half of those pull requests got no "
+        f"substantive reply, review or merge within {v['deadline_days']} days."
+    )
+    out["method"] = method
+    if "below_bands_judged" in v:
+        noun = "project" if v["below_bands_judged"] == "1" else "projects"
+        out["stars note"] = f"Not charted: {v['below_bands_judged']} judged {noun} with fewer than {v['lowest_band']} stars."
     return out
 
 
@@ -678,14 +771,15 @@ def _check_stats_file(ledger: "_Ledger", db: Path, stats: dict, root: Path) -> N
 
 
 #: The ten landing pages, typed again here (double entry against ``porchlamp/serve/landing_pages.py``):
-#: slug -> (ecosystem key, name in the title, registry or name in "the judged ... projects").
+#: slug -> (ecosystem key, name in the title, name in "the judged ... projects"). The names are copy.js's plain
+#: ``ECOSYSTEM_NAMES`` (owner, 2026-10-17), never a registry's.
 LANDING_ECOSYSTEMS = {
-    "rust": ("crates", "Rust", "crates.io"),
-    "python": ("pypi", "Python", "PyPI"),
-    "javascript": ("npm", "JavaScript and TypeScript", "npm"),
+    "rust": ("crates", "Rust", "Rust"),
+    "python": ("pypi", "Python", "Python"),
+    "javascript": ("npm", "JavaScript", "JavaScript"),
     "go": ("go", "Go", "Go"),
-    "java": ("maven", "Java", "Maven"),
-    "c-cpp": ("systems", "C, C++ and Zig", "C, C++ and Zig"),
+    "java": ("maven", "Java", "Java"),
+    "c-cpp": ("systems", "C and C++", "C and C++"),
 }
 #: slug -> (lens key, the phrase after "projects for").
 LANDING_LENSES = {
@@ -708,17 +802,35 @@ def _judged_by_ecosystem(conn: sqlite3.Connection, sid: str) -> dict[str, tuple[
     return {eco: (n, bh or 0) for eco, n, bh in rows}
 
 
-def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any = None, log=print) -> dict:
-    """Recompute every number on the report pages and the CSV from the database, the API and the stats file, and
-    compare; the methodology page must be the app's page at its address. ``{"checked": n, "errors": [...]}``; passing means no errors.
+def _report_main(text: str) -> Optional[str]:
+    """The report page's ``<main>`` content: what the report view drew (``web/app/views/report.js``)."""
+    found = re.search(r'<main class="app-main" id="app-main" tabindex="-1"[^>]*>(.*?)\n *</main>', text, re.S)
+    return found.group(1) if found else None
 
-    The expected values come from sources the exporter's page code does not read in this function: the
-    judged / black-hole counts from their own SQL on the database, the ranked count, the leaderboards and
-    the black-hole evidence from the API, the star bands, correlation and corpus from the stats file, which
-    must itself equal what ``porchlamp.snapshot stats`` recomputes from the database and the data root.
-    Every sentence with a number is compared whole, against the sentence rebuilt from those values
-    (:func:`_report_sentences`). ``evidence_files`` (:class:`porchlamp.serve.app.PinnedEvidenceFiles`) are
-    the files the export read the black-hole evidence from; their data root is also the stats file's."""
+
+def _shipped_stylesheet(site: Path) -> str:
+    """What the frozen copy's ``styles.css`` must hold: the stylesheets the site's app page links, in its order, from
+    the site itself, each after a line naming it (ENG-14)."""
+    hrefs = re.findall(r'<link rel="stylesheet" href="(/styles/[^"]*)">', (site / "404.html").read_text(encoding="utf-8"))
+    return "".join(f"/* {href} */\n" + (site / href.lstrip("/")).read_text(encoding="utf-8").rstrip("\n") + "\n" for href in hrefs)
+
+
+def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any = None, log=print) -> dict:
+    """The report (``/black-holes/``, the app's report view drawn into the page at export) and its frozen copy, then
+    the CSV, against the database, the API and the stats file. ``{"checked", "hooks", "csv_cells", "errors"}``;
+    passing means no errors.
+
+    The expected values come from sources the export's report code does not read here: the judged / black-hole
+    counts from their own SQL on the database, the ranked count, the leaderboards and the black-hole evidence from
+    the API, the star bands, correlation and corpus from the stats file, which must itself equal what
+    ``porchlamp.snapshot stats`` recomputes from the database and the data root, and the database digest from this
+    file's own sha256 of the database file. They are formatted here (:func:`report_hooks`), never read from
+    ``data/``. On each page every ``data-v`` hook must equal its value, every hook must be there (the page type's hook
+    count) and no other may be; every sentence with a number is compared whole (:func:`_report_sentences`); the
+    page's ``<main>`` is byte for byte what ``web/prerender.mjs`` draws from a record holding the values worked out
+    here (ENG-17); and the frozen copy loads no app and one stylesheet, the site's own stylesheets joined (ENG-14).
+    ``evidence_files`` (:class:`porchlamp.serve.app.PinnedEvidenceFiles`) are the files the export read the
+    black-hole evidence from; their data root is also the stats file's."""
     from fastapi.testclient import TestClient
 
     from porchlamp.core import constants
@@ -778,83 +890,107 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
     if len(window) != 1:
         for error in ledger.errors:
             log(f"REPORT MISMATCH {error}")
-        return {"checked": ledger.checked, "csv_cells": 0, "errors": ledger.errors}
+        return {"checked": ledger.checked, "hooks": 0, "csv_cells": 0, "errors": ledger.errors}
 
-    fmt, pct0, pct1 = rp.fmt_int, rp.pct0, rp.pct1
-    bands = [(key, stats["by_stars"][key]) for key in rp.STAR_BANDS]
-    eco_order = sorted(per_eco, key=lambda e: (-Decimal(per_eco[e][1]) / Decimal(per_eco[e][0]), e))
-    corpus = stats["corpus"]
-    start, end = sorted(window)[0] if window else ("", "")
-    ds, de = (rp._iso_date(start, "start"), rp._iso_date(end, "end")) if window else (None, None)
-    gate5 = next(g for g in methodology["gates"] if g["id"] == "D-GATE-5")
-    min_n, deadline = gate5["cutoffs"]["min_n"], gate5["cutoffs"]["response_deadline_days"]
-    db_sha = hashlib.sha256(db.read_bytes()).hexdigest()
     if evidence_files is None:
         ledger.checked += 1
         ledger.errors.append("stats file: no data root to recompute it from (pass --snapshot-dir and --data-dir)")
     else:
         _check_stats_file(ledger, db, stats, evidence_files.data_dir)
-    expected = _report_sentences(
-        sid=sid, judged=judged, black_holes=black_holes, deadline=deadline, min_n=min_n, bands=bands,
-        top100_black_holes=stats["top100_stars_fate"]["black_hole"], top100_overlap=stats["top100_overlap"],
-        ranked=ranked, rho=stats["spearman"]["porchlamp"]["rho"], unanswered=unanswered, counted=counted,
-        corpus=corpus, start=ds, end=de, ecosystems=[(rp.ECOSYSTEM_NAMES.get(e, e), *per_eco[e]) for e in eco_order],
-        undecided=stats.get("gate5_undecided_rule_inputs", 0),
+    names = rp.copy_js_map("ECOSYSTEM_NAMES")  # the one list of names (copy.js), which every page uses
+    bands = [(key, stats["by_stars"][key]) for key in rp.STAR_BANDS]
+    lowest = min(int(re.match(r"\[(\d+),", key).group(1)) for key, _ in bands)
+    below = sum(b["n"] for key, b in stats["by_stars"].items() if int(re.match(r"\[(\d+),", key).group(1)) < lowest)
+    eco_order = sorted(per_eco, key=lambda e: (-Decimal(per_eco[e][1]) / Decimal(per_eco[e][0]), e))
+    (start, end), = window
+    gate5 = next(g for g in methodology["gates"] if g["id"] == "D-GATE-5")
+    db_sha = hashlib.sha256(db.read_bytes()).hexdigest()
+    rho = stats["spearman"]["porchlamp"]["rho"]
+    top100_black_holes = stats["top100_stars_fate"]["black_hole"]
+    hooks = report_hooks(
+        sid=sid, judged=judged, black_holes=black_holes, deadline=gate5["cutoffs"]["response_deadline_days"],
+        min_n=gate5["cutoffs"]["min_n"], confidence=95, bands=bands, below=below, lowest=lowest,
+        top100_black_holes=top100_black_holes, top100_overlap=stats["top100_overlap"], ranked=ranked, rho=rho,
+        unanswered=unanswered, counted=counted, corpus=stats["corpus"], start=date.fromisoformat(start),
+        end=date.fromisoformat(end), undecided=stats.get("gate5_undecided_rule_inputs", 0),
+        ecosystems=[(e, *per_eco[e]) for e in eco_order], names=names, constants_hash=snapshot["constants_hash"],
+        db_sha=db_sha,
     )
-    bullet_ids = ["bullet-1", "bullet-2", *(["bullet-undecided"] if "bullet-undecided" in expected else []), "bullet-3"]
+    expected = _report_sentences(hooks, names)
     # the sentences that hold only for some numbers
     band_shares = [Decimal(b["black_holes"]) / Decimal(b["n"]) for _, b in bands]
     ledger.equal("'the share rises with stars' holds", all(a < b for a, b in zip(band_shares, band_shares[1:])), True)
+    shares = {e: Decimal(per_eco[e][1]) / Decimal(per_eco[e][0]) for e in per_eco}
+    ledger.equal(
+        "'Python and JavaScript go quiet more often than the other four' holds",
+        all(shares[q] > shares[b] for q in ("pypi", "npm") for b in ("crates", "go", "maven", "systems")), True,
+    )
+    ledger.equal("'Stars barely predict an answer' holds (|rho| < 0.3)", abs(Decimal(str(rho))) < Decimal("0.3"), True)
+    ledger.equal("'Fame is no guarantee' holds (a black hole in the 100 most-starred)", top100_black_holes > 0, True)
+    ledger.equal("'Most of those pull requests waited' holds", unanswered * 2 > counted, True)
+
+    h2_expected = [rp.copy_js_string(n) for n in (
+        "REPORT_FINDINGS_HEADING", "REPORT_STARS_HEADING", "REPORT_ECOSYSTEMS_HEADING", "REPORT_METHOD_HEADING",
+        "REPORT_LIMITS_HEADING", "REPORT_DOWNLOAD_HEADING", "REPORT_CITE_HEADING",
+    )]
+    old_ids = [*_FINDINGS, "key-findings", "stars", "ecosystems", "how-we-measured", "what-this-is-not", "download", "cite"]
     pages = {"black-holes/index.html": "latest", f"black-holes/{sid}/index.html": "frozen"}
-    texts = {}
+    texts: dict[str, str] = {}
+    counts: dict[str, int] = {}
     for rel, label in pages.items():
         path = site / rel
         if not path.is_file():
             ledger.errors.append(f"{rel} is missing")
             continue
-        page = path.read_text(encoding="utf-8")
-        texts[label] = page
+        text = path.read_text(encoding="utf-8")
+        texts[label] = text
         w = rel
-        when = f"snapshot {sid}" if label == "frozen" else f"{rp._iso_date(sid, 'snapshot id'):%B %Y}"
-        ledger.contains(f"{w} <title>", _plain(re.search(r"<title>(.*?)</title>", page, re.S).group(1)), f"({when})")
-        description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', page).group(1))
+        page = read_page(text, elements=True)
+        found = [hook for hook in page.hooks if hook[0].split(".")[0] not in ("header", "footer")]  # the chrome's: verify_chrome
+        _compare_hooks(ledger, w, found, hooks)
+        counts[label] = len(found)
+        ledger.equal(f"{w} h1", [t for tag, t in page.headings if tag == "h1"], [rp.copy_js_string("REPORT_H1")])
+        ledger.equal(f"{w} h2", [t for tag, t in page.headings if tag == "h2"], h2_expected)
+        ledger.equal(f"{w} keeps the old anchors", sorted(set(old_ids) - page.ids), [])
+        # every sentence with a number, whole
+        lead = page.element(id="finding-share")
+        ledger.equal(f"{w} #finding-share figure", page.text(id="finding-share-lead"), expected["finding-share"])
+        ledger.equal(f"{w} #finding-share sentence", page.text(cls="report-figure-text", within=lead), expected["finding-share text"])
+        for ident in _FINDINGS[1:]:
+            box = page.element(id=ident)
+            ledger.equal(f"{w} #{ident} lead", page.text(tag="h3", within=box), expected[ident])
+            ledger.equal(f"{w} #{ident}", page.text(tag="p", within=box), expected[f"{ident} text"])
+        ledger.equal(f"{w} lede", page.text(cls="report-lede"), expected["lede"])
+        ledger.equal(f"{w} intro (it ends at 'nobody has replied.')", page.text(cls="report-intro"), expected["intro"])
+        answers = [e["text"] for e in page.find(cls="report-answer")]
+        ledger.equal(f"{w} the charts' answers", answers, [expected["stars answer"], expected["ecosystems answer"]])
+        captions = [e["text"] for e in page.find(tag="caption")]
+        ledger.equal(f"{w} the charts' captions", captions, [expected["stars caption"], expected["ecosystems caption"]])
+        notes = [e["text"] for e in page.find(cls="report-note", within=page.element(tag="section", aria="stars"))]
+        ledger.equal(f"{w} stars note", notes, [expected["stars note"]] if "stars note" in expected else [])
+        method = [e["text"] for e in page.find(tag="li", within=page.element(tag="section", aria="how-we-measured"))]
+        ledger.equal(f"{w} how-we-measured", method[: len(expected["method"])], expected["method"])
+        limits = [e["text"] for e in page.find(tag="li", within=page.element(tag="section", aria="what-this-is-not"))]
+        ledger.equal(f"{w} Limits are copy.js's", limits[:-1], rp.copy_js_list("LIMITS"))
+        download = page.element(tag="section", aria="download")
+        ledger.equal(f"{w} download", page.text(tag="p", within=download), expected["download"])
+        ledger.equal(f"{w} cite", page.text(cls="report-cite"), expected["cite"])
+        ledger.equal(f"{w} hashes", page.text(cls="report-hashes"), expected["hashes"])
+        # the links: the frozen copy (its only inbound link), the CSV, each ecosystem's page, the method, the rankings
+        links = set(page.links)
+        for href in (f"/black-holes/{sid}/", f"/black-holes/{sid}/{hooks['csv_name']}", "/methodology/", "/"):
+            ledger.equal(f"{w} links {href}", href in links, True)
+        eco_links = [e["href"] for e in page.find(tag="a", within=page.element(tag="section", aria="ecosystems"))]
+        ledger.equal(f"{w} ecosystem rows link their pages", eco_links, [f"/{ECOSYSTEM_PAGE_SLUGS[e]}/" for e in eco_order])
+        # head: title, description, canonical, JSON-LD
+        when = f"snapshot {sid}" if label == "frozen" else f"{date.fromisoformat(sid):%B %Y}"
+        ledger.contains(f"{w} <title>", _plain(re.search(r"<title>(.*?)</title>", text, re.S).group(1)), f"({when})")
+        description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1))
         ledger.equal(f"{w} meta description", description, expected["description"])
-        # each finding, whole: a number in the wrong place is a different sentence
-        for ident in _FINDINGS:
-            ledger.equal(f"{w} #{ident}", _by_id(page, ident), expected[ident])
-        # the charts' text alternatives and the tables behind them
-        ledger.equal(f"{w} stars chart label", _svg_label(page, "chart-stars"), expected["chart-stars"])
-        table = _rows(_section(page, "stars"))
-        ledger.equal(f"{w} stars table", [r[1:] for r in table], [
-            [fmt(b["n"]), fmt(b["black_holes"]), pct0(b["black_holes"], b["n"]) + "%"] for _, b in bands
-        ])
-        ledger.equal(f"{w} ecosystem chart label", _svg_label(page, "chart-ecosystems"), expected["chart-ecosystems"])
-        table = _rows(_section(page, "ecosystems"))
-        ledger.equal(f"{w} ecosystem table", [r[1:] for r in table], [
-            [fmt(per_eco[e][0]), fmt(per_eco[e][1]), pct1(per_eco[e][1], per_eco[e][0]) + "%"] for e in eco_order
-        ])
-        eco_links = re.findall(r'<th scope="row"><a href="([^"]*)">', _section(page, "ecosystems"))
-        ledger.equal(f"{w} ecosystem table links to the ecosystem pages", eco_links, [
-            f"{'../' if label == 'latest' else '../../'}{ECOSYSTEM_PAGE_SLUGS[e]}/" for e in eco_order
-        ])
-        # how we measured
-        bullets = _items(_section(page, "how-we-measured"))
-        ledger.equal(f"{w} how-we-measured bullet count", len(bullets), len(bullet_ids) + 2)
-        if len(bullets) == len(bullet_ids) + 2:
-            for ident, bullet in zip(bullet_ids, bullets):
-                ledger.equal(f"{w} how-we-measured {ident}", bullet, expected[ident])
-        ledger.token(f"{w} download", _plain(_section(page, "download")), fmt(ranked))
-        ledger.contains(f"{w} download", _plain(_section(page, "download")), f"porchlamp-{sid}-ranked.csv")
-        cite = _plain(_section(page, "cite"))
-        for token in (sid, str(ds.year if ds else "")):
-            ledger.token(f"{w} cite", cite, token)
-        ledger.equal(f"{w} cite: database sha256", db_sha in cite, True)
-        ledger.equal(f"{w} cite: constants hash", snapshot["constants_hash"] in cite, True)
-        # canonical, JSON-LD
-        canonical = re.search(r'<link rel="canonical" href="([^"]*)"', page).group(1)
+        canonical = re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1)
         expected_url = f"{SITE_ORIGIN}/black-holes/" + (f"{sid}/" if label == "frozen" else "")
         ledger.equal(f"{w} canonical", canonical, expected_url)
-        ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', page, re.S).group(1))
+        ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
         nodes = {n["@type"]: n for n in ld["@graph"]}
         dataset = nodes["Dataset"]
         ledger.equal(f"{w} Dataset license", dataset["license"], "https://creativecommons.org/licenses/by/4.0/")
@@ -864,11 +1000,53 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         ledger.equal(f"{w} Dataset encodingFormat", dataset["distribution"][0]["encodingFormat"], "text/csv")
         ledger.equal(f"{w} Dataset description", dataset["description"], expected["dataset"])
         ledger.equal(f"{w} Article description", nodes["Article"]["description"], expected["description"])
-        ledger.equal(f"{w} Article headline", nodes["Article"]["headline"], rp.REPORT_H1)
+        ledger.equal(f"{w} Article headline", nodes["Article"]["headline"], rp.copy_js_string("REPORT_H1"))
         ledger.equal(f"{w} Dataset url", dataset["url"], expected_url)
+        # what each page loads: the latest is the app's page; the frozen copy, no app and its own stylesheet
+        sheets = re.findall(r'<link rel="stylesheet" href="([^"]*)">', text)
+        if label == "frozen":
+            ledger.equal(f"{w} stylesheets", sheets, [f"/black-holes/{sid}/styles.css"])
+            ledger.equal(f"{w} loads no app", "/app.js" in text, False)
+            ledger.equal(f"{w} is no page the app takes over", "data-prerendered" in text, False)
+        else:
+            ledger.equal(f"{w} stylesheets", sheets, re.findall(r'<link rel="stylesheet" href="([^"]*)">', (site / "404.html").read_text(encoding="utf-8")))
+            ledger.equal(f"{w} is the app's page", '<script type="module" src="/app.js"></script>' in text, True)
     if "latest" in texts and "frozen" in texts:
-        for ident in _FINDINGS:
-            ledger.equal(f"latest and frozen agree on #{ident}", _by_id(texts["latest"], ident), _by_id(texts["frozen"], ident))
+        ledger.equal("latest and frozen draw the same report", _report_main(texts["frozen"]), _report_main(texts["latest"]))
+    styles = site / "black-holes" / sid / "styles.css"
+    ledger.equal(
+        f"black-holes/{sid}/styles.css is the site's stylesheets, joined",
+        styles.read_text(encoding="utf-8") if styles.is_file() else None, _shipped_stylesheet(site),
+    )
+
+    # the page again, from a record that holds the values worked out here: the view's own bytes (ENG-17)
+    record_path = site / "data" / sid / "report.json"
+    again = None
+    if record_path.is_file() and "latest" in texts:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        values = {k: v for k, v in hooks.items() if "." not in k and k != "source_db_sha256"}
+        ledger.equal("report.json values are the ones worked out here", record.get("values"), values)
+        # the record's words (its templates) with this file's numbers: a wrong number in report.json cannot agree
+        record.update({
+            "values": values,
+            "counts": {"judged": judged, "black_holes": black_holes},
+            "bands": [
+                {"key": key, "label": hooks[f"bands.{i}.label"], "judged": band["n"], "black_holes": band["black_holes"],
+                 "judged_text": hooks[f"bands.{i}.judged"], "black_holes_text": hooks[f"bands.{i}.black_holes"],
+                 "share_text": hooks[f"bands.{i}.share"]}
+                for i, (key, band) in enumerate(bands)
+            ],
+            "ecosystems": [
+                {"key": eco, "name": hooks[f"ecosystems.{i}.name"], "path": f"/{ECOSYSTEM_PAGE_SLUGS[eco]}/",
+                 "judged": per_eco[eco][0], "black_holes": per_eco[eco][1], "judged_text": hooks[f"ecosystems.{i}.judged"],
+                 "black_holes_text": hooks[f"ecosystems.{i}.black_holes"], "share_text": hooks[f"ecosystems.{i}.share"]}
+                for i, eco in enumerate(eco_order)
+            ],
+        })
+        again = _redraw_report(site, sid, snapshot, methodology, db_sha, record)
+        ledger.equal("the report is what the prerender draws from the values worked out here (bytes)", again, _report_main(texts["latest"]))
+    else:
+        ledger.errors.append(f"data/{sid}/report.json is missing")
 
     # the CSV: every ranked project, each lens rank, no one else
     csv_path = site / "black-holes" / sid / f"porchlamp-{sid}-ranked.csv"
@@ -880,10 +1058,10 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         ledger.equal("CSV data rows", len(table) - 1, ranked)
         lens_rank = {lens: {(r["owner"], r["name"]): str(r["rank"]) for r in boards[lens]} for lens in lenses}
         wrong = 0
-        for row, expected in zip(table[1:], boards["balanced"]):
-            want = [str(expected["rank"]), expected["owner"], expected["name"], expected["ecosystem"], str(expected["porchlamp"]),
-                    expected["tier"] or "", str(expected["coverage"]), expected["quadrant"] or ""]
-            want += [lens_rank[lens].get((expected["owner"], expected["name"]), "") for lens in lenses]
+        for row, want_row in zip(table[1:], boards["balanced"]):
+            want = [str(want_row["rank"]), want_row["owner"], want_row["name"], want_row["ecosystem"], str(want_row["porchlamp"]),
+                    want_row["tier"] or "", str(want_row["coverage"]), want_row["quadrant"] or ""]
+            want += [lens_rank[lens].get((want_row["owner"], want_row["name"]), "") for lens in lenses]
             if row != want:
                 wrong += 1
                 if wrong <= 3:
@@ -894,13 +1072,13 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
     else:
         ledger.errors.append(f"{csv_path.relative_to(site)} is missing")
 
-    # the methodology page is the app's own view (web/app/routes.js), drawn in the browser from methodology.json and
-    # snapshot.json, which the request grid compares with the API: the page is the app at the view's address
+    # the methodology page is the app's own view (web/app/routes.js), checked by verify_methodology: here, that it is
+    # the app at the view's address
     meth_path = site / "methodology" / "index.html"
     if meth_path.is_file():
-        page = meth_path.read_text(encoding="utf-8")
-        ledger.equal("methodology canonical", re.search(r'<link rel="canonical" href="([^"]*)"', page).group(1), f"{SITE_ORIGIN}/methodology/")
-        ledger.equal("methodology is the app's page", '<script type="module" src="/app.js"></script>' in page, True)
+        page_text = meth_path.read_text(encoding="utf-8")
+        ledger.equal("methodology canonical", re.search(r'<link rel="canonical" href="([^"]*)"', page_text).group(1), f"{SITE_ORIGIN}/methodology/")
+        ledger.equal("methodology is the app's page", '<script type="module" src="/app.js"></script>' in page_text, True)
     else:
         ledger.errors.append("methodology/index.html is missing")
 
@@ -910,12 +1088,39 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
             titles.append(re.search(r"<title>(.*?)</title>", (site / rel).read_text(encoding="utf-8"), re.S).group(1))
     ledger.equal("the three titles differ", len(set(titles)), 3)
     log(
-        f"verify: report pages: checked {ledger.checked} numbers and values on {len(pages) + 1} pages, "
-        f"and {csv_cells} CSV cells"
+        f"verify: report pages: {len(hooks)} hooks per page (" + ", ".join(f"{label} {n} printed" for label, n in counts.items())
+        + f"), checked {ledger.checked} values; re-drawn from the values worked out here "
+        f"{'byte-identical' if again is not None and again == _report_main(texts.get('latest', '')) else 'DIFFERENT'}; "
+        f"{csv_cells} CSV cells"
     )
-    for error in ledger.errors:
+    for error in ledger.errors[:60]:
         log(f"REPORT MISMATCH {error}")
-    return {"checked": ledger.checked, "csv_cells": csv_cells, "errors": ledger.errors}
+    return {"checked": ledger.checked, "hooks": len(hooks), "csv_cells": csv_cells, "errors": ledger.errors}
+
+
+def _redraw_report(site: Path, sid: str, snapshot: dict, methodology: dict, db_sha: str, record: dict) -> Optional[str]:
+    """The report's ``<main>`` as ``web/prerender.mjs`` draws it from ``record`` (with the API's snapshot and
+    methodology, and this file's digest of the database), into the export's own page skeleton for the view."""
+    export_static = _export_static()
+    node = find_node()
+    route = next(r for r in export_static.app_routes() if r["id"] == "report")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        data = root / "data" / sid
+        data.mkdir(parents=True)
+        for name, payload in (("snapshot", snapshot), ("methodology", methodology), ("manifest", {"source_db_sha256": db_sha}),
+                              ("report", record)):
+            (data / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+        (root / "api.js").write_bytes(export_static.STATIC_API.read_bytes())
+        (root / "data-version.js").write_text(export_static.data_version_js(sid), encoding="utf-8")
+        (root / "black-holes").mkdir()
+        (root / "black-holes" / "index.html").write_text(export_static.view_page(route), encoding="utf-8")
+        (root / "job.json").write_text(json.dumps({"pages": [{"path": "black-holes/index.html", "view": "report"}]}), encoding="utf-8")
+        ran = subprocess.run([node, str(REPO_ROOT / "web" / "prerender.mjs"), str(root), str(root / "job.json")],
+                             capture_output=True, text=True, timeout=120, check=False)
+        if ran.returncode != 0:
+            return f"prerender failed: {ran.stderr[-600:]}"
+        return _report_main((root / "black-holes" / "index.html").read_text(encoding="utf-8"))
 
 
 # --------------------------------------------------------------------------- #
@@ -933,17 +1138,20 @@ _SCRIPT_TAG = re.compile(r"<script\b([^>]*)>")
 
 class _PageReader(HTMLParser):
     """A page as a reader without JavaScript gets it, through Python's own HTML parser: every ``data-v`` hook (its id and
-    the text inside it), the h1 and h2 headings, every element id and every link."""
+    the text inside it), the h1, h2 and h3 headings, every element id and every link; with ``elements``, every element
+    too (tag, id, classes, ``aria-labelledby``, href, parent, text), for :meth:`find`."""
 
     _VOID = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"})
 
-    def __init__(self) -> None:
+    def __init__(self, *, elements: bool = False) -> None:
         super().__init__(convert_charrefs=True)
         self.hooks: list[tuple[str, str]] = []
         self.headings: list[tuple[str, str]] = []
         self.ids: set[str] = set()
         self.links: list[str] = []
-        self._open: list[tuple[str, Optional[str], list[str]]] = []  # (tag, hook id or heading, text so far)
+        self.elements: Optional[list[dict]] = [] if elements else None
+        # (tag, hook id or heading, text so far, index in self.elements)
+        self._open: list[tuple[str, Optional[str], list[str], Optional[int]]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
         found = dict(attrs)
@@ -951,17 +1159,27 @@ class _PageReader(HTMLParser):
             self.ids.add(found["id"])
         if tag == "a" and found.get("href") is not None:
             self.links.append(found["href"])
+        index = None
+        if self.elements is not None:
+            parent = next((entry[3] for entry in reversed(self._open) if entry[3] is not None), None)
+            index = len(self.elements)
+            self.elements.append({
+                "index": index, "tag": tag, "id": found.get("id"), "class": (found.get("class") or "").split(),
+                "aria": found.get("aria-labelledby"), "href": found.get("href"), "parent": parent, "text": "",
+            })
         if tag in self._VOID:
             return
-        mark = f"v:{found['data-v']}" if found.get("data-v") is not None else (f"h:{tag}" if tag in ("h1", "h2") else None)
-        self._open.append((tag, mark, []))
+        mark = f"v:{found['data-v']}" if found.get("data-v") is not None else (f"h:{tag}" if tag in ("h1", "h2", "h3") else None)
+        self._open.append((tag, mark, [], index))
 
     def handle_endtag(self, tag: str) -> None:
-        if all(open_tag != tag for open_tag, _mark, _text in self._open):
+        if all(entry[0] != tag for entry in self._open):
             return  # a stray end tag closes nothing
         while self._open:
-            open_tag, mark, parts = self._open.pop()
+            open_tag, mark, parts, index = self._open.pop()
             text = "".join(parts)
+            if index is not None:
+                self.elements[index]["text"] = re.sub(r"\s+", " ", text).strip()
             if mark and mark.startswith("v:"):
                 self.hooks.append((mark[2:], text))
             elif mark:
@@ -975,9 +1193,34 @@ class _PageReader(HTMLParser):
         if self._open:
             self._open[-1][2].append(data)
 
+    def _within(self, element: dict, ancestor: dict) -> bool:
+        parent = element["parent"]
+        while parent is not None:
+            if parent == ancestor["index"]:
+                return True
+            parent = self.elements[parent]["parent"]
+        return False
 
-def read_page(text: str) -> _PageReader:
-    reader = _PageReader()
+    def find(self, *, tag: Optional[str] = None, id: Optional[str] = None, cls: Optional[str] = None,
+             aria: Optional[str] = None, within: Optional[dict] = None) -> list[dict]:
+        """The elements that match every criterion given, in page order (``within``: inside that element)."""
+        return [
+            e for e in self.elements
+            if (tag is None or e["tag"] == tag) and (id is None or e["id"] == id) and (cls is None or cls in e["class"])
+            and (aria is None or e["aria"] == aria) and (within is None or self._within(e, within))
+        ]
+
+    def element(self, **criteria: Any) -> dict:
+        """The first element that matches, or an empty stand-in (so a missing one reads as no text, a mismatch)."""
+        found = self.find(**criteria)
+        return found[0] if found else {"index": -1, "text": None, "parent": None}
+
+    def text(self, **criteria: Any) -> Optional[str]:
+        return self.element(**criteria)["text"]
+
+
+def read_page(text: str, *, elements: bool = False) -> _PageReader:
+    reader = _PageReader(elements=elements)
     reader.feed(text)
     reader.close()
     return reader
@@ -1116,20 +1359,25 @@ def _api_answers(db: Path, *paths: str) -> list[Any]:
     return answers
 
 
-def _page_kinds(site: Path, report_ids: list[str]) -> dict[str, dict]:
+def _page_kinds(site: Path, snapshot_id: str) -> dict[str, dict]:
     """Each page of the site (every ``index.html``, and ``404.html``), with what the export drew it as: a page of the
-    app (``view``) or another page (``nav``, its nav entry or None) of a script ``kind`` (``report_pages.PAGE_SCRIPTS``)."""
+    app (``view``), the report's frozen copy (the report view, on a page the app does not load), or another page
+    (``nav``, its nav entry or None), each of a script ``kind`` (``report_pages.PAGE_SCRIPTS``). A view whose page needs
+    ``--stats`` (the report) is a page of the site only when the export wrote it."""
+    export_static = _export_static()
     pages: dict[str, dict] = {"404.html": {"view": "notfound", "kind": "app"}}
-    for route in _export_static().app_routes():
-        if route["shell"]:
-            pages[f"{route['path'].strip('/')}/index.html".lstrip("/")] = {"view": route["id"], "kind": "app"}
+    for route in export_static.app_routes():
+        rel = f"{route['path'].strip('/')}/index.html".lstrip("/") if route["shell"] else None
+        if rel and (route["id"] not in export_static.VIEWS_WRITTEN_ELSEWHERE or (site / rel).is_file()):
+            pages[rel] = {"view": route["id"], "kind": "app"}
+    frozen = f"black-holes/{snapshot_id}/index.html"
+    if (site / frozen).is_file():
+        pages[frozen] = {"view": "report", "kind": "page"}
     for path in sorted(site.rglob("index.html")):
         rel = path.relative_to(site).as_posix()
         if rel.startswith("data/") or rel in pages:
             continue
-        if rel.startswith("black-holes/") and any(rel == f"black-holes/{i}index.html" for i in report_ids):
-            pages[rel] = {"nav": "report", "kind": "page"}
-        elif rel.startswith("projects/"):
+        if rel.startswith("projects/"):
             pages[rel] = {"nav": None, "kind": "project"}
         elif rel == "check/index.html":
             pages[rel] = {"nav": None, "kind": "check"}
@@ -1152,7 +1400,7 @@ def verify_chrome(db: Path, site: Path, *, log=print) -> dict:
         raise SystemExit("verify: no Node.js interpreter (PATH, PORCHLAMP_NODE_BIN, ~/.local/opt/node-*)")
     [snapshot] = _api_answers(db, "/v1/porchlamp/snapshot")
     sid = snapshot["snapshot_id"]
-    pages = _page_kinds(site, ["", f"{sid}/"])
+    pages = _page_kinds(site, sid)
     policy = _CSP.findall((REPO_ROOT / "web" / "app" / "404.html").read_text(encoding="utf-8"))
     nav_label = html.escape(rp.copy_js_string("PRIMARY_NAV_LABEL"))
     expected_hooks = {

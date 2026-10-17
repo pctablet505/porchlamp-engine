@@ -23,6 +23,7 @@ export const ROUTES = deepFreeze([
   {"id": "compare", "path": "/compare/", "title": "Compare open-source projects side by side | Porchlamp", "query": ["persona", "cmp"], "shell": true},
   {"id": "configure", "path": "/weights/", "title": "Rank open-source projects with your own pillar weights | Porchlamp", "query": ["eco", "q", "sort", "page", "page_size", "w"], "shell": true},
   {"id": "methodology", "path": "/methodology/", "title": "Porchlamp methodology: how open-source projects are measured and ranked | Porchlamp", "query": [], "shell": true},
+  {"id": "report", "path": "/black-holes/", "title": "Open-source black holes: how many projects ignore outside pull requests | Porchlamp", "query": [], "shell": true},
   {"id": "project", "path": "/projects/{owner}/{name}/", "title": "{owner}/{name}: pull request response time and contributor experience | Porchlamp", "query": ["persona"], "shell": false},
   {"id": "notfound", "path": null, "title": "Page not found | Porchlamp", "query": [], "shell": false}
   // routes:end
