@@ -188,6 +188,12 @@ class Facts:
         return pct1(self.black_holes, self.judged)
 
     @property
+    def one_in(self) -> int:
+        """The ``N`` of "more than 1 in N": the smallest whole number with ``N * black_holes > judged``, so the
+        claim is true and no smaller ``N`` would be."""
+        return self.judged // self.black_holes + 1
+
+    @property
     def window_text(self) -> str:
         """``16 April`` / ``13 October 2026``, as the measurement bullet prints them."""
         return f"{self.window_start.day} {self.window_start:%B}", long_date(self.window_end)
@@ -385,10 +391,8 @@ def _percent_of_share(share: float) -> str:
 
 def check_wording_guards(facts: Facts) -> None:
     """Sentences that are true only for certain numbers. A guard that fails stops the export."""
-    if not facts.black_holes * 4 > facts.judged:
-        raise ReportError(
-            f"guard: 'more than 1 in 4' / 'more than a quarter' needs a share above 25%, got {facts.share_text}%"
-        )
+    if not facts.black_holes > 0:
+        raise ReportError("guard: 'more than 1 in N' needs at least one black hole")
     shares = {row.key: Decimal(row.black_holes) / Decimal(row.judged) for row in facts.ecosystems}
     for quiet in GUARD_QUIET:
         for busy in GUARD_BUSY:
@@ -587,7 +591,7 @@ def finding_paragraphs(f: Facts) -> list[tuple[str, str, str]]:
     return [
         (
             "finding-share",
-            "More than 1 in 4.",
+            f"More than 1 in {f.one_in}.",
             f"In Porchlamp's {f.snapshot_id} snapshot, {fmt_int(f.black_holes)} of {fmt_int(f.judged)} active "
             f"open-source projects ({f.share_text}%) left most outside pull requests with no human reply, review or "
             f"merge within {f.deadline_days} days.",
@@ -757,7 +761,7 @@ def render_report(f: Facts, *, frozen: bool, exported_on: date, source_db_sha256
     body = f"""      <article class="seo-fallback report">
         <h1>{_t(REPORT_H1)}</h1>
         <p class="lede">The state of open-source black holes: how often a stranger's pull request goes unanswered, in the Porchlamp snapshot of {_t(long_date(f.snapshot_date))}.</p>
-        <p>You send a small fix to a project you use every day. Two weeks later, nobody has replied. At more than a quarter of active open-source projects, that is the normal experience.</p>
+        <p>You send a small fix to a project you use every day. Two weeks later, nobody has replied. At more than 1 in {f.one_in} active open-source projects, that is the normal experience.</p>
         <h2 id="key-findings">Key findings</h2>
 {findings}
         <h2 id="stars">Do popular projects answer fewer pull requests?</h2>

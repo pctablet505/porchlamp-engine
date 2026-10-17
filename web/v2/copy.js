@@ -913,7 +913,7 @@ export const WHY_KICKERS = Object.freeze([
 ]);
 export const WHY_PARAGRAPHS = Object.freeze([
   "A porch lamp left on tells a visitor they are expected. Porchlamp ranks open-source projects the same way: by what happens to a stranger's pull request, not by how many stars the project has.",
-  "Stars do not review pull requests. In our measurements more than 1 in 4 active projects leave most pull requests from outside contributors without a human reply, review or merge for two weeks, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.",
+  "Stars do not review pull requests. In our measurements more than 1 in 6 active projects leave most pull requests from outside contributors without a human reply, review or merge for two weeks, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.",
   "Every number comes from public GitHub activity: how fast a person answered outside contributors, how many of their pull requests reached a decision, whether first-time contributors came back, and how much other software depends on the project.",
 ]);
 export const METHODOLOGY_LOADING_TEXT = "Loading the methodology…";
@@ -1046,7 +1046,7 @@ export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
 // --- Links to the static report and methodology pages (scripts/export_static.py --stats) ---------------
 // Relative, so they work from the site root and from a local copy. Real <a href> elements: a crawler that
 // runs the app finds the finding and the link to its page without a click.
-export const FINDINGS_LINE = "More than 1 in 4 active projects leave most strangers' pull requests unanswered for two weeks.";
+export const FINDINGS_LINE = "More than 1 in 6 active projects leave most strangers' pull requests unanswered for two weeks.";
 export const FINDINGS_LINK_LABEL = "Read the findings";
 export const REPORT_PAGE_HREF = "black-holes/";
 export const METHODOLOGY_PAGE_HREF = "methodology/";

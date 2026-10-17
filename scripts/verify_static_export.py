@@ -560,9 +560,10 @@ def _report_sentences(
     (k1, b1), (k2, b2), (k3, b3) = bands
     p1, p2, p3 = (pct0(b["black_holes"], b["n"]) for b in (b1, b2, b3))
     l1, l2, l3 = (rp.band_range_text(k) for k in (k1, k2, k3))
+    one_in = judged // black_holes + 1  # the smallest N with N * black_holes > judged
     out = {
         "finding-share": (
-            f"More than 1 in 4. In Porchlamp's {sid} snapshot, {fmt(black_holes)} of {fmt(judged)} active open-source "
+            f"More than 1 in {one_in}. In Porchlamp's {sid} snapshot, {fmt(black_holes)} of {fmt(judged)} active open-source "
             f"projects ({share}%) left most outside pull requests with no human reply, review or merge within {deadline} "
             "days. #"
         ),
@@ -758,7 +759,6 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         corpus=corpus, start=ds, end=de, ecosystems=[(rp.ECOSYSTEM_NAMES.get(e, e), *per_eco[e]) for e in eco_order],
     )
     # the sentences that hold only for some numbers
-    ledger.equal("'more than 1 in 4' holds", black_holes * 4 > judged, True)
     band_shares = [Decimal(b["black_holes"]) / Decimal(b["n"]) for _, b in bands]
     ledger.equal("'the share rises with stars' holds", all(a < b for a, b in zip(band_shares, band_shares[1:])), True)
     pages = {"black-holes/index.html": "latest", f"black-holes/{sid}/index.html": "frozen"}
@@ -993,6 +993,7 @@ def hand_written_facts(db: Path, stats: dict) -> dict:
         "below_floor": unrated_by_reason.get("unrated: insufficient_evidence", 0),
         "judged": judged, "black_holes": black_holes, "share": rp.pct1(black_holes, judged) if judged else "",
         "band_percents": [rp.pct0(b["black_holes"], b["n"]) for b in bands],
+        "top_band": {"n": bands[-1]["n"], "black_holes": bands[-1]["black_holes"]},
         "rho": rp.rho_text(stats["spearman"]["porchlamp"]["rho"]), "top100_overlap": stats["top100_overlap"],
         "corpus": stats["corpus"], "lens_ranked": lens_ranked, "ecosystems": ecosystems,
         "parameters": len(methodology["parameters"]), "pillars": {p["name"]: p["weight"] for p in methodology["pillars"]},
@@ -1021,6 +1022,8 @@ def _hand_written_claims(name: str, f: dict) -> list[tuple[str, str, tuple]]:
              r"(?:ten|10) outside pull requests in six months, " + _N + r" \(" + _P + r"\)", (J, B, S))
     bands = (_BAND_TEXT.format(p=_P), tuple(f["band_percents"]))
     one_in = (r"More than 1 in (\d+)", (_MoreThanOneIn(f["black_holes"], f["judged"]),))
+    top_band_one_in = (r"more than 1 in (\d+) of the most-starred",
+                       (_MoreThanOneIn(f["top_band"]["black_holes"], f["top_band"]["n"]),))
     corpus = (_N + r" pull requests from " + _N + r" outside contributors (?:to|tracked across|across) " + _N
               + r" (?:open-source )?(?:GitHub )?(?:projects|repositories)", (PRS, AUTH, PROJ))
     correlation = (r"Across (?:the |all )?" + _N + r" ranked projects,? the rank correlation between (?:GitHub )?stars "
@@ -1038,6 +1041,7 @@ def _hand_written_claims(name: str, f: dict) -> list[tuple[str, str, tuple]]:
              r"(\d+) contributor personas", (T, str(f["parameters"]), str(len(f["pillars"])), str(f["lenses"]))),
             ("ranks N projects", r"\bPorchlamp ranks " + _N + r" open-source projects", (T,)),
             ("black-hole share", *share), ("more than 1 in N", *one_in), ("star bands", *bands),
+            ("most-starred band, more than 1 in N", *top_band_one_in),
             ("correlation and top 100", *correlation), ("corpus", *corpus),
             ("parameters, pillars, personas", r"\b(\d+) parameters across (\d+) pillars and (\d+) contributor personas",
              (str(f["parameters"]), str(len(f["pillars"])), str(f["lenses"]))),
@@ -1055,6 +1059,7 @@ def _hand_written_claims(name: str, f: dict) -> list[tuple[str, str, tuple]]:
             ("snapshot heading", r"\(Snapshot (\S+), Benchmark (\S+)\)", (sid, bv)),
             ("corpus", *corpus), ("ecosystems", r"\bacross (\d+) ecosystems", (str(f["ecosystems"]),)),
             ("black-hole share", *share), ("more than 1 in N", *one_in), ("star bands", *bands),
+            ("most-starred band, more than 1 in N", *top_band_one_in),
             ("correlation and top 100", *correlation),
             ("universe total", r"Universe Breakdown \(" + _N + r" Total\)", (T,)),
             ("ranked", r"\b" + _N + r" Ranked \(Rated\)", (R,)),
@@ -1075,6 +1080,9 @@ def _hand_written_claims(name: str, f: dict) -> list[tuple[str, str, tuple]]:
             ("data addresses", r"porchlamp\.org/data/([^/\s)]+)/", (sid,)),
             *pillar_weights,
         ]
+    elif name == "copy.js":
+        # the app's own finding line and "why" paragraph
+        claims = [("more than 1 in N", r"[Mm]ore than 1 in (\d+)", (_MoreThanOneIn(f["black_holes"], f["judged"]),))]
     else:  # feed.xml
         claims = [
             ("subtitle corpus", _N + r" pull requests across " + _N + r" repositories", (PRS, PROJ)),
@@ -1115,7 +1123,7 @@ def _below_floor_counts(text: str, f: dict) -> list[tuple[str, str]]:
 def _flatten(name: str, raw: str) -> str:
     """The text a reader sees: markup and entities resolved for HTML and XML, emphasis marks dropped for
     Markdown, whitespace collapsed (newlines kept, for the line-by-line checks)."""
-    if name == "llms.txt":
+    if name in ("llms.txt", "copy.js"):
         text = raw.replace("`", "").replace("**", "")
     else:
         # a <meta> tag's text is in its content attribute: keep it, one line each
@@ -1124,11 +1132,16 @@ def _flatten(name: str, raw: str) -> str:
     return "\n".join(re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines())
 
 
+#: The shipped files whose numbers are written by hand, and so checked against the data.
+HAND_WRITTEN_FILES = ("index.html", "llms.txt", "feed.xml", "copy.js")
+
+
 def check_hand_written(site: Path, f: dict) -> dict:
     """Compare every number of the hand-written ``index.html`` (its static article, head and top-20 table),
-    ``llms.txt`` and ``feed.xml`` with ``f`` (:func:`hand_written_facts`). ``{"checked": n, "errors": [...]}``."""
+    ``llms.txt``, ``feed.xml`` and the app's finding line in ``copy.js`` with ``f`` (:func:`hand_written_facts`).
+    ``{"checked": n, "errors": [...]}``."""
     ledger = _Ledger()
-    for name in ("index.html", "llms.txt", "feed.xml"):
+    for name in HAND_WRITTEN_FILES:
         path = site / name
         if not path.is_file():
             ledger.checked += 1

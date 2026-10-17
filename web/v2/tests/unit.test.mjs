@@ -1376,21 +1376,17 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
     [`${base}sitemap-pages.xml`, `${base}sitemap-projects.xml`],
     "the sitemap index names both child sitemaps"
   );
-  const pagesSitemap = readFileSync(path.join(webRoot, "sitemap-pages.xml"), "utf8");
-  const locs = [...pagesSitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  // sitemap-pages.xml is written by the exporter for its own snapshot (scripts/export_static.py _sitemap_pages).
+  assert.ok(!existsSync(path.join(webRoot, "sitemap-pages.xml")), "the pages sitemap is not shipped by hand");
   const snapshotId = html.match(/Snapshot <code>([\d-]+)<\/code>/)[1];
-  assert.deepEqual(
-    locs,
-    [
-      base, `${base}black-holes/`, `${base}black-holes/${snapshotId}/`, `${base}methodology/`, `${base}check/`,
-      ...LANDING_SLUGS.map((slug) => `${base}${slug}/`),
-    ],
-    "the pages sitemap lists the canonical root, the report (latest and frozen), the methodology page, the check page and the ten landing pages"
-  );
+  const pageAddresses = [
+    `${base}black-holes/`, `${base}black-holes/${snapshotId}/`, `${base}methodology/`, `${base}check/`,
+    ...LANDING_SLUGS.map((slug) => `${base}${slug}/`),
+  ];
   const llms = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
-  for (const loc of locs.slice(1)) assert.ok(llms.includes(loc), `llms.txt names ${loc}`);
-  for (const loc of [...children, ...locs]) assert.ok(!loc.includes("?"), `no query address in sitemap: ${loc}`);
-  for (const text of [sitemap, pagesSitemap]) assert.doesNotMatch(text, /<(priority|changefreq)>/, "no priority or changefreq");
+  for (const loc of pageAddresses) assert.ok(llms.includes(loc), `llms.txt names ${loc}`);
+  for (const loc of children) assert.ok(!loc.includes("?"), `no query address in the sitemap index: ${loc}`);
+  assert.doesNotMatch(sitemap, /<(priority|changefreq)>/, "no priority or changefreq");
   assert.ok(
     llms.includes(`To check a project, open ${base}projects/<owner>/<name>/ (lower case).`),
     "llms.txt states the address of a project's page"
@@ -1401,8 +1397,9 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   const articleMatch = html.match(/<article class="seo-fallback">([\s\S]*?)<\/article>/);
   assert.ok(articleMatch, ".seo-fallback article exists");
   const article = articleMatch[1];
-  assert.match(article, /3,833 ranked, 5,790 gated, and 1,377 unrated of 11,000 evaluated/, "U-2 excluded counts");
-  assert.match(article, /python -m porchlamp\.snapshot reproduce 2026-10-14/, "U-6 reproduce command");
+  // The values are checked against the snapshot's data by scripts/verify_static_export.py (check_hand_written).
+  assert.match(article, /[\d,]+ ranked, [\d,]+ gated, and [\d,]+ unrated of [\d,]+ evaluated/, "U-2 excluded counts");
+  assert.match(article, /python -m porchlamp\.snapshot reproduce \d{4}-\d\d-\d\d\w*/, "U-6 reproduce command");
 
   const hrefs = [...article.matchAll(/<a href="([^"]+)">/g)].map((m) => m[1]);
   assert.ok(hrefs.length >= 30, "persona, tab, ecosystem, and top-20 repo links");
@@ -2645,10 +2642,8 @@ test("compare: empty and partial states render quick-start presets and suggestio
 import { renderShell } from "../views/leaderboard.js";
 
 test("leaderboard: one visible findings line under the header links to the static report with a real relative href", () => {
-  assert.equal(
-    copy.FINDINGS_LINE,
-    "More than 1 in 4 active projects leave most strangers' pull requests unanswered for two weeks."
-  );
+  // The number is checked against the snapshot's data by scripts/verify_static_export.py (check_hand_written).
+  assert.match(copy.FINDINGS_LINE, /^More than 1 in \d+ active projects leave most strangers' pull requests unanswered for two weeks\.$/);
   const html = renderShell({ ...defaultState(), leaderboardLoading: true, leaderboard: null });
   assert.ok(html.includes(escapeHtml(copy.FINDINGS_LINE)), "the line is on the page");
   assert.match(html, /<a href="black-holes\/"[^>]*>Read the findings<\/a>/);
@@ -2745,12 +2740,12 @@ test("E3: the maintainer badge links to the project's page, and an old ?repo= li
   assert.ok(md.includes(`(${SITE_BASE}badges/`), "the image is unchanged");
 });
 
-test("E3: the sitemap index names both child sitemaps, and each is a file of the site", () => {
+test("the sitemap index names both child sitemaps, and the exporter writes both", () => {
   const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
   const index = readFileSync(path.join(webRoot, "sitemap.xml"), "utf8");
   const children = [...index.matchAll(/<sitemap>\s*<loc>https:\/\/porchlamp\.org\/([^<]+)<\/loc>/g)].map((m) => m[1]);
   assert.deepEqual(children, ["sitemap-pages.xml", "sitemap-projects.xml"]);
-  assert.ok(existsSync(path.join(webRoot, "sitemap-pages.xml")), "sitemap-pages.xml ships with the site");
+  for (const child of children) assert.ok(!existsSync(path.join(webRoot, child)), `${child} is written by the exporter, not shipped by hand`);
 });
 
 test("E3: /check/ search: the address rule, pasted GitHub addresses, ranking of matches and real links", () => {

@@ -326,13 +326,15 @@ def _inputs(built):
 
 def test_the_fixture_inputs_pass_every_guard(built):
     facts = report_pages.build_facts(**_inputs(built))
-    assert facts.black_holes * 4 > facts.judged
+    assert (facts.one_in - 1) * facts.black_holes <= facts.judged < facts.one_in * facts.black_holes
     assert [e.key for e in facts.ecosystems][:2] == ["pypi", "npm"]
     assert facts.unanswered == 11 * facts.black_holes and facts.counted == 12 * facts.black_holes
     assert (str(facts.window_start), str(facts.window_end)) == ("2026-03-17", "2026-09-13")
 
 
-def test_a_share_of_a_quarter_or_less_fails_the_export_guard(built):
+def test_a_share_of_exactly_a_quarter_is_more_than_1_in_5_never_1_in_4(built):
+    """The headline's N is computed: the smallest whole number with N * black_holes > judged. At exactly 25% the
+    true claim is "more than 1 in 5"; "more than 1 in 4" would be false."""
     inputs = _inputs(built)
     # Drop black holes from the database's rows (and the stats) until the share is 25%.
     rows = [r for r in inputs["db_rows"] if r[1] != "black_hole"]
@@ -350,8 +352,10 @@ def test_a_share_of_a_quarter_or_less_fails_the_export_guard(built):
         "[10000,50000)": {"n": 1, "black_holes": 0, "share": 0.0},
         "[50000,inf)": {"n": base_judged + keep - base_judged // 2 - 1, "black_holes": keep, "share": round(keep / (base_judged + keep - base_judged // 2 - 1), 4)},
     }
-    with pytest.raises(report_pages.ReportError, match="guard: 'more than 1 in 4'"):
-        report_pages.build_facts(**inputs)
+    facts = report_pages.build_facts(**inputs)
+    assert facts.black_holes * 4 == facts.judged
+    assert facts.one_in == 5
+    assert {i: lead for i, lead, _rest in report_pages.finding_paragraphs(facts)}["finding-share"] == "More than 1 in 5."
 
 
 def test_a_star_band_below_the_one_before_it_fails_the_guard(built):

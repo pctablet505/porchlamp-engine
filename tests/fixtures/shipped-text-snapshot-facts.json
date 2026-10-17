@@ -1,139 +1,139 @@
 {
- "snapshot_id": "2026-10-14",
+ "snapshot_id": "2026-10-17",
  "benchmark_version": "2.0.0-rc1",
  "constants_hash": "6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94",
- "manifest_root": "85d93789d7a5198af0a53ae21de4ce9d81da83fd8c7bfb068657647183816679",
- "reproduce_command": "python -m porchlamp.snapshot reproduce 2026-10-14",
+ "manifest_root": "ca37a4190b440c86e3776fdaba6f8d2a96efab21f691710c7c4d20eec265506e",
+ "reproduce_command": "python -m porchlamp.snapshot reproduce 2026-10-17",
  "total": 11000,
- "ranked": 3833,
- "gated": 5790,
- "unrated": 1377,
+ "ranked": 4181,
+ "gated": 5381,
+ "unrated": 1438,
  "unrated_by_reason": {
-  "unrated: insufficient_evidence": 1067,
-  "unrated: no_external_workflow": 302,
+  "unrated: insufficient_evidence": 1113,
+  "unrated: no_external_workflow": 317,
   "unrated: off_platform_routed": 8
  },
  "coverage_floor": 60,
- "below_floor": 1067,
- "judged": 4297,
- "black_holes": 1133,
- "share": "26.4",
+ "below_floor": 1113,
+ "judged": 4042,
+ "black_holes": 720,
+ "share": "17.8",
  "band_percents": [
-  "21",
-  "31",
-  "39"
+  "16",
+  "19",
+  "28"
  ],
- "rho": "0.13",
+ "rho": "0.08",
  "top100_overlap": 9,
  "corpus": {
   "derived_repos": 11000,
-  "human_outside_prs": 212390,
-  "distinct_outside_authors": 110605
+  "distinct_outside_authors": 110605,
+  "human_outside_prs": 212390
  },
  "lens_ranked": {
-  "ai_assisted": 3929,
-  "balanced": 3833,
-  "career_capital": 823,
-  "first_timer": 1968,
-  "senior_systems": 1206
+  "ai_assisted": 4290,
+  "balanced": 4181,
+  "career_capital": 880,
+  "first_timer": 2095,
+  "senior_systems": 1297
  },
  "ecosystems": 6,
  "parameters": 18,
  "pillars": {
-  "responsiveness": 0.25,
+  "accessibility": 0.15,
   "criticality": 0.25,
   "governance": 0.2,
-  "rigor": 0.15,
-  "accessibility": 0.15
+  "responsiveness": 0.25,
+  "rigor": 0.15
  },
  "lenses": 5,
  "top": [
   [
    "1",
-   "meshery/meshery",
+   "WordPress/gutenberg",
    "npm",
-   "81.16",
-   "65%",
+   "81.65",
+   "61%",
    "B (capped)",
    "Sweet Spot"
   ],
   [
    "2",
-   "WordPress/gutenberg",
-   "npm",
-   "80.93",
-   "61%",
-   "B (capped)",
-   "Sweet Spot"
-  ],
-  [
-   "3",
    "ggml-org/llama.cpp",
    "systems",
-   "80.83",
+   "80.75",
    "78%",
    "B (capped)",
    "Sweet Spot"
   ],
   [
-   "4",
+   "3",
    "rust-lang/rust",
    "crates",
-   "80.79",
+   "80.16",
    "61%",
    "B (capped)",
    "Sweet Spot"
   ],
   [
-   "5",
-   "prometheus/prometheus",
-   "go",
-   "79.11",
-   "81%",
-   "A (capped)",
-   "Sweet Spot"
-  ],
-  [
-   "6",
+   "4",
    "servo/rust-smallvec",
    "crates",
-   "78.99",
+   "79.40",
    "94%",
    "A (capped)",
    "Sweet Spot"
   ],
   [
-   "7",
-   "kornia/kornia",
-   "pypi",
-   "78.47",
-   "81%",
-   "A (capped)",
-   "Sweet Spot"
-  ],
-  [
-   "8",
-   "rust-lang/libc",
-   "crates",
-   "78.14",
-   "93%",
-   "A (capped)",
-   "Sweet Spot"
-  ],
-  [
-   "9",
-   "freeCodeCamp/freeCodeCamp",
+   "5",
+   "meshery/meshery",
    "npm",
-   "78.02",
+   "79.09",
    "65%",
    "B (capped)",
    "Sweet Spot"
   ],
   [
-   "10",
-   "ant-design/ant-design",
+   "6",
+   "prometheus/prometheus",
+   "go",
+   "78.60",
+   "81%",
+   "A (capped)",
+   "Sweet Spot"
+  ],
+  [
+   "7",
+   "rust-lang/libc",
+   "crates",
+   "78.57",
+   "93%",
+   "A (capped)",
+   "Sweet Spot"
+  ],
+  [
+   "8",
+   "webdriverio/webdriverio",
    "npm",
-   "77.51",
+   "78.56",
+   "81%",
+   "A (capped)",
+   "Sweet Spot"
+  ],
+  [
+   "9",
+   "kornia/kornia",
+   "pypi",
+   "78.10",
+   "81%",
+   "A (capped)",
+   "Sweet Spot"
+  ],
+  [
+   "10",
+   "freeCodeCamp/freeCodeCamp",
+   "npm",
+   "77.63",
    "65%",
    "B (capped)",
    "Sweet Spot"
@@ -142,70 +142,70 @@
    "11",
    "kedacore/keda",
    "go",
-   "76.99",
+   "77.24",
    "93%",
    "A (capped)",
    "Sweet Spot"
   ],
   [
    "12",
-   "external-secrets/external-secrets",
-   "go",
-   "76.80",
-   "93%",
-   "A (capped)",
+   "ant-design/ant-design",
+   "npm",
+   "76.85",
+   "65%",
+   "B (capped)",
    "Sweet Spot"
   ],
   [
    "13",
-   "organicmaps/organicmaps",
-   "systems",
-   "76.49",
+   "external-secrets/external-secrets",
+   "go",
+   "76.84",
    "93%",
    "A (capped)",
    "Sweet Spot"
   ],
   [
    "14",
-   "webdriverio/webdriverio",
-   "npm",
-   "76.23",
-   "81%",
+   "organicmaps/organicmaps",
+   "systems",
+   "76.46",
+   "93%",
    "A (capped)",
    "Sweet Spot"
   ],
   [
    "15",
-   "apache/airflow",
-   "pypi",
-   "76.15",
-   "61%",
+   "vercel/next.js",
+   "npm",
+   "76.06",
+   "78%",
    "B (capped)",
    "Sweet Spot"
   ],
   [
    "16",
-   "onnx/onnx",
+   "apache/airflow",
    "pypi",
-   "75.86",
-   "93%",
-   "A (capped)",
+   "76.04",
+   "61%",
+   "B (capped)",
    "Sweet Spot"
   ],
   [
    "17",
-   "matplotlib/matplotlib",
-   "pypi",
-   "75.81",
-   "93%",
+   "moby/moby",
+   "go",
+   "76.02",
+   "81%",
    "A (capped)",
    "Sweet Spot"
   ],
   [
    "18",
-   "kubernetes-sigs/cluster-api",
-   "go",
-   "75.38",
+   "matplotlib/matplotlib",
+   "pypi",
+   "75.73",
    "93%",
    "A (capped)",
    "Sweet Spot"
@@ -214,19 +214,23 @@
    "19",
    "biomejs/biome",
    "crates",
-   "75.27",
+   "75.61",
    "65%",
    "B (capped)",
    "Sweet Spot"
   ],
   [
    "20",
-   "moby/moby",
-   "go",
-   "74.90",
-   "81%",
+   "onnx/onnx",
+   "pypi",
+   "75.57",
+   "93%",
    "A (capped)",
    "Sweet Spot"
   ]
- ]
+ ],
+ "top_band": {
+  "n": 241,
+  "black_holes": 68
+ }
 }
