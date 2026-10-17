@@ -117,8 +117,8 @@ def _tree_paths(raw_root: Path, basename: str) -> list[str]:
     return paths or []
 
 
-def _in_vitality_window(entry: Mapping[str, Any], as_of: datetime) -> bool:
-    """The commit's ``date`` falls in ``[as_of - 180 d, as_of]`` (D-GATE-4's window).
+def _in_vitality_window(entry: Mapping[str, Any], end: datetime) -> bool:
+    """The commit's ``date`` falls in ``[end - 180 d, end]`` (D-GATE-4's window).
 
     A row with no readable date cannot be placed in the window and is not counted."""
     raw = entry.get("date")
@@ -128,18 +128,31 @@ def _in_vitality_window(entry: Mapping[str, Any], as_of: datetime) -> bool:
         when = _parse_iso(raw)
     except ValueError:
         return False
-    return as_of - timedelta(days=constants.GATE4_VITALITY_WINDOW_DAYS) <= when <= as_of
+    return end - timedelta(days=constants.GATE4_VITALITY_WINDOW_DAYS) <= when <= end
+
+
+def _vitality_window_end(document: Mapping[str, Any], as_of: datetime) -> datetime:
+    """Where D-GATE-4's window ends: ``as_of``, or the envelope's fetch when that came earlier. A fetch
+    before ``as_of`` cannot show the commits made after it, so the window ends where the data does, as
+    D-GATE-5 judges a PR's age at ``min(now, observed_at)``."""
+    raw = document.get("fetched_at")
+    try:
+        fetched = _parse_iso(raw) if isinstance(raw, str) and raw else None
+    except ValueError:
+        fetched = None
+    return min(as_of, fetched) if fetched is not None else as_of
 
 
 def _vitality_commit_count(raw_root: Path, basename: str, as_of: datetime | None = None) -> int | None:
     """D-GATE-4: non-bot commit count in the ``commits_180d`` envelope.
 
-    With ``as_of`` (the snapshot's reference time) only commits dated in
-    ``[as_of - 180 d, as_of]`` count: the envelope's own window ends at its
-    fetch time, which can be days or weeks before or after the snapshot's.
-    The date is the row's recorded ``date`` (the collector records the author
-    date). Without ``as_of`` every row counts. ``None`` (UNDECIDED, never a
-    guessed 0) when the envelope is absent."""
+    With ``as_of`` (the snapshot's reference time) only commits dated in the
+    180 days ending at ``as_of``, or at the envelope's fetch when that came
+    earlier (:func:`_vitality_window_end`), count: the envelope's own window
+    ends at its fetch time, which can be days or weeks before or after the
+    snapshot's. The date is the row's recorded ``date`` (the collector records
+    the author date). Without ``as_of`` every row counts. ``None`` (UNDECIDED,
+    never a guessed 0) when the envelope is absent."""
     path = raw_root / "commits_180d" / f"{basename}.json"
     if not path.is_file():
         return None
@@ -150,11 +163,12 @@ def _vitality_commit_count(raw_root: Path, basename: str, as_of: datetime | None
     rows = envelope_rows(document.get("data") if isinstance(document, Mapping) else None)
     if rows is None:
         return None
+    end = _vitality_window_end(document, as_of) if as_of is not None else None
     count = 0
     for entry in rows:
         if not isinstance(entry, Mapping):
             continue
-        if as_of is not None and not _in_vitality_window(entry, as_of):
+        if end is not None and not _in_vitality_window(entry, end):
             continue
         actor = CommitActor(
             login=str(entry.get("author_login") or ""),
