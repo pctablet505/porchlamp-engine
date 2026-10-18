@@ -1693,14 +1693,22 @@ def _rank_band(rank: int, total: int) -> str:
 def _expected_reply(detail: dict, evidence: list[dict], min_n: dict[str, int]) -> tuple[str, str, str]:
     """``(first sentence, the rest, the first sentence as the head says it)`` of the reply answer, from the API's own
     evidence rows and the methodology's minimum samples. The first sentence names the project; the head's form does
-    not, and has no bracket."""
+    not, and has no bracket. A value unmeasured for ``collector_failure`` is one whose PR record does not cover the
+    window (RFC-0013); any other reason is a too-small sample."""
     ev = {e["param_id"]: e for e in evidence}
     t, g = ev["ttfhr_hours"], ev["gr14_ghost_rate"]
     t_ok, g_ok = t["unmeasured_reason"] is None, g["unmeasured_reason"] is None
+    t_gone, g_gone = t["unmeasured_reason"] == "collector_failure", g["unmeasured_reason"] == "collector_failure"
     who = f"{detail['owner']}/{detail['name']}"
+    gone = "we do not hold a complete record of its pull requests for the window"
 
     def prs(n: int) -> str:
         return f"{n:,} pull request" + ("" if n == 1 else "s")
+
+    def g_missing() -> str:
+        if g_gone:
+            return f"The share with no reply within 14 days is not measured: {gone}."
+        return f"The share with no reply within 14 days has too small a sample to measure ({prs(g['n'])} counted; {min_n['gr14_ghost_rate']} needed)."
 
     if t_ok:
         median = f"got a first human reply in a median of {_reply_time(t['value'])}"
@@ -1708,22 +1716,26 @@ def _expected_reply(detail: dict, evidence: list[dict], min_n: dict[str, int]) -
         if g_ok:
             tail = f"; {_half_up(g['value'], 100)}% got none within 14 days."
             return f"Outside pull requests to {who} {median}{bracket}{tail}", "", f"Outside pull requests {median}{tail}"
-        return (
-            f"Outside pull requests to {who} {median}{bracket}.",
-            f"The share with no reply within 14 days has too small a sample to measure ({prs(g['n'])} counted; {min_n['gr14_ghost_rate']} needed).",
-            f"Outside pull requests {median}.",
-        )
+        return f"Outside pull requests to {who} {median}{bracket}.", g_missing(), f"Outside pull requests {median}."
+    if t_gone and g_gone:
+        both = "the reply time and the share with no reply within 14 days are not measured"
+        return f"For {who}, {both}: {gone}.", "", f"T{both[1:]}."
+    if not t_gone and not g_ok and not g_gone:
+        lo, hi = min_n["ttfhr_hours"], min_n["gr14_ghost_rate"]
+        needed = f"{lo} needed" if lo == hi else f"{lo} and {hi} needed"
+        both = "the reply time and the share with no reply within 14 days both have too small a sample to measure"
+        return f"For {who}, {both} ({t['n']:,} and {prs(g['n'])} counted; {needed}).", "", f"T{both[1:]}."
+    if t_gone:
+        first, short = f"For {who}, the reply time is not measured: {gone}.", "The reply time is not measured."
+    else:
+        first = f"For {who}, the reply time has too small a sample to measure ({prs(t['n'])} counted; {min_n['ttfhr_hours']} needed)."
+        short = "The reply time has too small a sample to measure."
     if g_ok:
         noun = "pull request" if g["n"] == 1 else "pull requests"
-        return (
-            f"For {who}, the reply time has too small a sample to measure ({prs(t['n'])} counted; {min_n['ttfhr_hours']} needed).",
-            f"{_half_up(g['value'], 100)}% of {g['n']:,} outside {noun} got no reply within 14 days ({_date_range(g['window_start'], g['window_end'])}).",
-            "The reply time has too small a sample to measure.",
-        )
-    lo, hi = min_n["ttfhr_hours"], min_n["gr14_ghost_rate"]
-    needed = f"{lo} needed" if lo == hi else f"{lo} and {hi} needed"
-    both = "the reply time and the share with no reply within 14 days both have too small a sample to measure"
-    return f"For {who}, {both} ({t['n']:,} and {prs(g['n'])} counted; {needed}).", "", f"T{both[1:]}."
+        rest = f"{_half_up(g['value'], 100)}% of {g['n']:,} outside {noun} got no reply within 14 days ({_date_range(g['window_start'], g['window_end'])})."
+    else:
+        rest = g_missing()
+    return first, rest, short
 
 
 #: The longest description a project page may have.
