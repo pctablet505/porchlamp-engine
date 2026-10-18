@@ -327,6 +327,30 @@ RUNS_DATA = {"branch": "main", "limit": 30,
              "completed": 10, "passed": 7, "ci_pass_rate": 0.7}
 
 
+def test_code_review_rate_counts_the_merged_prs_of_a_reply_sample_only():
+    """RFC-0013: a merged PR outside a window's reply sample has no reviews recorded; counting it would read it as
+    merged without approval."""
+    from porchlamp.collect.github_graphql import REPLIES_RECORDED_KEY
+
+    sampled = [_pr(i, True, f"a{i}", [_review("bob", "APPROVED")]) for i in range(1, 5)]
+    unsampled = [{**{k: v for k, v in _pr(i, True, f"a{i}", []).items() if k != "reviews"}, REPLIES_RECORDED_KEY: False}
+                 for i in range(5, 11)]
+    assert pike.code_review_rate(sampled + unsampled) == 1.0
+
+
+def test_the_review_ci_proxy_is_refused_on_a_pr_record_cut_short_of_its_window():
+    """#51 rule 5: the proxy is not computed on the newest weeks of a cut record; the same record uncut is."""
+    prs = [{**pr, "createdAt": (NOW - timedelta(days=10)).isoformat()} for pr in MERCHANT_PRS]
+    record = {"window_anchor": NOW.isoformat(), "window_days": 180, "truncated": True, "prs": prs}
+    args = list(_stale_check_args(13))
+    args[-6:] = [RUNS_DATA, "2026-01-01T00:00:00Z", None, None, record, "2026-01-01T00:00:00Z"]
+    out = pike.derive_w17_fields(*args)
+    assert out["pipeline_defenses"] == (None, None, None, "collector_failure")
+    assert out["pipeline_defenses_detail"][0] == "pr_window envelope is truncated before reaching the 180d window start"
+    args[-2] = {**record, "truncated": False}
+    assert pike.derive_w17_fields(*args)["pipeline_defenses"][3] == "derived"
+
+
 def test_code_review_rate_counts_non_author_approvals_on_merged_prs():
     # 4 merged PRs; approvals: #1 by bob (non-author), #2 by carol (the author),
     # #3 by erin (non-author), #4 none; #5 is not merged -> 2/4 = 0.5.

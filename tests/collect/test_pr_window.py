@@ -2603,6 +2603,37 @@ def test_a_window_above_the_cap_is_recorded_whole_with_replies_on_a_seeded_sampl
     assert {n for n, d in derived.items() if d["substantive_review"] is not None} == sample
 
 
+def test_the_reply_readers_count_only_the_sampled_prs_of_a_sampled_window():
+    """RFC-0013: a PR outside the sample carries no replies, so a reply reader that counted it would read it as
+    unanswered. GR_14's and D-GATE-5's records and the closed-unread counts hold the sampled PRs only; the hand-off
+    share is taken over the sampled outside PRs."""
+    from porchlamp.core import constants
+    from porchlamp.derive import gate_evidence
+
+    nodes = _window_nodes(130)
+    res = gql.fetch_pr_window("acme", "widget", NOW, ScriptedWindow(nodes), page_size=30, cap=50, sample_cap=20)
+    prs = [dict(pr) for pr in res.prs]
+    sample = gql.reply_sample_numbers("acme", "widget", [n["number"] for n in nodes], 20)
+    created = {pr["createdAt"] for pr in prs if pr["number"] in sample}
+    assert {r.created_at for r in gql.ghost_rate_prs_from_window(prs)} == created
+    assert {r.created_at for r in gate_evidence._ghost_rate_prs_from_nodes(prs)} == created
+    assert gql.closed_unread_counts(prs) == (0, 20)
+    # a hand-off notice on 6 of the 20 sampled outside PRs: 30% of the sample, so no hand-off ...
+    notice = comment(login="gerrit-relay", assoc="NONE", body="This change has been imported to Gerrit for code review.")
+    noticed = sorted(sample)[:6]
+    for pr in prs:
+        if pr["number"] in noticed:
+            pr["comments"] = {"nodes": [notice]}
+    data = {"prs": prs, "derived": gql.derive_pr_window(prs)}
+    assert 6 >= constants.GATE6_HANDOFF_MIN_PRS
+    assert gate_evidence._review_handoff_in(data) is False
+    # ... and on 12 of the 20 it is one, however many unsampled outside PRs (with no comments recorded) the window holds
+    for pr in prs:
+        if pr["number"] in sorted(sample)[:12]:
+            pr["comments"] = {"nodes": [notice]}
+    assert gate_evidence._review_handoff_in({"prs": prs, "derived": gql.derive_pr_window(prs)}) is True
+
+
 def test_without_a_reply_sample_the_record_stops_at_exactly_the_cap_and_is_cut():
     t = ScriptedWindow(_window_nodes(130))
     res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=30, cap=50, sample_cap=None)

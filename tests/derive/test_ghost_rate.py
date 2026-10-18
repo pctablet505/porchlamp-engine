@@ -242,6 +242,37 @@ def test_bot_prs_alone_never_measure(tmp_path: Path) -> None:
     assert gates.GATE_5 in gates.evaluate_gates(bundle, _evidence(), NOW).undecided
 
 
+def _write_cut_window(tmp_path: Path, prs: list[dict[str, Any]], fetched_at: str) -> None:
+    from porchlamp.collect import github_graphql
+
+    data = {"window_anchor": fetched_at, "window_days": 180, "cap": 500, "count": len(prs),
+            "truncated": True, "cost_points": 1, "prs": prs, "derived": github_graphql.derive_pr_window(prs)}
+    path = tmp_path / "raw" / "pr_window" / f"{KEY}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"fetched_at": fetched_at, "source": "test", "data": data}), encoding="utf-8")
+
+
+def test_a_record_cut_short_of_the_window_gives_no_ghost_rate(tmp_path: Path) -> None:
+    """#51 rule 5: cut at its cap 30 days back, the record does not reach the window's start, so derive records no
+    share and the bundle refuses it."""
+    _write_cut_window(tmp_path, counted_prs(), FETCHED_AT)
+    doc = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path, fetch=False, now=NOW)
+    assert doc["confidence"]["gr14_population_n"] == "missing"
+    value = load(tmp_path, json.loads(json.dumps(doc))).inputs["gr14_ghost_rate"]
+    assert isinstance(value, Unmeasured) and value.reason == "collector_failure"
+
+
+def test_a_truncated_record_that_reaches_the_gr14_window_start_is_measured(tmp_path: Path) -> None:
+    """Fetched ten days before derive and cut 185 days before it: short of its own window, but it holds every PR of
+    the window GR_14 is computed over (``gr14_window_start``), so derive and the bundle both measure it."""
+    old = _pr(99, 185)
+    _write_cut_window(tmp_path, counted_prs() + [old], _at(10))
+    doc = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path, fetch=False, now=NOW)
+    assert doc["confidence"]["gr14_population_n"] == "derived" and doc["meta"]["gr14_population_n"] == 11
+    value = load(tmp_path, json.loads(json.dumps(doc))).inputs["gr14_ghost_rate"]
+    assert isinstance(value, Measured) and value.n == 11
+
+
 def test_no_pr_window_envelope_is_collector_failure(tmp_path: Path) -> None:
     doc = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path, fetch=False, now=NOW)
     assert doc["confidence"]["gr14_population_n"] == "missing"
