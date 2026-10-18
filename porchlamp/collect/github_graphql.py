@@ -102,6 +102,10 @@ EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
 #: review-thread total. ``rateLimit.cost`` measures the page's point cost.
 #: Envelopes recorded before ``mergedBy`` was requested lack the key; their
 #: mergers set is empty and D-IN-2 is association-only, as it was.
+#: #60: each PR's ``labels`` and each close's ``closer`` (the commit or PR that
+#: closed it) are recorded for landing detection, a PR a project lands outside
+#: GitHub's merge (a "Merged" label, a closing commit); no measure reads them
+#: yet. Envelopes recorded before they were requested lack both keys.
 PR_WINDOW_QUERY: str = (
     "query PrWindow($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost }"
@@ -111,9 +115,11 @@ PR_WINDOW_QUERY: str = (
     " pageInfo { hasNextPage endCursor }"
     " nodes { number createdAt closedAt mergedAt state isDraft mergedBy { login }"
     " author { __typename login ... on User { createdAt } } authorAssociation"
+    " labels(first: 10) { nodes { name } }"
     " timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 5) {"
     " nodes { __typename ... on ReadyForReviewEvent { createdAt }"
-    " ... on ClosedEvent { createdAt actor { __typename login } } } }"
+    " ... on ClosedEvent { createdAt actor { __typename login }"
+    " closer { __typename ... on Commit { oid } ... on PullRequest { number } } } } }"
     " reviews(first: 10) { nodes { author { __typename login } state body createdAt"
     " authorAssociation comments { totalCount } } }"
     " comments(first: 20) { nodes { author { __typename login } authorAssociation"
@@ -123,7 +129,8 @@ PR_WINDOW_QUERY: str = (
 )
 
 #: Light PR-window continuation query for repositories with > 2,000 PRs in 180 d.
-#: Carries all PR-level and timeline fields (1 pt/page at 100 PRs/page), omitting
+#: Carries all PR-level and timeline fields (2 pts/page at 100 PRs/page, measured
+#: 2026-10-18 with #60's labels and closer; 1 pt without them), omitting
 #: ``reviews``, ``comments``, and ``reviewThreads`` which are fetched for the
 #: seeded 1,000-PR sample via :func:`_pr_replies_batch_query`.
 PR_WINDOW_LIGHT_QUERY: str = (
@@ -135,9 +142,11 @@ PR_WINDOW_LIGHT_QUERY: str = (
     " pageInfo { hasNextPage endCursor }"
     " nodes { number createdAt closedAt mergedAt state isDraft mergedBy { login }"
     " author { __typename login ... on User { createdAt } } authorAssociation"
+    " labels(first: 10) { nodes { name } }"
     " timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 5) {"
     " nodes { __typename ... on ReadyForReviewEvent { createdAt }"
-    " ... on ClosedEvent { createdAt actor { __typename login } } } } }"
+    " ... on ClosedEvent { createdAt actor { __typename login }"
+    " closer { __typename ... on Commit { oid } ... on PullRequest { number } } } } } }"
     " } } }"
 )
 

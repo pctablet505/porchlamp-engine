@@ -212,6 +212,18 @@ def test_query_requests_merged_by_login():
     assert "mergedBy { login }" in gql.PR_WINDOW_QUERY
 
 
+def test_both_window_queries_record_labels_and_what_closed_each_pr():
+    """#60: landing detection reads a PR's labels (a project's own "Merged" label) and what closed it (a commit, or
+    another PR), so the heavy query and its light continuation both ask for them; the closer sits inside the close
+    event, not on the PR. Each query's braces balance."""
+    for query in (gql.PR_WINDOW_QUERY, gql.PR_WINDOW_LIGHT_QUERY):
+        assert " labels(first: 10) { nodes { name } }" in query
+        closer = " closer { __typename ... on Commit { oid } ... on PullRequest { number } }"
+        assert query.count(closer) == 1
+        assert "... on ClosedEvent { createdAt actor { __typename login } closer {" in query
+        assert query.count("{") == query.count("}")
+
+
 def _mergers_window(merged_by=_NO_KEY) -> list[dict]:
     """PR 1: erin's (CONTRIBUTOR) PR, merged by carol when ``merged_by`` is
     recorded. PRs 2-4: alice's external PRs, each with one 40-character
