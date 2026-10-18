@@ -675,6 +675,29 @@ def test_the_frozen_copy_carries_its_own_stylesheet_and_no_app(built):
     assert ".report-page" in styles and ".bar-table" in styles
 
 
+def test_the_export_ships_what_the_carried_frozen_copies_link_and_the_verifier_names_a_missing_file(built, tmp_path):
+    """A publish carries the older frozen copies from the published tree, never drawn again, and mirrors the export: the
+    export ships every file they link from the site root (``export_static.CARRIED_FROZEN_ASSETS``), and the verifier
+    names one that is missing. /black-holes/2026-10-14/ links favicon.svg and styles/tokens.css, base.css and report.css,
+    and uses base.css's .seo-fallback rules, which no page the export writes uses; the copy drawn here, carried once the
+    snapshot moves on, links only listed files outside its own folder."""
+    site, db, stats_path, *_ = built
+    carried = set(export_static.CARRIED_FROZEN_ASSETS)
+    assert {"favicon.svg", "styles/tokens.css", "styles/base.css", "styles/report.css"} <= carried
+    assert sorted(asset for asset in carried if not (site / asset).is_file()) == []
+    base = _page(site, "styles/base.css")
+    assert ".seo-fallback {" in base and ".seo-fallback-table-wrap {" in base
+    linked = {ref.lstrip("/") for ref in re.findall(r'(?:href|src)="(/[^"#?]*\.[a-z]+)"', _page(site, PAGES[1]))
+              if not ref.startswith(f"/black-holes/{SNAPSHOT}/")}
+    assert linked and linked <= carried, linked
+    copy_dir = _copy_site(site, tmp_path)
+    (copy_dir / "styles" / "report.css").unlink()
+    errors = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)["errors"]
+    assert errors == [
+        "the files the carried frozen copies link (export_static.CARRIED_FROZEN_ASSETS), missing: expected [], found ['styles/report.css']"
+    ], errors
+
+
 # ---- the words: the published report, but for the owner's approved changes ---------------------------------------
 
 #: The export's report.json for the published snapshot 2026-10-17. web/app/tests/unit.test.mjs draws the view from it;

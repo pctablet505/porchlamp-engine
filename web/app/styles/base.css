@@ -105,3 +105,66 @@ a {
     padding: var(--space-sm);
   }
 }
+
+/* The frozen report copy /black-holes/2026-10-14/ (carried from the published tree, never re-rendered) uses the
+ * .seo-fallback rules; no page the export writes does (scripts/export_static.py CARRIED_FROZEN_ASSETS). */
+.seo-fallback {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-md) 0;
+  color: var(--text-primary);
+  line-height: 1.55;
+}
+
+.seo-fallback h1 {
+  font-size: var(--text-h1);
+  margin: var(--space-xs) 0;
+}
+
+.seo-fallback h2 {
+  font-size: var(--text-h2);
+  margin: var(--space-lg) 0 var(--space-xs);
+}
+
+.seo-fallback p,
+.seo-fallback li {
+  color: var(--text-secondary);
+}
+
+.seo-fallback strong {
+  color: var(--text-primary);
+}
+
+.seo-fallback-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--bg-surface);
+}
+
+.seo-fallback table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.seo-fallback th,
+.seo-fallback td {
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.seo-fallback th {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.seo-fallback-meta {
+  margin-top: var(--space-md);
+  font-size: var(--text-caption);
+  font-family: var(--font-mono);
+}

@@ -30,7 +30,8 @@ With ``--stats <stats-YYYY-MM-DD.json>`` (from ``surprise_stats.py``) the export
 (``porchlamp/serve/report_pages.py``): its data, ``data/<snapshot_id>/report.json``, and its two pages, which the
 prerender draws the report view into: ``black-holes/index.html``, the app's page, and the frozen copy
 ``black-holes/<snapshot_id>/index.html``, with its own ``styles.css`` and the CSV of the ranked projects beside it.
-Older frozen copies are not written here: a publish carries them from the published tree. Then one page per ranked
+Older frozen copies are not written here: a publish carries them from the published tree, and the export ships the
+files they link from the site root (``CARRIED_FROZEN_ASSETS``). Then one page per ranked
 project (``projects/<owner>/<name>/index.html``, lower case), with its head (``porchlamp/serve/project_pages.py``), which
 the prerender draws the project view into from the project's record, ``sitemap-projects.xml`` (every project page,
 in balanced-rank order), and ``check/index.html``, a stub that sends the address ``/check/`` on to the rankings
@@ -555,6 +556,13 @@ def _report_json(facts: Any) -> dict:
         return report_pages.report_json(facts)
     except report_pages.ReportError as error:
         raise SystemExit(f"export: {error}") from error
+
+
+#: The files the frozen report copies a publish carries from the published tree link from the site root. Those copies
+#: are never drawn again and a publish mirrors the export, so the export ships each of these for them:
+#: /black-holes/2026-10-14/, published before the shared chrome, links favicon.svg and styles/tokens.css, base.css and
+#: report.css; the copies drawn since (:func:`_write_report_pages`) link favicon.svg and theme-init.js.
+CARRIED_FROZEN_ASSETS = ("favicon.svg", "theme-init.js", "styles/tokens.css", "styles/base.css", "styles/report.css")
 
 
 def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest: dict) -> list[dict]:

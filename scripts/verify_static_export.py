@@ -857,8 +857,9 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
     ``data/``. On each page every ``data-v`` hook must equal its value, every hook must be there (the page type's hook
     count) and no other may be; every sentence with a number is compared whole (:func:`_report_sentences`); the
     page's ``<main>`` is byte for byte what ``web/prerender.mjs`` draws from a record holding the values worked out
-    here (ENG-17); and the frozen copy loads no app and one stylesheet, the site's own stylesheets joined (ENG-14).
-    ``evidence_files`` (:class:`porchlamp.serve.app.PinnedEvidenceFiles`) are the files the export read the
+    here (ENG-17); the frozen copy loads no app and one stylesheet, the site's own stylesheets joined (ENG-14); and
+    every file the older frozen copies a publish carries link from the site root is in the site
+    (``export_static.CARRIED_FROZEN_ASSETS``). ``evidence_files`` (:class:`porchlamp.serve.app.PinnedEvidenceFiles`) are the files the export read the
     black-hole evidence from; their data root is also the stats file's."""
     from fastapi.testclient import TestClient
 
@@ -1061,6 +1062,9 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         f"black-holes/{sid}/styles.css is the site's stylesheets, joined",
         styles.read_text(encoding="utf-8") if styles.is_file() else None, _shipped_stylesheet(site),
     )
+    # the older frozen copies a publish carries from the published tree are never drawn again: what they link is here
+    ledger.equal("the files the carried frozen copies link (export_static.CARRIED_FROZEN_ASSETS), missing",
+                 [asset for asset in _export_static().CARRIED_FROZEN_ASSETS if not (site / asset).is_file()], [])
 
     # the page again, from a record that holds the values worked out here: the view's own bytes (ENG-17)
     record_path = site / "data" / sid / "report.json"
