@@ -2453,8 +2453,9 @@ def verify_lists(db: Path, site: Path, *, report: Optional[dict], log=print) -> 
 
 
 def not_ranked_projects(db: Path, sid: str) -> list[dict]:
-    """Every project the balanced ranking leaves out, alphabetical (lowercase ``owner/name``), each with its group and
-    its reason as the route table names it, classified here from the stored columns: a stage-0 gate
+    """Every project the balanced ranking leaves out, A to Z as a reader expects (sorted here: by lowercase owner, then
+    lowercase name), each with its group and its reason as the route table names it, classified here from the stored
+    columns: a stage-0 gate
     (``eligible = 0``) is gated under its ``gate_reason``, except the gate the engine spells
     ``"unrated: no_external_workflow"``, which is unrated; an eligible project that is not rated is unrated, as
     ``off_platform_routed`` when it is routed off-platform, else under its ``unrated_reason``. The ``"unrated: "``
@@ -2463,7 +2464,7 @@ def not_ranked_projects(db: Path, sid: str) -> list[dict]:
     try:
         records = conn.execute(
             "SELECT owner, name, ecosystem, eligible, gate_reason, unrated_reason, routed, coverage FROM repositories "
-            "WHERE snapshot_id = ? AND (eligible = 0 OR rated = 0) ORDER BY lower(owner || '/' || name)", (sid,)).fetchall()
+            "WHERE snapshot_id = ? AND (eligible = 0 OR rated = 0)", (sid,)).fetchall()
     finally:
         conn.close()
     projects = []
@@ -2473,21 +2474,27 @@ def not_ranked_projects(db: Path, sid: str) -> list[dict]:
         else:
             group, reason = "unrated", "off_platform_routed" if routed == "off_platform" else unrated.removeprefix("unrated: ")
         projects.append({"owner": owner, "name": name, "ecosystem": ecosystem, "group": group, "reason": reason, "coverage": coverage})
-    return projects
+    return sorted(projects, key=lambda p: (p["owner"].lower(), p["name"].lower()))
 
 
-def not_ranked_sentence(project: dict, *, report: Optional[dict], numbers: dict[tuple[str, str], tuple[int, int]]) -> str:
+def not_ranked_sentence(project: dict, *, report: Optional[dict], numbers: dict[tuple[str, str], tuple[int, int]],
+                        floor: Optional[float]) -> str:
     """A project's sentence on its reason list, built here from copy.js's words and the values worked out here:
     ``owner/name (Ecosystem): <its reason in words>``, a black hole with its own two numbers and the report's deadline
-    when both are known (DESIGN, PR 2, R5 a). Nothing else stands beside the name."""
+    when both are known (DESIGN, PR 2, R5 a), a project short of evidence with its coverage and ``floor`` (the
+    methodology's ``unrated_below``) when that is known. Nothing else stands beside the name."""
     from porchlamp.serve import report_pages as rp
 
-    gate, unrated, row, black_hole_row = _not_ranked_words()
+    gate, unrated, row, black_hole_row, below_floor, list_reasons = _not_ranked_words()
     reason, key = project["reason"], (project["owner"], project["name"])
+
+    def whole(share: float) -> str:
+        return f"{math.floor(share * 100 + 0.5)}%"
+
     if reason == "insufficient_evidence":
         coverage = project["coverage"]
-        percent = "unknown" if coverage is None else f"{math.floor(coverage * 100 + 0.5)}%"
-        sentence = f"{unrated[reason]} (coverage {percent}, below the 60% floor)."
+        sentence = list_reasons[reason] if floor is None else (
+            f"{unrated[reason]} {_fill(below_floor, coverage='unknown' if coverage is None else whole(coverage), floor=whole(floor))}")
     elif reason == "black_hole" and report is not None and key in numbers:
         unanswered, counted = numbers[key]
         sentence = _fill(black_hole_row, unanswered=rp.fmt_int(unanswered),
@@ -2498,13 +2505,14 @@ def not_ranked_sentence(project: dict, *, report: Optional[dict], numbers: dict[
 
 
 @functools.lru_cache(maxsize=1)
-def _not_ranked_words() -> tuple[dict[str, str], dict[str, str], str, str]:
-    """copy.js's reason sentences (gated, unrated), its row ("{repo} ({ecosystem}): {sentence}") and its sentence for a
-    black hole's row with its numbers."""
+def _not_ranked_words() -> tuple[dict[str, str], dict[str, str], str, str, str, dict[str, str]]:
+    """copy.js's reason sentences (gated, unrated), its row ("{repo} ({ecosystem}): {sentence}"), its sentence for a
+    black hole's row with its numbers, its coverage clause with the floor, and its lists' own reason sentences."""
     from porchlamp.serve import report_pages as rp
 
     return (rp.copy_js_map("GATE_REASON_COPY"), rp.copy_js_map("UNRATED_REASON_COPY"), rp.copy_js_string("NOT_RANKED_LIST_ROW"),
-            rp.copy_js_string("NOT_RANKED_LIST_ROW_BLACK_HOLE"))
+            rp.copy_js_string("NOT_RANKED_LIST_ROW_BLACK_HOLE"), rp.copy_js_string("UNRATED_COVERAGE_BELOW_FLOOR"),
+            rp.copy_js_map("NOT_RANKED_LIST_REASONS"))
 _REASON_LIST = re.compile(r'<ol class="reason-list"[^>]*?start="(\d+)"[^>]*>(.*?)</ol>', re.S)
 _REASON_ROW = re.compile(r"<li\b[^>]*>(.*?)</li>", re.S)
 
@@ -2536,6 +2544,7 @@ def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], num
     sid = snapshot["snapshot_id"]
     projects = not_ranked_projects(db, sid)
     numbers = numbers or {}
+    floor = ((methodology.get("missingness") or {}).get("coverage_thresholds") or {}).get("unrated_below")
     sitemap = site / "sitemap-pages.xml"
     listed = set(re.findall(r"<loc>https://porchlamp\.org(/[^<]*)</loc>", sitemap.read_text(encoding="utf-8"))) if sitemap.is_file() else set()
     # the counts: the snapshot's groups and, with the stats file, its black holes and its total
@@ -2551,6 +2560,7 @@ def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], num
     first_pages = {route["path"].replace("{page}", "1"): sum(1 for p in projects if p["reason"] == route["fixed"]["reason"])
                    for route in routes}
     seen: dict[tuple[str, str], int] = {}
+    on_pages: dict[str, int] = {}  # rows found on each reason's pages
     jobs, pages, titles, given, per_reason = [], {}, {}, set(), {}
     for route in routes:
         reason, size = route["fixed"]["reason"], route["fixed"]["page_size"]
@@ -2575,12 +2585,13 @@ def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], num
             ledger.equal(f"{address} rows are its reason's projects, alphabetical", keyed_items(found.group(2) if found else "", "li"),
                          [(p["owner"], p["name"]) for p in shown])
             got = [_plain(item) for item in items]
-            want = [not_ranked_sentence(p, report=report, numbers=numbers) for p in shown]
+            want = [not_ranked_sentence(p, report=report, numbers=numbers, floor=floor) for p in shown]
             for i, (g, w) in enumerate(zip(got, want)):
                 ledger.equal(f"{address} row {i + 1}", g, w)
             ledger.equal(f"{address} row count", len(got), len(want))
             for key in keyed_items(found.group(2) if found else "", "li"):
                 seen[key] = seen.get(key, 0) + 1
+                on_pages[reason] = on_pages.get(reason, 0) + 1
             hooks = [(i, v) for i, v in read_page(view).hooks if i.startswith("list.")]
             expected = {"list.total": rp.fmt_int(len(members))}
             if reason == "black_hole" and report is not None:
@@ -2598,6 +2609,11 @@ def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], num
             ledger.equal(f"{address} title fits ({TITLE_MAX})", len(title) <= TITLE_MAX, True)
             ledger.equal(f"{address} description fits ({DESCRIPTION_MAX})", len(description) <= DESCRIPTION_MAX, True)
             ledger.equal(f"{address} title is its own", titles.setdefault(title, address), address)
+    # the rows the gated lists and the unrated lists hold, against the snapshot's counts
+    group_of = {p["reason"]: p["group"] for p in projects}
+    by_list = {group: sum(n for reason, n in on_pages.items() if group_of.get(reason) == group) for group in ("gated", "unrated")}
+    ledger.equal("rows on the gated lists = the snapshot's gated count", by_list["gated"], snapshot["counts"]["gated"])
+    ledger.equal("rows on the unrated lists = the snapshot's unrated count", by_list["unrated"], snapshot["counts"]["unrated"])
     # every not-ranked project in exactly one list, once
     everyone = {(p["owner"], p["name"]) for p in projects}
     ledger.equal("not-ranked projects in no list", sorted(everyone - set(seen))[:20], [])
@@ -2608,9 +2624,9 @@ def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], num
     found_addresses = {"/" + "".join(f"{part}/" for part in path.parent.relative_to(site).parts) for path in under}
     ledger.equal("not-ranked list pages at no address of the route table", sorted(found_addresses - given), [])
     _redraw(db, site, snapshot, methodology, report, jobs, pages, ledger)
-    log(f"verify: not-ranked lists: {len(pages)} pages; rows per reason {dict(sorted(per_reason.items()))} "
-        f"({sum(per_reason.values())} of {len(projects)} not ranked, each once: {not ledger.errors}); re-drawn from the "
-        f"API's answers; checked {ledger.checked} values")
+    log(f"verify: not-ranked lists: {len(pages)} pages; rows per reason {dict(sorted(per_reason.items()))}; rows listed "
+        f"{sum(on_pages.values())} of {len(projects)} not ranked (gated lists {by_list['gated']}, unrated lists {by_list['unrated']}), "
+        f"each once: {not ledger.errors}; re-drawn from the API's answers; checked {ledger.checked} values")
     for error in ledger.errors[:40]:
         log(f"NOT-RANKED MISMATCH {error}")
     return {"pages": len(pages), "rows": sum(seen.values()), "errors": ledger.errors}

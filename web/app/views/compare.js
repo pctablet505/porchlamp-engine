@@ -319,7 +319,7 @@ function resolveCompareLens(data, persona) {
   return { kind, row };
 }
 
-function gateStatusCell(data, persona = "balanced") {
+function gateStatusCell(data, persona = "balanced", floor = null) {
   if (!data || data.loading || data.error) return `<td>${copy.MISSING_VALUE}</td>`;
   const { kind, row } = resolveCompareLens(data, persona);
   if (kind === "gated") return `<td><span class="compare-status-pill is-gated">${escapeHtml(copy.gateReasonText(row.gate_reason))}</span></td>`;
@@ -327,7 +327,7 @@ function gateStatusCell(data, persona = "balanced") {
     const rawReason = row.persona_gates && persona ? row.persona_gates[persona] : "";
     return `<td><span class="compare-status-pill is-gated">${escapeHtml(copy.personaGateReason(rawReason))}</span></td>`;
   }
-  if (kind === "unrated") return `<td><span class="compare-status-pill is-unrated">${escapeHtml(copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage))}</span></td>`;
+  if (kind === "unrated") return `<td><span class="compare-status-pill is-unrated">${escapeHtml(copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage, floor))}</span></td>`;
   return `<td><span class="compare-status-pill is-rated">${escapeHtml(copy.COMPARE_RATED_STATUS)}</span></td>`;
 }
 
@@ -412,7 +412,7 @@ function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
   );
 }
 
-function renderSummaryCards(repoKeys, dataByRepo, persona, verdict) {
+function renderSummaryCards(repoKeys, dataByRepo, persona, verdict, floor = null) {
   const pillarIds = Object.keys(copy.PILLAR_NAMES);
   const cards = repoKeys
     .map((key) => {
@@ -452,7 +452,7 @@ function renderSummaryCards(repoKeys, dataByRepo, persona, verdict) {
         const rawReason = row.persona_gates && persona ? row.persona_gates[persona] : "";
         statusBadge = `<span class="compare-status-pill is-gated">${escapeHtml(copy.personaGateReason(rawReason))}</span>`;
       } else if (kind === "unrated") {
-        statusBadge = `<span class="compare-status-pill is-unrated">${escapeHtml(copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage))}</span>`;
+        statusBadge = `<span class="compare-status-pill is-unrated">${escapeHtml(copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage, floor))}</span>`;
       } else {
         statusBadge = `<span class="compare-status-pill is-rated">${escapeHtml(copy.COMPARE_RATED_STATUS)}</span>`;
       }
@@ -586,7 +586,9 @@ export function renderTable(state) {
       `</div>`;
   }
 
-  const summaryCardsHtml = renderSummaryCards(repoKeys, dataByRepo, persona, verdict);
+  // The insufficient-evidence reason names the methodology's coverage floor (compare loads the methodology).
+  const floor = copy.unratedCoverageFloor(state.methodology);
+  const summaryCardsHtml = renderSummaryCards(repoKeys, dataByRepo, persona, verdict, floor);
 
   const statusRowHtml = !allLoaded
     ? `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_IDENTITY)}</th>${repoKeys.map((k) => repoIdentityCell(k, dataByRepo[k])).join("")}</tr>`
@@ -599,7 +601,7 @@ export function renderTable(state) {
     `<thead><tr><th scope="col">${escapeHtml(copy.COMPARE_ROW_IDENTITY)}</th>${headerCells}</tr></thead>` +
     `<tbody>` +
     statusRowHtml +
-    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_GATE_STATUS)}</th>${repoKeys.map((k) => gateStatusCell(dataByRepo[k], persona)).join("")}</tr>` +
+    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_GATE_STATUS)}</th>${repoKeys.map((k) => gateStatusCell(dataByRepo[k], persona, floor)).join("")}</tr>` +
     `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COMPOSITE)}</th>${repoKeys.map((k) => compositeCell(dataByRepo[k], persona)).join("")}</tr>` +
     `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COVERAGE)}</th>${repoKeys.map((k) => coverageCell(dataByRepo[k], persona)).join("")}</tr>` +
     pillarRows +

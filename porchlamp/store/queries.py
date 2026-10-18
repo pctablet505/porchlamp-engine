@@ -583,7 +583,8 @@ def list_not_ranked(
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int], int]:
     """`06` section 3 A2 / D-TIE-2: the "Not ranked" tab -- every row
     :func:`list_ranked` excludes at ``snapshot_id``, each with the reason it
-    is missing, ordered by lowercase ``owner/name``. Returns ``(rows,
+    is missing, A to Z: by lowercase ``owner``, then lowercase ``name`` (an
+    owner before a longer owner it begins, digits before letters). Returns ``(rows,
     counts, total)``: ``counts`` tallies EVERY matching row by reason
     (never just the current page -- `06` section 8 acceptance item 2:
     "Gated and unrated counts are visible ... and match the Not-ranked
@@ -635,7 +636,7 @@ def list_not_ranked(
             SELECT r.*, s.benchmark_version AS benchmark_version
             FROM repositories r JOIN snapshots s ON r.snapshot_id = s.id
             WHERE r.snapshot_id = ? AND (r.eligible = 0 OR r.rated = 0){extra_where}
-            ORDER BY lower(r.owner || '/' || r.name) ASC
+            ORDER BY lower(r.owner) ASC, lower(r.name) ASC
         """
         columns, raw_rows = _fetch(conn, sql, [snapshot_id, *extra_params])
         all_rows = []
@@ -663,7 +664,7 @@ def list_not_ranked(
                OR json_extract(r.persona_gates, ?) IS NOT NULL
                OR json_extract(r.persona_composites, ?) IS NULL
                OR json_extract(r.persona_composites, ?) < {_RATED_MIN_COVERAGE}){extra_where}
-        ORDER BY lower(r.owner || '/' || r.name) ASC
+        ORDER BY lower(r.owner) ASC, lower(r.name) ASC
     """
     params = [
         paths["gate"], paths["porchlamp"], paths["coverage"],

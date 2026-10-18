@@ -4557,6 +4557,13 @@ const LIST_COPY = [
   "NOT_RANKED_LIST_ROW", "NOT_RANKED_LIST_ROW_BLACK_HOLE", "NOT_RANKED_LIST_PAGES_LABEL", "NOT_RANKED_LISTS_LABEL",
   "NOT_RANKED_LISTS_ITEM",
 ];
+/** copy.js's own strings that no view reads (its functions fill them): read from its source, as the verifier reads them. */
+const LIST_COPY_INTERNAL = ["UNRATED_COVERAGE_BELOW_FLOOR"];
+const COPY_SOURCE = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "copy.js"), "utf8");
+function copySourceString(name) {
+  const found = COPY_SOURCE.match(new RegExp(`(?:export )?const ${name} =\\s*"((?:[^"\\\\]|\\\\.)*)";`));
+  return found ? JSON.parse(`"${found[1]}"`) : undefined;
+}
 
 /** The strings of a copy.js value (a string, a list or a map of strings) that hold a digit. */
 function stringsWithDigits(value) {
@@ -4576,11 +4583,20 @@ test("lists: no digit is typed into any copy.js string the lists added: every nu
     assert.ok(copy[name] !== undefined, `copy.js has ${name}`);
     assert.deepEqual(stringsWithDigits(copy[name]), [], name);
   }
+  for (const name of LIST_COPY_INTERNAL) {
+    assert.ok(copySourceString(name) !== undefined, `copy.js has ${name}`);
+    assert.deepEqual(stringsWithDigits(copySourceString(name)), [], name);
+    assert.deepEqual(stringsWithCountWords(copySourceString(name)), [], name);
+  }
   assert.deepEqual(stringsWithDigits("weighs 18 parameters"), ["weighs 18 parameters"], "the check finds a typed number");
   assert.deepEqual(stringsWithDigits({ a: "fine", b: "in 14 days" }), ["in 14 days"]);
   // a list by reason's black-hole sentence with the deadline typed, as the old reason copy has it, is caught
   const typedDeadline = { ...copy.NOT_RANKED_LIST_REASONS, black_hole: copy.gateReasonText("black_hole") };
   assert.deepEqual(stringsWithDigits(typedDeadline), [copy.gateReasonText("black_hole")], "a typed deadline is found");
+  // a typed floor in the coverage clause, and a typed page size in the count, are caught
+  assert.deepEqual(stringsWithDigits("(coverage {coverage}, below the 60% floor)."), ["(coverage {coverage}, below the 60% floor)."], "a typed 60");
+  const typedSize = copy.NOT_RANKED_LIST_COUNT.replace("{page_size}", "200");
+  assert.deepEqual(stringsWithDigits(typedSize), [typedSize], "a typed 200");
   // the lists' route titles type no number either: the page part fills its slots
   for (const route of ROUTES.filter((r) => r.view === "notranked")) assert.doesNotMatch(route.title, /\d/, route.id);
   // a count is never typed as a word either ("six ecosystems", "five pillars"): it is the data's count, in words
@@ -4768,7 +4784,9 @@ const NR_LIST = notRankedFixture();
 const atReason = (address, extra = {}) => ({ ...defaultState(), ...parseLocation(address, ""), ...extra });
 /** A list by reason's page with everything the prerender loads. */
 const reasonPageState = (address, extra = {}) =>
-  atReason(address, { notRanked: NR_LIST, report: REPORT_EXAMPLE, leaderboard: HOME_LEADERBOARD, snapshot: SNAPSHOT_DOC, ...extra });
+  atReason(address, { notRanked: NR_LIST, report: REPORT_EXAMPLE, leaderboard: HOME_LEADERBOARD, snapshot: SNAPSHOT_DOC, methodology: METHODOLOGY_DOC, ...extra });
+//: The methodology's coverage floor (missingness.coverage_thresholds.unrated_below), as the views read it.
+const NR_FLOOR = METHODOLOGY_DOC.missingness.coverage_thresholds.unrated_below;
 const pagesOf = (reason) => Math.max(1, Math.ceil(REASON_COUNTS[reason] / 200));
 
 /** The list items of `html`: `{ owner, name, text }`, `text` the item's whole text. An item holding any element (a
@@ -4871,7 +4889,7 @@ test("not-ranked lists: a list is every row whose gate, else unrated reason, is 
 });
 
 test("not-ranked lists: each row is one plain sentence: the reason, the coverage, or a black hole's own numbers", () => {
-  const text = (row, report = REPORT_EXAMPLE) => nrView.reasonRowText({ owner: "acme", name: "widget", ecosystem: "go", gate_reason: null, unrated_reason: null, ...row }, report);
+  const text = (row, report = REPORT_EXAMPLE) => nrView.reasonRowText({ owner: "acme", name: "widget", ecosystem: "go", gate_reason: null, unrated_reason: null, ...row }, report, NR_FLOOR);
   assert.equal(text({ gate_reason: "archived" }), "acme/widget (Go): Archived on GitHub — no active development to evaluate.");
   assert.equal(text({ unrated_reason: "unrated: insufficient_evidence", coverage: 0.42, ecosystem: "crates" }), "acme/widget (Rust): Not enough measured evidence to rank (coverage 42%, below the 60% floor).");
   assert.equal(text({ unrated_reason: "no_external_workflow", ecosystem: "systems" }), "acme/widget (C and C++): No external contribution workflow was found to measure.");
@@ -4890,7 +4908,7 @@ test("not-ranked lists: each row is one plain sentence: the reason, the coverage
   const rows = nrState.reasonListPage(state).rows;
   const items = reasonItemsOf(notRankedRenderShell(state));
   assert.equal(items.length, 200);
-  items.forEach((item, i) => assert.equal(item.text, nrView.reasonRowText(rows[i], REPORT_EXAMPLE), item.name));
+  items.forEach((item, i) => assert.equal(item.text, nrView.reasonRowText(rows[i], REPORT_EXAMPLE, NR_FLOOR), item.name));
   assert.ok(items.some((item) => /^\S+ \(\w+\): \d+ of \d+ counted/.test(item.text)) && items.some((item) => item.text.endsWith(copy.gateReasonText("black_hole"))), "both forms on the page");
   // a planted label or chip beside a name is found
   assert.throws(() => reasonItemsOf('<li data-owner="a" data-name="b">a/b <span class="eco-chip">Go</span>: Archived.</li>'), /holds markup/);
@@ -5098,4 +5116,71 @@ test("not-ranked lists: the prerender draws a list's page from its address: the 
   assert.ok(rust.includes(`Not ranked<span class="count">${rustRows}</span>`), "the ecosystem's count");
   assert.equal(nrPrerender.needsNotRanked(nrPrerender.stateForAddress("/rust/")), true);
   assert.equal(nrPrerender.needsNotRanked(nrPrerender.stateForAddress("/career/")), false);
+});
+
+test("not-ranked: the insufficient-evidence reason names the methodology's coverage floor, in every view that prints it", () => {
+  assert.equal(copy.unratedCoverageFloor(METHODOLOGY_DOC), 0.6, "methodology.json missingness.coverage_thresholds.unrated_below");
+  assert.equal(copy.unratedCoverageFloor(null), null);
+  assert.equal(copy.unratedCoverageFloor({ missingness: {} }), null);
+  assert.equal(copySourceString("UNRATED_COVERAGE_BELOW_FLOOR"), "(coverage {coverage}, below the {floor} floor).");
+  assert.equal(copy.unratedReasonText("unrated: insufficient_evidence", 0.42, 0.6), "Not enough measured evidence to rank (coverage 42%, below the 60% floor).");
+  assert.equal(copy.unratedReasonText("insufficient_evidence", 0.42, 0.55), "Not enough measured evidence to rank (coverage 42%, below the 55% floor).", "a whole percent of the floor given");
+  assert.equal(copy.unratedReasonText("insufficient_evidence", 0.42), "Not enough measured evidence to rank.", "no floor: the reason alone, never a typed floor");
+  assert.equal(copy.unratedReasonText("off_platform_routed", 0.42, 0.6), copy.unratedReasonText("off_platform_routed", 0.42), "other reasons have no floor");
+  // a planted floor of 0.5 is what every caller prints
+  const planted = { ...METHODOLOGY_DOC, missingness: { ...METHODOLOGY_DOC.missingness, coverage_thresholds: { ...METHODOLOGY_DOC.missingness.coverage_thresholds, unrated_below: 0.5 } } };
+  const says = (html) => {
+    assert.ok(html.includes("below the 50% floor"), "the planted floor is printed");
+    assert.ok(!html.includes("60%"), "and no other");
+  };
+  // a list by reason
+  says(notRankedRenderShell(reasonPageState("/not-ranked/insufficient-evidence/1/", { methodology: planted })));
+  // the whole not-ranked list's rows (the chip), as its patch draws them
+  const container = { innerHTML: "" };
+  const root = { querySelector: (sel) => (sel === "[data-notranked-rows]" ? container : null), querySelectorAll: () => [] };
+  const unrated = { ...NR_LIST, gated: [] };
+  nrView.patchNotRankedBody(root, atReason("/not-ranked/", { notRanked: unrated, methodology: planted }));
+  says(container.innerHTML);
+  // compare: the status row and the summary card
+  const detail = { ...FLAT_RATED_DETAIL, owner: "acme", name: "tool", rated: false, rank: null, porchlamp: null, unrated_reason: "insufficient_evidence", coverage: 0.42 };
+  const compare = renderCompareTable({
+    persona: "balanced",
+    compareRepos: ["acme/tool", "acme/tool2"],
+    compareDataByRepo: { "acme/tool": { row: detail, evidence: [] }, "acme/tool2": { row: { ...detail, name: "tool2" }, evidence: [] } },
+    methodology: planted,
+  });
+  assert.equal((compare.match(/below the 50% floor/g) || []).length, 4, "two status cells and two summary cards");
+  says(compare);
+  // the project panel's banner
+  says(renderDrawer({ ...defaultState(), repo: "acme/tool", repoDetailByKey: { "acme/tool": detail }, evidenceByRepo: { "acme/tool": [] }, methodology: planted }));
+  // before the methodology has loaded: the reason alone, in the app and nowhere a guessed floor
+  assert.ok(!notRankedRenderShell(reasonPageState("/not-ranked/insufficient-evidence/1/", { methodology: null })).includes("floor"));
+  // the prerendered list says what the app says, from the same methodology
+  const frame = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "404.html"), "utf8");
+  const data = { snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, leaderboard: HOME_LEADERBOARD, notRanked: NR_LIST, methodology: planted };
+  const page = drawPage(frame, { path: "not-ranked/insufficient-evidence/1/index.html", view: "notranked", address: "/not-ranked/insufficient-evidence/1/" }, data);
+  says(page);
+  const appState = reasonPageState("/not-ranked/insufficient-evidence/1/", { methodology: planted });
+  const board = nrView.renderPrerenderedReasonList(appState);
+  assert.ok(page.includes(board), "the prerendered board of the app's state");
+  assert.equal(board.replace(/ data-prerendered-board="[^"]+"/, ""), notRankedRenderShell(appState), "the app's text, byte for byte");
+  // app.js loads it for the not-ranked view and a project's panel, and the takeover waits for it
+  const app = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "app.js"), "utf8");
+  assert.match(app, /if \(tab === "notranked"\) loadMethodologyOnce\(\);/);
+  const panelLoad = app.slice(app.indexOf("function loadRepoDetail(owner, name) {"), app.indexOf("function loadRepoDetail(owner, name) {") + 300);
+  assert.match(panelLoad, /^function loadRepoDetail[\s\S]*\n\s*loadMethodologyOnce\(\);/, "a panel's record load asks for the methodology");
+  assert.match(app, /\(!state\.methodology && !state\.methodologyError\);/);
+});
+
+test("not-ranked lists: the page size printed in the intro and the pages line is the route's own", () => {
+  const state = reasonPageState("/not-ranked/stale/1/");
+  const at = nrState.reasonListPage(state);
+  assert.equal(at.pageSize, routeById("notranked-stale").fixed.page_size, "the route's fixed page_size");
+  const fifty = { ...at, pageSize: 50, pages: Math.ceil(at.total / 50), rows: at.rows.slice(0, 50) };
+  const html = nrView.renderReasonListShell(state, fifty);
+  const intro = listTextOf(html.match(/<p class="list-intro" data-list-intro="true">(.*?)<\/p>/)[1]);
+  assert.ok(intro.endsWith("2,479 projects, A to Z, 50 a page."), intro);
+  assert.ok(html.includes("<span>The whole list, 50 projects a page:</span>"));
+  assert.equal([...html.match(/<div class="list-pages" data-list-pages="true">.*?<\/div>/)[0].matchAll(/<a /g)].length, 50, "2,479 at 50 a page");
+  assert.ok(!html.includes("200"), "no 200 anywhere at 50 a page");
 });

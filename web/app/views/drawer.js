@@ -191,6 +191,7 @@ export function renderDrawer(state, opts = {}) {
     persona: activePersona,
     badgeHtml: renderMaintainerBadge(found, opts.siteBaseUrl),
     evidenceError: evidenceRows ? null : state.evidenceError,
+    coverageFloor: copy.unratedCoverageFloor(state.methodology),
   });
   return (
     `<div class="drawer-backdrop" data-drawer-backdrop="true">` +

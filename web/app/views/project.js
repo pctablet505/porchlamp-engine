@@ -19,6 +19,8 @@
 //   persona       the lens whose gate `kind: "persona-gated"` names
 //   badgeHtml     the README badge box (drawer.js renderMaintainerBadge, always read from the balanced row)
 //   evidenceError the failed evidence request, shown with a retry button in place of the parameters
+//   coverageFloor the methodology's coverage floor (copy.js unratedCoverageFloor), named by an unrated project's banner;
+//                 null while the methodology loads, when the banner says the reason alone
 
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderQuadrant, renderTierCell } from "../components/badge.js";
@@ -268,7 +270,7 @@ function bannerBlock(rec, kind, opts) {
       ? copy.gateReasonText(d.gate_reason)
       : kind === "persona-gated"
         ? copy.personaGateReason(d.persona_gates && opts.persona ? d.persona_gates[opts.persona] : "")
-        : copy.unratedReasonText(d.unrated_reason || d.gate_reason, d.coverage);
+        : copy.unratedReasonText(d.unrated_reason || d.gate_reason, d.coverage, opts.coverageFloor ?? null);
   return `<p class="gate-banner project-gate">${e(text)}</p>`;
 }
 

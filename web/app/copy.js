@@ -205,11 +205,28 @@ const UNRATED_REASON_COPY = Object.freeze({
   off_platform_routed:
     "Contribution activity happens off-platform and cannot be measured here.",
 });
-export function unratedReasonText(reason, coverage) {
+/** The insufficient-evidence sentence's coverage clause: the row's coverage and the methodology's floor, each a whole
+ *  percent. `unratedReasonText` fills it and no view reads it, so it is not exported: the verifier and the tests read
+ *  it from this file, as they read the reason maps above. */
+const UNRATED_COVERAGE_BELOW_FLOOR = "(coverage {coverage}, below the {floor} floor).";
+/** The coverage floor an unrated project fell below: methodology.json `missingness.coverage_thresholds.unrated_below`
+ *  (a share); null without a methodology that states it. */
+export function unratedCoverageFloor(methodology) {
+  const thresholds = methodology && methodology.missingness ? methodology.missingness.coverage_thresholds : null;
+  return thresholds && typeof thresholds.unrated_below === "number" ? thresholds.unrated_below : null;
+}
+/**
+ * An unrated reason's sentence. Insufficient evidence names the project's coverage and the floor it fell below
+ * (`floor`, a share from `unratedCoverageFloor`); without a floor (the methodology has not loaded) the sentence says
+ * the reason alone, never a floor it was not given.
+ */
+export function unratedReasonText(reason, coverage, floor = null) {
   const bare = bareUnratedReason(reason);
   if (bare === "insufficient_evidence") {
-    const pct = typeof coverage === "number" ? `${Math.round(coverage * 100)}%` : "unknown";
-    return `${UNRATED_REASON_COPY[bare]} (coverage ${pct}, below the 60% floor).`;
+    if (typeof floor !== "number") return NOT_RANKED_LIST_REASONS.insufficient_evidence;
+    const whole = (share) => `${Math.round(share * 100)}%`;
+    const pct = typeof coverage === "number" ? whole(coverage) : "unknown";
+    return `${UNRATED_REASON_COPY[bare]} ${UNRATED_COVERAGE_BELOW_FLOOR.replace("{coverage}", pct).replace("{floor}", whole(floor))}`;
   }
   return UNRATED_REASON_COPY[bare] || reason;
 }

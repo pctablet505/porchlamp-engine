@@ -23,7 +23,8 @@
 // (state.js titleForState, views/leaderboard.js descriptionForState) are drawn; on a list with an ecosystem or a search
 // the Not ranked tab counts that lens's not-ranked list, filtered the same way (fetchNotRankedFull). A page of a list of
 // the not-ranked projects by reason is {"path": "not-ranked/archived/2/index.html", "view": "notranked", "address":
-// "/not-ranked/archived/2/"}: the balanced not-ranked list (fetchNotRankedFull), the report and the counts draw its
+// "/not-ranked/archived/2/"}: the balanced not-ranked list (fetchNotRankedFull), the report, the methodology (its coverage
+// floor) and the counts draw its
 // heading, intro, lines and rows (views/notranked.js) and its <title> and description, for the app to take over; the
 // report's frozen copy is {"path": "black-holes/<sid>/index.html", "view": "report",
 // "frozen": true}; any other page the nav entry it belongs to, or null: {"path": "check/index.html", "nav": null}; a
@@ -148,9 +149,9 @@ function writeHead(html, title, description, what) {
   return out;
 }
 
-/** A project's page: its view in page mode, from what `loadProject` read for it. */
-function projectView(project) {
-  return renderProject(project.record, { mode: "page", recordFile: project.recordFile });
+/** A project's page: its view in page mode, from what `loadProject` read for it, with the methodology's coverage floor. */
+function projectView(project, methodology) {
+  return renderProject(project.record, { mode: "page", recordFile: project.recordFile, coverageFloor: copy.unratedCoverageFloor(methodology) });
 }
 
 /** The header, nav and footer of `page` ({view} or {nav}) as the export draws them from `snapshot`. A list's page
@@ -190,7 +191,7 @@ export function drawPage(html, page, data) {
       : page.view
         ? VIEWS[page.view]
         : page.project
-          ? () => projectView(data.project)
+          ? () => projectView(data.project, data.methodology)
           : undefined;
   if (view) {
     const mains = [...out.matchAll(MAIN)];

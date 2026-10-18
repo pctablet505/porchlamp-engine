@@ -278,6 +278,8 @@ export function boot(win = window, doc = document) {
     if (tab === "notranked" && !state.notRanked && !state.notRankedLoading) loadNotRanked();
     // A list by reason's black-hole sentences take the report's deadline and test.
     if (tab === "notranked" && reasonListKey(state) && !state.report && !state.reportLoading && !state.reportError) loadReport();
+    // The not-ranked rows name the methodology's coverage floor on an insufficient-evidence reason.
+    if (tab === "notranked") loadMethodologyOnce();
     loadNotRankedForTabCount(state);
   }
 
@@ -554,7 +556,8 @@ export function boot(win = window, doc = document) {
             (!state.notRanked && !state.notRankedError) ||
             (!state.leaderboard && !state.leaderboardError) ||
             (!state.snapshot && !state.snapshotError) ||
-            (!state.report && !state.reportError);
+            (!state.report && !state.reportError) ||
+            (!state.methodology && !state.methodologyError);
           if (pending) return;
           prerendered = null;
           if (adoptReasonListBoard(main, state, doc)) {
@@ -895,6 +898,8 @@ export function boot(win = window, doc = document) {
    */
   function loadRepoDetail(owner, name) {
     const key = `${owner}/${name}`;
+    // An unrated project's panel names the methodology's coverage floor (views/project.js `coverageFloor`).
+    loadMethodologyOnce();
     if (store.getState().repoDetailByKey[key]) return Promise.resolve();
     store.dispatch({ type: "REPO_DETAIL_LOADING" });
     return api.fetchRepoDetail(owner, name).then(async (result) => {
@@ -950,6 +955,12 @@ export function boot(win = window, doc = document) {
   }
 
   // ------------------------------------------- Methodology (F)
+  /** The methodology, unless it has loaded, is loading or has failed. */
+  function loadMethodologyOnce() {
+    const s = store.getState();
+    if (!s.methodology && !s.methodologyLoading && !s.methodologyError) loadMethodology();
+  }
+
   function loadMethodology() {
     store.dispatch({ type: "METHODOLOGY_LOADING" });
     return api.fetchMethodology().then((result) => {

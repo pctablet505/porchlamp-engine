@@ -28,7 +28,7 @@
 // "{ecosystem}", "{lens}", "{first}", "{last}" and "{total}" in a title are filled from copy.js and the data.
 //
 // A list of the not-ranked projects by reason ("view": "notranked") fixes `reason` too: the bare reason code its rows
-// carry (state.notRankedReason), and pages its rows 200 a page. "{list}" in its title is the list's name, and
+// carry (state.notRankedReason), and pages its rows `fixed.page_size` a page. "{list}" in its title is the list's name, and
 // "{page_of}" its page part, empty when the list has one page (copy.js NOT_RANKED_LIST_NAMES, NOT_RANKED_LIST_PAGE_OF).
 
 export const ROUTES = deepFreeze([

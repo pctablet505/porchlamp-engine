@@ -10,7 +10,7 @@
 // heading renders whenever the page's slice reaches that group's first row.
 //
 // A list by reason (routes.js "notranked-*", `/not-ranked/<reason>/<page>/`) is a page of this view too: every
-// balanced not-ranked project with that reason, A to Z, 200 a page, one plain sentence each, with a line of links to
+// balanced not-ranked project with that reason, A to Z, its route's `fixed.page_size` a page, one plain sentence each, with a line of links to
 // every page of the list. Its shell holds the whole page (`renderShell`); web/prerender.mjs draws the same shell into
 // the exported page, and the app takes it over without drawing it again (`adoptReasonListBoard`).
 
@@ -49,20 +49,20 @@ export function renderErrorBanner(error) {
   );
 }
 
-function renderReasonChip(row) {
+function renderReasonChip(row, floor = null) {
   const text = row.gate_reason
     ? copy.gateReasonText(row.gate_reason)
     : row.unrated_reason
-      ? copy.unratedReasonText(row.unrated_reason, row.coverage)
+      ? copy.unratedReasonText(row.unrated_reason, row.coverage, floor)
       : copy.personaGateReason(row.persona_gate_reason);
   return `<span class="reason-chip">${escapeHtml(text)}</span>`;
 }
 
-function renderRow(row, selected = false) {
+function renderRow(row, selected = false, floor = null) {
   return (
     `<div class="notranked-row${selected ? " row-selected" : ""}" data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(row.owner)}/${escapeHtml(row.name)}">` +
     `<span><span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(copy.ecosystemName(row.ecosystem))}</span></span>` +
-    renderReasonChip(row) +
+    renderReasonChip(row, floor) +
     `</div>`
   );
 }
@@ -88,8 +88,9 @@ export function flattenGroups(notRanked, opts = {}) {
   return flat;
 }
 
-/** Renders one page's slice, inserting a group heading whenever the slice reaches a new group's first row. */
-export function renderPageRows(flat, page, pageSize, selectedRepoKey = null) {
+/** Renders one page's slice, inserting a group heading whenever the slice reaches a new group's first row. `floor` is
+ *  the methodology's coverage floor (the copy module's `unratedCoverageFloor`), which the insufficient-evidence reason names. */
+export function renderPageRows(flat, page, pageSize, selectedRepoKey = null, floor = null) {
   const start = (page - 1) * pageSize;
   const slice = flat.slice(start, start + pageSize);
   let html = "";
@@ -100,7 +101,7 @@ export function renderPageRows(flat, page, pageSize, selectedRepoKey = null) {
       html += `<h2 class="view-heading">${escapeHtml(item.label)} (${item.groupTotal})</h2>`;
     }
     const key = `${item.row.owner}/${item.row.name}`;
-    html += renderRow(item.row, selectedRepoKey === key);
+    html += renderRow(item.row, selectedRepoKey === key, floor);
   }
   return html;
 }
@@ -183,7 +184,7 @@ export function patchNotRankedBody(root, state) {
   const flat = flattenGroups(state.notRanked, { ecosystem: state.ecosystem, query: state.query });
   const totalPages = Math.max(1, Math.ceil(flat.length / state.notRankedPageSize));
   const page = Math.min(Math.max(1, state.notRankedPage), totalPages);
-  const html = renderPageRows(flat, page, state.notRankedPageSize, state.selectedRepoKey);
+  const html = renderPageRows(flat, page, state.notRankedPageSize, state.selectedRepoKey, copy.unratedCoverageFloor(state.methodology));
   if (container.innerHTML !== html) container.innerHTML = html;
   syncPager(root, page, state.notRankedPageSize, flat.length, "notranked-pager");
   const notRankedCountEl = root.querySelector('[data-route-tab="notranked"] .count');
@@ -264,8 +265,7 @@ function reasonSentence(reason, report) {
  * (the reason, the count, and on the black-hole list the test, from the report) waits for the not-ranked list; the
  * test needs the report. Null at any other address.
  */
-export function reasonListHead(state) {
-  const at = reasonListPage(state);
+export function reasonListHead(state, at = reasonListPage(state)) {
   if (!at) return null;
   // The heading is the list's title without its page part and the site's name.
   const text = routeTitle(at.route.id, { list: copy.NOT_RANKED_LIST_NAMES[at.reason], page_of: "" }).replace(TITLE_SITE_SUFFIX, "");
@@ -290,8 +290,9 @@ export function reasonListDescription(state) {
 }
 
 /** A row's whole text: "owner/name (Ecosystem): sentence". A black hole with its numbers and the report's deadline
- *  says how many counted pull requests went unanswered; any other row says its reason, as the drawer does. */
-export function reasonRowText(row, report = null) {
+ *  says how many counted pull requests went unanswered; any other row says its reason, as the drawer does, with the
+ *  methodology's coverage floor (`floor`) on an insufficient-evidence row. */
+export function reasonRowText(row, report = null, floor = null) {
   const unanswered = typeof row.unanswered === "number" ? row.unanswered : null;
   const counted = typeof row.counted === "number" ? row.counted : null;
   const deadline = reportValue(report, "deadline_days");
@@ -301,7 +302,7 @@ export function reasonRowText(row, report = null) {
       .replace("{counted}", groupThousands(counted))
       .replace("{deadline_days}", deadline);
   } else {
-    said = row.gate_reason ? copy.gateReasonText(row.gate_reason) : copy.unratedReasonText(row.unrated_reason, row.coverage);
+    said = row.gate_reason ? copy.gateReasonText(row.gate_reason) : copy.unratedReasonText(row.unrated_reason, row.coverage, floor);
   }
   return copy.NOT_RANKED_LIST_ROW.replace("{repo}", `${row.owner}/${row.name}`)
     .replace("{ecosystem}", copy.ecosystemName(row.ecosystem))
@@ -339,18 +340,18 @@ export function renderReasonListsLine(state) {
 }
 
 /** The rows of a page of a list by reason: an ordered list numbered from the page's first position. */
-function reasonRowsHtml(at, report) {
+function reasonRowsHtml(at, report, floor) {
   const items = at.rows
-    .map((row) => `<li data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}">${escapeHtml(reasonRowText(row, report))}</li>`)
+    .map((row) => `<li data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}">${escapeHtml(reasonRowText(row, report, floor))}</li>`)
     .join("");
   return `<ol class="reason-list" start="${at.first}" data-reason-rows="true">${items}</ol>`;
 }
 
 /** The shell of a list by reason: its head, the tabs and counts as this view draws them, the lists line, and its page
- *  of rows between two pages lines; the skeleton or the error until the not-ranked list has loaded. */
-function renderReasonListShell(state) {
-  const at = reasonListPage(state);
-  const head = reasonListHead(state);
+ *  of rows between two pages lines; the skeleton or the error until the not-ranked list has loaded. `at` is the page
+ *  (state.js `reasonListPage`), its page size the route's own. */
+export function renderReasonListShell(state, at = reasonListPage(state)) {
+  const head = reasonListHead(state, at);
   const intro = head.sentences.map((s) => s.html).join(" ");
   const leaderboardCounts = state.leaderboard ? state.leaderboard.counts : null;
   const headHtml =
@@ -365,7 +366,7 @@ function renderReasonListShell(state) {
   let body;
   if (at.rows) {
     const pages = reasonPagesLine(at);
-    body = renderReasonListsLine(state) + pages + reasonRowsHtml(at, state.report) + pages;
+    body = renderReasonListsLine(state) + pages + reasonRowsHtml(at, state.report, copy.unratedCoverageFloor(state.methodology)) + pages;
   } else if (state.notRankedError) {
     body = renderReasonListsLine(state) + renderErrorBanner(state.notRankedError);
   } else {
@@ -402,8 +403,9 @@ export function adoptReasonListBoard(root, state, doc) {
   const key = reasonListKey(state);
   if (!board || !key || board.getAttribute("data-prerendered-board") !== key) return false;
   board.removeAttribute("data-prerendered-board");
-  // Without the not-ranked list (it failed to load) the page keeps the list the export read from the same files.
-  if (!state.notRanked) return true;
+  // A load that failed (the not-ranked list, the methodology, the report) leaves the page as the export drew it from
+  // the same files: the app's own drawing would only say less.
+  if (!state.notRanked || state.notRankedError || state.methodologyError || state.reportError) return true;
   const html = renderReasonListShell(state);
   const probe = doc.createElement("div");
   probe.innerHTML = html;
