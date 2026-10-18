@@ -1,8 +1,10 @@
 """WCAG contrast test for `web/app/styles/tokens.css` (06 §5 checklist item 9).
 
-Parses the actual CSS custom-property VALUES out of the theme blocks
-(dark: bare `:root`; light: both `:root[data-theme="light"]` and the
-`prefers-color-scheme: light` block most light visitors get) and computes
+Parses the actual CSS custom-property VALUES out of tokens.css (each themed
+token holds both, `var(--on-light, <light>) var(--on-dark, <dark>)`, and
+the two light rules, `:root[data-theme="light"]` and the
+`prefers-color-scheme: light` one most light visitors get, turn the same
+switches) and computes
 real WCAG 2.1 relative-luminance contrast ratios — this is a test of the
 DESIGN TOKENS, not of rendered pixels (a real browser is needed for that;
 see the handoff's COULD NOT VERIFY list), but a wrong token value here is
@@ -18,6 +20,11 @@ from pathlib import Path
 TOKENS_CSS = Path(__file__).resolve().parent.parent / "web" / "app" / "styles" / "tokens.css"
 
 VAR_RE = re.compile(r"--([a-zA-Z0-9-]+)\s*:\s*([^;]+);")
+#: A themed token as tokens.css writes it: its light value, then its dark value, each behind its theme's switch.
+SWITCHED_RE = re.compile(r"var\(--on-light,\s*(.+?)\)\s+var\(--on-dark,\s*(.+)\)")
+#: The two rules that give the light theme: a system that asks for light (unless the reader chose dark), and the
+#: reader's own choice of light.
+LIGHT_RULES = (':root:not([data-theme="dark"])', ':root[data-theme="light"]')
 
 
 def extract_block(css: str, selector: str) -> str:
@@ -71,12 +78,15 @@ def contrast_ratio(hex_a: str, hex_b: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
+def theme_tokens(css: str, side: int) -> dict[str, str]:
+    """The bare `:root` block's tokens as one theme reads them: a themed token's light (1) or dark (2) value."""
+    tokens = parse_tokens(extract_block(css, ":root {"))
+    return {name: (m.group(side) if (m := SWITCHED_RE.fullmatch(value)) else value) for name, value in tokens.items()}
+
+
 def load_themes() -> dict[str, dict[str, str]]:
     css = TOKENS_CSS.read_text()
-    dark = parse_tokens(extract_block(css, ":root {"))
-    light = parse_tokens(extract_block(css, ':root[data-theme="light"]'))
-    light_by_system = parse_tokens(extract_block(css, ':root:not([data-theme="dark"])'))
-    return {"dark": dark, "light": light, "light-system": light_by_system}
+    return {"dark": theme_tokens(css, 2), "light": theme_tokens(css, 1)}
 
 
 THEMES = load_themes()
@@ -129,7 +139,7 @@ LINK_AND_QUADRANT_TEXT_TOKENS = [
 ]
 #: Includes the hovered and selected row surface, which these colours also paint on.
 TEXT_SURFACES = ["bg-base", "bg-surface", "bg-surface-elevated", "bg-surface-hover"]
-LIGHT_THEMES = ("light", "light-system")
+LIGHT_THEMES = ("light",)
 
 
 def _get(theme: dict[str, str], name: str) -> str:
@@ -178,7 +188,7 @@ class TestTextContrastMeetsAA:
 
 
 class TestLinkAndQuadrantTextContrast:
-    def test_link_and_quadrant_text_clear_4_5_to_1_in_both_light_blocks(self) -> None:
+    def test_link_and_quadrant_text_clear_4_5_to_1_in_the_light_theme(self) -> None:
         failures = []
         for theme_name in LIGHT_THEMES:
             theme = THEMES[theme_name]
@@ -189,16 +199,19 @@ class TestLinkAndQuadrantTextContrast:
                         failures.append(f"{theme_name}: --{fg_tok} on --{bg_tok} = {ratio:.2f} (< 4.5)")
         assert not failures, "AA link/quadrant text failures:\n" + "\n".join(failures)
 
-    def test_both_light_blocks_hold_the_same_values(self) -> None:
-        assert THEMES["light"] == THEMES["light-system"]
+    def test_both_light_rules_turn_the_same_switches_and_nothing_else(self) -> None:
+        """The light theme is one palette: the system's light and the reader's light each turn the switches, so
+        neither can hold a value of its own."""
+        css = TOKENS_CSS.read_text()
+        for selector in LIGHT_RULES:
+            body = extract_block(css, selector)
+            assert parse_tokens(body) == {"on-light": "initial", "on-dark": ""}, selector
+            assert re.fullmatch(r"\s*(--on-(light|dark):[^;]*;\s*|color-scheme:\s*light;\s*){3}", body), selector
 
     def test_light_text_tokens_are_overridden_not_inherited_from_dark(self) -> None:
         for theme_name in LIGHT_THEMES:
             for tok in LINK_AND_QUADRANT_TEXT_TOKENS:
-                assert tok in THEMES[theme_name], f"{theme_name} block must set --{tok}"
-                assert THEMES[theme_name][tok] != THEMES["dark"][tok], (
-                    f"{theme_name} block repeats the dark value of --{tok}"
-                )
+                assert THEMES[theme_name][tok] != THEMES["dark"][tok], f"--{tok} has no light value of its own"
 
 
 class TestGraphicContrastMeets3to1:
@@ -218,9 +231,9 @@ class TestDarkIsTheDefault:
         # `:root` block must be the dark palette, never behind a media query
         # or attribute selector.
         css = TOKENS_CSS.read_text()
-        bare_root_block = extract_block(css, ":root {")
-        tokens = parse_tokens(bare_root_block)
-        assert tokens["bg-base"].lower() == "#090d16"
+        tokens = parse_tokens(extract_block(css, ":root {"))
+        assert (tokens["on-light"], tokens["on-dark"]) == ("", "initial"), "bare :root sets the dark switch"
+        assert THEMES["dark"]["bg-base"].lower() == "#090d16"
 
 
 COMPONENTS_CSS = TOKENS_CSS.parent / "components.css"

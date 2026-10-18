@@ -11,12 +11,7 @@
 
 import * as copy from "../copy.js";
 import { parseRepoSlug, LIVE_REQUESTS_PER_CHECK } from "../livecheck.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 const STATUS_CLASS = Object.freeze({
   pass: "is-pass",

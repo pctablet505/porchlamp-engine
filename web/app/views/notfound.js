@@ -4,12 +4,7 @@
 
 import * as copy from "../copy.js";
 import { routePath } from "../routes.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 /** The search is a plain form to the leaderboard's address (`?q=`), so it works before the app has started. */
 export function renderShell(state) {

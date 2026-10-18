@@ -26,6 +26,7 @@
 // paying its per-node DOM cost for the other 9,999 markers.
 
 import * as copy from "../copy.js";
+import { escapeHtml } from "../escape.js";
 
 export const DOMAIN_MIN = 0;
 export const DOMAIN_MAX = 100;
@@ -52,12 +53,6 @@ export const REFERENCE_PLOT_WIDTH_PX = 720;
 
 /** Backward-compatible viewBox-unit constants (SVG path only) — kept for callers/tests that still want the domain-unit equivalents at the reference width. */
 export const DEFAULT_RADIUS = (DEFAULT_RADIUS_PX / REFERENCE_PLOT_WIDTH_PX) * (DOMAIN_MAX - DOMAIN_MIN);
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
 
 export function pointKey(point) {
   return `${point.owner}/${point.name}`;

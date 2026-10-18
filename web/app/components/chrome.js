@@ -12,7 +12,7 @@
 import * as copy from "../copy.js";
 import { renderBrand } from "./brand.js";
 import { hook } from "./fill.js";
-import { escapeHtml } from "./table.js";
+import { escapeHtml } from "../escape.js";
 import { routeById, routePath } from "../routes.js";
 import { PERSONA_PRESET_WEIGHTS, hrefFor } from "../state.js";
 

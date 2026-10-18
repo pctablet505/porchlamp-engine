@@ -39,12 +39,7 @@
 import * as copy from "../copy.js";
 import { fill, hook } from "../components/fill.js";
 import { fillFromReport, renderCountsStrip } from "./leaderboard.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 const SECTION_ID_PREFIX = "methodology-";
 

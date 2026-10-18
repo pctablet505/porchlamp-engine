@@ -8,7 +8,7 @@
 //
 // `shellShape` / `renderShell` are what the app calls for the /black-holes/ route: loading, error, or the body.
 
-import { escapeHtml } from "../components/table.js";
+import { escapeHtml } from "../escape.js";
 import { fill, hook } from "../components/fill.js";
 import * as copy from "../copy.js";
 

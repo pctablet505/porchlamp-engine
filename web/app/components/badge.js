@@ -3,12 +3,7 @@
 
 import * as copy from "../copy.js";
 import { hook } from "./fill.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 /** Coverage badge, colour-coded by band (06 §3 Screen A). `hookId` makes its text a verifier hook (components/fill.js). */
 export function renderCoverageBadge(coverage, hookId = null) {

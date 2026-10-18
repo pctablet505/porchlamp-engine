@@ -9,12 +9,7 @@ import * as copy from "../copy.js";
 import { renderCoverageBadge, renderTierCell } from "../components/badge.js";
 import { COMPARE_MIN, COMPARE_MAX } from "../state.js";
 import { classifyKindForLens, projectRowForLens, deriveTierCeiling } from "./drawer.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 /**
  * A parameter's comparison direction, read from its methodology entry's

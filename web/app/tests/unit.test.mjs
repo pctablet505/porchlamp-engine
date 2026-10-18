@@ -16,7 +16,7 @@ import { decidingTieLevel, SORTABLE_COLUMNS, renderColumnHeader, sortColumnLabel
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
 import { renderCoverageBadge } from "../components/badge.js";
 import { renderBrand } from "../components/brand.js";
-import { escapeHtml } from "../components/table.js";
+import { escapeHtml } from "../escape.js";
 import {
   createStore,
   defaultState,
@@ -1881,6 +1881,15 @@ test("the Not ranked rows and the compare picker print an ecosystem's plain name
     });
     assert.ok(compare.includes(chip), `compare: ${code}`);
   }
+});
+
+test("not ranked: a group's heading prints its count with commas between the thousands", () => {
+  const rows = (n, reason) => Array.from({ length: n }, (_, i) => ({ owner: "o", name: `n${i}`, ecosystem: "pypi", gate_reason: reason }));
+  const groups = { gated: rows(5299, "archived"), unrated: rows(999, "insufficient_evidence"), persona_hidden: [], counts: PAGER_COUNTS, truncated: false };
+  const flat = notRankedFlatten(groups);
+  assert.ok(notRankedPageRows(flat, 1, 20).includes(`<h2 class="view-heading">${copy.GATED_GROUP_TITLE} (5,299)</h2>`));
+  // the page where the second group starts draws its heading, and a count under a thousand has no comma
+  assert.ok(notRankedPageRows(flat, 265, 20).includes(`<h2 class="view-heading">${copy.UNRATED_GROUP_TITLE} (999)</h2>`));
 });
 
 test("pager: syncPager updates every pager on the page", () => {
@@ -5303,3 +5312,99 @@ test("not-ranked lists: the page size printed in the intro and the pages line is
   assert.equal([...html.match(/<div class="list-pages" data-list-pages="true">.*?<\/div>/)[0].matchAll(/<a /g)].length, 50, "2,479 at 50 a page");
   assert.ok(!html.includes("200"), "no 200 anywhere at 50 a page");
 });
+
+// ---- one escape: every module that writes markup escapes through escape.js ----------------------------------------
+import { renderSuspicionIcon } from "../components/badge.js";
+import { renderKeymapOverlay } from "../components/keymap.js";
+import { renderNotInSnapshot } from "../components/livepanel.js";
+import { renderSparkbarGroup } from "../components/sparkbar.js";
+import { renderChip } from "../components/chrome.js";
+import { hook } from "../components/fill.js";
+import { repoFactsFrom } from "../livecheck.js";
+import { renderDeltaList } from "../views/configure.js";
+import { renderFilteredEmpty } from "../views/leaderboard.js";
+
+//: Text with every character escape.js turns into an entity (and no "/", which an owner/name key splits on), and the
+//: entities it must become, written out here so that a broken escape cannot also write the expectation.
+const MARKUP = `<b title="x">Tom & 'Jerry'<b>`;
+const MARKUP_ESCAPED = "&lt;b title=&quot;x&quot;&gt;Tom &amp; &#39;Jerry&#39;&lt;b&gt;";
+
+const KEYMAP_ENTRY_WITH_QUOTE = copy.KEYMAP_ENTRIES.find((entry) => entry.action.includes("'"));
+
+//: Each module that escapes, drawing text through its own import of the escape: markup in, entities out.
+const ESCAPING_MODULES = {
+  "escape.js": () => escapeHtml(MARKUP),
+  "components/badge.js": () => renderSuspicionIcon([MARKUP]),
+  "components/chrome.js": () => renderChip({ kind: "error", endpoint: MARKUP, status: 500, detail: "" }),
+  "components/fill.js": () => hook("x", MARKUP),
+  "components/keymap.js": () => renderKeymapOverlay(),
+  "components/livepanel.js": () => {
+    const repo = repoFactsFrom({
+      full_name: "acme/widget", description: MARKUP, stargazers_count: 12, language: "Rust", created_at: "2020-01-02T03:04:05Z",
+      pushed_at: "2026-10-01T00:00:00Z", archived: false, fork: false, mirror_url: null, license: { spdx_id: "MIT" },
+    });
+    const outcome = { ok: true, result: { repo, checks: [], checkedAt: "2026-10-15T12:00:00.000Z", requests: 1 } };
+    const state = { ...defaultState(), snapshot: { snapshot_id: "2026-10-14" }, liveCheckByKey: { "acme/widget": { status: "done", outcome } } };
+    return renderNotInSnapshot(state, "acme/widget");
+  },
+  "components/scatter.js": () =>
+    renderScatterSvg([{ owner: MARKUP, name: "n", quadrant: "Sweet Spot", friction: 50, leverage: 50, stars_audited: 1000 }], { viewBox: "0 0 100 100" }),
+  "components/sparkbar.js": () => renderSparkbarGroup([{ id: "responsiveness", label: MARKUP, score: 50, coverage: 1 }]),
+  "components/table.js": () => repoLinkHtml({ owner: MARKUP, name: "n" }),
+  "views/compare.js": () =>
+    renderCompareShell({ ...defaultState(), tab: "compare", compareRepos: [], compareQuery: "a", compareSearchResults: [{ owner: MARKUP, name: "n", ecosystem: "pypi" }] }),
+  "views/configure.js": () => renderDeltaList({ rows: [{ owner: MARKUP, name: "n", rank: 1, balanced_rank: 3 }] }),
+  "views/drawer.js": () => renderDrawer({ ...defaultState(), repo: `${MARKUP}/n`, repoDetailError: { endpoint: "/v1/x", status: 500, detail: "" } }),
+  "views/leaderboard.js": () => renderFilteredEmpty(MARKUP, "", "notranked", "ranked"),
+  "views/matrix.js": () => renderHoverCard({ owner: MARKUP, name: "n", quadrant: "Sweet Spot", friction: 50, leverage: 50, stars_audited: 1000 }),
+  "views/methodology.js": () => inlineCodeHtml(MARKUP),
+  "views/notfound.js": () => renderNotFoundShell({ ...defaultState(), tab: "notfound", missingPath: `/${MARKUP}` }),
+  "views/notranked.js": () =>
+    notRankedPageRows(notRankedFlatten({ gated: [{ owner: MARKUP, name: "n", ecosystem: "pypi", gate_reason: "archived" }], unrated: [], persona_hidden: [], counts: PAGER_COUNTS, truncated: false }), 1, 20),
+  "views/project.js": () => {
+    const rec = structuredClone(PROJECT_RECORDS["keras-team__keras"]);
+    rec.detail.owner = MARKUP;
+    return projectHtml(rec, "page");
+  },
+  "views/report.js": () => {
+    const rec = reportCopy();
+    rec.findings[1].id = MARKUP;
+    return renderReport(rec);
+  },
+};
+//: Modules that import the escape but draw nothing a test can make hostile: the app's one escaped text from data is
+//: the leaderboard's error banner, drawn inside boot(); the brand's words have no character to escape.
+const ESCAPING_WITHOUT_A_CASE = ["app.js", "components/brand.js"];
+
+function appModules(dir = WEB_ROOT, prefix = "") {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) return entry.name === "tests" ? [] : appModules(path.join(dir, entry.name), `${prefix}${entry.name}/`);
+    return entry.name.endsWith(".js") ? [`${prefix}${entry.name}`] : [];
+  });
+}
+
+test("one escape: escape.js holds the only escapeHtml, every module that escapes imports it, and each has a case below", () => {
+  const sources = Object.fromEntries(appModules().map((rel) => [rel, readFileSync(path.join(WEB_ROOT, rel), "utf8")]));
+  assert.ok("views/leaderboard.js" in sources && Object.keys(sources).length > 20, "the walk reaches the app's modules");
+  const defining = Object.keys(sources).filter((rel) => /function escape(Html|Attr|Text)\b/.test(sources[rel]));
+  assert.deepEqual(defining, ["escape.js"]);
+  const escaping = Object.keys(sources).filter((rel) => rel !== "escape.js" && /\bescapeHtml\b/.test(sources[rel]));
+  for (const rel of escaping) {
+    assert.match(sources[rel], /import \{[^}]*\bescapeHtml\b[^}]*\} from "(\.\/|(\.\.\/)+)escape\.js";/, `${rel} imports escape.js`);
+  }
+  assert.deepEqual([...escaping, "escape.js"].sort(), [...Object.keys(ESCAPING_MODULES), ...ESCAPING_WITHOUT_A_CASE].sort());
+});
+
+for (const [rel, draw] of Object.entries(ESCAPING_MODULES)) {
+  test(`one escape: ${rel} draws markup in its text as entities`, () => {
+    const html = draw();
+    if (rel === "components/keymap.js") {
+      assert.ok(KEYMAP_ENTRY_WITH_QUOTE, "a shortcut's words hold an apostrophe");
+      assert.ok(html.includes(KEYMAP_ENTRY_WITH_QUOTE.action.replace(/'/g, "&#39;")), html);
+      assert.ok(!html.includes(KEYMAP_ENTRY_WITH_QUOTE.action), "the apostrophe is not left raw");
+      return;
+    }
+    assert.ok(html.includes(MARKUP_ESCAPED), html);
+    assert.ok(!html.includes(MARKUP), "the markup is not left raw");
+  });
+}

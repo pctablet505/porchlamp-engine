@@ -14,15 +14,10 @@ import * as copy from "../copy.js";
 import { renderNotInSnapshot } from "../components/livepanel.js";
 import { projectPath } from "../routes.js";
 import { renderProject, deriveTierCeiling } from "./project.js";
+import { escapeHtml } from "../escape.js";
 
 // The coverage ceiling band is derived in project.js (it also reads the persona rows); drawer.js hands it on.
 export { deriveTierCeiling };
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
 
 /**
  * Locates a repo's record. The drawer's ONLY source is

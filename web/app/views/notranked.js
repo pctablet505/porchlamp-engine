@@ -31,12 +31,7 @@ import {
   personaDeltaForState,
   personaVisibleForState,
 } from "./leaderboard.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 export function renderSkeleton(rowCount = 8) {
   const rows = Array.from({ length: rowCount }, () => `<div class="skeleton-row"></div>`).join("");
@@ -99,7 +94,7 @@ export function renderPageRows(flat, page, pageSize, selectedRepoKey = null, flo
   for (const item of slice) {
     if (item.label !== currentLabel) {
       currentLabel = item.label;
-      html += `<h2 class="view-heading">${escapeHtml(item.label)} (${item.groupTotal})</h2>`;
+      html += `<h2 class="view-heading">${escapeHtml(item.label)} (${groupThousands(item.groupTotal)})</h2>`;
     }
     const key = `${item.row.owner}/${item.row.name}`;
     html += renderRow(item.row, selectedRepoKey === key, floor);

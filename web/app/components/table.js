@@ -10,6 +10,10 @@ import { renderCoverageBadge, renderQuadrant, renderSuspicionIcon, renderTierCel
 import { renderSparkbarGroup } from "./sparkbar.js";
 import { projectPath } from "../routes.js";
 import { daysText, percentWhole, replyTimeText } from "../views/project.js";
+import { escapeHtml } from "../escape.js";
+
+// web/prerender.mjs escapes the page heads it writes with escape.js's escape, which it imports from here.
+export { escapeHtml };
 
 export const PILLAR_ORDER = ["responsiveness", "criticality", "governance", "rigor", "accessibility"];
 
@@ -74,12 +78,6 @@ const COLUMNS = [
   { key: "suspicion", label: copy.COLUMN_SUSPICION, sortable: false },
   { key: "stars", label: copy.COLUMN_STARS, sortable: false, vanity: true },
 ];
-
-export function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
 
 export function rowKey(row) {
   return `${row.owner}/${row.name}`;
