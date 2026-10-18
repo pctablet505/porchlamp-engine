@@ -50,6 +50,7 @@ import {
   weightsEqual,
   notRankedTabCount,
   reasonListPage,
+  searchDestination,
 } from "./state.js";
 import {
   renderShell,
@@ -99,7 +100,7 @@ import {
   navEntryFor,
   headerControlsFor,
 } from "./components/chrome.js";
-import { matchRoute, routeById, routeView } from "./routes.js";
+import { matchRoute, routeView } from "./routes.js";
 import { renderShell as renderNotFoundShell } from "./views/notfound.js";
 import {
   renderShell as renderMatrixShell,
@@ -1405,17 +1406,30 @@ export function boot(win = window, doc = document) {
   );
 
   // The header's search is a form to the rankings, so it works on every page before the app runs. Here the app
-  // answers it in place: a view that lists projects has already applied the query as it was typed; any other view
-  // opens the rankings with it.
-  header.addEventListener("submit", (evt) => {
+  // answers its Enter in place (state.js searchDestination): an owner/name opens its project, a ranked one's panel or
+  // a not-ranked one's row; other text is the filter a view that lists projects has already applied as it was typed,
+  // or opens the rankings with it. An Enter overtaken by a newer one is dropped when its lookup comes back.
+  let searchSubmits = 0;
+  header.addEventListener("submit", async (evt) => {
     const form = evt.target.closest("[data-header-search-group]");
     if (!form) return;
     evt.preventDefault();
-    const state = store.getState();
-    if (!routeById(state.tab)?.query.includes("q")) {
-      navigateTo(hrefFor({ ...state, query: form.querySelector("[data-search-input]").value, page: 1 }, "ranked"));
-    }
+    const submit = ++searchSubmits;
+    const where = await searchDestination(form.querySelector("[data-search-input]").value, store.getState(), lookUpProject);
+    if (submit !== searchSubmits) return;
+    if (where.kind === "panel") openRepo(where.owner, where.name);
+    else if (where.kind === "address") navigateTo(where.href);
   });
+
+  /** A project the snapshot holds, in its real spelling, with whether it is rated: `{ owner, name, rated }` (`rated`
+   *  null when its record could not load); `null` when the snapshot does not hold it; `undefined` when that cannot be
+   *  told (resolveCanonicalInSnapshot). */
+  async function lookUpProject(owner, name) {
+    const held = await resolveCanonicalInSnapshot(owner, name);
+    if (!held) return held;
+    const detail = await api.fetchRepoDetail(held.owner, held.name);
+    return { ...held, rated: detail.ok ? detail.data.rated : null };
+  }
 
   // The theme is theme-init.js's on every page: it applies the choice and answers the toggle, and says so with this
   // event. The store keeps the theme in force, so a view drawn in the theme's colours (the matrix canvas) redraws.

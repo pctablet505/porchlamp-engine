@@ -32,8 +32,9 @@ prerender draws the report view into: ``black-holes/index.html``, the app's page
 ``black-holes/<snapshot_id>/index.html``, with its own ``styles.css`` and the CSV of the ranked projects beside it.
 Older frozen copies are not written here: a publish carries them from the published tree. Then one page per ranked
 project (``projects/<owner>/<name>/index.html``, lower case), with its head (``porchlamp/serve/project_pages.py``), which
-the prerender draws the project view into from the project's record, ``check/index.html`` with its search index
-``check/projects.json``, and ``sitemap-projects.xml`` (every project page, in balanced-rank order). The black-hole
+the prerender draws the project view into from the project's record, ``sitemap-projects.xml`` (every project page,
+in balanced-rank order), and ``check/index.html``, a stub that sends the address ``/check/`` on to the rankings
+(:func:`check_stub`; the header's search finds a project). The black-hole
 evidence the report sums is recomputed from the raw ``pr_window``
 envelopes the stored snapshot pinned: pass ``--snapshot-dir`` (the directory ``porchlamp.snapshot store`` read)
 and ``--data-dir`` (the data root holding ``raw/``); an envelope that changed since the store stops the export.
@@ -603,9 +604,9 @@ def _add_project_extras(buckets: dict[str, dict[str, dict]], boards: dict[str, d
 def _write_project_pages(
     out: Path, facts: Any, methodology: dict, boards: dict[str, dict], buckets: dict[str, dict[str, dict]], snapshot: dict
 ) -> list[dict]:
-    """One page per ranked project (``projects/<owner>/<name>/``) with its head, the /check/ page with its search index,
-    and ``sitemap-projects.xml``. :func:`_prerender` draws the project view into each page from the project's record.
-    Returns the pages for it: none of them is a nav entry's."""
+    """One page per ranked project (``projects/<owner>/<name>/``) with its head, and ``sitemap-projects.xml``.
+    :func:`_prerender` draws the project view into each page from the project's record. Returns the pages for it: none
+    of them is a nav entry's."""
     from porchlamp.serve import project_pages as pp
     from porchlamp.serve import report_pages
 
@@ -625,16 +626,28 @@ def _write_project_pages(
             target.mkdir(parents=True, exist_ok=True)
             (target / "index.html").write_text(pp.project_page(owner, name, description), encoding="utf-8")
             pages.append({"path": f"{pp.project_path(owner, name)}index.html", "nav": None, "project": f"{owner}/{name}"})
-        (out / "check").mkdir(parents=True, exist_ok=True)
-        top = index.balanced[0]
-        (out / "check" / "index.html").write_text(
-            pp.render_check(facts, ranked=len(index.keys), example=top), encoding="utf-8"
-        )
-        (out / "check" / "projects.json").write_text(pp.dumps_json(pp.check_index(index)), encoding="utf-8")
         (out / "sitemap-projects.xml").write_text(pp.sitemap_projects(index, as_of), encoding="utf-8")
     except report_pages.ReportError as error:
         raise SystemExit(f"export: {error}") from error
-    return [*pages, {"path": "check/index.html", "nav": None}]
+    return pages
+
+
+def check_stub() -> str:
+    """``check/index.html``: the address ``/check/`` as a stub that sends a reader on to the rankings, at once (a meta
+    refresh) and for a search engine (the canonical address), with the 404 page's link to them for a browser that does
+    not follow the refresh. No script, no stylesheet, and no place in the sitemap: the header's search finds a project."""
+    from porchlamp.serve import report_pages
+
+    home = next(route for route in app_routes() if route["id"] == "ranked")
+    path, link = html.escape(home["path"]), html.escape(report_pages.copy_js_string("NOT_FOUND_HOME_LINK"))
+    return (
+        '<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8">\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"  <title>{html.escape(home['title'])}</title>\n"
+        f'  <meta http-equiv="refresh" content="0; url={path}">\n'
+        f'  <link rel="canonical" href="{html.escape(report_pages.SITE)}{path}">\n'
+        f'</head>\n<body>\n  <p><a href="{path}">{link}</a></p>\n</body>\n</html>\n'
+    )
 
 
 def _write_home(out: Path, data: Path) -> None:
@@ -658,11 +671,11 @@ def _write_home(out: Path, data: Path) -> None:
 
 def _sitemap_pages(out: Path, snapshot_id: str, as_of: str, listed: list[str]) -> str:
     """``sitemap-pages.xml``: the site's own pages that this export wrote (the root, the report and its frozen copy,
-    the methodology, /check/, then the list views at ``listed``, :func:`listed_addresses`), in that order, each dated
-    with the snapshot. A page the export did not write is not listed."""
+    the methodology, then the list views at ``listed``, :func:`listed_addresses`), in that order, each dated with the
+    snapshot. A page the export did not write is not listed, nor the ``/check/`` stub."""
     from porchlamp.serve import report_pages
 
-    paths = ["", "black-holes/", f"black-holes/{snapshot_id}/", "methodology/", "check/", *(a.lstrip("/") for a in listed)]
+    paths = ["", "black-holes/", f"black-holes/{snapshot_id}/", "methodology/", *(a.lstrip("/") for a in listed)]
     stamp = as_of[:10]
     urls = "".join(
         f"  <url>\n    <loc>{report_pages.SITE}/{p}</loc>\n    <lastmod>{stamp}</lastmod>\n  </url>\n"
@@ -765,6 +778,8 @@ def export(
     if facts is not None:
         pages += _write_report_pages(out, facts, boards, manifest)
         pages += _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
+        (out / "check").mkdir()
+        (out / "check" / "index.html").write_text(check_stub(), encoding="utf-8")
         _write_home(out, out / "data" / snapshot_id)
     pages += _write_view_pages(out, boards, not_ranked)
     (out / "data-version.js").write_text(data_version_js(snapshot_id), encoding="utf-8")

@@ -26,8 +26,7 @@ sentence is never written.
 Every page of the site is the app's page (``web/app/404.html``: one policy, one head, one frame) with its own head
 and text (:func:`app_page`); ``web/prerender.mjs`` then draws the one header, nav and footer into it
 (``web/app/components/chrome.js``). The scripts a page may load are :data:`PAGE_SCRIPTS`; no font or library
-is loaded by any page. :func:`page` builds the pages the app does not draw yet: the project pages and
-``/check/``.
+is loaded by any page.
 """
 from __future__ import annotations
 
@@ -59,7 +58,6 @@ PAGE_SCRIPTS = {
     "app": ("/theme-init.js", "/app.js"),
     "page": ("/theme-init.js",),
     "project": ("/theme-init.js", "/back-forward.js"),
-    "check": ("/theme-init.js", "/check.js"),
 }
 
 CITE_TITLE = "Stars don't review pull requests: the state of open-source black holes"
@@ -629,20 +627,6 @@ def _article_head(*, title: str, description: str, canonical: str) -> str:
 
 def _with_ld(built: str, ld: Any) -> str:
     return _once(built, "</head>", f'  <script type="application/ld+json">\n  {_ld(ld)}\n  </script>\n</head>')
-
-
-def page(
-    *, title: str, description: str, canonical: str, body: str, ld: Any, scripts: Sequence[str] = (),
-) -> str:
-    """A page the app does not draw (a project page, /check/): :func:`app_page` with this page's
-    description, canonical address, link previews and structured data, its ``body`` in ``<main>``, the pages'
-    stylesheet in place of the app views', and its own local ``scripts`` (:data:`PAGE_SCRIPTS`) in place of the
-    app."""
-    head = _article_head(title=title, description=description, canonical=canonical)
-    built = app_page(
-        title=title, description=description, head=head, main=body, stylesheet="/styles/report.css", scripts=scripts,
-    )
-    return _with_ld(built, ld)
 
 
 def report_title(f: Facts, *, frozen: bool = False) -> str:

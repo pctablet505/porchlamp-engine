@@ -1,4 +1,4 @@
-"""What a ranked project's page says first, and its head; the /check/ page (``scripts/export_static.py``).
+"""What a ranked project's page says first, and its head (``scripts/export_static.py``).
 
 ``/projects/<owner>/<name>/`` (lower case) answers "is <project> responsive to pull requests?" in its first
 sentences, for a reader or a crawler that does not run JavaScript. The page is drawn by the app's own view
@@ -27,18 +27,14 @@ from porchlamp.serve.report_pages import (
     PAGE_SCRIPTS,
     SITE,
     WEB_APP,
-    Facts,
     ReportError,
-    _a,
     _article_head,
-    _t,
     _with_ld,
     app_page,
     copy_js_map,
     copy_js_string,
     fmt_int,
     long_date,
-    page,
 )
 
 #: Similar projects shown on a page.
@@ -429,47 +425,8 @@ def project_page(owner: str, name: str, description: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# /check/ and the sitemap
+# The sitemap
 # --------------------------------------------------------------------------- #
-CHECK_PATTERN_TEXT = "To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case)."
-CHECK_TITLE = "Check an open-source project: how it treats outside pull requests | Porchlamp"
-CHECK_DESCRIPTION = (
-    "Search the open-source projects Porchlamp ranks and open the page that says how fast they reply to a "
-    "stranger's pull request."
-)
-
-
-def check_index(index: ProjectIndex) -> list[str]:
-    """The search index: ``owner/name`` in the real spelling, in balanced rank order. The address follows the pattern."""
-    return [f"{owner}/{name}" for owner, name in index.keys]
-
-
-def render_check(f: Facts, *, ranked: int, example: Mapping[str, Any]) -> str:
-    """The /check/ page: a search box over ``projects.json`` (loaded by ``check.js``) and the address pattern."""
-    canonical, rel = f"{SITE}/check/", "../"
-    body = f"""      <article class="seo-fallback report check">
-        <h1>Check an open-source project</h1>
-        <p class="lede">Find out what happens to a stranger's pull request at a project, in the Porchlamp snapshot of {_t(long_date(f.snapshot_date))}.</p>
-        <p>{_t(CHECK_PATTERN_TEXT)} For example, <a href="{_a(rel + project_path(example['owner'], example['name']))}">{_t(example['owner'])}/{_t(example['name'])}</a>.</p>
-        <div class="check-form" role="search">
-          <label for="check-q">Search by owner or project name</label>
-          <input id="check-q" type="search" autocomplete="off" spellcheck="false" placeholder="owner/name" data-check-input>
-        </div>
-        <ul class="check-results" id="check-results" aria-live="polite" data-check-results></ul>
-        <noscript><p>Search needs JavaScript. Without it, open the address above, or browse the <a href="{rel}">rankings</a>.</p></noscript>
-        <p class="note">Only the {_t(fmt_int(ranked))} ranked projects have a page. A project that is not ranked, and the reason, is listed under <a href="{rel}not-ranked/">Not ranked</a>.</p>
-      </article>"""
-    ld = {
-        "@context": "https://schema.org",
-        "@type": "BreadcrumbList",
-        "itemListElement": [
-            {"@type": "ListItem", "position": 1, "name": "Porchlamp", "item": f"{SITE}/"},
-            {"@type": "ListItem", "position": 2, "name": "Check a project", "item": canonical},
-        ],
-    }
-    return page(title=CHECK_TITLE, description=CHECK_DESCRIPTION, canonical=canonical, body=body, ld=ld, scripts=("/check.js",))
-
-
 def sitemap_projects(index: ProjectIndex, as_of: date) -> str:
     """``sitemap-projects.xml``: every ranked project's page in balanced-rank order, each with the snapshot's ``as_of`` date.
 

@@ -199,9 +199,7 @@ function snapshotBody(snapshot, doc, sourceDbSha256) {
     `<button type="button" class="reproduce-copy" data-methodology-copy="true">${escapeHtml(copy.METHODOLOGY_COPY_LABEL)}</button></div>` +
     `<pre class="reproduce-command" data-reproduce-command="true" data-v="snapshot.reproduce_command">${escapeHtml(snapshot.reproduce_command)}</pre>` +
     `</div>` +
-    `<p class="snapshot-check">${fill(copy.METHODOLOGY_CHECK_LINE, {
-      check_page: `<a href="${escapeHtml(copy.CHECK_PAGE_HREF)}">${escapeHtml(copy.METHODOLOGY_CHECK_LINK_LABEL)}</a>`,
-    })}</p>`
+    `<p class="snapshot-check">${escapeHtml(copy.METHODOLOGY_CHECK_LINE)}</p>`
   );
 }
 

@@ -1131,16 +1131,31 @@ def test_a_script_planted_in_a_project_page_turns_the_guard_red(built, monkeypat
     assert external_violations(planted), "the guard did not see the planted script"
 
 
-def test_the_check_page_states_the_pattern_loads_one_local_script_and_lists_every_ranked_project(built):
-    site, db, _stats_path, _stats, _holes = built
+def test_the_check_address_is_a_stub_that_sends_a_reader_to_the_rankings(built):
+    """``/check/`` is a stub (the header's search finds a project): a meta refresh and the canonical address ``/``, the
+    404 page's link to the rankings, no script, no search index beside it, and no place in the sitemap."""
+    site = built[0]
     text = _page(site, "check/index.html")
-    assert "To check a project, open https://porchlamp.org/projects/&lt;owner&gt;/&lt;name&gt;/ (lower case)." in text
-    assert script_srcs(text) == list(report_pages.PAGE_SCRIPTS["check"])
-    assert external_violations(text) == []
-    listed = json.loads(_page(site, "check/projects.json"))
-    assert sorted(listed) == sorted(f"{o}/{n}" for o, n in _ranked(db))
-    assert (site / "check.js").is_file()
-    assert external_violations((site / "check.js").read_text(encoding="utf-8")) == []
+    assert re.findall(r'<meta http-equiv="refresh" content="([^"]*)">', text) == ["0; url=/"]
+    assert re.findall(r'<link rel="canonical" href="([^"]*)">', text) == ["https://porchlamp.org/"]
+    assert "<script" not in text and script_srcs(text) == []
+    assert f'<a href="/">{report_pages.copy_js_string("NOT_FOUND_HOME_LINK")}</a>' in text
+    assert not (site / "check" / "projects.json").exists() and not (site / "check.js").exists()
+    assert "https://porchlamp.org/check/" not in _page(site, "sitemap-pages.xml")
+
+
+def test_a_script_planted_in_the_check_stub_or_the_stub_put_in_the_sitemap_turns_the_verifier_red(built, tmp_path):
+    site = _copy_site(built[0], tmp_path)
+    stub = site / "check" / "index.html"
+    stub.write_text(stub.read_text(encoding="utf-8").replace("</body>", '<script src="/app.js"></script>\n</body>'), encoding="utf-8")
+    sitemap = site / "sitemap-pages.xml"
+    loc = "  <url>\n    <loc>https://porchlamp.org/check/</loc>\n  </url>\n"
+    sitemap.write_text(sitemap.read_text(encoding="utf-8").replace("</urlset>", loc + "</urlset>"), encoding="utf-8")
+    errors = _verify_projects(built[1], site)["errors"]
+    assert [error for error in errors if error.startswith("check stub")] == [
+        "check stub scripts: expected [], found ['<script src=\"/app.js\">']",
+        "check stub is out of sitemap-pages.xml: expected False, found True",
+    ], errors[:5]
 
 
 def test_no_two_ranked_projects_share_a_lower_case_address(built):
@@ -1159,8 +1174,8 @@ def test_the_project_sitemap_lists_every_ranked_project_by_rank_with_the_data_da
     assert len(locs) == len(_ranked(db))
     assert locs == [project_pages.project_url(o, n) for o, n in project_index.keys]
     assert len(set(re.findall(r"<lastmod>([^<]+)</lastmod>", text))) == 1
-    top_row = json.loads(_page(site, "check/projects.json"))[0]
-    assert locs[0] == f"https://porchlamp.org/projects/{top_row.lower()}/"
+    owner, name = project_index.keys[0]
+    assert locs[0] == f"https://porchlamp.org/projects/{owner.lower()}/{name.lower()}/"
 
 
 def test_the_project_sitemap_has_no_cap_beyond_a_thousand_projects():

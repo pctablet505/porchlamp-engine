@@ -66,6 +66,9 @@ def test_the_generated_home_is_verified_and_reads_without_javascript(built, repo
     assert "Bus Factor" not in llms and "Deduplicated" not in llms
     methodology = json.loads((site / "data" / SNAPSHOT / "methodology.json").read_text(encoding="utf-8"))
     assert f"{len(methodology['parameters'])} parameters" in llms
+    # a project is found by its address: llms.txt is read without JavaScript, so it names no search page
+    assert "/check/" not in llms and "?q=" not in llms
+    assert "To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case)." in llms
     feed = (site / "feed.xml").read_text(encoding="utf-8")
     assert "Low Priority" not in feed and "?tab=" not in feed and "?persona=" not in feed
 
