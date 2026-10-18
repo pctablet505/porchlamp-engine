@@ -91,6 +91,47 @@ def test_a_project_left_out_or_listed_twice_turns_the_check_red(built, report_va
     assert any(error.startswith("not-ranked projects listed more than once") for error in errors), errors[:5]
 
 
+def test_a_row_dropped_on_one_page_does_not_hide_a_fault_on_another(built, report_values, tmp_path):
+    """The check prints at most :data:`MISMATCHES_PER_PAGE` mismatches a page: a dropped row moves every row after it
+    on its page, and a fault on a later page still prints."""
+    site = _copy(built, tmp_path)
+    page = site / "not-ranked" / "unanswered" / "1" / "index.html"
+    _rewrite(page, _first_row(page).group(0), "")
+    later = site / "not-ranked" / "off-platform" / "1" / "index.html"
+    row = _first_row(later)
+    _rewrite(later, row.group(0), row.group(0).replace(row.group(1), row.group(1) + " Abandoned.", 1))
+    _site, db, _stats_path, stats, _holes = built
+    record, numbers = report_values
+    lines: list[str] = []
+    errors = verify_static_export.verify_not_ranked_lists(db, site, report=record, numbers=numbers, stats=stats, log=lines.append)["errors"]
+    assert sum(error.startswith("/not-ranked/unanswered/1/ ") for error in errors) > 40  # more than a whole section printed
+    printed = [line for line in lines if line.startswith("NOT-RANKED MISMATCH ")]
+    assert any(line.startswith("NOT-RANKED MISMATCH /not-ranked/off-platform/1/ row 1:") and "Abandoned" in line for line in printed), printed[-8:]
+    assert sum(line.startswith("NOT-RANKED MISMATCH /not-ranked/unanswered/1/ ") for line in printed) == verify_static_export.MISMATCHES_PER_PAGE
+    assert any(re.fullmatch(r"NOT-RANKED MISMATCH /not-ranked/unanswered/1/: \d+ more not printed", line) for line in printed), printed
+
+
+def test_the_whole_list_links_every_list_and_a_wrong_count_or_a_missing_link_turns_the_check_red(built, report_values, tmp_path):
+    """``/not-ranked/`` is drawn with its "Lists by reason" line as plain links, one to each list with projects; a count
+    on it that is not the API's, or a link taken off it, turns the check red."""
+    text = (built[0] / "not-ranked" / "index.html").read_text(encoding="utf-8")
+    assert '<main class="app-main" id="app-main" tabindex="-1" data-prerendered="notranked">' in text
+    line = re.search(r'<p class="reason-lists" data-reason-lists="true">(.*?)</p>', text).group(1)
+    projects = verify_static_export.not_ranked_projects(built[1], SNAPSHOT)
+    lists = [route["path"].replace("{page}", "1") for route in export_static.app_routes()
+             if any(p["reason"] == (route.get("fixed") or {}).get("reason") for p in projects)]
+    assert len(lists) >= 5 and re.findall(r'<a href="([^"]+)" class="onboarding-link">', line) == lists
+    site = _copy(built, tmp_path)
+    page = site / "not-ranked" / "index.html"
+    archived = re.search(r'(<a href="/not-ranked/archived/1/" class="onboarding-link">[^<]*\()(\d+)(\)</a>)', line)
+    _rewrite(page, archived.group(0), f"{archived.group(1)}{int(archived.group(2)) + 1}{archived.group(3)}")
+    stale = re.search(r'<a href="/not-ranked/stale/1/" class="onboarding-link">([^<]*)</a>', line)
+    _rewrite(page, stale.group(0), stale.group(1))
+    errors = _check(built, report_values, site)["errors"]
+    assert any(error.startswith("/not-ranked/ links every list with projects") and "/not-ranked/stale/1/" in error for error in errors), errors[:5]
+    assert "/not-ranked/ is what the prerender draws from the API's answers (bytes): expected True, found False" in errors, errors[:5]
+
+
 def test_the_static_black_hole_rows_carry_the_numbers_of_their_evidence(built):
     """The site's not-ranked list (what the static api.js answers from) holds each black hole's own numbers: the
     ``unanswered`` and ``population_n`` of the evidence its record carries in the site's repo files."""

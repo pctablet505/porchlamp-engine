@@ -81,7 +81,8 @@ import {
   flattenGroups,
   reasonListKey,
   reasonListDescription,
-  adoptReasonListBoard,
+  notRankedBoardKey,
+  adoptNotRankedBoard,
 } from "./views/notranked.js";
 import { renderDrawer, classifyKindForLens } from "./views/drawer.js";
 import { parseRepoSlug, runLiveCheck } from "./livecheck.js";
@@ -546,21 +547,22 @@ export function boot(win = window, doc = document) {
 
     if (state.tab === "notranked") {
       if (prerendered) {
-        // The export drew this list by reason (web/prerender.mjs): keep it until the not-ranked list, the counts, the
-        // snapshot and the report have each loaded or failed, then take it over. A page that shows another list or
-        // page is drawn as usual.
-        if (!reasonListKey(state) || prerenderedBoardKey(main) !== reasonListKey(state)) {
+        // The export drew this page (web/prerender.mjs): a list by reason, or the whole list at `/not-ranked/`. Keep
+        // it until the not-ranked list, the counts, the snapshot, the methodology and, on a list by reason, the report
+        // have each loaded or failed, then take it over. A page that shows another list, lens, filter or page is drawn
+        // as usual.
+        if (prerenderedBoardKey(main) !== notRankedBoardKey(state)) {
           prerendered = null;
         } else {
           const pending =
             (!state.notRanked && !state.notRankedError) ||
             (!state.leaderboard && !state.leaderboardError) ||
             (!state.snapshot && !state.snapshotError) ||
-            (!state.report && !state.reportError) ||
+            (reasonListKey(state) && !state.report && !state.reportError) ||
             (!state.methodology && !state.methodologyError);
           if (pending) return;
           prerendered = null;
-          if (adoptReasonListBoard(main, state, doc)) {
+          if (adoptNotRankedBoard(main, state, doc)) {
             currentTab = "notranked";
             currentNotRankedShape = notRankedRebuildKey(state);
             forgetOtherShapes("notranked");

@@ -11,8 +11,9 @@
 //
 // A list by reason (routes.js "notranked-*", `/not-ranked/<reason>/<page>/`) is a page of this view too: every
 // balanced not-ranked project with that reason, A to Z, its route's `fixed.page_size` a page, one plain sentence each, with a line of links to
-// every page of the list. Its shell holds the whole page (`renderShell`); web/prerender.mjs draws the same shell into
-// the exported page, and the app takes it over without drawing it again (`adoptReasonListBoard`).
+// every page of the list. Its shell holds the whole page (`renderShell`). web/prerender.mjs draws each page of this
+// view into the exported page, a list by reason and the whole list at `/not-ranked/` (its shell with its first page
+// of rows), and the app takes it over without drawing it again (`adoptNotRankedBoard`).
 
 import * as copy from "../copy.js";
 import { fill, hook } from "../components/fill.js";
@@ -177,16 +178,23 @@ export function renderShell(state) {
   );
 }
 
-/** Patches the not-ranked rows + pager for the current page — never rebuilds the shell. */
-export function patchNotRankedBody(root, state) {
-  const container = root.querySelector("[data-notranked-rows]");
-  if (!container) return;
+/** The page of the whole list a state shows: `{ page, total, html }`, the page number, the rows of the whole list
+ *  and the page's rows as their container holds them. */
+function wholeListRows(state) {
   const flat = flattenGroups(state.notRanked, { ecosystem: state.ecosystem, query: state.query });
   const totalPages = Math.max(1, Math.ceil(flat.length / state.notRankedPageSize));
   const page = Math.min(Math.max(1, state.notRankedPage), totalPages);
   const html = renderPageRows(flat, page, state.notRankedPageSize, state.selectedRepoKey, copy.unratedCoverageFloor(state.methodology));
+  return { page, total: flat.length, html };
+}
+
+/** Patches the not-ranked rows + pager for the current page — never rebuilds the shell. */
+export function patchNotRankedBody(root, state) {
+  const container = root.querySelector("[data-notranked-rows]");
+  if (!container) return;
+  const { page, total, html } = wholeListRows(state);
   if (container.innerHTML !== html) container.innerHTML = html;
-  syncPager(root, page, state.notRankedPageSize, flat.length, "notranked-pager");
+  syncPager(root, page, state.notRankedPageSize, total, "notranked-pager");
   const notRankedCountEl = root.querySelector('[data-route-tab="notranked"] .count');
   const notRankedCount = notRankedTabCount(state);
   if (notRankedCountEl && typeof notRankedCount === "number" && notRankedCountEl.textContent !== String(notRankedCount)) {
@@ -381,32 +389,47 @@ export function reasonListKey(state) {
   return at ? `${at.route.id}:${at.page}` : null;
 }
 
-/** A list by reason drawn for the export: the shell, marked with its key (`reasonListKey`) for the app. */
-export function renderPrerenderedReasonList(state) {
-  const key = reasonListKey(state);
-  if (!key || !state.notRanked) throw new Error("the prerendered list by reason needs its address and the not-ranked list");
-  return renderReasonListShell(state).replace(
+/** The key of the page of this view a state shows, which a page the export drew is marked with: a list by reason's
+ *  (`reasonListKey`), or the whole list's, with the lens, the ecosystem, the search and the page it shows. */
+export function notRankedBoardKey(state) {
+  const query = (state.query || "").trim();
+  return reasonListKey(state) || `notranked:${state.persona}:${state.ecosystem || ""}:${query}:${state.notRankedPage}:${state.notRankedPageSize}`;
+}
+
+/** The page of this view as the app draws it once the not-ranked list is in: a list by reason's shell, or the whole
+ *  list's shell with its page of rows in their container (`patchNotRankedBody` fills it the same way). */
+function notRankedPageHtml(state) {
+  if (reasonListPage(state)) return renderReasonListShell(state);
+  const html = renderShell(state);
+  if (shellShape(state) !== "table") return html;
+  return html.replace(`<div data-notranked-rows="true"></div>`, `<div data-notranked-rows="true">${wholeListRows(state).html}</div>`);
+}
+
+/** A page of this view drawn for the export, marked with its key (`notRankedBoardKey`) for the app: a list by reason,
+ *  or the whole list with its page of rows. */
+export function renderPrerenderedNotRanked(state) {
+  if (!state.notRanked) throw new Error("the prerendered not-ranked page needs the not-ranked list");
+  return notRankedPageHtml(state).replace(
     `<section aria-labelledby="notranked-heading">`,
-    `<section aria-labelledby="notranked-heading" data-prerendered-board="${escapeHtml(key)}">`
+    `<section aria-labelledby="notranked-heading" data-prerendered-board="${escapeHtml(notRankedBoardKey(state))}">`
   );
 }
 
 /**
- * Takes over a list by reason the export drew into `root` for `state`: the board's mark removed, and nothing redrawn
- * when the page holds what the app would draw (`renderShell`, both read back through the document's own serializer);
- * drawn again, whole, when the app's data says otherwise (a report that failed to load). Returns `false`,
- * touching nothing, when the page shows another list or page, or `state` is not at a list by reason; the caller then
- * draws the shell. `doc` makes the probe that reads the app's markup.
+ * Takes over a page of this view the export drew into `root` for `state` (a list by reason, or the whole list): the
+ * board's mark removed, and nothing redrawn when the page holds what the app would draw (`notRankedPageHtml`, both
+ * read back through the document's own serializer); drawn again, whole, when the app's data says otherwise. Returns
+ * `false`, touching nothing, when the page shows another list, lens, filter or page; the caller then draws the shell.
+ * `doc` makes the probe that reads the app's markup.
  */
-export function adoptReasonListBoard(root, state, doc) {
+export function adoptNotRankedBoard(root, state, doc) {
   const board = root.querySelector("[data-prerendered-board]");
-  const key = reasonListKey(state);
-  if (!board || !key || board.getAttribute("data-prerendered-board") !== key) return false;
+  if (!board || board.getAttribute("data-prerendered-board") !== notRankedBoardKey(state)) return false;
   board.removeAttribute("data-prerendered-board");
   // A load that failed (the not-ranked list, the methodology, the report) leaves the page as the export drew it from
   // the same files: the app's own drawing would only say less.
   if (!state.notRanked || state.notRankedError || state.methodologyError || state.reportError) return true;
-  const html = renderReasonListShell(state);
+  const html = notRankedPageHtml(state);
   const probe = doc.createElement("div");
   probe.innerHTML = html;
   if (probe.innerHTML !== board.outerHTML) root.innerHTML = html;

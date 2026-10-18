@@ -21,12 +21,13 @@
 // "/rankings/3/"): the address is parsed into the app's state (state.js parseLocation), the page of rows that state
 // asks for is fetched, and the list's heading, intro, rows (both layouts) and the page's <title> and description
 // (state.js titleForState, views/leaderboard.js descriptionForState) are drawn; on a list with an ecosystem or a search
-// the Not ranked tab counts that lens's not-ranked list, filtered the same way (fetchNotRankedFull). A page of a list of
-// the not-ranked projects by reason is {"path": "not-ranked/archived/2/index.html", "view": "notranked", "address":
-// "/not-ranked/archived/2/"}: the balanced not-ranked list (fetchNotRankedFull), the report, the methodology (its coverage
-// floor) and the counts draw its
-// heading, intro, lines and rows (views/notranked.js) and its <title> and description, for the app to take over; the
-// report's frozen copy is {"path": "black-holes/<sid>/index.html", "view": "report",
+// the Not ranked tab counts that lens's not-ranked list, filtered the same way (fetchNotRankedFull). A page of the
+// not-ranked view is {"path": "not-ranked/archived/2/index.html", "view": "notranked", "address":
+// "/not-ranked/archived/2/"} for a list by reason, and {"path": "not-ranked/index.html", "view": "notranked",
+// "address": "/not-ranked/"} for the whole list: the balanced not-ranked list (fetchNotRankedFull), the report, the
+// methodology (its coverage floor) and the counts draw it (views/notranked.js: a list's heading, intro, lines and rows;
+// the whole list's tabs, its "Lists by reason" line and its first page of rows) and its <title> and description, for
+// the app to take over; the report's frozen copy is {"path": "black-holes/<sid>/index.html", "view": "report",
 // "frozen": true}; any other page the nav entry it belongs to, or null: {"path": "check/index.html", "nav": null}; a
 // project's page names the project too: {"path": "projects/<owner>/<name>/index.html", "nav": null, "project":
 // "<owner>/<name>"}.
@@ -42,7 +43,7 @@ import { navEntryFor, renderAppHeader, renderFooter, renderHeader, renderNav } f
 import { escapeHtml } from "./app/components/table.js";
 import { defaultState, parseLocation, titleForState } from "./app/state.js";
 import { descriptionForState, listRows, renderPrerenderedBoard, renderShell as renderLeaderboard } from "./app/views/leaderboard.js";
-import { reasonListDescription, reasonListKey, renderPrerenderedReasonList } from "./app/views/notranked.js";
+import { reasonListDescription, renderPrerenderedNotRanked } from "./app/views/notranked.js";
 import { renderShell as renderMethodology } from "./app/views/methodology.js";
 import { renderProject } from "./app/views/project.js";
 import { renderShell as renderReport } from "./app/views/report.js";
@@ -66,9 +67,8 @@ const VIEWS = Object.freeze({
   },
   notranked: (data, page) => {
     const state = listState(page, data);
-    if (!reasonListKey(state)) throw new Error(`${page.address || page.path} is not the address of a list by reason`);
-    if (!data.notRanked) throw new Error(`the site has no not-ranked list for the list at ${page.address}`);
-    return renderPrerenderedReasonList(state);
+    if (!data.notRanked) throw new Error(`the site has no not-ranked list for the page at ${page.address}`);
+    return renderPrerenderedNotRanked(state);
   },
   methodology: (data) =>
     renderMethodology({
@@ -87,26 +87,24 @@ const VIEWS = Object.freeze({
 });
 
 /** The app's state at a list's address (`page.address`, `/` without one): what it parses into, from the defaults. A
- *  list of the leaderboard, or of the not-ranked projects by reason. */
+ *  list of the leaderboard, or a page of the not-ranked view: a list by reason, or the whole list. */
 export function stateForAddress(address = "/") {
   const url = new URL(address, "https://porchlamp.invalid");
   const parsed = parseLocation(url.pathname, url.search);
-  const state = { ...defaultState(), ...parsed };
-  const list = parsed.tab === "ranked" || (parsed.tab === "notranked" && reasonListKey(state));
-  if (!list || parsed.repo) throw new Error(`${address} is not the address of a list of the leaderboard`);
-  return state;
+  if ((parsed.tab !== "ranked" && parsed.tab !== "notranked") || parsed.repo) {
+    throw new Error(`${address} is not the address of a list`);
+  }
+  return { ...defaultState(), ...parsed };
 }
 
-/** Whether `page` is a page of a list by reason (the whole not-ranked list, `/not-ranked/`, is not drawn here). */
-function isReasonListPage(page) {
-  if (page.view !== "notranked" || !page.address) return false;
-  const url = new URL(page.address, "https://porchlamp.invalid");
-  return Boolean(reasonListKey({ ...defaultState(), ...parseLocation(url.pathname, url.search) }));
+/** Whether `page` is a page of the not-ranked view at its address: a list by reason, or the whole list. */
+function isNotRankedPage(page) {
+  return page.view === "notranked" && Boolean(page.address);
 }
 
-/** Whether `page` is drawn from its address's state: a list of the leaderboard, or a list by reason. */
+/** Whether `page` is drawn from its address's state: a list of the leaderboard, or a page of the not-ranked view. */
 function isListPage(page) {
-  return (page.view === "ranked" && Boolean(page.address)) || isReasonListPage(page);
+  return (page.view === "ranked" && Boolean(page.address)) || isNotRankedPage(page);
 }
 
 /** The state a list's page is drawn from: its address's, with the page of rows, the snapshot, the report, the
@@ -185,14 +183,7 @@ export function drawPage(html, page, data) {
     page.path
   );
   out = replaceOnce(out, FRAME.footer, FRAME.footer.replace("></footer>", `>${chrome.footer}</footer>`), page.path);
-  const view =
-    page.view === "notranked" && !isReasonListPage(page)
-      ? undefined
-      : page.view
-        ? VIEWS[page.view]
-        : page.project
-          ? () => projectView(data.project, data.methodology)
-          : undefined;
+  const view = page.view ? VIEWS[page.view] : page.project ? () => projectView(data.project, data.methodology) : undefined;
   if (view) {
     const mains = [...out.matchAll(MAIN)];
     if (mains.length !== 1) throw new Error(`${page.path}: the page has no single <main> for the ${page.view || "project"} view`);
@@ -207,7 +198,8 @@ export function drawPage(html, page, data) {
     const state = listState(page, data);
     out = writeHead(out, titleForState(state), descriptionForState(state), page.path);
   }
-  if (isReasonListPage(page)) {
+  if (isNotRankedPage(page)) {
+    // the whole list has no description of its own: the page keeps the one the export wrote
     const state = listState(page, data);
     out = writeHead(out, titleForState(state), reasonListDescription(state), page.path);
   }
@@ -309,7 +301,7 @@ async function main(argv) {
       if (!answer.ok) throw new Error(`the site's api.js could not load the list at ${page.address}: ${answer.error && answer.error.message}`);
       pageData = { ...data, leaderboard: answer.data, notRanked: needsNotRanked(state) ? await notRankedFor(state.persona, page.address) : null };
     }
-    if (isReasonListPage(page)) {
+    if (isNotRankedPage(page)) {
       pageData = { ...data, notRanked: await notRankedFor(stateForAddress(page.address).persona, page.address) };
     }
     await writeFile(file, drawPage(await readFile(file, "utf8"), page, pageData), "utf8");
