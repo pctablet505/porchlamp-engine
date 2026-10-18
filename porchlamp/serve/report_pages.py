@@ -26,7 +26,7 @@ sentence is never written.
 Every page of the site is the app's page (``web/app/404.html``: one policy, one head, one frame) with its own head
 and text (:func:`app_page`); ``web/prerender.mjs`` then draws the one header, nav and footer into it
 (``web/app/components/chrome.js``). The scripts a page may load are :data:`PAGE_SCRIPTS`; no font or library
-is loaded by any page. :func:`page` builds the pages the app does not draw yet: the project and landing pages and
+is loaded by any page. :func:`page` builds the pages the app does not draw yet: the project pages and
 ``/check/``.
 """
 from __future__ import annotations
@@ -66,7 +66,7 @@ CITE_TITLE = "Stars don't review pull requests: the state of open-source black h
 
 #: The star bands the report charts: the stats producer's bands from 1,000 stars up (their keys in the stats file).
 STAR_BANDS = tuple(bucket_label(lo, hi) for lo, hi in STAR_BUCKETS if lo >= 1000)
-#: Ecosystem key -> the address of its landing page (``porchlamp.serve.landing_pages``); lens key -> likewise.
+#: Ecosystem key -> the address of its page (an ecosystem preset of ``web/app/routes.js``); lens key -> likewise.
 ECOSYSTEM_SLUGS = {"pypi": "python", "npm": "javascript", "go": "go", "systems": "c-cpp", "crates": "rust", "maven": "java"}
 LENS_SLUGS = {"first_timer": "first-timers", "career_capital": "career", "senior_systems": "senior-systems", "ai_assisted": "ai-assisted"}
 #: Wording guard: Python and JavaScript are said to go quiet more often than these four.
@@ -612,7 +612,7 @@ def _with_ld(built: str, ld: Any) -> str:
 def page(
     *, title: str, description: str, canonical: str, body: str, ld: Any, scripts: Sequence[str] = (),
 ) -> str:
-    """A page the app does not draw (a project or landing page, /check/): :func:`app_page` with this page's
+    """A page the app does not draw (a project page, /check/): :func:`app_page` with this page's
     description, canonical address, link previews and structured data, its ``body`` in ``<main>``, the pages'
     stylesheet in place of the app views', and its own local ``scripts`` (:data:`PAGE_SCRIPTS`) in place of the
     app."""

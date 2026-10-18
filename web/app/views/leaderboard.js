@@ -31,6 +31,8 @@ import {
   computeVisibleRange,
   renderColumnHeader,
   renderCardList,
+  noReplyColumnLabel,
+  groupThousands,
   sortDirectionLabel,
   PILLAR_ORDER,
   ROW_HEIGHT_PX,
@@ -38,9 +40,10 @@ import {
 } from "../components/table.js";
 import { patchRows } from "../components/patch.js";
 import { fill, hook } from "../components/fill.js";
-import { PAGE_SIZES, hrefFor, requestSignature } from "../state.js";
-import { routePath } from "../routes.js";
+import { PAGE_SIZES, TITLE_SITE_SUFFIX, hrefFor, listSpan, listTitleSlots, requestSignature, routeForState } from "../state.js";
+import { routeById, routePath, routeTitle } from "../routes.js";
 import { parseRepoSlug } from "../livecheck.js";
+import { percentWhole } from "./project.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -391,31 +394,303 @@ export function syncFindingsLine(root, report) {
   }
 }
 
-//: The landing pages the home links, in the order the lines print them: ecosystems, then contributor lenses.
+//: The lists the home links, in the order the lines print them: ecosystems, then contributor lenses.
 const BROWSE_ECOSYSTEMS = Object.freeze(["crates", "pypi", "npm", "go", "maven", "systems"]);
 const BROWSE_LENSES = Object.freeze(["first_timer", "career_capital", "senior_systems", "ai_assisted"]);
 
-/** The home's links to the ten landing pages, as real paths, so a reader and a crawler without JavaScript reach each one. */
-export function renderBrowseLinks() {
+/** The page size of the ranking's own pages (routes.js `rankings`). */
+export const RANKING_PAGE_SIZE = routeById("rankings").fixed.page_size;
+
+/** The label of the line of links to every page of the ranking: on the home and on each of those pages. */
+function rankingPagesLabel() {
+  return fill(copy.HOME_BROWSE_RANKING_LABEL, { page_size: escapeHtml(String(RANKING_PAGE_SIZE)) });
+}
+
+/** The links to the `pages` pages of the ranking (1 to `pages`), `current` marked as the page shown. */
+function rankingPageLinks(pages, current = null) {
+  const links = [];
+  for (let page = 1; page <= pages; page++) {
+    links.push(
+      `<a href="${escapeHtml(routePath("rankings", { page }))}" class="onboarding-link"${page === current ? ` aria-current="page"` : ""}>${page}</a>`
+    );
+  }
+  return links.join(" ");
+}
+
+/**
+ * The home's links to the lists, as real paths, so a reader and a crawler without JavaScript reach each one: the six
+ * ecosystem pages, the four lens pages, the first-timer and fastest-reply lists by ecosystem, and every page of the
+ * ranking (`rated`, the balanced ranking's size, sets how many; none while it is unknown), so every ranked project is
+ * two links from home.
+ */
+export function renderBrowseLinks(rated = null) {
   const ecosystemNames = Object.fromEntries(copy.ECOSYSTEMS);
   const link = (href, label) => `<a href="${escapeHtml(href)}" class="onboarding-link">${escapeHtml(label)}</a>`;
   // A middle dot between the names, as the views separate items: "C and C++" and "Career capital" are names of their own.
   const line = (label, links) => `<div><span>${escapeHtml(label)}</span> ${links.join(" · ")}</div>`;
+  const pages = typeof rated === "number" && rated > 0 ? Math.ceil(rated / RANKING_PAGE_SIZE) : 0;
   return (
     `<nav class="onboarding-banner" aria-label="${escapeHtml(copy.HOME_BROWSE_LABEL)}" data-home-browse="true">` +
     line(copy.HOME_BROWSE_ECOSYSTEMS_LABEL, BROWSE_ECOSYSTEMS.map((key) => link(`/${copy.ECOSYSTEM_SLUGS[key]}/`, ecosystemNames[key]))) +
     line(copy.HOME_BROWSE_LENSES_LABEL, BROWSE_LENSES.map((lens) => link(copy.LENS_PAGE_HREFS[lens], copy.PERSONA_NAMES[lens]))) +
+    line(copy.HOME_BROWSE_FIRST_TIMERS_LABEL, BROWSE_ECOSYSTEMS.map((key) => link(`/${copy.ECOSYSTEM_SLUGS[key]}/first-timers/`, ecosystemNames[key]))) +
+    line(copy.HOME_BROWSE_FASTEST_LABEL, [
+      link(routePath("fastest-replies"), copy.HOME_BROWSE_FASTEST_ALL),
+      ...BROWSE_ECOSYSTEMS.map((key) => link(`/${copy.ECOSYSTEM_SLUGS[key]}/fastest-replies/`, ecosystemNames[key])),
+    ]) +
+    (pages ? `<div data-ranking-pages="true"><span>${rankingPagesLabel()}</span> ${rankingPageLinks(pages)}</div>` : "") +
     `</nav>`
   );
 }
 
-/** The shell's head, the same in every shape and in the prerendered board: banner, findings, tabs, counts. */
+// --- The lists at their own addresses (routes.js presets): heading, intro, rows ------------------------------------
+
+/** The methodology's `min_n` for the median first reply (`ttfhr_hours`); null without a methodology. */
+export function replyMinN(methodology) {
+  const params = methodology && Array.isArray(methodology.parameters) ? methodology.parameters : [];
+  const param = params.find((p) => p.input_id === "ttfhr_hours");
+  return param && typeof param.min_n === "number" ? param.min_n : null;
+}
+
+/**
+ * The rows the list shows: the page of rows; on a fastest-reply list (routes.js `top`) only those before the first row
+ * whose median is not measured or whose sample is under the methodology's `min_n`.
+ */
+export function listRows(state) {
+  const rows = state.leaderboard && Array.isArray(state.leaderboard.rows) ? state.leaderboard.rows : [];
+  const route = routeForState(state);
+  if (!route || !route.top) return rows;
+  const minN = replyMinN(state.methodology);
+  const cut = rows.findIndex(
+    (row) => typeof row.first_reply_hours !== "number" || (minN !== null && !(typeof row.first_reply_n === "number" && row.first_reply_n >= minN))
+  );
+  return cut < 0 ? rows : rows.slice(0, cut);
+}
+
+/** Whether the list `state` is drawn at reads the methodology: a lens's list states its weights, a fastest-reply list
+ *  cuts at its `min_n` and states the parameters and pillars. */
+export function listNeedsMethodology(state) {
+  const route = routeForState(state);
+  if (!route || !route.view) return false;
+  const kind = listKind(route);
+  return kind === "fastest" || kind === "lens" || kind === "ecosystem-lens";
+}
+
+/** Which list (and which page of the ranking) `state` is drawn at: the shell is drawn again when it changes. */
+export function listInstanceKey(state) {
+  const route = routeForState(state);
+  if (!route) return "";
+  return route.path.includes("{page}") ? `${route.id}:${state.page}` : route.id;
+}
+
+/** "a", "a and b", "a, b and c" (the copy module's LIST_AND). */
+function joined(items) {
+  if (items.length === 1) return items[0];
+  return copy.LIST_AND.replace("{items}", items.slice(0, -1).join(", ")).replace("{last}", items[items.length - 1]);
+}
+
+/**
+ * A lens's weights in words, largest first (equal weights keep the methodology's pillar order), zero weights left out:
+ * "responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%". Null without a
+ * methodology that weighs the lens.
+ */
+export function lensWeightsText(methodology, lens) {
+  const order = methodology && Array.isArray(methodology.pillars) ? methodology.pillars.map((p) => p.name) : [];
+  const weights = methodology && methodology.personas && methodology.personas.presets ? methodology.personas.presets[lens] : null;
+  if (!weights || order.length === 0) return null;
+  const ranked = order.filter((p) => weights[p]).sort((a, b) => weights[b] - weights[a] || order.indexOf(a) - order.indexOf(b));
+  if (ranked.length === 0) return null;
+  return joined(
+    ranked.map((p) =>
+      copy.LIST_WEIGHT_ITEM.replace("{pillar}", (copy.PILLAR_NAMES[p] || p).toLowerCase()).replace("{percent}", percentWhole(weights[p]))
+    )
+  );
+}
+
+/** A count as a word under ten ("six"), else grouped digits. */
+function countWord(n) {
+  return copy.NUMBER_WORDS[n] || groupThousands(n);
+}
+
+/**
+ * One sentence of a list's intro: `template` with its numbers as hooks (`list.<slot>`, from `numbers`) and its words
+ * as text (`words`); `{ html, text }`, or null when a slot has no value (the sentence is left out, never drawn with a
+ * gap).
+ */
+function listSentence(template, numbers, words = {}) {
+  const slots = {};
+  const plain = {};
+  for (const [, id] of String(template).matchAll(SLOT)) {
+    if (Object.prototype.hasOwnProperty.call(words, id) && words[id] != null) {
+      slots[id] = escapeHtml(words[id]);
+      plain[id] = words[id];
+    } else if (Object.prototype.hasOwnProperty.call(numbers, id) && numbers[id] != null) {
+      slots[id] = hook(`list.${id}`, numbers[id]);
+      plain[id] = numbers[id];
+    } else {
+      return null;
+    }
+  }
+  return { html: fill(template, slots), text: String(template).replace(SLOT, (_m, id) => plain[id]) };
+}
+
+/** What kind of list a route is: "rankings", "fastest", "ecosystem-lens", "lens" or "ecosystem". */
+function listKind(route) {
+  const fixed = route.fixed || {};
+  if (route.path.includes("{page}")) return "rankings";
+  if (route.top) return "fastest";
+  if (fixed.eco && fixed.persona) return "ecosystem-lens";
+  if (fixed.persona) return "lens";
+  return "ecosystem";
+}
+
+/**
+ * The head of a list at its own address (routes.js presets), for `state`: `{ heading, sentences, caveat, links }`, the
+ * heading and each sentence `{ html, text }` (numbers as hooks), or null at any other address. The heading is the
+ * route's title without the site's name (the ranking's pages have their own, LIST_RANKINGS_HEADING); a sentence that
+ * needs what has not loaded (the page of rows, the report, the methodology) is left out. A search (`q`) changes the
+ * counts, so under one the list keeps its heading and drops its numbers.
+ */
+export function listHead(state) {
+  const route = routeForState(state);
+  if (!route || !route.view) return null;
+  const kind = listKind(route);
+  const fixed = route.fixed || {};
+  const words = {};
+  if (fixed.eco) words.ecosystem = copy.ecosystemName(fixed.eco);
+  if (fixed.persona && fixed.persona !== "balanced") words.lens = copy.LENS_PHRASES[fixed.persona];
+  const searched = Boolean(state.query && state.query.trim());
+  const total = state.leaderboard && typeof state.leaderboard.total === "number" && !searched ? groupThousands(state.leaderboard.total) : null;
+  const numbers = { total };
+  const sentences = [];
+  const add = (template, more = {}) => {
+    const sentence = listSentence(template, { ...numbers, ...more }, words);
+    if (sentence) sentences.push(sentence);
+    return sentence;
+  };
+  let heading = null;
+  let caveat = null;
+  let links = null;
+  const report = state.report;
+  const methodology = state.methodology;
+  if (kind === "rankings") {
+    const span = listSpan(state);
+    const at = span ? { first: groupThousands(span.first), last: groupThousands(span.last), total: groupThousands(span.total) } : {};
+    heading = listSentence(copy.LIST_RANKINGS_HEADING, at);
+    add(copy.LIST_INTRO_RANKINGS, at);
+    const pages = span ? Math.ceil(span.total / route.fixed.page_size) : 0;
+    if (pages) links = `<div class="list-pages" data-list-pages="true"><span>${rankingPagesLabel()}</span> ${rankingPageLinks(pages, state.page)}</div>`;
+  } else {
+    const slots = listTitleSlots(route, state);
+    const text = routeTitle(route.id, slots).replace(TITLE_SITE_SUFFIX, "");
+    heading = { html: escapeHtml(text), text };
+    if (kind === "ecosystem") {
+      add(copy.LIST_INTRO_ECOSYSTEM);
+      const eco = report && Array.isArray(report.ecosystems) ? report.ecosystems.find((e) => e.key === fixed.eco) : null;
+      const values = report && report.values ? report.values : {};
+      if (eco && !searched) {
+        add(copy.LIST_INTRO_ECOSYSTEM_REPORT, {
+          judged: eco.judged_text,
+          eco_share: eco.share_text,
+          deadline_days: values.deadline_days,
+          share: values.share,
+          ecosystems_word: countWord(report.ecosystems.length),
+        });
+      }
+      links = [`${route.id}-first-timers`, `${route.id}-fastest-replies`]
+        .map((id) => routeById(id))
+        .filter(Boolean)
+        .map((sub) => {
+          const label = routeTitle(sub.id, listTitleSlots(sub, state)).replace(TITLE_SITE_SUFFIX, "");
+          return `<a href="${escapeHtml(routePath(sub.id))}" class="onboarding-link">${escapeHtml(label)}</a>`;
+        })
+        .join(" · ");
+      links = `<p class="list-sublinks" data-list-sublinks="true">${links}</p>`;
+    } else if (kind === "lens" || kind === "ecosystem-lens") {
+      add(kind === "lens" ? copy.LIST_INTRO_LENS : copy.LIST_INTRO_ECOSYSTEM_LENS);
+      add(copy.LIST_INTRO_WEIGHS, { weights: lensWeightsText(methodology, fixed.persona) });
+    } else {
+      // A fastest list counts what it lists: the rows before its cut (at most a page), not the projects in scope.
+      numbers.total = total === null ? null : groupThousands(listRows(state).length);
+      add(fixed.eco ? copy.LIST_INTRO_FASTEST_ECOSYSTEM : copy.LIST_INTRO_FASTEST);
+      const minN = replyMinN(methodology);
+      add(copy.LIST_INTRO_FASTEST_SAMPLE, { min_n: minN === null ? null : groupThousands(minN) });
+      const params = methodology && Array.isArray(methodology.parameters) ? methodology.parameters.length : 0;
+      const pillars = methodology && Array.isArray(methodology.pillars) ? methodology.pillars.length : 0;
+      caveat = params && pillars ? listSentence(copy.LIST_CAVEAT_FASTEST, { parameters: groupThousands(params), pillars: countWord(pillars) }) : null;
+    }
+  }
+  return { heading, sentences, caveat, links };
+}
+
+/** The description of a list's page (`<meta name="description">`): its intro's first sentence, word for word; null
+ *  where it has none. */
+export function descriptionForState(state) {
+  const head = listHead(state);
+  return head && head.sentences.length ? head.sentences[0].text : null;
+}
+
+/**
+ * The description the page should carry for `state`, or null to leave it as it is: a list's own (its intro's first
+ * sentence); at `/`, `homeDescription`, the one the document loaded with when its first address was `/` (null when
+ * it was not, so a page first loaded as a list keeps its own). An open panel and every other view leave it.
+ */
+export function pageDescription(state, homeDescription = null) {
+  if (state.tab !== "ranked" || state.repo) return null;
+  const route = routeForState(state);
+  if (!route) return null;
+  return route.view ? descriptionForState(state) : homeDescription;
+}
+
+/**
+ * The list's head as markup, inside the board's section: the visible heading, the intro paragraph, the fastest
+ * lists' caveat and the links to an ecosystem's two other lists. Empty at any other address.
+ */
+export function renderListHead(state) {
+  const head = listHead(state);
+  if (!head) return "";
+  const intro = head.sentences.map((s) => s.html).join(" ");
+  return (
+    `<div class="list-head" data-list-head="true">` +
+    `<h1 id="leaderboard-heading" class="view-heading">${head.heading ? head.heading.html : escapeHtml(copy.LEADERBOARD_HEADING)}</h1>` +
+    (intro ? `<p class="list-intro" data-list-intro="true">${intro}</p>` : "") +
+    (head.caveat ? `<p class="list-caveat" data-list-caveat="true">${head.caveat.html}</p>` : "") +
+    (head.links && listKind(routeForState(state)) !== "rankings" ? head.links : "") +
+    `</div>`
+  );
+}
+
+/** The ranking page's line of links to every page of the ranking, drawn above and below the rows; "" elsewhere. */
+function rankingPagesLine(state) {
+  const route = routeForState(state);
+  if (!route || !route.view || listKind(route) !== "rankings") return "";
+  const head = listHead(state);
+  return head && head.links ? head.links : "";
+}
+
+/**
+ * A head drawn before something it reads had loaded (the report, the methodology): rewritten in place when the markup
+ * it should hold differs from `drawn`, the markup last drawn into it. Returns the markup it holds now.
+ */
+export function syncListHead(root, state, drawn) {
+  const html = renderListHead(state);
+  const el = root.querySelector("[data-list-head]");
+  if (!el || html === drawn) return drawn;
+  el.outerHTML = html;
+  return html;
+}
+
+/** The shell's head, the same in every shape and in the prerendered board: a list's own head, banner, findings, the
+ *  home's browse block (only at `/`), tabs, counts. */
 function shellHeader(state) {
   const counts = state.leaderboard ? state.leaderboard.counts : null;
+  const route = routeForState(state);
+  const atHome = !route || !route.view;
   return (
+    renderListHead(state) +
     renderOnboardingBanner() +
     renderFindingsLine(state.report) +
-    renderBrowseLinks() +
+    (atHome ? renderBrowseLinks(counts ? counts.rated : null) : "") +
     renderTabs(state.tab, counts, personaVisibleForState(state), null, tabHrefs(state)) +
     renderCountsStrip(counts, personaDeltaForState(state))
   );
@@ -424,14 +699,30 @@ function shellHeader(state) {
 /** The controls a page of rows sits between, shared by the shell and the prerendered board so the two cannot differ. */
 function boardParts(state) {
   const total = state.leaderboard.total;
+  const route = routeForState(state);
+  const top = Boolean(route && route.top);
+  // A page of the ranking is paged by plain links to its sibling pages; a fastest-reply list has no pager, and its sort
+  // is its path's.
+  const pages = rankingPagesLine(state);
   return {
     showPersonaDelta: state.persona !== "balanced",
-    sortBar: renderMobileSortBar(state.sort),
-    pager: renderPager(state.page, state.pageSize, total, "pager"),
+    top,
+    sortBar: top ? "" : renderMobileSortBar(state.sort),
+    pager: top ? "" : pages || renderPager(state.page, state.pageSize, total, "pager"),
     progressAndError:
       `<div class="refetch-progress" data-refetch-progress="true" hidden></div>` +
       `<div class="error-banner" role="alert" data-leaderboard-error="true" hidden></div>`,
-    bottomPager: renderPager(state.page, state.pageSize, total, "pager", { bottom: true }),
+    bottomPager: top ? "" : pages || renderPager(state.page, state.pageSize, total, "pager", { bottom: true }),
+  };
+}
+
+/** The options every row and card of the list is drawn with (the app's patch and the prerender use the same). */
+export function listRowOpts(state) {
+  const route = routeForState(state);
+  return {
+    showPersonaDelta: state.persona !== "balanced",
+    top: Boolean(route && route.top),
+    noReplyLabel: noReplyColumnLabel(state.report),
   };
 }
 
@@ -440,9 +731,11 @@ function tableOpenTag(extraClass = "") {
 }
 
 function shellSection(header, body, attrs = "") {
+  // A list at its own address draws its visible heading in its head (`renderListHead`); the home keeps a hidden one.
+  const ownHeading = header.startsWith(`<div class="list-head"`);
   return (
     `<section aria-labelledby="leaderboard-heading"${attrs}>` +
-    `<h1 id="leaderboard-heading" class="view-heading sr-only">${escapeHtml(copy.LEADERBOARD_HEADING)}</h1>` +
+    (ownHeading ? "" : `<h1 id="leaderboard-heading" class="view-heading sr-only">${escapeHtml(copy.LEADERBOARD_HEADING)}</h1>`) +
     header +
     body +
     `</section>`
@@ -459,10 +752,11 @@ export function renderShell(state, viewport = { isMobile: false }) {
     body = renderSkeleton();
   } else if (leaderboardError && !leaderboard) {
     body = renderErrorBanner(leaderboardError);
-  } else if (leaderboard && leaderboard.rows.length === 0) {
+  } else if (leaderboard && listRows(state).length === 0) {
     body = renderEmptyState(counts.gated, counts.unrated, { query: state.query || "", ecosystem: state.ecosystem || "" });
   } else if (leaderboard) {
     const { showPersonaDelta, sortBar, pager, progressAndError, bottomPager } = boardParts(state);
+    const labels = { noReply: noReplyColumnLabel(state.report) };
     body = viewport.isMobile
       ? sortBar +
         pager +
@@ -472,7 +766,7 @@ export function renderShell(state, viewport = { isMobile: false }) {
       : pager +
         progressAndError +
         tableOpenTag() +
-        `<thead>${renderColumnHeader(state.sort, showPersonaDelta)}</thead>` +
+        `<thead>${renderColumnHeader(state.sort, showPersonaDelta, labels)}</thead>` +
         `<tbody data-leaderboard-tbody="true"></tbody>` +
         `</table>` +
         bottomPager;
@@ -537,12 +831,13 @@ export function renderCardHtml(row, opts) {
  */
 export function renderPrerenderedBoard(state) {
   const { leaderboard } = state;
-  if (!leaderboard || !Array.isArray(leaderboard.rows) || leaderboard.rows.length === 0) {
+  const rows = listRows(state);
+  if (!leaderboard || !Array.isArray(leaderboard.rows) || rows.length === 0) {
     throw new Error("the prerendered board needs a page of rows");
   }
-  const { rows } = leaderboard;
   const { showPersonaDelta, sortBar, pager, progressAndError, bottomPager } = boardParts(state);
-  const optsAt = (i) => ({ previousRow: i > 0 ? rows[i - 1] : null, showPersonaDelta, selected: false });
+  const rowOpts = listRowOpts(state);
+  const optsAt = (i) => ({ previousRow: i > 0 ? rows[i - 1] : null, ...rowOpts, selected: false });
   const tableSpacer = (name) =>
     `<tr data-key="${name}" aria-hidden="true" ${SPACER_STYLE}><td colspan="${columnCount(showPersonaDelta)}"></td></tr>`;
   const cardSpacer = (name) => `<div data-key="${name}" aria-hidden="true" ${SPACER_STYLE}></div>`;
@@ -551,7 +846,7 @@ export function renderPrerenderedBoard(state) {
     pager +
     progressAndError +
     tableOpenTag(copy.hasAuditedStars(rows) ? "" : " stars-unaudited") +
-    `<thead>${renderColumnHeader(state.sort, showPersonaDelta)}</thead>` +
+    `<thead>${renderColumnHeader(state.sort, showPersonaDelta, { noReply: rowOpts.noReplyLabel })}</thead>` +
     `<tbody data-leaderboard-tbody="true">` +
     tableSpacer("__spacer-top__") +
     rows.map((row, i) => renderRowHtml(row, optsAt(i))).join("") +
@@ -585,9 +880,11 @@ export function adoptPrerenderedBoard(root, state, viewport) {
   if (!board || board.getAttribute("data-prerendered-board") !== requestSignature(state)) return false;
   if (!shellShape(state, viewport).startsWith("table")) return false;
   const kept = board.querySelector(viewport.isMobile ? "[data-leaderboard-cards]" : "[data-leaderboard-tbody]");
+  // A fastest-reply list has no sort bar (its sort is its path's): only a board that should have one must.
+  const hasSortBar = !boardParts(state).top;
   const dropped = viewport.isMobile
     ? [board.querySelector(".leaderboard-table")]
-    : [board.querySelector("[data-leaderboard-cards]"), board.querySelector("[data-mobile-sort-bar]")];
+    : [board.querySelector("[data-leaderboard-cards]"), ...(hasSortBar ? [board.querySelector("[data-mobile-sort-bar]")] : [])];
   if (!kept || dropped.some((el) => !el)) return false;
   for (const el of dropped) el.remove();
   board.removeAttribute("class");
@@ -652,7 +949,7 @@ export function shellShape(state, viewport = { isMobile: false }) {
   const breakpoint = viewport.isMobile ? "mobile" : "desktop";
   if (state.leaderboardLoading && !state.leaderboard) return "loading";
   if (state.leaderboardError && !state.leaderboard) return "error";
-  if (state.leaderboard && state.leaderboard.rows.length === 0) return "empty";
+  if (state.leaderboard && listRows(state).length === 0) return "empty";
   if (state.leaderboard) {
     const personaLens = state.persona === "balanced" ? "balanced" : "lens";
     return `table-${breakpoint}-${personaLens}`;
@@ -665,7 +962,7 @@ export function shellShape(state, viewport = { isMobile: false }) {
  * Never touches the shell, the scroll container, or unrelated rows.
  */
 export function patchTableBody(tbody, doc, rows, range, opts) {
-  const { showPersonaDelta, selectedRepoKey } = opts;
+  const { showPersonaDelta, selectedRepoKey, top = false } = opts;
   const { start, end } = range;
   const colCount = columnCount(showPersonaDelta);
   const topHeight = start * ROW_HEIGHT_PX;
@@ -687,6 +984,7 @@ export function patchTableBody(tbody, doc, rows, range, opts) {
         ? createRowElement(doc, item.row, {
             previousRow: item.index > 0 ? rows[item.index - 1] : null,
             showPersonaDelta,
+            top,
             selected: selectedRepoKey === rowKey(item.row),
           })
         : createSpacerElement(doc, `__${item.kind}__`, colCount, item.height),
@@ -699,6 +997,7 @@ export function patchTableBody(tbody, doc, rows, range, opts) {
       updateRowElement(node, item.row, {
         previousRow,
         showPersonaDelta,
+        top,
         selected: selectedRepoKey === rowKey(item.row),
       });
     }
@@ -707,7 +1006,7 @@ export function patchTableBody(tbody, doc, rows, range, opts) {
 
 /** Same windowed keyed-patch as `patchTableBody`, for the < 768px card list. */
 export function patchCardBody(container, doc, rows, range, opts) {
-  const { showPersonaDelta, selectedRepoKey } = opts;
+  const { showPersonaDelta, selectedRepoKey, top = false, noReplyLabel = null } = opts;
   const { start, end } = range;
   const topHeight = start * CARD_HEIGHT_PX;
   const bottomHeight = Math.max(0, rows.length - end) * CARD_HEIGHT_PX;
@@ -725,6 +1024,8 @@ export function patchCardBody(container, doc, rows, range, opts) {
         ? createCardElement(doc, item.row, {
             previousRow: item.index > 0 ? rows[item.index - 1] : null,
             showPersonaDelta,
+            top,
+            noReplyLabel,
             selected: selectedRepoKey === rowKey(item.row),
           })
         : createCardSpacerElement(doc, `__${item.kind}__`),
@@ -737,6 +1038,8 @@ export function patchCardBody(container, doc, rows, range, opts) {
       updateCardElement(node, item.row, {
         previousRow,
         showPersonaDelta,
+        top,
+        noReplyLabel,
         selected: selectedRepoKey === rowKey(item.row),
       });
     }

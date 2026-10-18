@@ -1,7 +1,7 @@
 // components/chrome.js — the one header, primary nav and footer of every page Porchlamp serves (owner, 2026-10-17:
 // one view per thing, drawn once). app.js draws them on the app's pages and keeps them in step with the reader;
 // web/prerender.mjs draws them at export into every page the site serves, the app's views, the report, the project
-// and landing pages, /check/ and 404 alike. The render functions read nothing from the page, so the browser and Node
+// pages, /check/ and 404 alike. The render functions read nothing from the page, so the browser and Node
 // get the same bytes from the same data.
 //
 // The nav is real links (W-07): `aria-current="page"` on the entry of the page shown, never role=tab. A link to a
@@ -67,13 +67,20 @@ export function headerControlsFor(view) {
 const hidden = (shown) => (shown ? "" : " hidden");
 
 /** The app's lens and ecosystem selects: the header's controls on a page of the app, each hidden where `view` does
- *  not read it, so switching views in place only shows or hides them. */
-export function renderHeaderFilters(view) {
+ *  not read it, so switching views in place only shows or hides them. With `state` (a list's page: the prerender and
+ *  the app draw the same), the state's lens and ecosystem are the selected options; at the defaults (the first
+ *  option of each) nothing is marked. */
+export function renderHeaderFilters(view, state = null) {
   const shown = headerControlsFor(view);
+  const persona = state && state.persona !== "balanced" ? state.persona : null;
+  const ecosystem = state && state.ecosystem ? state.ecosystem : null;
+  const picked = (value, chosen) => (value === chosen ? " selected" : "");
   const lenses = Object.keys(PERSONA_PRESET_WEIGHTS)
-    .map((lens) => `<option value="${escapeHtml(lens)}">${escapeHtml(copy.PERSONA_NAMES[lens])}</option>`)
+    .map((lens) => `<option value="${escapeHtml(lens)}"${picked(lens, persona)}>${escapeHtml(copy.PERSONA_NAMES[lens])}</option>`)
     .join("");
-  const ecosystems = copy.ECOSYSTEMS.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
+  const ecosystems = copy.ECOSYSTEMS.map(
+    ([value, label]) => `<option value="${escapeHtml(value)}"${picked(value, ecosystem)}>${escapeHtml(label)}</option>`
+  ).join("");
   return (
     `<span class="header-filter-group" data-header-persona-group="true"${hidden(shown.persona)}>` +
     `<label class="field-label" for="persona-select">${escapeHtml(copy.PERSONA_LABEL)}</label>` +
@@ -125,9 +132,9 @@ export function renderHeader({ snapshot = null, controls = "", search = true } =
   );
 }
 
-/** The header of a page of the app showing `view`. */
-export function renderAppHeader(view, snapshot = null) {
-  return renderHeader({ snapshot, controls: renderHeaderFilters(view), search: headerControlsFor(view).search });
+/** The header of a page of the app showing `view`; with `state`, its selects show the state's lens and ecosystem. */
+export function renderAppHeader(view, snapshot = null, state = null) {
+  return renderHeader({ snapshot, controls: renderHeaderFilters(view, state), search: headerControlsFor(view).search });
 }
 
 /** The markup inside the footer's four snapshot fields (keyed as their `data-footer-*` attributes). */

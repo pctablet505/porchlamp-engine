@@ -181,11 +181,14 @@ def test_the_export_writes_the_app_s_page_at_every_view_s_address_and_404_html(s
     page works at any depth."""
     _db, out = site
     shell = (export_static.WEB_APP / "404.html").read_text(encoding="utf-8")
-    views = [route for route in export_static.app_routes() if route["shell"] and route["id"] not in export_static.VIEWS_WRITTEN_ELSEWHERE]
+    # the list views (a route with ``fixed``: the leaderboard at a preset) are tests/test_list_views.py's
+    views = [route for route in export_static.app_routes()
+             if route["shell"] and not route.get("fixed") and route["id"] not in export_static.VIEWS_WRITTEN_ELSEWHERE]
     assert [route["path"] for route in views] == ["/", "/not-ranked/", "/matrix/", "/compare/", "/weights/", "/methodology/"]
     # the report's page has a head of its own and needs the stats file (tests/test_report_pages.py): without it, the
     # report's address is answered by 404.html, where the app says the report did not load
-    assert [r["id"] for r in export_static.app_routes() if r["shell"] and r not in views[1:] and r["path"] != "/"] == ["report"]
+    assert [r["id"] for r in export_static.app_routes()
+            if r["shell"] and not r.get("fixed") and r not in views[1:] and r["path"] != "/"] == ["report"]
     assert not (out / "black-holes").exists()
     uncommented = re.sub(r"\n *<!--.*?-->", "", shell, flags=re.S)
     frame_main = re.search(_MAIN, shell, re.S).group(0)
@@ -269,16 +272,14 @@ def test_export_scan_passes_what_the_site_legitimately_carries(tmp_path):
 
 
 def test_the_page_sitemap_lists_only_the_pages_the_export_wrote_dated_with_the_snapshot(tmp_path):
-    """The root, the report, its frozen copy, the methodology, /check/ and the landing pages, in that order; a page
-    the export did not write (here the methodology and every landing page but one) is not listed."""
-    from porchlamp.serve import landing_pages
-
-    written = ["", "black-holes/", "black-holes/2026-10-17/", "check/", f"{landing_pages.SLUGS[0]}/"]
+    """The root, the report, its frozen copy, the methodology, /check/ and the list views it is given, in that order;
+    a page the export did not write (here the methodology and one of the two list views) is not listed."""
+    written = ["", "black-holes/", "black-holes/2026-10-17/", "check/", "rankings/2/"]
     for rel in written:
         (tmp_path / rel).mkdir(parents=True, exist_ok=True)
         (tmp_path / rel / "index.html").write_text("<!doctype html>", encoding="utf-8")
     (tmp_path / "methodology").mkdir()  # a folder without a page is not a page
-    xml = export_static._sitemap_pages(tmp_path, "2026-10-17", "2026-10-17T05:35:00+00:00")
+    xml = export_static._sitemap_pages(tmp_path, "2026-10-17", "2026-10-17T05:35:00+00:00", ["/rankings/2/", "/rust/"])
     assert xml.startswith('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n')
     assert re.findall(r"<loc>([^<]*)</loc>", xml) == [f"https://porchlamp.org/{rel}" for rel in written]
     assert re.findall(r"<lastmod>([^<]*)</lastmod>", xml) == ["2026-10-17"] * len(written)
@@ -410,7 +411,7 @@ def test_the_verify_command_answers_the_grid_on_every_cpu(tmp_path, monkeypatch)
         return {"requests": 0, "mismatches": {}, "mutants": {}}
 
     monkeypatch.setattr(verify_static_export, "verify", recording_verify)
-    for page_check in ("verify_chrome", "verify_methodology"):  # every page of the site: not what this test is about
+    for page_check in ("verify_chrome", "verify_methodology", "verify_lists"):  # every page of the site: not what this test is about
         monkeypatch.setattr(verify_static_export, page_check, lambda db, site, **_options: {"errors": []})
     (tmp_path / "site").mkdir()
     verify_static_export.main(["--db", str(tmp_path / "db.sqlite"), "--site", str(tmp_path / "site")])

@@ -38,6 +38,8 @@
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #8896aa;
+  --text-success: #22c55e;  /* a gain in text (a rank moved up): AA on the dark surfaces */
+  --text-warning: #f87171;  /* a flag or a loss in text: AA on the dark surfaces */
   --text-on-accent: #0b1220;
 
   /* Quadrants (dual-encoded with glyphs in copy.js; never color-only) */
@@ -157,6 +159,8 @@
     --text-primary: #0f172a;
     --text-secondary: #475569;
     --text-muted: #5b6472;
+    --text-success: #15803d;  /* AA on the light surfaces, where the accent green is not */
+    --text-warning: #dc2626;
     --text-on-accent: #f8fafc;
 
     --quad-sweet-spot: #065f46;
@@ -202,6 +206,8 @@
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-muted: #5b6472;
+  --text-success: #15803d;
+  --text-warning: #dc2626;
   --text-on-accent: #f8fafc;
 
   --quad-sweet-spot: #065f46;

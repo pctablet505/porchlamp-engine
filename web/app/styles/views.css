@@ -669,7 +669,9 @@
   .configure-table-col .leaderboard-table [data-col="stars"],
   .configure-table-col .leaderboard-table [data-cell="stars"],
   .configure-table-col .leaderboard-table [data-col="suspicion"],
-  .configure-table-col .leaderboard-table [data-cell="suspicion"] {
+  .configure-table-col .leaderboard-table [data-cell="suspicion"],
+  .configure-table-col .leaderboard-table [data-col="no_reply_14d"],
+  .configure-table-col .leaderboard-table [data-cell="no_reply_14d"] {
     display: none;
   }
 }
