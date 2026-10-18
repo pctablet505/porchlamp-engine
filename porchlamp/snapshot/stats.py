@@ -42,6 +42,12 @@ The definitions:
     the PR caps those records stopped at, as their envelopes record them (``cap``), each once, in
     ascending order; ``null`` stands for a record that does not say it stopped at its cap (its
     ``truncated`` is not true, or its ``cap`` is not a whole number);
+``pr_window_sampled``
+    recorded PR windows holding more PRs than the collector records with every field (RFC-0013): every PR
+    of the window is recorded, and replies and reviews only on an even random sample of them (``sampled``
+    in the envelope), so the reply measures and D-GATE-5 read that sample;
+``pr_window_sampled_caps``
+    the ``[cap, sample_cap]`` pairs those envelopes record, each once, in ascending order;
 ``corpus``
     derived bundle files (``derived_repos``), how many of them have a recorded PR window
     (``pr_windows``), the outside PRs opened in the PR window ending at ``--as-of``
@@ -239,8 +245,9 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
         and (key(r) in populated or key(r) in unmeasured_gr14)
     }
     window_start = now - timedelta(days=PR_WINDOW_DAYS)
-    n_repo = n_window = n_pr = n_rule_inputs = n_cut_record = 0
+    n_repo = n_window = n_pr = n_rule_inputs = n_cut_record = n_sampled = 0
     cut_caps: set[Optional[int]] = set()
+    sampled_caps: set[tuple[Any, Any]] = set()
     authors: set[str] = set()
     for path in derived.glob("*.json"):
         n_repo += 1
@@ -250,6 +257,9 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
         if not isinstance(prs, list):
             continue
         n_window += 1
+        if window.get("sampled") is True:
+            n_sampled += 1
+            sampled_caps.add((window.get("cap"), window.get("sample_cap")))
         owner, _, name = path.stem.partition("__")
         repo_key = (owner.lower(), name.lower())
         if repo_key in gate5_undecided_candidates and _review_handoff_in(window) is not True:
@@ -273,6 +283,8 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
     out["gate5_undecided_rule_inputs"] = n_rule_inputs
     out["gate5_undecided_cut_record"] = n_cut_record
     out["gate5_undecided_cut_record_caps"] = sorted(cut_caps, key=lambda cap: -1 if cap is None else cap)
+    out["pr_window_sampled"] = n_sampled
+    out["pr_window_sampled_caps"] = [list(pair) for pair in sorted(sampled_caps, key=repr)]
     out["corpus"] = {
         "derived_repos": n_repo, "pr_windows": n_window,
         "human_outside_prs": n_pr, "distinct_outside_authors": len(authors),

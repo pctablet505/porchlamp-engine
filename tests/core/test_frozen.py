@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "6f95d75a0aa5427288d3e7e8eadc5b9477d3a1816d636ab848b9defc7d6cea5a"
+FROZEN_CONSTANTS_HASH = "be7023c09aa5514472d2434d33527449db5a490152f0a3e1ea2defaf052ab91a"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -209,6 +209,10 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     ("SUBSTANTIVE_COMMENT_CJK_WEIGHT", constants.SUBSTANTIVE_COMMENT_CJK_WEIGHT, 3),
     # RFC-0012: D-IN-1's exact login list, 20 generic bot accounts and 75 service accounts.
     ("BOT_LOGINS", len(constants.BOT_LOGINS), 95),
+    # RFC-0013: D-IN-4's whole PR window: every field up to 2,000 PRs, above that replies on a sample of 1,000.
+    ("PR_CAP", constants.PR_CAP, 2000),
+    ("PR_SAMPLE_CAP", constants.PR_SAMPLE_CAP, 1000),
+    ("PR_SAMPLE_SEED", constants.PR_SAMPLE_SEED, 20260912),
 )
 
 

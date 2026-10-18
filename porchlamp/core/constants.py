@@ -29,6 +29,22 @@ SCHEMA_VERSION: int = 2
 #: Length of the PR window every PR-based parameter measures over (04 section 3).
 PR_WINDOW_DAYS: int = 180
 
+#: D-IN-4 (RFC-0013): a ``pr_window`` record holds every PR opened in the window.
+#: Up to this many, each PR is recorded with every field, its replies and reviews
+#: included (the whole window); a collector run told to keep no reply sample
+#: stops here and records the window ``truncated``.
+PR_CAP: int = 2000
+
+#: D-IN-4 (RFC-0013): a window of more than ``PR_CAP`` PRs records every PR's own
+#: fields, and replies and reviews on an equal-probability sample of this many of
+#: them; the reply measures (1.1, 1.4 and D-GATE-5, 4.3) read the sample.
+PR_SAMPLE_CAP: int = 1000
+
+#: D-IN-4 (RFC-0013): the seed of that sample. A PR is sampled when its
+#: ``sha256("<seed>:<owner>/<name>:<number>")`` is among the ``PR_SAMPLE_CAP``
+#: smallest of the window's, so a rerun over the same PRs draws the same sample.
+PR_SAMPLE_SEED: int = 20260912
+
 #: D-MISS-1 reason for a Measured ECDF-kind input whose (ecosystem, param)
 #: has no frozen population at all (``porchlamp.core.engine``, added 2026-09-12).
 REASON_NO_POPULATION: str = "no_population"
@@ -629,6 +645,9 @@ def constants_dict() -> dict[str, object]:
         "PROMOTION_LADDER_SCORES": PROMOTION_LADDER_SCORES,
         "PROMOTION_LADDER_VALUES": PROMOTION_LADDER_VALUES,
         "PROXY_METHOD_PREFIX": PROXY_METHOD_PREFIX,
+        "PR_CAP": PR_CAP,
+        "PR_SAMPLE_CAP": PR_SAMPLE_CAP,
+        "PR_SAMPLE_SEED": PR_SAMPLE_SEED,
         "PR_WINDOW_DAYS": PR_WINDOW_DAYS,
         "QUADRANT_THRESHOLD": QUADRANT_THRESHOLD,
         "RATE_SLOPE": RATE_SLOPE,

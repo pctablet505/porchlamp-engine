@@ -78,8 +78,11 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: Regenerated 2026-10-17 (was df009986...) for RFC-0012 (D-IN-1's exact login
 #: list moved into porchlamp.core.constants with 75 service accounts, moving
 #: ScoreRecord.constants_hash); no other field of any record moved.
+#: Regenerated 2026-10-18 (was 97b96c1c...) for RFC-0013 (D-IN-4's PR_CAP,
+#: PR_SAMPLE_CAP and PR_SAMPLE_SEED moved into porchlamp.core.constants,
+#: moving ScoreRecord.constants_hash); no other field of any record moved.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "97b96c1c7ac10baf3b97cfdf3da307e1eca7af9488879c5cbb80b0ceb90a9487"
+    "27b0ef6f2ca14e3fefb8a255b83d80b7a9b71bfe25bae6c75aaea2748514349e"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #

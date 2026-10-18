@@ -51,14 +51,14 @@ from porchlamp.core.hygiene import (
 
 #: D-IN-4: PRs opened in the trailing 180 days.
 PR_WINDOW_DAYS: int = 180
-#: D-IN-4 (#51): every PR of the window is recorded with all fields up to this
-#: many; ``truncated`` when a fetch without a reply sample stops here.
-PR_CAP: int = 2000
-#: #51: above :data:`PR_CAP`, every PR of the window is recorded with the light
-#: fields and replies are recorded on an equal-probability sample of this many.
-PR_SAMPLE_CAP: int = 1000
-#: #51: the fixed seed of the reply sample (:func:`reply_sample_numbers`).
-PR_SAMPLE_SEED: int = 20260912
+#: D-IN-4 (RFC-0013): every PR of the window is recorded with all fields up to
+#: this many; ``truncated`` when a fetch without a reply sample stops here.
+PR_CAP: int = constants.PR_CAP
+#: RFC-0013: above :data:`PR_CAP`, every PR of the window is recorded with the
+#: light fields and replies on an equal-probability sample of this many.
+PR_SAMPLE_CAP: int = constants.PR_SAMPLE_CAP
+#: RFC-0013: the fixed seed of the reply sample (:func:`reply_sample_numbers`).
+PR_SAMPLE_SEED: int = constants.PR_SAMPLE_SEED
 #: #51: aliased ``pullRequest(number:)`` lookups per reply batch query.
 PR_REPLIES_BATCH_SIZE: int = 25
 #: #51: narrower retry widths for reply aliases a batch left unresolved.
@@ -1062,8 +1062,10 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
 
 #: D-IN-4: the author-history window — 365 d of PRs.
 AUTHOR_WINDOW_DAYS: int = 365
-#: D-IN-4: whole 365-d window by default (no hard 500-PR cap).
-AUTHOR_WINDOW_CAP: Optional[int] = None
+#: D-IN-4 (#51): the whole 365-d window, bounded only for safety: far above the
+#: busiest measured history (about 153,000 PRs), so a record that reaches it is
+#: ``truncated`` and its cohort rates are refused, never computed on part of it.
+AUTHOR_WINDOW_CAP: Optional[int] = 250_000
 #: D-IN-4: newcomer band, older edge — the first PR was opened at most 365 d ago.
 NEWCOMER_BAND_START_DAYS: int = 365
 #: D-IN-4: newcomer band, newer edge — the first PR was opened at least 180 d ago.
@@ -1208,8 +1210,9 @@ def fetch_author_window(owner: str, name: str, now: datetime,
     no cohort computable for the whole repo, unlike a single bad per-author
     lookup (see :func:`collect_author_history`).
 
-    #51: ``cap`` defaults to :data:`AUTHOR_WINDOW_CAP` (``None``): the whole
-    365 days, never cut at a PR count. A page that fails with a heavy-query
+    #51: ``cap`` defaults to :data:`AUTHOR_WINDOW_CAP`, a safety bound far above
+    any measured history, so the walk reads the whole 365 days (``None`` lifts
+    the bound). A page that fails with a heavy-query
     error is read again in smaller pages from the same cursor
     (:class:`_PageSizer`).
     """

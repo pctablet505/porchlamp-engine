@@ -1105,7 +1105,7 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
     assert env.source == "github-graphql:author-history"
     d = env.data
     assert d["window_days"] == 365
-    assert d["cap"] is None
+    assert d["cap"] == gql.AUTHOR_WINDOW_CAP
     assert d["count"] == 6
     assert d["truncated"] is False
     # 10+12 window points; searches: ONE batched call for ext1/new1/new2
@@ -2516,9 +2516,15 @@ def _window_nodes(count: int, *, step_minutes: int = 60) -> list[dict]:
     return out
 
 
-def test_the_pr_cap_is_2000_and_the_author_window_has_none():
+def test_the_pr_cap_is_2000_and_the_author_window_is_bounded_only_for_safety():
     assert (gql.PR_CAP, gql.PR_SAMPLE_CAP, gql.PR_PAGE_SIZE_RETRY, gql.PR_LIGHT_PAGE_SIZE) == (2000, 1000, 10, 100)
-    assert gql.AUTHOR_WINDOW_CAP is None
+    assert gql.AUTHOR_WINDOW_CAP == 250_000
+
+
+def test_an_author_window_that_reaches_its_bound_is_truncated_at_it():
+    nodes = [w4_pr(700 - i, (NOW - timedelta(hours=12 * i)).isoformat(), f"u{i}") for i in range(600)]
+    res = gql.fetch_author_window("acme", "widget", NOW, ScriptedWindow(nodes), cap=250)
+    assert (len(res.prs), res.truncated) == (250, True)
 
 
 def test_a_failing_page_is_read_again_in_pages_of_ten_then_the_walk_returns_to_its_size():

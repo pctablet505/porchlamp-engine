@@ -192,6 +192,13 @@ class Facts:
     undecided_cut: int = 0
     #: The cap those records stopped at, as their envelopes record it; None when no record is cut.
     pr_cap: int | None = None
+    #: Projects whose PR window holds more PRs than the collector records with every field: replies and reviews
+    #: are read on an even random sample of them (RFC-0013).
+    sampled: int = 0
+    #: The PRs a window may hold with every field recorded, and the sample's size, as those envelopes record them;
+    #: None when no record is sampled.
+    full_max: int | None = None
+    sample_size: int | None = None
 
     @property
     def share_text(self) -> str:
@@ -373,6 +380,18 @@ def build_facts(
                 f"recorded cap; the stats file's gate5_undecided_cut_record_caps is {caps!r}"
             )
         pr_cap = caps[0]
+    if not isinstance(stats.get("pr_window_sampled"), int):
+        raise ReportError("the stats file has no pr_window_sampled: rebuild it with `porchlamp.snapshot stats`")
+    sampled, full_max, sample_size = stats["pr_window_sampled"], None, None
+    if sampled:
+        pairs = stats.get("pr_window_sampled_caps")
+        if not (isinstance(pairs, list) and len(pairs) == 1 and isinstance(pairs[0], list) and len(pairs[0]) == 2
+                and all(type(n) is int and n > 0 for n in pairs[0])):
+            raise ReportError(
+                "guard: 'more than N pull requests ... a sample of M of them' needs every sampled record to name one cap "
+                f"and one sample size; the stats file's pr_window_sampled_caps is {pairs!r}"
+            )
+        full_max, sample_size = pairs[0]
 
     facts = Facts(
         snapshot_id=snapshot_id,
@@ -406,6 +425,9 @@ def build_facts(
         ci_percent=ci_percent,
         undecided_cut=undecided_cut,
         pr_cap=pr_cap,
+        sampled=sampled,
+        full_max=full_max,
+        sample_size=sample_size,
     )
     check_wording_guards(facts)
     return facts
@@ -756,6 +778,10 @@ def report_json(f: Facts) -> dict:
     if f.undecided_cut:
         values["undecided_cut"] = fmt_int(f.undecided_cut)
         values["pr_cap"] = fmt_int(f.pr_cap)
+    if f.sampled:
+        values["sampled"] = fmt_int(f.sampled)
+        values["full_max"] = fmt_int(f.full_max)
+        values["sample_size"] = fmt_int(f.sample_size)
     if not f.below_bands_judged:
         del values["below_bands_judged"], values["lowest_band"]
     method = [
@@ -774,6 +800,13 @@ def report_json(f: Facts) -> dict:
         method.append(
             "We could not judge {undecided_cut} busy projects yet: we hold only the newest {pr_cap} pull requests of "
             "each, and they do not reach back to {window_start}."
+        )
+    if f.sampled:
+        noun = "project" if f.sampled == 1 else "projects"
+        method.append(
+            f"{{sampled}} {noun} had more than {{full_max}} pull requests in that time. For each, we read replies and "
+            "reviews on an even random sample of {sample_size} of them; every pull request counts for decisions and "
+            "merges."
         )
     method.append(
         "It is a black hole when, with {ci_percent}% confidence, more than half of those pull requests got no "

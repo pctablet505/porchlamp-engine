@@ -1397,14 +1397,53 @@ def test_projects_whose_pr_record_is_cut_get_their_own_measurement_bullet(built)
         report_pages.build_facts(**inputs)
 
 
+def test_projects_whose_pr_window_is_sampled_get_their_own_measurement_bullet(built):
+    """RFC-0013: the stats file's pr_window_sampled is printed before the black-hole definition, with the one cap and
+    sample size the sampled records name; each number is a slot. None gives no bullet; a stats file without the
+    count, or whose sampled records name no single pair, is refused."""
+    inputs = _inputs(built)
+
+    def bullets(sampled, pairs):
+        inputs["stats"].update(gate5_undecided_rule_inputs=0, gate5_undecided_cut_record=0,
+                               gate5_undecided_cut_record_caps=[], pr_window_sampled=sampled,
+                               pr_window_sampled_caps=pairs)
+        record = report_pages.report_json(report_pages.build_facts(**inputs))
+        return record, [_fill(t, record["values"]) for t in record["sentences"]["method"]]
+
+    record, method = bullets(299, [[2000, 1000]])
+    assert len(method) == 4 and method[2] == (
+        "299 projects had more than 2,000 pull requests in that time. For each, we read replies and reviews on an "
+        "even random sample of 1,000 of them; every pull request counts for decisions and merges."
+    )
+    assert method[3].startswith("It is a black hole when")
+    assert (record["values"]["sampled"], record["values"]["full_max"], record["values"]["sample_size"]) == (
+        "299", "2,000", "1,000")
+    assert all(f"{{{slot}}}" in record["sentences"]["method"][2] for slot in ("sampled", "full_max", "sample_size"))
+    _record, one = bullets(1, [[2000, 1000]])
+    assert one[2].startswith("1 project had more than 2,000 pull requests")
+    record, none = bullets(0, [])
+    assert len(none) == 3 and not any("random sample" in bullet for bullet in none)
+    assert not {"sampled", "full_max", "sample_size"} & set(record["values"])
+    for pairs in ([], [[2000, 1000], [5000, 1000]], [[2000]], [[2000, None]], None):
+        with pytest.raises(report_pages.ReportError, match="pr_window_sampled_caps"):
+            bullets(7, pairs)
+    del inputs["stats"]["pr_window_sampled"]
+    with pytest.raises(report_pages.ReportError, match="pr_window_sampled"):
+        report_pages.build_facts(**inputs)
+
+
 def test_the_verifier_words_the_cut_record_bullet_as_the_report_does(built):
     """The verifier works out the cut-record bullet on its own (its hooks and its sentence, from the stats file's count
     and cap): for the same numbers, its values are report.json's and its method sentences the filled templates, with
     the bullet and without it."""
     inputs = _inputs(built)
-    for rule_inputs, cut, caps in ((1234, 868, [500]), (0, 2001, [300]), (0, 0, [])):
+    for rule_inputs, cut, caps, sampled, pairs in (
+        (1234, 868, [500], 0, []), (0, 2001, [300], 0, []), (0, 0, [], 0, []), (0, 0, [], 299, [[2000, 1000]]),
+        (0, 0, [], 1, [[2000, 1000]]),
+    ):
         inputs["stats"].update(
-            gate5_undecided_rule_inputs=rule_inputs, gate5_undecided_cut_record=cut, gate5_undecided_cut_record_caps=caps
+            gate5_undecided_rule_inputs=rule_inputs, gate5_undecided_cut_record=cut, gate5_undecided_cut_record_caps=caps,
+            pr_window_sampled=sampled, pr_window_sampled_caps=pairs,
         )
         f = report_pages.build_facts(**inputs)
         record = report_pages.report_json(f)
@@ -1421,9 +1460,11 @@ def test_the_verifier_words_the_cut_record_bullet_as_the_report_does(built):
             constants_hash=f.constants_hash, db_sha="0" * 64,
             undecided_cut=inputs["stats"]["gate5_undecided_cut_record"],
             pr_cap=(inputs["stats"]["gate5_undecided_cut_record_caps"] or [None])[0],
+            sampled=sampled, full_max=(pairs or [[None, None]])[0][0], sample_size=(pairs or [[None, None]])[0][1],
         )
         values = {k: v for k, v in hooks.items() if "." not in k and k != "source_db_sha256"}
         assert values == record["values"], (cut, caps)
         method = verify_static_export._report_sentences(hooks, dict(report_pages.ECOSYSTEM_NAMES))["method"]
         assert method == [_fill(t, record["values"]) for t in record["sentences"]["method"]], (cut, caps)
         assert any("could not judge" in sentence for sentence in method) == bool(cut)
+        assert any("random sample" in sentence for sentence in method) == bool(sampled)

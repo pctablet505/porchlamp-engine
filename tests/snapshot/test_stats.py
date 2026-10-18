@@ -105,6 +105,7 @@ def test_every_field_matches_the_hand_worked_values(tmp_path):
         "top100_overlap": 3, "top100_stars_min": -1,
         # d's and a's windows lack the rule inputs and the cut flag, but both are decided on gate 5
         "gate5_undecided_rule_inputs": 0, "gate5_undecided_cut_record": 0, "gate5_undecided_cut_record_caps": [],
+        "pr_window_sampled": 0, "pr_window_sampled_caps": [],
         # 11 outside PRs to d (u0..u9, then U0 = u0) and 10 to a; b has no readable window
         "corpus": {"derived_repos": 3, "pr_windows": 2, "human_outside_prs": 21, "distinct_outside_authors": 20},
     }
@@ -202,6 +203,22 @@ def test_a_cut_record_whose_share_is_not_measured_is_counted_from_its_window(tmp
     assert (stats["gate5_undecided_cut_record"], stats["gate5_undecided_cut_record_caps"]) == (1, [500])
     record(9)
     assert compute_stats(db, data)["gate5_undecided_cut_record"] == 0
+
+
+def test_a_window_with_replies_on_a_sample_is_counted_with_its_cap_and_sample_size(tmp_path):
+    """RFC-0013: h's window holds every PR, replies on a sample of them; the report names the cap and size."""
+    db, data = _snapshot(tmp_path)
+    prs = [{**_pr(f"w{k}"), "number": k + 1} for k in range(3)]
+    _h_window(data, prs)
+    path = data / "raw" / "pr_window" / "Org__h.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["data"].update(truncated=False, sampled=True, cap=2000, sample_cap=1000)
+    path.write_text(json.dumps(document), encoding="utf-8")
+    stats = compute_stats(db, data)
+    assert (stats["pr_window_sampled"], stats["pr_window_sampled_caps"]) == (1, [[2000, 1000]])
+    document["data"].pop("sampled")
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert (compute_stats(db, data)["pr_window_sampled"], compute_stats(db, data)["pr_window_sampled_caps"]) == (0, [])
 
 
 def test_an_undecided_project_that_hands_review_off_is_not_counted(tmp_path):
