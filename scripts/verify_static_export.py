@@ -576,6 +576,30 @@ class _Ledger:
             self.errors.append(f"{where}: expected {expected!r}, found {found!r}")
 
 
+#: The mismatches a check prints for one page, and the pages it prints them for: a fault that moves every row after it
+#: on one page prints this many and a count, and the faults on the other pages still show.
+MISMATCHES_PER_PAGE, MISMATCH_PAGES = 5, 40
+
+
+def _log_mismatches(log, kind: str, errors: list[str]) -> None:
+    """``errors`` (a check's ledger) as ``<kind> MISMATCH`` lines, grouped by their first word, which names the page,
+    file or project a check is about (a check of the whole site starts with a word of its own): the first
+    :data:`MISMATCHES_PER_PAGE` of each of the first :data:`MISMATCH_PAGES` groups, then how many each leaves out."""
+    counts: dict[str, int] = {}
+    for error in errors:
+        page = error.split(" ", 1)[0].rstrip(":")
+        counts[page] = counts.get(page, 0) + 1
+        if counts[page] <= MISMATCHES_PER_PAGE and len(counts) <= MISMATCH_PAGES:
+            log(f"{kind} MISMATCH {error}")
+    shown = list(counts)[:MISMATCH_PAGES]
+    for page in shown:
+        if counts[page] > MISMATCHES_PER_PAGE:
+            log(f"{kind} MISMATCH {page}: {counts[page] - MISMATCHES_PER_PAGE} more not printed")
+    if len(counts) > len(shown):
+        rest = list(counts.values())[len(shown):]
+        log(f"{kind} MISMATCH {len(rest)} more pages, with {sum(rest)} mismatches, not printed")
+
+
 #: The report's findings, in page order: the first is the page's lead figure, the others its Key findings.
 _FINDINGS = ("finding-share", "finding-stars", "finding-top100", "finding-correlation", "finding-prs")
 
@@ -1093,8 +1117,7 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         f"{'byte-identical' if again is not None and again == _report_main(texts.get('latest', '')) else 'DIFFERENT'}; "
         f"{csv_cells} CSV cells"
     )
-    for error in ledger.errors[:60]:
-        log(f"REPORT MISMATCH {error}")
+    _log_mismatches(log, "REPORT", ledger.errors)
     return {"checked": ledger.checked, "hooks": len(hooks), "csv_cells": csv_cells, "errors": ledger.errors,
             "record": record if again is not None else None, "black_hole_numbers": numbers}
 
@@ -1468,10 +1491,7 @@ def verify_chrome(db: Path, site: Path, *, log=print) -> dict:
         + f"), each with the header, nav and footer chrome.js draws, one policy, its kind's scripts; "
         f"{len(expected_hooks)} hooks per page; checked {ledger.checked}"
     )
-    for error in ledger.errors[:50]:
-        log(f"CHROME MISMATCH {error}")
-    if len(ledger.errors) > 50:
-        log(f"CHROME MISMATCH ... and {len(ledger.errors) - 50} more")
+    _log_mismatches(log, "CHROME", ledger.errors)
     return {"checked": ledger.checked, "pages": sum(counts.values()), "errors": ledger.errors}
 
 
@@ -1541,8 +1561,7 @@ def verify_methodology(db: Path, site: Path, *, report: Optional[dict] = None, l
     distinct = len({ident for ident, _v in hooks})
     log(f"verify: methodology page: {len(hooks)} hooks ({distinct} distinct), checked {ledger.checked} values; "
         f"re-drawn from the API {'byte-identical' if again == text else 'DIFFERENT'}")
-    for error in ledger.errors[:50]:
-        log(f"METHODOLOGY MISMATCH {error}")
+    _log_mismatches(log, "METHODOLOGY", ledger.errors)
     return {"checked": ledger.checked, "hooks": len(hooks), "errors": ledger.errors}
 
 
@@ -2071,10 +2090,7 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     log(f"verify: project heads: {len(descriptions)} descriptions, each names the project and its rank; the longest is "
         f"{max(map(len, descriptions), default=0)} characters (at most {_DESCRIPTION_LIMIT}); "
         f"{sum(d == boilerplate for d in descriptions)} are the site's boilerplate")
-    for error in ledger.errors[:50]:
-        log(f"PROJECT MISMATCH {error}")
-    if len(ledger.errors) > 50:
-        log(f"PROJECT MISMATCH ... and {len(ledger.errors) - 50} more")
+    _log_mismatches(log, "PROJECT", ledger.errors)
     return {"checked": ledger.checked, "pages": len(found_dirs & expected_dirs), "errors": ledger.errors}
 
 
@@ -2231,8 +2247,7 @@ def verify_home(db: Path, site: Path, *, report: Optional[dict], log=print) -> d
     log(f"verify: home page: {len(shown)} rows and {len(cards)} cards, the findings line, the head and the JSON-LD; "
         f"re-drawn from the facts worked out here {'byte-identical' if again == text else 'DIFFERENT'}; llms.txt and "
         f"feed.xml re-generated; checked {ledger.checked} values")
-    for error in ledger.errors[:40]:
-        log(f"HOME MISMATCH {error}")
+    _log_mismatches(log, "HOME", ledger.errors)
     return {"checked": ledger.checked, "rows": len(shown), "errors": ledger.errors}
 
 
@@ -2373,7 +2388,7 @@ def verify_lists(db: Path, site: Path, *, report: Optional[dict], log=print) -> 
     - its title and description fit a search result whole, and no two titles are the same;
     - a ranking page links every page of the ranking;
     - each page is byte for byte what ``web/prerender.mjs`` draws from the API's answers.
-    Prints each view's hook count. ``{"pages", "hooks", "errors"}``."""
+    Prints each view's hook count. ``{"pages", "hooks", "addresses", "errors"}``, with every list view's address."""
     from porchlamp.serve import project_pages as pp
 
     ledger = _Ledger()
@@ -2447,9 +2462,8 @@ def verify_lists(db: Path, site: Path, *, report: Optional[dict], log=print) -> 
     _redraw(db, site, snapshot, methodology, report, jobs, pages, ledger)
     log(f"verify: list views: {len(pages)} pages; hooks per view {dict(sorted(hook_counts.items()))}; "
         f"re-drawn from the API's answers; checked {ledger.checked} values")
-    for error in ledger.errors[:40]:
-        log(f"LIST MISMATCH {error}")
-    return {"pages": len(pages), "hooks": hook_counts, "errors": ledger.errors}
+    _log_mismatches(log, "LIST", ledger.errors)
+    return {"pages": len(pages), "hooks": hook_counts, "addresses": sorted(given), "errors": ledger.errors}
 
 
 def not_ranked_projects(db: Path, sid: str) -> list[dict]:
@@ -2534,8 +2548,9 @@ def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], num
       unrated counts and, with ``stats``, the black holes and the total to the stats file's;
     - the hooks, the head (title and description whole in a search result, no two titles alike), the links to every
       page of the list, the Not ranked tab;
-    - each page is byte for byte what ``web/prerender.mjs`` draws from the API's answers.
-    ``{"pages", "rows", "errors"}``."""
+    - ``/not-ranked/``, the whole list's page, links every list with projects and no list without;
+    - each page, and ``/not-ranked/``, is byte for byte what ``web/prerender.mjs`` draws from the API's answers.
+    ``{"pages", "rows", "addresses", "errors"}``, with every list page's address."""
     from porchlamp.serve import report_pages as rp
 
     ledger = _Ledger()
@@ -2609,6 +2624,17 @@ def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], num
             ledger.equal(f"{address} title fits ({TITLE_MAX})", len(title) <= TITLE_MAX, True)
             ledger.equal(f"{address} description fits ({DESCRIPTION_MAX})", len(description) <= DESCRIPTION_MAX, True)
             ledger.equal(f"{address} title is its own", titles.setdefault(title, address), address)
+    # the whole list's page: its "Lists by reason" line links every list with projects, and it is re-drawn with the lists
+    list_pages = len(pages)
+    whole = next(route for route in export_static.app_routes() if route["id"] == "notranked")
+    path = site / whole["path"].strip("/") / "index.html"
+    ledger.equal(f"{whole['path']} is a page of the export", path.is_file(), True)
+    if path.is_file():
+        pages[whole["path"]] = path.read_text(encoding="utf-8")
+        jobs.append({"path": path.relative_to(site).as_posix(), "view": "notranked", "address": whole["path"], "route": whole})
+        links = set(read_page(_home_view(pages[whole["path"]]) or "").links)
+        ledger.equal(f"{whole['path']} links every list with projects, and no list without",
+                     sorted(a for a in links if a in first_pages), sorted(a for a, n in first_pages.items() if n))
     # the rows the gated lists and the unrated lists hold, against the snapshot's counts
     group_of = {p["reason"]: p["group"] for p in projects}
     by_list = {group: sum(n for reason, n in on_pages.items() if group_of.get(reason) == group) for group in ("gated", "unrated")}
@@ -2624,16 +2650,18 @@ def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], num
     found_addresses = {"/" + "".join(f"{part}/" for part in path.parent.relative_to(site).parts) for path in under}
     ledger.equal("not-ranked list pages at no address of the route table", sorted(found_addresses - given), [])
     _redraw(db, site, snapshot, methodology, report, jobs, pages, ledger)
-    log(f"verify: not-ranked lists: {len(pages)} pages; rows per reason {dict(sorted(per_reason.items()))}; rows listed "
+    log(f"verify: not-ranked lists: {list_pages} pages and {whole['path']}; rows per reason {dict(sorted(per_reason.items()))}; rows listed "
         f"{sum(on_pages.values())} of {len(projects)} not ranked (gated lists {by_list['gated']}, unrated lists {by_list['unrated']}), "
         f"each once: {not ledger.errors}; re-drawn from the API's answers; checked {ledger.checked} values")
-    for error in ledger.errors[:40]:
-        log(f"NOT-RANKED MISMATCH {error}")
-    return {"pages": len(pages), "rows": sum(seen.values()), "errors": ledger.errors}
+    _log_mismatches(log, "NOT-RANKED", ledger.errors)
+    return {"pages": list_pages, "rows": sum(seen.values()), "addresses": sorted(given), "errors": ledger.errors}
 
 
 #: Every ranked project's page is at most this many plain-link clicks from ``/`` (owner, 2026-10-17).
 PROJECT_CLICKS_MAX = 2
+#: The most plain-link clicks from ``/`` to each kind of list page: ``/`` links every list view; its Not ranked tab
+#: links ``/not-ranked/``, whose "Lists by reason" line links each list's first page, whose pages line links the rest.
+LIST_CLICKS_MAX = {"list views": 1, "not-ranked lists' first pages": 2, "not-ranked list pages": 3}
 _A_HREF = re.compile(r"<a\b[^>]*\bhref=\"([^\"]*)\"", re.S)
 
 
@@ -2662,10 +2690,12 @@ def crawl_depths(site: Path) -> dict[str, int]:
     return depths
 
 
-def verify_crawl(db: Path, site: Path, *, log=print) -> dict:
+def verify_crawl(db: Path, site: Path, *, lists: list[str], not_ranked: list[str], log=print) -> dict:
     """Every ranked project's page is reached from ``/`` within :data:`PROJECT_CLICKS_MAX` plain-link clicks (the
-    list views link them all: ``/`` links each ranking page, which links its projects). The project pages are the
-    API's own ranked set. ``{"depths", "errors"}``."""
+    list views link them all: ``/`` links each ranking page, which links its projects), and every list's page within
+    :data:`LIST_CLICKS_MAX`: ``lists``, the list views' addresses, and ``not_ranked``, the not-ranked lists' pages, as
+    :func:`verify_lists` and :func:`verify_not_ranked_lists` work them out. The project pages are the API's own ranked
+    set. ``{"depths", "lists", "errors"}``, ``lists`` each kind of list page by depth (``None``: not reached)."""
     ledger = _Ledger()
     (board,) = _api_answers(db, "/v1/porchlamp/leaderboard?persona=balanced&page=1&page_size=1")
     total = board["total"]
@@ -2678,11 +2708,21 @@ def verify_crawl(db: Path, site: Path, *, log=print) -> dict:
     ledger.equal(f"ranked project pages reached from / within {PROJECT_CLICKS_MAX} clicks", near, total)
     ledger.equal("project pages reached at all", len(projects), total)
     project_by_depth = {d: sum(1 for x in projects.values() if x == d) for d in sorted(set(projects.values()))}
+    firsts = {route["path"].replace("{page}", "1") for route in _export_static().app_routes() if (route.get("fixed") or {}).get("reason")}
+    kinds = {"list views": lists, "not-ranked lists' first pages": [a for a in not_ranked if a in firsts], "not-ranked list pages": not_ranked}
+    list_depths, said = {}, []
+    for kind, addresses in kinds.items():
+        most = LIST_CLICKS_MAX[kind]
+        clicks = f"{most} click" + ("" if most == 1 else "s")
+        far = [address for address in addresses if depths.get(address, most + 1) > most]
+        ledger.equal(f"{kind} more than {clicks} from / (or not reached)", far[:20], [])
+        found = [depths.get(address) for address in addresses]
+        list_depths[kind] = {d: found.count(d) for d in sorted(set(found), key=lambda d: (d is None, d))}
+        said.append(f"{kind} {len(addresses) - len(far)} of {len(addresses)} within {clicks} (by depth {list_depths[kind]})")
     log(f"verify: crawl from /: pages by depth {dict(sorted(by_depth.items()))}; project pages by depth {project_by_depth}; "
-        f"{near} of {total} ranked projects within {PROJECT_CLICKS_MAX} clicks")
-    for error in ledger.errors[:10]:
-        log(f"CRAWL MISMATCH {error}")
-    return {"depths": project_by_depth, "errors": ledger.errors}
+        f"{near} of {total} ranked projects within {PROJECT_CLICKS_MAX} clicks; " + "; ".join(said))
+    _log_mismatches(log, "CRAWL", ledger.errors)
+    return {"depths": project_by_depth, "lists": list_depths, "errors": ledger.errors}
 
 
 _PROJECT_PATH = re.compile(r"/projects/[a-z0-9._-]+/[a-z0-9._-]+/")
@@ -2739,12 +2779,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         ok, record, numbers = not result["errors"] and ok, result.get("record"), result.get("black_hole_numbers")
         stats = json.loads(args.stats.read_text(encoding="utf-8"))
     ok = not verify_methodology(args.db.resolve(), site, report=record)["errors"] and ok
-    ok = not verify_lists(args.db.resolve(), site, report=record)["errors"] and ok
-    ok = not verify_not_ranked_lists(args.db.resolve(), site, report=record, numbers=numbers, stats=stats)["errors"] and ok
+    lists = verify_lists(args.db.resolve(), site, report=record)
+    not_ranked = verify_not_ranked_lists(args.db.resolve(), site, report=record, numbers=numbers, stats=stats)
+    ok = not lists["errors"] and not not_ranked["errors"] and ok
     if args.stats is not None:
         ok = not verify_projects(args.db.resolve(), site)["errors"] and ok
         ok = not verify_home(args.db.resolve(), site, report=record)["errors"] and ok
-        ok = not verify_crawl(args.db.resolve(), site)["errors"] and ok
+        ok = not verify_crawl(args.db.resolve(), site, lists=lists["addresses"], not_ranked=not_ranked["addresses"])["errors"] and ok
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 

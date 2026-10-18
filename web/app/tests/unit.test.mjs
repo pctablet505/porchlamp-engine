@@ -5050,7 +5050,7 @@ test("not-ranked tab: it counts the list it opens, the ecosystem's on /rust/, an
 
 test("not-ranked lists: the app takes over a list's prerendered page for its own state, and leaves a page of another list alone", () => {
   const state = reasonPageState("/not-ranked/archived/2/");
-  const drawn = nrView.renderPrerenderedReasonList(state);
+  const drawn = nrView.renderPrerenderedNotRanked(state);
   assert.ok(drawn.includes('data-prerendered-board="notranked-archived:2"'), "keyed by its list and page");
   assert.equal(drawn.replace(' data-prerendered-board="notranked-archived:2"', ""), notRankedRenderShell(state), "the board is the app's shell");
   /** A page holding `html`, read back as the document reads it (here: as written). */
@@ -5069,27 +5069,80 @@ test("not-ranked lists: the app takes over a list's prerendered page for its own
   const doc = { createElement: () => ({ innerHTML: "" }) };
   for (const other of ["/not-ranked/archived/3/", "/not-ranked/stale/2/", "/not-ranked/"]) {
     const { root, board } = pageWith(drawn);
-    assert.equal(nrView.adoptReasonListBoard(root, reasonPageState(other), doc), false, other);
+    assert.equal(nrView.adoptNotRankedBoard(root, reasonPageState(other), doc), false, other);
     assert.equal(board.getAttribute("data-prerendered-board"), "notranked-archived:2", `${other}: the page is left as it is`);
     assert.equal(root.written, null);
   }
   const { root, board } = pageWith(drawn);
-  assert.equal(nrView.adoptReasonListBoard(root, state, doc), true);
+  assert.equal(nrView.adoptNotRankedBoard(root, state, doc), true);
   assert.equal(board.getAttribute("data-prerendered-board"), null, "the mark is removed");
   assert.equal(root.written, null, "nothing redrawn");
   // the app's data differs (its report failed to load): the page is drawn from what the app has
   const differs = pageWith(drawn);
   const noReport = { ...state, report: null };
-  assert.equal(nrView.adoptReasonListBoard(differs.root, reasonPageState("/not-ranked/unanswered/1/", { report: null }), doc), false, "another list");
-  const blackHole = pageWith(nrView.renderPrerenderedReasonList(reasonPageState("/not-ranked/unanswered/1/")));
-  assert.equal(nrView.adoptReasonListBoard(blackHole.root, reasonPageState("/not-ranked/unanswered/1/", { report: null }), doc), true);
+  assert.equal(nrView.adoptNotRankedBoard(differs.root, reasonPageState("/not-ranked/unanswered/1/", { report: null }), doc), false, "another list");
+  const blackHole = pageWith(nrView.renderPrerenderedNotRanked(reasonPageState("/not-ranked/unanswered/1/")));
+  assert.equal(nrView.adoptNotRankedBoard(blackHole.root, reasonPageState("/not-ranked/unanswered/1/", { report: null }), doc), true);
   assert.equal(blackHole.root.written, notRankedRenderShell(reasonPageState("/not-ranked/unanswered/1/", { report: null })), "redrawn from the app's data");
   assert.equal(nrView.rebuildKey(noReport), nrView.rebuildKey({ ...noReport }), "the shell's key is stable");
   assert.notEqual(nrView.rebuildKey(state), nrView.rebuildKey(reasonPageState("/not-ranked/archived/3/")), "and changes with the page");
   // app.js takes it over this way, from the not-ranked view's branch
   const app = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "app.js"), "utf8");
-  assert.match(app, /prerenderedBoardKey\(main\) !== reasonListKey\(state\)/);
-  assert.match(app, /adoptReasonListBoard\(main, state, doc\)/);
+  assert.match(app, /prerenderedBoardKey\(main\) !== notRankedBoardKey\(state\)/);
+  assert.match(app, /adoptNotRankedBoard\(main, state, doc\)/);
+});
+
+test("not-ranked: the whole list's page the export drew is the app's shell with its first page of rows, taken over for its own lens, filters and page", () => {
+  const whole = reasonPageState("/not-ranked/", { report: null });
+  const drawn = nrView.renderPrerenderedNotRanked(whole);
+  const key = "notranked:balanced:::1:20";
+  assert.ok(drawn.includes(`<section aria-labelledby="notranked-heading" data-prerendered-board="${key}">`), "keyed by lens, filters and page");
+  // the shell, with the rows its patch puts in
+  const container = { innerHTML: "" };
+  nrView.patchNotRankedBody({ querySelector: (sel) => (sel === "[data-notranked-rows]" ? container : null), querySelectorAll: () => [] }, whole);
+  assert.equal((container.innerHTML.match(/class="notranked-row"/g) || []).length, whole.notRankedPageSize, "a page of rows");
+  assert.ok(container.innerHTML.includes(`data-owner="${NR_LIST.gated[0].owner}"`), "the first page of the rows");
+  const app = notRankedRenderShell(whole).replace('<div data-notranked-rows="true"></div>', `<div data-notranked-rows="true">${container.innerHTML}</div>`);
+  assert.equal(drawn.replace(` data-prerendered-board="${key}"`, ""), app, "the app's drawing, byte for byte");
+  // the "Lists by reason" line as plain links: each list with projects, its first page
+  const line = drawn.match(/<p class="reason-lists" data-reason-lists="true">(.*?)<\/p>/)[1];
+  assert.deepEqual([...line.matchAll(/<a href="([^"]+)" class="onboarding-link">/g)].map((m) => m[1]),
+    REASON_LIST_SLUGS.filter(([, reason]) => REASON_COUNTS[reason] > 0).map(([slug]) => `/not-ranked/${slug}/1/`));
+  /** A page holding `html`, read back as the document reads it (here: as written). */
+  const pageWith = (html) => {
+    let mark = html.match(/data-prerendered-board="([^"]+)"/)[1];
+    const board = {
+      getAttribute: (name) => (name === "data-prerendered-board" ? mark : null),
+      removeAttribute: () => { mark = null; },
+      get outerHTML() {
+        return mark === null ? html.replace(/ data-prerendered-board="[^"]+"/, "") : html;
+      },
+    };
+    const root = { written: null, querySelector: (sel) => (sel === "[data-prerendered-board]" ? board : null), set innerHTML(v) { this.written = v; } };
+    return { root, board };
+  };
+  const doc = { createElement: () => ({ innerHTML: "" }) };
+  // another lens, ecosystem, search, page or page size: the page is left as it is, for the app to draw
+  for (const other of [{ persona: "first_timer" }, { ecosystem: "crates" }, { query: "org" }, { notRankedPage: 2 }, { notRankedPageSize: 50 }]) {
+    const { root, board } = pageWith(drawn);
+    assert.equal(nrView.adoptNotRankedBoard(root, { ...whole, ...other }, doc), false, JSON.stringify(other));
+    assert.equal(board.getAttribute("data-prerendered-board"), key);
+    assert.equal(root.written, null);
+  }
+  assert.equal(nrView.adoptNotRankedBoard(pageWith(drawn).root, reasonPageState("/not-ranked/stale/1/"), doc), false, "a list by reason");
+  const { root, board } = pageWith(drawn);
+  assert.equal(nrView.adoptNotRankedBoard(root, whole, doc), true);
+  assert.equal(board.getAttribute("data-prerendered-board"), null, "the mark is removed");
+  assert.equal(root.written, null, "nothing redrawn");
+  // the app's counts differ from the export's: drawn again from the app's data, the rows with it
+  const counts = { ...HOME_COUNTS, gated: HOME_COUNTS.gated + 1 };
+  const moved = { ...whole, leaderboard: { ...HOME_LEADERBOARD, counts } };
+  const again = pageWith(drawn);
+  assert.equal(nrView.adoptNotRankedBoard(again.root, moved, doc), true);
+  assert.equal(again.root.written, notRankedRenderShell(moved).replace('<div data-notranked-rows="true"></div>', `<div data-notranked-rows="true">${container.innerHTML}</div>`));
+  // app.js waits for the report on a list by reason only: the whole list never loads it
+  const appJs = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "app.js"), "utf8");
+  assert.match(appJs, /\(reasonListKey\(state\) && !state\.report && !state\.reportError\)/);
 });
 
 test("not-ranked lists: the prerender draws a list's page from its address: the view, the title and the description", () => {
@@ -5099,17 +5152,24 @@ test("not-ranked lists: the prerender draws a list's page from its address: the 
   const page = drawPage(frame, { path: "not-ranked/archived/2/index.html", view: "notranked", address }, data);
   const state = { ...nrPrerender.stateForAddress(address), ...data };
   assert.ok(page.includes('<main class="app-main" id="app-main" tabindex="-1" data-prerendered="notranked">'));
-  assert.ok(page.includes(nrView.renderPrerenderedReasonList(state)), "the view of its state");
+  assert.ok(page.includes(nrView.renderPrerenderedNotRanked(state)), "the view of its state");
   assert.equal(reasonItemsOf(page).length, 200);
   assert.equal(decodeAttr(page.match(/<title>([^<]*)<\/title>/)[1]), "Not ranked: archived (page 2 of 4) | Porchlamp");
   assert.equal(decodeAttr(page.match(/<meta name="description" content="([^"]*)">/)[1]), "Archived on GitHub — no active development to evaluate. 624 projects, A to Z, 200 a page.");
   assert.equal((page.match(/<title>/g) || []).length, 1);
   assert.equal(chromeFor({ path: "not-ranked/archived/2/index.html", view: "notranked", address }, SNAPSHOT_DOC).header, renderAppHeader("notranked", SNAPSHOT_DOC, state));
-  // the whole list's page is not drawn here, as before
+  // the whole list's page: the view of its state, with the "Lists by reason" line as plain links to each list's first
+  // page; the title its route gives, and the description the export wrote (the whole list has none of its own)
   const whole = drawPage(frame, { path: "not-ranked/index.html", view: "notranked", address: "/not-ranked/" }, data);
-  assert.ok(!whole.includes("data-prerendered="), "/not-ranked/ has no prerendered view");
-  assert.ok(whole.includes("<title>Page not found | Porchlamp</title>"), "and keeps the head the export wrote");
-  assert.throws(() => nrPrerender.stateForAddress("/not-ranked/"), /not the address of a list/);
+  const wholeState = { ...nrPrerender.stateForAddress("/not-ranked/"), ...data };
+  assert.ok(whole.includes('<main class="app-main" id="app-main" tabindex="-1" data-prerendered="notranked">'));
+  assert.ok(whole.includes(nrView.renderPrerenderedNotRanked(wholeState)), "the view of its state");
+  const firstPages = REASON_LIST_SLUGS.filter(([, reason]) => REASON_COUNTS[reason] > 0).map(([slug]) => `/not-ranked/${slug}/1/`);
+  for (const href of firstPages) assert.ok(whole.includes(`<a href="${href}" class="onboarding-link">`), href);
+  assert.equal(decodeAttr(whole.match(/<title>([^<]*)<\/title>/)[1]), "Not ranked: the gated and unrated projects, with their reasons | Porchlamp");
+  assert.equal(whole.match(/<meta name="description" content="([^"]*)">/)[1], frame.match(/<meta name="description" content="([^"]*)">/)[1]);
+  assert.equal(chromeFor({ path: "not-ranked/index.html", view: "notranked", address: "/not-ranked/" }, SNAPSHOT_DOC).header, renderAppHeader("notranked", SNAPSHOT_DOC, null), "the header as on any not-ranked page");
+  assert.throws(() => nrPrerender.stateForAddress("/projects/acme/tool/"), /not the address of a list/);
   // a list with an ecosystem draws the Not ranked tab with the ecosystem's count from the same list
   const rust = drawPage(frame, { path: "rust/index.html", view: "ranked", address: "/rust/" }, { ...data, methodology: METHODOLOGY_DOC, leaderboard: listBoard(LIST_ROWS) });
   const rustRows = [...NR_LIST.gated, ...NR_LIST.unrated].filter((row) => row.ecosystem === "crates").length;
@@ -5161,7 +5221,7 @@ test("not-ranked: the insufficient-evidence reason names the methodology's cover
   const page = drawPage(frame, { path: "not-ranked/insufficient-evidence/1/index.html", view: "notranked", address: "/not-ranked/insufficient-evidence/1/" }, data);
   says(page);
   const appState = reasonPageState("/not-ranked/insufficient-evidence/1/", { methodology: planted });
-  const board = nrView.renderPrerenderedReasonList(appState);
+  const board = nrView.renderPrerenderedNotRanked(appState);
   assert.ok(page.includes(board), "the prerendered board of the app's state");
   assert.equal(board.replace(/ data-prerendered-board="[^"]+"/, ""), notRankedRenderShell(appState), "the app's text, byte for byte");
   // app.js loads it for the not-ranked view and a project's panel, and the takeover waits for it

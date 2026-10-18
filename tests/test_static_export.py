@@ -198,9 +198,10 @@ def test_the_export_writes_the_app_s_page_at_every_view_s_address_and_404_html(s
     assert _undraw((out / "404.html").read_text(encoding="utf-8")) == shell
     for route in views[1:]:
         page = (out / route["path"].strip("/") / "index.html").read_text(encoding="utf-8")
-        # the view's own page, with the chrome drawn; the methodology view also has its own text drawn into <main>
-        prerendered = 'data-prerendered="methodology"' in page
-        assert prerendered == (route["id"] == "methodology"), route["id"]
+        # the view's own page, with the chrome drawn; the whole not-ranked list and the methodology view also have their
+        # view drawn into <main>
+        prerendered = f'data-prerendered="{route["id"]}"' in page
+        assert prerendered == (route["id"] in ("notranked", "methodology")), route["id"]
         undrawn = _undraw(page, main=frame_main if prerendered else None)
         assert undrawn == export_static.view_page(route), route["id"]
         page = undrawn
