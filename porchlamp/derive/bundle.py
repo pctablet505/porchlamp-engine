@@ -1148,6 +1148,9 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
                 detail = f"v1 value {value!r} for {v1_field!r} has no v2 vocabulary mapping"
             return Unmeasured(reason="collector_failure", detail=detail)
         if confidence_value == "missing":
+            # #51 rule 5: the deriver withholds every rung but VERIFIED on a cut pr_window record; say why.
+            if v1_field == "promotion_ladder" and _pr_window_cut_short(_pr_window_envelope(ctx)[1]):
+                return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
             return Unmeasured(reason="collector_failure", detail="v1 deriver recorded no value")
         return Unmeasured(reason="collector_failure",
                            detail=f"v1 confidence {confidence_value!r} for {v1_field!r} is not recognized")
