@@ -149,6 +149,15 @@ def test_merge_pr_window_delta_cap() -> None:
     assert [p["number"] for p in merged] == [1, 2, 3]
 
 
+def test_merge_pr_window_delta_default_uncapped() -> None:
+    prs = [
+        {"number": i, "createdAt": (NOW - timedelta(hours=i)).isoformat()}
+        for i in range(1, 650)
+    ]
+    merged = merge_pr_window_delta(prs, [], now=NOW)
+    assert len(merged) == 649
+
+
 # --- Commits, Releases & Runs Delta Ledgers (W6-4) ---
 
 

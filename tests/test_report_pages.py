@@ -920,6 +920,56 @@ def test_the_other_unmeasured_wordings_name_the_project_and_use_each_parameters_
         answer(LLAMA, both, {})
 
 
+def test_a_value_whose_pr_record_does_not_cover_the_window_says_so_and_names_no_count():
+    """RFC-0013: a reply value refused because the collector does not hold the project's whole PR record for the
+    window (``collector_failure``) is worded as such, beside each state of the other value; it has no count to name."""
+    answer = project_pages.answer_reply
+    gone = {"n": None, "unmeasured_reason": "collector_failure"}
+    reason = "we do not hold a complete record of its pull requests for the window"
+    assert answer(LLAMA, _evidence(gone, gone), MIN_N) == project_pages.Reply(
+        f"For ggml-org/llama.cpp, the reply time and the share with no reply within 14 days are not measured: {reason}.",
+        "",
+        "The reply time and the share with no reply within 14 days are not measured.",
+    )
+    assert answer(LLAMA, _evidence({"value": 6.0, "n": 12, **WINDOW}, gone), MIN_N) == project_pages.Reply(
+        "Outside pull requests to ggml-org/llama.cpp got a first human reply in a median of 6 hours (12 pull requests, "
+        "10 April to 7 October 2026).",
+        f"The share with no reply within 14 days is not measured: {reason}.",
+        "Outside pull requests got a first human reply in a median of 6 hours.",
+    )
+    assert answer(LLAMA, _evidence(gone, {"value": 0.575, "n": 40, **WINDOW}), MIN_N) == project_pages.Reply(
+        f"For ggml-org/llama.cpp, the reply time is not measured: {reason}.",
+        "58% of 40 outside pull requests got no reply within 14 days (10 April to 7 October 2026).",
+        "The reply time is not measured.",
+    )
+    assert answer(LLAMA, _evidence(gone, {"n": 3, "unmeasured_reason": "insufficient_n"}), MIN_N).rest == (
+        "The share with no reply within 14 days has too small a sample to measure (3 pull requests counted; 10 needed).")
+    small_then_gone = answer(LLAMA, _evidence({"n": 4, "unmeasured_reason": "insufficient_n"}, gone), MIN_N)
+    assert small_then_gone == project_pages.Reply(
+        "For ggml-org/llama.cpp, the reply time has too small a sample to measure (4 pull requests counted; 10 needed).",
+        f"The share with no reply within 14 days is not measured: {reason}.",
+        "The reply time has too small a sample to measure.",
+    )
+
+
+def test_the_verifier_words_every_reply_state_as_the_page_does():
+    """The verifier works out the reply answer on its own: for every pair of states (measured, a too-small sample, an
+    incomplete PR record), its three sentences are the page's."""
+    states = {
+        "measured": {"value": 6.0, "n": 12, **WINDOW},
+        "small": {"n": 4, "unmeasured_reason": "insufficient_n"},
+        "incomplete": {"n": None, "unmeasured_reason": "collector_failure"},
+    }
+    for reply_state, reply in states.items():
+        for ghost_state, ghost in states.items():
+            if ghost_state == "measured":
+                ghost = {**ghost, "value": 0.1}
+            evidence = _evidence(reply, ghost)
+            page = project_pages.answer_reply(LLAMA, evidence, MIN_N)
+            assert verify_static_export._expected_reply(LLAMA, evidence, MIN_N) == (page.first, page.rest, page.short), (
+                reply_state, ghost_state)
+
+
 @pytest.mark.parametrize("rank, total, band", [
     # the ends: rank 1 and rank = total
     (1, 2132, "the top 1%"), (2132, 2132, "the bottom 1%"), (3, 4322, "the top 1%"),
@@ -1258,10 +1308,10 @@ def test_the_lens_reasons_and_the_tier_label_are_read_from_copy_js():
 def test_a_reason_the_answer_has_no_wording_for_stops_the_export_instead_of_guessing(built):
     base = {"owner": "o", "name": "n"}
     evidence = [
-        {"param_id": "ttfhr_hours", "unmeasured_reason": "collector_failure", "value": None, "n": 0, "window_start": None, "window_end": None},
+        {"param_id": "ttfhr_hours", "unmeasured_reason": "third_party_gap", "value": None, "n": 0, "window_start": None, "window_end": None},
         {"param_id": "gr14_ghost_rate", "unmeasured_reason": None, "value": 0.1, "n": 20, "window_start": "2026-04-10", "window_end": "2026-10-07"},
     ]
-    with pytest.raises(report_pages.ReportError, match="collector_failure"):
+    with pytest.raises(report_pages.ReportError, match="third_party_gap"):
         project_pages.answer_reply(base, evidence, MIN_N)
     evidence[0].update(unmeasured_reason=None, value=3.0, n=30, window_start=None)
     with pytest.raises(report_pages.ReportError, match="no window"):
@@ -1397,14 +1447,53 @@ def test_projects_whose_pr_record_is_cut_get_their_own_measurement_bullet(built)
         report_pages.build_facts(**inputs)
 
 
+def test_projects_whose_pr_window_is_sampled_get_their_own_measurement_bullet(built):
+    """RFC-0013: the stats file's pr_window_sampled is printed before the black-hole definition, with the one cap and
+    sample size the sampled records name; each number is a slot. None gives no bullet; a stats file without the
+    count, or whose sampled records name no single pair, is refused."""
+    inputs = _inputs(built)
+
+    def bullets(sampled, pairs):
+        inputs["stats"].update(gate5_undecided_rule_inputs=0, gate5_undecided_cut_record=0,
+                               gate5_undecided_cut_record_caps=[], pr_window_sampled=sampled,
+                               pr_window_sampled_caps=pairs)
+        record = report_pages.report_json(report_pages.build_facts(**inputs))
+        return record, [_fill(t, record["values"]) for t in record["sentences"]["method"]]
+
+    record, method = bullets(299, [[2000, 1000]])
+    assert len(method) == 4 and method[2] == (
+        "299 projects had more than 2,000 pull requests in that time. For each, we read replies and reviews on an "
+        "even random sample of 1,000 of them; every pull request counts for decisions and merges."
+    )
+    assert method[3].startswith("It is a black hole when")
+    assert (record["values"]["sampled"], record["values"]["full_max"], record["values"]["sample_size"]) == (
+        "299", "2,000", "1,000")
+    assert all(f"{{{slot}}}" in record["sentences"]["method"][2] for slot in ("sampled", "full_max", "sample_size"))
+    _record, one = bullets(1, [[2000, 1000]])
+    assert one[2].startswith("1 project had more than 2,000 pull requests")
+    record, none = bullets(0, [])
+    assert len(none) == 3 and not any("random sample" in bullet for bullet in none)
+    assert not {"sampled", "full_max", "sample_size"} & set(record["values"])
+    for pairs in ([], [[2000, 1000], [5000, 1000]], [[2000]], [[2000, None]], None):
+        with pytest.raises(report_pages.ReportError, match="pr_window_sampled_caps"):
+            bullets(7, pairs)
+    del inputs["stats"]["pr_window_sampled"]
+    with pytest.raises(report_pages.ReportError, match="pr_window_sampled"):
+        report_pages.build_facts(**inputs)
+
+
 def test_the_verifier_words_the_cut_record_bullet_as_the_report_does(built):
     """The verifier works out the cut-record bullet on its own (its hooks and its sentence, from the stats file's count
     and cap): for the same numbers, its values are report.json's and its method sentences the filled templates, with
     the bullet and without it."""
     inputs = _inputs(built)
-    for rule_inputs, cut, caps in ((1234, 868, [500]), (0, 2001, [300]), (0, 0, [])):
+    for rule_inputs, cut, caps, sampled, pairs in (
+        (1234, 868, [500], 0, []), (0, 2001, [300], 0, []), (0, 0, [], 0, []), (0, 0, [], 299, [[2000, 1000]]),
+        (0, 0, [], 1, [[2000, 1000]]),
+    ):
         inputs["stats"].update(
-            gate5_undecided_rule_inputs=rule_inputs, gate5_undecided_cut_record=cut, gate5_undecided_cut_record_caps=caps
+            gate5_undecided_rule_inputs=rule_inputs, gate5_undecided_cut_record=cut, gate5_undecided_cut_record_caps=caps,
+            pr_window_sampled=sampled, pr_window_sampled_caps=pairs,
         )
         f = report_pages.build_facts(**inputs)
         record = report_pages.report_json(f)
@@ -1421,9 +1510,11 @@ def test_the_verifier_words_the_cut_record_bullet_as_the_report_does(built):
             constants_hash=f.constants_hash, db_sha="0" * 64,
             undecided_cut=inputs["stats"]["gate5_undecided_cut_record"],
             pr_cap=(inputs["stats"]["gate5_undecided_cut_record_caps"] or [None])[0],
+            sampled=sampled, full_max=(pairs or [[None, None]])[0][0], sample_size=(pairs or [[None, None]])[0][1],
         )
         values = {k: v for k, v in hooks.items() if "." not in k and k != "source_db_sha256"}
         assert values == record["values"], (cut, caps)
         method = verify_static_export._report_sentences(hooks, dict(report_pages.ECOSYSTEM_NAMES))["method"]
         assert method == [_fill(t, record["values"]) for t in record["sentences"]["method"]], (cut, caps)
         assert any("could not judge" in sentence for sentence in method) == bool(cut)
+        assert any("random sample" in sentence for sentence in method) == bool(sampled)

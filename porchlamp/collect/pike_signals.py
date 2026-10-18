@@ -79,7 +79,7 @@ import json
 from porchlamp.collect import commits as commit_domains
 from porchlamp.collect import ghcli, validate
 from porchlamp.collect.envelope import raw_envelope_path, relative_envelope_path, write_envelope
-from porchlamp.collect.github_graphql import is_bot_actor
+from porchlamp.collect.github_graphql import is_bot_actor, pr_window_cut_short, reply_sampled_prs
 from porchlamp.core import constants
 from porchlamp.models import OpenSSFSignals
 
@@ -742,10 +742,13 @@ def has_non_author_approval(pr: Mapping[str, Any]) -> bool:
 def code_review_rate(prs: Sequence[Mapping[str, Any]]) -> float:
     """02 §4 4.1 proxy component: merged PRs with a non-author approval.
 
-    The denominator is every merged PR in the recorded window; a recorded
-    window with no merged PRs is a measured 0.0 (repo-controlled absence).
+    The denominator is every merged PR in the recorded window (or in the
+    1,000-PR reply sample when ``prs`` is a >2,000-PR light+sample window);
+    a recorded window with no merged PRs is a measured 0.0 (repo-controlled
+    absence).
     """
-    merged = [pr for pr in prs if pr.get("mergedAt") is not None]
+    sampled = reply_sampled_prs(prs)
+    merged = [pr for pr in sampled if pr.get("mergedAt") is not None]
     if not merged:
         return 0.0
     approved = sum(1 for pr in merged if has_non_author_approval(pr))
@@ -886,7 +889,9 @@ def derive_w17_fields(
                 out["openssf_signals_partial"] = (signals, sources, at, "derived")
                 out["openssf_signals_partial_missing"] = (sorted(missing), None, at, "derived")
 
-    prs = prw.get("prs") if isinstance(prw, Mapping) else None
+    # #51 rule 5: the review/CI proxy is not computed on a record cut short of its window.
+    prw_cut = isinstance(prw, Mapping) and pr_window_cut_short(prw)
+    prs = (prw.get("prs") if not prw_cut else None) if isinstance(prw, Mapping) else None
     runs = rns.get("runs") if isinstance(rns, Mapping) else None
     value, method = pipeline_defenses(
         sc if isinstance(sc, Mapping) else None, prs, runs)
@@ -900,4 +905,12 @@ def derive_w17_fields(
         at = max(ats) if ats else None
         out["pipeline_defenses"] = (value, sources, at, "derived")
         out["pipeline_defenses_method"] = (method, sources, at, "derived")
+    elif prw_cut and runs is not None:
+        out["pipeline_defenses"] = (None, None, None, "collector_failure")
+        out["pipeline_defenses_detail"] = (
+            "pr_window envelope is truncated before reaching the 180d window start",
+            None,
+            None,
+            "derived",
+        )
     return out

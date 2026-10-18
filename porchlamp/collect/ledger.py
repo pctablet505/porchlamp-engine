@@ -75,13 +75,13 @@ def merge_pr_window_delta(
     *,
     now: datetime,
     window_days: int = 180,
-    cap: int = 500,
+    cap: Optional[int] = None,
 ) -> list[dict[str, Any]]:
-    """Merge delta PRs into existing PR window, evicting stale and capping (W6-3).
+    """Merge delta PRs into existing PR window, evicting stale and optionally capping (W6-3).
 
     - Deduplicates PR nodes by integer `number` (`delta_prs` overwrite `existing_prs`).
     - Evicts PRs whose `createdAt` is older than `now - timedelta(days=window_days)`.
-    - Sorts newest-first by `(createdAt, number)` and caps at `cap` (default 500).
+    - Sorts newest-first by `(createdAt, number)` and caps at `cap` when set.
     """
     now_utc = _ensure_utc(now)
     cutoff = now_utc - timedelta(days=window_days)
@@ -113,7 +113,7 @@ def merge_pr_window_delta(
         return (c, num)
 
     survivors.sort(key=sort_key, reverse=True)
-    return survivors[:cap]
+    return survivors[:cap] if cap is not None else survivors
 
 
 def unsettled_pr_numbers(

@@ -237,16 +237,24 @@ def _param(evidence: Sequence[Mapping[str, Any]], param_id: str) -> Mapping[str,
     raise ReportError(f"the record has no evidence row for {param_id}")
 
 
-def _measured(row: Mapping[str, Any], who: str) -> bool:
-    """The drawer shows a value only when no unmeasured reason is set. Only a too-small sample is worded here."""
+def _state(row: Mapping[str, Any], who: str) -> str:
+    """``"measured"``, ``"small"`` (a too-small sample) or ``"incomplete"`` (the collector does not hold the project's
+    whole PR record for the window, RFC-0013): the drawer shows a value only when no unmeasured reason is set, and
+    only these two reasons are worded here."""
     reason = row["unmeasured_reason"]
     if reason is None:
         if row["value"] is None or not isinstance(row["n"], int):
             raise ReportError(f"{who}: {row['param_id']} is measured but has no value or count")
-        return True
-    if reason != "insufficient_n":
-        raise ReportError(f"{who}: {row['param_id']} is unmeasured for {reason!r}; the answer sentence needs wording for it")
-    return False
+        return "measured"
+    if reason == "insufficient_n":
+        return "small"
+    if reason == "collector_failure":
+        return "incomplete"
+    raise ReportError(f"{who}: {row['param_id']} is unmeasured for {reason!r}; the answer sentence needs wording for it")
+
+
+#: RFC-0013: why a reply value is not measured when the PR record does not cover the window.
+_INCOMPLETE_RECORD = "we do not hold a complete record of its pull requests for the window"
 
 
 def _window(row: Mapping[str, Any], who: str) -> str:
@@ -279,38 +287,55 @@ class Reply:
 
 def answer_reply(detail: Mapping[str, Any], evidence: Sequence[Mapping[str, Any]], min_n: Mapping[str, Any]) -> Reply:
     """The median first human reply and the 14-day no-reply share, or, for a value with too small a sample, the counts
-    and the minimum the methodology asks for (each parameter has its own sample, so the two counts can differ)."""
+    and the minimum the methodology asks for (each parameter has its own sample, so the two counts can differ), or,
+    for a value the collector could not measure because the PR record does not cover the window, that reason."""
     who = f"{detail['owner']}/{detail['name']}"
     ttfhr, ghost = _param(evidence, "ttfhr_hours"), _param(evidence, "gr14_ghost_rate")
-    have_reply, have_ghost = _measured(ttfhr, who), _measured(ghost, who)
+    reply_state, ghost_state = _state(ttfhr, who), _state(ghost, who)
     min_reply, min_ghost = _min_n(min_n, "ttfhr_hours"), _min_n(min_n, "gr14_ghost_rate")
-    if have_reply:
+
+    def ghost_unmeasured() -> str:  # a count is read only for a too-small sample: an incomplete record has none
+        if ghost_state == "small":
+            return ("The share with no reply within 14 days has too small a sample to measure "
+                    f"({_pull_requests(ghost['n'])} counted; {min_ghost} needed).")
+        return f"The share with no reply within 14 days is not measured: {_INCOMPLETE_RECORD}."
+
+    if reply_state == "measured":
         median = f"got a first human reply in a median of {reply_time_text(ttfhr['value'])}"
         bracket = f" ({_pull_requests(ttfhr['n'])}, {_window(ttfhr, who)})"
-        if have_ghost:
+        if ghost_state == "measured":
             tail = f"; {percent_text(ghost['value'])} got none within 14 days."
             return Reply(f"Outside pull requests to {who} {median}{bracket}{tail}", "", f"Outside pull requests {median}{tail}")
         return Reply(
             f"Outside pull requests to {who} {median}{bracket}.",
-            "The share with no reply within 14 days has too small a sample to measure "
-            f"({_pull_requests(ghost['n'])} counted; {min_ghost} needed).",
+            ghost_unmeasured(),
             f"Outside pull requests {median}.",
         )
-    if have_ghost:
-        noun = "pull request" if ghost["n"] == 1 else "pull requests"
+    if reply_state == ghost_state == "small":
+        needed = f"{min_reply} needed" if min_reply == min_ghost else f"{min_reply} and {min_ghost} needed"
+        both = "the reply time and the share with no reply within 14 days both have too small a sample to measure"
         return Reply(
-            f"For {who}, the reply time has too small a sample to measure ({_pull_requests(ttfhr['n'])} counted; {min_reply} needed).",
-            f"{percent_text(ghost['value'])} of {fmt_int(ghost['n'])} outside {noun} got no reply within 14 days "
-            f"({_window(ghost, who)}).",
-            "The reply time has too small a sample to measure.",
+            f"For {who}, {both} ({fmt_int(ttfhr['n'])} and {_pull_requests(ghost['n'])} counted; {needed}).",
+            "",
+            f"{both[:1].upper()}{both[1:]}.",
         )
-    needed = f"{min_reply} needed" if min_reply == min_ghost else f"{min_reply} and {min_ghost} needed"
-    both = "the reply time and the share with no reply within 14 days both have too small a sample to measure"
-    return Reply(
-        f"For {who}, {both} ({fmt_int(ttfhr['n'])} and {_pull_requests(ghost['n'])} counted; {needed}).",
-        "",
-        f"{both[:1].upper()}{both[1:]}.",
-    )
+    if reply_state == ghost_state == "incomplete":
+        both = "the reply time and the share with no reply within 14 days are not measured"
+        return Reply(f"For {who}, {both}: {_INCOMPLETE_RECORD}.", "", f"{both[:1].upper()}{both[1:]}.")
+    if reply_state == "small":
+        first = (f"For {who}, the reply time has too small a sample to measure ({_pull_requests(ttfhr['n'])} counted; "
+                 f"{min_reply} needed).")
+        short = "The reply time has too small a sample to measure."
+    else:
+        first = f"For {who}, the reply time is not measured: {_INCOMPLETE_RECORD}."
+        short = "The reply time is not measured."
+    if ghost_state == "measured":
+        noun = "pull request" if ghost["n"] == 1 else "pull requests"
+        rest = (f"{percent_text(ghost['value'])} of {fmt_int(ghost['n'])} outside {noun} got no reply within 14 days "
+                f"({_window(ghost, who)}).")
+    else:
+        rest = ghost_unmeasured()
+    return Reply(first, rest, short)
 
 
 def rank_sentence(overall: Standing) -> str:

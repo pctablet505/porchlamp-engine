@@ -871,6 +871,11 @@ def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
         if str(pr.get("authorAssociation") or "NONE") in pr_window.EXTERNAL_ASSOCIATIONS)
     evidence["external_merges"] = external_merges
     evidence["merged_author_orgs"] = None
+    # #51 rule 5: CLOSED rests on the absence of external merges, which a
+    # record cut short of its window cannot show.
+    prw_cut = pr_window.pr_window_cut_short(prw)
+    if prw_cut:
+        evidence["pr_window_cut_short"] = True
     orgs_by_login = _orgs_by_login(c365) if c365 is not None else {}
     if merged and external_merges == 0 and orgs_by_login:
         author_orgs: list[str] = []
@@ -883,7 +888,7 @@ def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
             author_orgs.append(org)
         if author_orgs:
             evidence["merged_author_orgs"] = sorted(set(author_orgs))
-            if len(set(author_orgs)) == 1:
+            if len(set(author_orgs)) == 1 and not prw_cut:
                 return "CLOSED", {**evidence, "rule": "closed_single_org"}
     match = _nomination_match(files or {})
     evidence["document_match"] = match
@@ -948,7 +953,10 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
       pr_window envelope and the governance-file envelope are absent --
       VERIFIED/CLOSED both need ``prs`` from pr_window, DOCUMENTED needs
       only the governance files, so either source alone still lets
-      :func:`classify_promotion_ladder` derive a real rung.
+      :func:`classify_promotion_ladder` derive a real rung. #51: also
+      ``"missing"`` for any rung but VERIFIED when the pr_window record
+      stopped short of its window
+      (:func:`porchlamp.core.gates.pr_window_cut_short`).
     * ``ai_posture``: ``"missing"`` when the governance-file envelope is
       absent -- it is the only source of file bodies.
 
@@ -995,6 +1003,17 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
     else:
         ladder, ladder_ev = classify_promotion_ladder(prw, files, c365)
         ladder_conf = "derived"
+        # #51 rule 5: on a pr_window record cut short of its window only an
+        # observed promotion stands. Every other rung rests on an absence the
+        # unrecorded part could refute (a promotion outranks DOCUMENTED and
+        # AD_HOC; an external merge refutes CLOSED), and with CLOSED withheld a
+        # closed repo would otherwise buy DOCUMENTED with a nomination file.
+        if ladder != "VERIFIED" and pr_window.pr_window_cut_short(prw):
+            ladder_ev = {
+                **ladder_ev,
+                "reason": "pr_window truncated before reaching 180d window start",
+            }
+            ladder_conf = "missing"
 
     if gov is None:
         posture, posture_ev, posture_conf = (

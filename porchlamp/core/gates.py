@@ -533,6 +533,78 @@ def pr_window_coverage(
     return False, record_start.isoformat()
 
 
+#: #51: the key a ``pr_window`` envelope sets to ``False`` on a PR node whose
+#: replies (``reviews``, ``comments``, ``reviewThreads``) it did not record.
+#: Only a window with more than ``PR_CAP`` PRs has such nodes: its replies are
+#: recorded on an equal-probability sample of the window's PRs
+#: (:func:`reply_sampled_prs`). Snake case, so it cannot be mistaken for a
+#: GraphQL field.
+REPLIES_RECORDED_KEY = "replies_recorded"
+
+
+def reply_sampled_prs(prs: Iterable[object]) -> list[Mapping[str, Any]]:
+    """#51: the PR nodes whose replies a ``pr_window`` record holds, in order.
+
+    Every node except those marked ``REPLIES_RECORDED_KEY: False``: in a window
+    of at most ``PR_CAP`` PRs that is every node, and in a larger one it is the
+    seeded sample. The reply measures (D-IN-2 responses: 1.1 TTFHR, 1.4 GR_14
+    and D-GATE-5, 4.3 and the 4.1 review proxy, the D-GATE-6 hand-off notices,
+    ``closed_unread``) read these nodes only; the sample has equal inclusion
+    probabilities, so they need no weights. PR-level measures read every node.
+    """
+    return [pr for pr in prs if isinstance(pr, Mapping) and pr.get(REPLIES_RECORDED_KEY) is not False]
+
+
+def record_cut_short(data: Mapping[str, Any] | None, required_days: int) -> bool:
+    """#51 rule 5: whether a windowed PR record (``pr_window`` or
+    ``author_history`` envelope ``data``) says it stopped at a PR cap before
+    reaching ``window_anchor`` minus ``required_days``.
+
+    Only a record that says so (``truncated`` true) is cut: its coverage is
+    judged by :func:`pr_window_coverage` against that start, so a reader and
+    D-GATE-5 share one definition. A truncated record with no readable
+    ``window_anchor`` cannot show what it covers and counts as cut. A record
+    that is not truncated, or holds no ``data``, is not cut.
+    """
+    if not isinstance(data, Mapping) or data.get("truncated") is not True:
+        return False
+    anchor_raw = data.get("window_anchor")
+    try:
+        anchor = _parse_iso(anchor_raw) if isinstance(anchor_raw, str) else None
+    except ValueError:
+        anchor = None
+    if anchor is None:
+        return True
+    covered, _cutoff = pr_window_coverage(data, anchor - timedelta(days=required_days))
+    return not covered
+
+
+def pr_window_cut_short(data: Mapping[str, Any] | None, window_start: datetime | None = None) -> bool:
+    """#51 rule 5: whether a ``pr_window`` record stopped short of the window a
+    measure reads, so the measure refuses it ("not measured") rather than be
+    computed on the newest weeks alone.
+
+    ``window_start`` is that window's start. ``None`` means the record's own
+    window (``window_days``, default ``PR_WINDOW_DAYS``, before
+    ``window_anchor``: :func:`record_cut_short`), the window of every measure
+    over the record's PRs. GR_14 passes the start of the window it is computed
+    over (derive's reference time minus ``PR_WINDOW_DAYS``): a truncated record
+    that still reaches back past it holds every PR GR_14 counts. Only a
+    truncated record is ever cut, judged by :func:`pr_window_coverage`.
+    """
+    if window_start is not None:
+        if not isinstance(data, Mapping) or data.get("truncated") is not True:
+            return False
+        if window_start.tzinfo is None:
+            window_start = window_start.replace(tzinfo=timezone.utc)
+        covered, _cutoff = pr_window_coverage(data, window_start)
+        return not covered
+    days = data.get("window_days") if isinstance(data, Mapping) else None
+    if isinstance(days, bool) or not isinstance(days, int) or days <= 0:
+        days = constants.PR_WINDOW_DAYS
+    return record_cut_short(data, days)
+
+
 @dataclass(frozen=True)
 class GhostRatePR:
     """One PR as the D-GATE-5 / 1.4 GR_14 measurement sees it.
