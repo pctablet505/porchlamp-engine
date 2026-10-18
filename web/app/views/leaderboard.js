@@ -40,7 +40,16 @@ import {
 } from "../components/table.js";
 import { patchRows } from "../components/patch.js";
 import { fill, hook } from "../components/fill.js";
-import { PAGE_SIZES, TITLE_SITE_SUFFIX, hrefFor, listSpan, listTitleSlots, requestSignature, routeForState } from "../state.js";
+import {
+  PAGE_SIZES,
+  TITLE_SITE_SUFFIX,
+  hrefFor,
+  listSpan,
+  listTitleSlots,
+  notRankedTabCount,
+  requestSignature,
+  routeForState,
+} from "../state.js";
 import { routeById, routePath, routeTitle } from "../routes.js";
 import { parseRepoSlug } from "../livecheck.js";
 import { percentWhole } from "./project.js";
@@ -196,8 +205,10 @@ export function renderCountsStrip(counts, delta) {
 /**
  * The Leaderboard's Ranked and Not ranked lists: two real links to their addresses, `aria-current` on the one
  * shown. `hrefs` carries the addresses for the reader's state (`tabHrefs`); without it, each list's plain path.
+ * `notRankedCount` is the Not ranked list's size for the reader's state (state.js `notRankedTabCount`): null draws
+ * no number, never another list's; left out, the whole balanced count (`counts.gated + counts.unrated`).
  */
-export function renderTabs(activeTab, counts, visibleCount, notRankedCount = null, hrefs = null) {
+export function renderTabs(activeTab, counts, visibleCount, notRankedCount = undefined, hrefs = null) {
   // The Ranked count must be what the table under it actually pages, which
   // under a lens or active filter is NOT counts.rated — see personaVisibleCount.
   const rated = counts
@@ -210,7 +221,7 @@ export function renderTabs(activeTab, counts, visibleCount, notRankedCount = nul
   const notRanked =
     typeof notRankedCount === "number"
       ? notRankedCount
-      : counts
+      : notRankedCount === undefined && counts
         ? counts.gated + counts.unrated
         : "";
   const href = (tab) => escapeHtml((hrefs && hrefs[tab]) || routePath(tab));
@@ -691,7 +702,7 @@ function shellHeader(state) {
     renderOnboardingBanner() +
     renderFindingsLine(state.report) +
     (atHome ? renderBrowseLinks(counts ? counts.rated : null) : "") +
-    renderTabs(state.tab, counts, personaVisibleForState(state), null, tabHrefs(state)) +
+    renderTabs(state.tab, counts, personaVisibleForState(state), notRankedTabCount(state), tabHrefs(state)) +
     renderCountsStrip(counts, personaDeltaForState(state))
   );
 }

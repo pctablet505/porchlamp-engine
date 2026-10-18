@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -81,13 +82,23 @@ def report_paths(site: Path) -> list[Path]:
     return [site / "black-holes" / "index.html", site / "black-holes" / SNAPSHOT / "index.html"]
 
 
+#: A project's ``owner/name``, as a row carries it: an identifier, like an address, so not the page's words (a project
+#: called ``hole-npm-3`` names no registry). Tables print it as two spans, which the text joins with a space.
+_PROJECT = re.compile(r'data-owner="([^"]*)" data-name="([^"]*)"')
+
+
 def pages_naming_a_registry(paths: list[Path], site: Path) -> dict[str, list[str]]:
-    """``{page: [registry names]}`` for the pages whose visible text names one."""
+    """``{page: [registry names]}`` for the pages whose visible text names one, project names left out."""
     assert paths, "no page to scan"
     found = {}
     for path in paths:
         assert path.is_file(), f"{path.relative_to(site)} is missing from the export"
-        hits = registry_hits(visible_text(path.read_text(encoding="utf-8")))
+        page = path.read_text(encoding="utf-8")
+        words = visible_text(page)
+        for owner, name in set(_PROJECT.findall(page)):
+            for shown in (f"{unescape(owner)}/{unescape(name)}", f"{unescape(owner)}/ {unescape(name)}"):
+                words = words.replace(shown, " ")
+        hits = registry_hits(words)
         if hits:
             found[path.relative_to(site).as_posix()] = hits
     return found

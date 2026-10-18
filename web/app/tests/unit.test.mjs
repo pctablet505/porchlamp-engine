@@ -2717,7 +2717,7 @@ function clickOn(onLink, init = {}) {
 
 test("E3: a ranked row and a card render the repository name as a real link to the lower-case project page", () => {
   const repo = rowCells(E3_ROW, {}).cells.find((cell) => cell.key === "repository").html;
-  assert.match(repo, /^<a class="repo-link"[^>]* href="\/projects\/freecad\/freecad\/">/, "the cell starts with a real link");
+  assert.match(repo, /^<span class="repo-line"><span class="repo-line-name"><a class="repo-link"[^>]* href="\/projects\/freecad\/freecad\/">/, "the cell's name line starts with a real link");
   assert.ok(repo.includes('<span class="repo-owner">FreeCAD/</span><span class="repo-name">FreeCAD</span></a>'), "the real spelling is shown");
   assert.ok(repo.includes('<span class="eco-chip">C and C++</span>'), "the ecosystem chip is still there, outside the link");
   assert.ok(renderCard(E3_ROW, {}).includes('href="/projects/freecad/freecad/"'), "the card links too");
@@ -2996,6 +2996,12 @@ const EXPECTED_LIST_ROUTES = {
   "fastest-replies": ["/fastest-replies/", []],
   ...Object.fromEntries(LIST_ECOSYSTEM_SLUGS.map((slug) => [`${slug}-fastest-replies`, [`/${slug}/fastest-replies/`, []]])),
 };
+//: The not-ranked projects by reason, one list each (list-views build contract, PR 2, B): slug and the bare reason it fixes.
+const REASON_LIST_SLUGS = [
+  ["stale", "stale"], ["not-software", "non_software"], ["archived", "archived"], ["unlicensed", "unlicensed"],
+  ["unanswered", "black_hole"], ["fork", "fork"], ["mirror", "mirror"], ["insufficient-evidence", "insufficient_evidence"],
+  ["no-contribution-workflow", "no_external_workflow"], ["off-platform", "off_platform_routed"],
+];
 //: For each query field: the state field it fills, a value that is not the default as it stands in an address,
 //: and that value as state.
 const FIELD_SAMPLES = {
@@ -3020,9 +3026,16 @@ test("routes: the table holds every view at its address, with the query fields i
   const views = ROUTES.filter((route) => !route.view);
   assert.deepEqual(Object.fromEntries(views.map((route) => [route.id, [route.path, [...route.query]]])), EXPECTED_ROUTES);
   assert.deepEqual(views.filter((route) => route.shell).map((route) => route.id), ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "report"]);
-  const lists = ROUTES.filter((route) => route.view);
+  const lists = ROUTES.filter((route) => route.view === "ranked");
   assert.deepEqual(Object.fromEntries(lists.map((route) => [route.id, [route.path, [...route.query]]])), EXPECTED_LIST_ROUTES);
-  assert.ok(lists.every((route) => route.view === "ranked" && route.shell), "each list is the ranked view, drawn in place");
+  assert.ok(lists.every((route) => route.shell), "each list is the ranked view, drawn in place");
+  // the lists by reason come right after the whole not-ranked list, in the contract's order, each fixing its reason
+  const reasons = ROUTES.filter((route) => route.view === "notranked");
+  assert.deepEqual(ROUTES.filter((route) => route.view && route.view !== "ranked"), reasons, "no other view has lists");
+  assert.equal(ROUTES.indexOf(reasons[0]), ROUTES.findIndex((route) => route.id === "notranked") + 1);
+  assert.deepEqual(reasons.map((route) => [route.id, route.path, [...route.query], route.shell, { ...route.fixed }]), REASON_LIST_SLUGS.map(([slug, reason]) => [
+    `notranked-${slug}`, `/not-ranked/${slug}/{page}/`, [], true, { reason, persona: "balanced", eco: null, q: null, page_size: 200 },
+  ]));
 });
 
 test("routes: every route round-trips through parseLocation and serializeLocation", () => {
@@ -4539,7 +4552,18 @@ const LIST_COPY = [
   "LIST_INTRO_ECOSYSTEM_LENS", "LIST_INTRO_WEIGHS", "LIST_WEIGHT_ITEM", "LIST_AND", "LIST_INTRO_FASTEST",
   "LIST_INTRO_FASTEST_ECOSYSTEM", "LIST_INTRO_FASTEST_SAMPLE", "LIST_CAVEAT_FASTEST", "COLUMN_FIRST_REPLY", "COLUMN_NO_REPLY",
   "REPLY_SAMPLE_TEXT", "LENS_PHRASES", "NUMBER_WORDS",
+  // the not-ranked lists by reason (PR 2)
+  "NOT_RANKED_LIST_NAMES", "NOT_RANKED_LIST_PAGE_OF", "NOT_RANKED_LIST_REASONS", "NOT_RANKED_LIST_COUNT", "NOT_RANKED_LIST_TEST",
+  "NOT_RANKED_LIST_ROW", "NOT_RANKED_LIST_ROW_BLACK_HOLE", "NOT_RANKED_LIST_PAGES_LABEL", "NOT_RANKED_LISTS_LABEL",
+  "NOT_RANKED_LISTS_ITEM",
 ];
+/** copy.js's own strings that no view reads (its functions fill them): read from its source, as the verifier reads them. */
+const LIST_COPY_INTERNAL = ["UNRATED_COVERAGE_BELOW_FLOOR"];
+const COPY_SOURCE = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "copy.js"), "utf8");
+function copySourceString(name) {
+  const found = COPY_SOURCE.match(new RegExp(`(?:export )?const ${name} =\\s*"((?:[^"\\\\]|\\\\.)*)";`));
+  return found ? JSON.parse(`"${found[1]}"`) : undefined;
+}
 
 /** The strings of a copy.js value (a string, a list or a map of strings) that hold a digit. */
 function stringsWithDigits(value) {
@@ -4559,8 +4583,22 @@ test("lists: no digit is typed into any copy.js string the lists added: every nu
     assert.ok(copy[name] !== undefined, `copy.js has ${name}`);
     assert.deepEqual(stringsWithDigits(copy[name]), [], name);
   }
+  for (const name of LIST_COPY_INTERNAL) {
+    assert.ok(copySourceString(name) !== undefined, `copy.js has ${name}`);
+    assert.deepEqual(stringsWithDigits(copySourceString(name)), [], name);
+    assert.deepEqual(stringsWithCountWords(copySourceString(name)), [], name);
+  }
   assert.deepEqual(stringsWithDigits("weighs 18 parameters"), ["weighs 18 parameters"], "the check finds a typed number");
   assert.deepEqual(stringsWithDigits({ a: "fine", b: "in 14 days" }), ["in 14 days"]);
+  // a list by reason's black-hole sentence with the deadline typed, as the old reason copy has it, is caught
+  const typedDeadline = { ...copy.NOT_RANKED_LIST_REASONS, black_hole: copy.gateReasonText("black_hole") };
+  assert.deepEqual(stringsWithDigits(typedDeadline), [copy.gateReasonText("black_hole")], "a typed deadline is found");
+  // a typed floor in the coverage clause, and a typed page size in the count, are caught
+  assert.deepEqual(stringsWithDigits("(coverage {coverage}, below the 60% floor)."), ["(coverage {coverage}, below the 60% floor)."], "a typed 60");
+  const typedSize = copy.NOT_RANKED_LIST_COUNT.replace("{page_size}", "200");
+  assert.deepEqual(stringsWithDigits(typedSize), [typedSize], "a typed 200");
+  // the lists' route titles type no number either: the page part fills its slots
+  for (const route of ROUTES.filter((r) => r.view === "notranked")) assert.doesNotMatch(route.title, /\d/, route.id);
   // a count is never typed as a word either ("six ecosystems", "five pillars"): it is the data's count, in words
   for (const name of LIST_COPY.filter((n) => n !== "NUMBER_WORDS")) assert.deepEqual(stringsWithCountWords(copy[name]), [], name);
   assert.deepEqual(stringsWithCountWords("against {share}% across all six ecosystems"), ["against {share}% across all six ecosystems"]);
@@ -4683,4 +4721,466 @@ test("lists: the description goes back to the home's own on /, only when the doc
   assert.match(app, /const homeDescription =\s*descriptionMeta && matchRoute\(win\.location\.pathname\)\.route\.id === "ranked" \? descriptionMeta\.getAttribute\("content"\) : null;/,
     "app.js keeps the description the document loaded with, when its first address was /");
   assert.match(app, /pageDescription\(state, homeDescription\)/, "and writes what pageDescription says on every render");
+});
+
+// --- The not-ranked projects by reason: eight lists at their own addresses, the tab count, the chip (list-views PR 2) ---
+// The new names are read through their modules' namespaces, so on code without them each test fails on its own.
+import * as nrState from "../state.js";
+import * as nrView from "../views/notranked.js";
+import * as nrPrerender from "../../prerender.mjs";
+
+//: The balanced not-ranked projects by bare reason (main-f9a96d4 build, read from not-ranked-balanced.json): no fork
+//: and no mirror there, so those two lists are empty.
+const REASON_COUNTS = Object.freeze({
+  stale: 2479, non_software: 1067, black_hole: 638, archived: 624, unlicensed: 491, fork: 0, mirror: 0,
+  insufficient_evidence: 1198, no_external_workflow: 95, off_platform_routed: 12,
+});
+const GATED_REASONS = new Set(["stale", "non_software", "black_hole", "archived", "unlicensed", "fork", "mirror"]);
+const REASON_NAMES = {
+  stale: "no recent human activity", non_software: "not software", archived: "archived", unlicensed: "no open-source license",
+  black_hole: "unanswered pull requests", fork: "fork of another repository", mirror: "mirror of another repository",
+  insufficient_evidence: "not enough evidence",
+  no_external_workflow: "no outside contribution workflow", off_platform_routed: "contributions happen off GitHub",
+};
+const NR_ECOSYSTEMS = ["npm", "pypi", "crates", "go", "maven", "systems"];
+
+/**
+ * A not-ranked list as the API sends it for the balanced lens: rows in lower-case owner/name order, split gated and
+ * unrated. The insufficient-evidence rows carry the engine's prefixed spelling ("unrated: insufficient_evidence"), as the
+ * static data does; every third black hole has its numbers, every third has them null and the rest lack the fields.
+ */
+function notRankedFixture(counts = REASON_COUNTS) {
+  const rows = [];
+  for (const [reason, n] of Object.entries(counts)) {
+    for (let i = 0; i < n; i++) {
+      const gated = GATED_REASONS.has(reason);
+      const row = {
+        owner: `${i % 2 ? "Org" : "org"}-${reason.replace(/_/g, "-")}-${String(i).padStart(4, "0")}`,
+        name: `Repo${i}`,
+        ecosystem: NR_ECOSYSTEMS[i % NR_ECOSYSTEMS.length],
+        gate_reason: gated ? reason : null,
+        unrated_reason: gated ? null : reason === "insufficient_evidence" ? "unrated: insufficient_evidence" : reason,
+        persona_gate_reason: null,
+        coverage: gated ? null : 0.42,
+      };
+      if (reason === "black_hole" && i % 3 === 0) Object.assign(row, { unanswered: 26 + i, counted: 41 + 2 * i });
+      else if (i % 3 === 1) Object.assign(row, { unanswered: null, counted: null });
+      rows.push(row);
+    }
+  }
+  const key = (row) => `${row.owner}/${row.name}`.toLowerCase();
+  rows.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+  return {
+    gated: rows.filter((row) => row.gate_reason),
+    unrated: rows.filter((row) => !row.gate_reason),
+    persona_hidden: [],
+    counts: HOME_COUNTS,
+    truncated: false,
+  };
+}
+const NR_LIST = notRankedFixture();
+
+/** The state a list by reason's address names, from the defaults, with `extra` loaded. */
+const atReason = (address, extra = {}) => ({ ...defaultState(), ...parseLocation(address, ""), ...extra });
+/** A list by reason's page with everything the prerender loads. */
+const reasonPageState = (address, extra = {}) =>
+  atReason(address, { notRanked: NR_LIST, report: REPORT_EXAMPLE, leaderboard: HOME_LEADERBOARD, snapshot: SNAPSHOT_DOC, methodology: METHODOLOGY_DOC, ...extra });
+//: The methodology's coverage floor (missingness.coverage_thresholds.unrated_below), as the views read it.
+const NR_FLOOR = METHODOLOGY_DOC.missingness.coverage_thresholds.unrated_below;
+const pagesOf = (reason) => Math.max(1, Math.ceil(REASON_COUNTS[reason] / 200));
+
+/** The list items of `html`: `{ owner, name, text }`, `text` the item's whole text. An item holding any element (a
+ *  label, a badge, a chip, a hook) is an error: a row is one plain sentence. */
+function reasonItemsOf(html) {
+  return [...html.matchAll(/<li data-owner="([^"]*)" data-name="([^"]*)">(.*?)<\/li>/g)].map(([, owner, name, inner]) => {
+    if (/[<>]/.test(inner)) throw new Error(`${owner}/${name}: the item holds markup: ${inner}`);
+    return { owner: decodeAttr(owner), name: decodeAttr(name), text: decodeAttr(inner) };
+  });
+}
+
+test("not-ranked lists: each list by reason round-trips at its first and last page; page 0 or an unknown reason is not found", () => {
+  for (const [slug, reason] of REASON_LIST_SLUGS) {
+    for (const page of new Set([1, pagesOf(reason)])) {
+      const address = `/not-ranked/${slug}/${page}/`;
+      const parsed = parseLocation(address, "");
+      assert.deepEqual(parsed, { tab: "notranked", notRankedReason: reason, persona: "balanced", ecosystem: "", query: "", pageSize: 200, page }, address);
+      assert.equal(serializeLocation({ ...defaultState(), ...parsed }), address, `${address} round-trips`);
+      assert.equal(matchRoute(address).route.id, `notranked-${slug}`, address);
+      assert.equal(redirectTarget(address, "", ""), null, `${address} is its own address`);
+    }
+  }
+  assert.equal(pagesOf("stale"), 13, "the stale list's last page is 13");
+  for (const missing of ["/not-ranked/archived/0/", "/not-ranked/nope/1/", "/not-ranked/archived/01/", "/not-ranked/archived/"]) {
+    assert.deepEqual(parseLocation(missing, ""), { tab: "notfound", missingPath: missing }, missing);
+  }
+  assert.deepEqual(parseLocation("/not-ranked/archived/2/", "?eco=crates&page_size=20&q=x").ecosystem, "", "a list by reason reads no query");
+});
+
+test("not-ranked lists: a reason at 200 a page writes its path; a lens, an ecosystem or a search writes /not-ranked/?…; /not-ranked/ is as it was", () => {
+  const at = (fields) => serializeLocation({ ...defaultState(), tab: "notranked", ...fields });
+  const stale = { notRankedReason: "stale", pageSize: 200, page: 3 };
+  assert.equal(at(stale), "/not-ranked/stale/3/");
+  assert.equal(at({ ...stale, notRankedReason: "black_hole", page: 1 }), "/not-ranked/unanswered/1/");
+  assert.equal(at({ ...stale, notRankedReason: "fork", page: 1 }), "/not-ranked/fork/1/");
+  assert.equal(at({ ...stale, notRankedReason: "mirror", page: 2 }), "/not-ranked/mirror/2/");
+  assert.match(at({ notRankedReason: "fork", pageSize: 200, ecosystem: "go" }), /^\/not-ranked\/\?/, "an ecosystem leaves the fork list too");
+  for (const [field, value] of [["ecosystem", "crates"], ["persona", "first_timer"], ["query", "flask"]]) {
+    assert.match(at({ ...stale, [field]: value }), /^\/not-ranked\/\?/, `a ${field} leaves the list's path`);
+  }
+  assert.equal(at({ notRankedReason: "stale" }), "/not-ranked/", "at another page size it is the whole list");
+  // the whole list's addresses, as before
+  assert.equal(at({}), "/not-ranked/");
+  assert.equal(at({ ecosystem: "crates", page: 2 }), "/not-ranked/?eco=crates&page=2");
+  assert.deepEqual(parseLocation("/not-ranked/", "?eco=pypi&page=2"), { tab: "notranked", ecosystem: "pypi", page: 2 });
+  // as the app moves: a choice on a list by reason leaves it, at the whole list's page size
+  const onList = { ...defaultState(), ...parseLocation("/not-ranked/stale/3/", "") };
+  for (const [payload, address] of [
+    [{ ecosystem: "crates", page: 1 }, "/not-ranked/?eco=crates"],
+    [{ persona: "first_timer", page: 1 }, "/not-ranked/?persona=first_timer"],
+    [{ query: "flask", page: 1 }, "/not-ranked/?q=flask"],
+  ]) {
+    const next = reduce(onList, { type: "SET_PARAMS", payload });
+    assert.equal(serializeLocation(next), address, JSON.stringify(payload));
+    assert.equal(next.notRankedReason, null, `${address}: the reason is left`);
+  }
+  // the tabs: Ranked from a list, and the whole list back from there; the Not ranked tab on a list is the list itself
+  assert.equal(hrefFor(onList, "ranked"), "/");
+  assert.equal(hrefFor(reduce(onList, { type: "SET_TAB", tab: "ranked" }), "notranked"), "/not-ranked/");
+  assert.equal(hrefFor(onList, "notranked"), "/not-ranked/stale/3/");
+  // another view never reads a reason
+  assert.equal(serializeLocation({ ...defaultState(), notRankedReason: "stale", ecosystem: "crates", pageSize: 50 }), "/rust/");
+});
+
+test("not-ranked lists: a list is every row whose gate, else unrated reason, is its reason, in the API's order, 200 a page", () => {
+  assert.equal(nrState.notRankedRowReason({ gate_reason: "black_hole", unrated_reason: null }), "black_hole");
+  assert.equal(nrState.notRankedRowReason({ gate_reason: null, unrated_reason: "unrated: insufficient_evidence" }), "insufficient_evidence", "the prefixed spelling");
+  assert.equal(nrState.notRankedRowReason({ gate_reason: null, unrated_reason: "off_platform_routed" }), "off_platform_routed");
+  let all = 0;
+  for (const [reason, n] of Object.entries(REASON_COUNTS)) {
+    const rows = nrState.notRankedReasonRows(NR_LIST, reason);
+    assert.equal(rows.length, n, reason);
+    all += rows.length;
+  }
+  assert.equal(all, 6604, "every not-ranked project in one list");
+  const withForks = notRankedFixture({ ...REASON_COUNTS, fork: 3, mirror: 2 });
+  const listed = nrView.REASON_LISTS.flatMap(({ reason }) => nrState.notRankedReasonRows(withForks, reason).map((row) => `${row.owner}/${row.name}`));
+  assert.equal(listed.length, 6609, "forks and mirrors have their lists");
+  assert.equal(new Set(listed).size, withForks.gated.length + withForks.unrated.length, "every project exactly once");
+  // the page slice, from the API's order (owner/name, lower case), never sorted again
+  const stale = nrState.notRankedReasonRows(NR_LIST, "stale");
+  const at = (page) => nrState.reasonListPage(atReason(`/not-ranked/stale/${page}/`, { notRanked: NR_LIST }));
+  assert.deepEqual(at(2).rows, stale.slice(200, 400));
+  assert.deepEqual({ ...at(13), rows: at(13).rows.length, route: at(13).route.id }, { route: "notranked-stale", reason: "stale", rows: 79, total: 2479, page: 13, pages: 13, pageSize: 200, first: 2401 });
+  const order = [{ owner: "b", name: "x", gate_reason: "stale" }, { owner: "A", name: "y", gate_reason: "stale" }, { owner: "a", name: "z", gate_reason: "archived" }, { owner: "a", name: "a", gate_reason: "stale" }];
+  const kept = nrState.reasonListPage(atReason("/not-ranked/stale/1/", { notRanked: { gated: order, unrated: [] } })).rows.map((row) => row.name);
+  assert.deepEqual(kept, ["x", "y", "a"], "the API's order is kept");
+  // a reason with no rows: one empty page
+  const none = { ...NR_LIST, unrated: NR_LIST.unrated.filter((row) => row.unrated_reason !== "off_platform_routed") };
+  const empty = reasonPageState("/not-ranked/off-platform/1/", { notRanked: none });
+  assert.deepEqual(nrState.reasonListPage(empty).rows, []);
+  assert.equal(nrState.reasonListPage(empty).pages, 1);
+  const html = notRankedRenderShell(empty);
+  assert.ok(html.includes('<ol class="reason-list" start="1" data-reason-rows="true"></ol>'), "an empty list of rows");
+  assert.equal(reasonItemsOf(html).length, 0);
+  // a page's rows are its items, in order, numbered from the page's first position
+  const page2 = notRankedRenderShell(reasonPageState("/not-ranked/stale/2/"));
+  assert.ok(page2.includes('<ol class="reason-list" start="201" data-reason-rows="true">'));
+  assert.deepEqual(reasonItemsOf(page2).map((item) => `${item.owner}/${item.name}`), stale.slice(200, 400).map((row) => `${row.owner}/${row.name}`));
+});
+
+test("not-ranked lists: each row is one plain sentence: the reason, the coverage, or a black hole's own numbers", () => {
+  const text = (row, report = REPORT_EXAMPLE) => nrView.reasonRowText({ owner: "acme", name: "widget", ecosystem: "go", gate_reason: null, unrated_reason: null, ...row }, report, NR_FLOOR);
+  assert.equal(text({ gate_reason: "archived" }), "acme/widget (Go): Archived on GitHub — no active development to evaluate.");
+  assert.equal(text({ unrated_reason: "unrated: insufficient_evidence", coverage: 0.42, ecosystem: "crates" }), "acme/widget (Rust): Not enough measured evidence to rank (coverage 42%, below the 60% floor).");
+  assert.equal(text({ unrated_reason: "no_external_workflow", ecosystem: "systems" }), "acme/widget (C and C++): No external contribution workflow was found to measure.");
+  assert.equal(
+    nrView.reasonRowText({ owner: "3b1b", name: "manim", ecosystem: "pypi", gate_reason: "black_hole", unanswered: 26, counted: 41 }, REPORT_EXAMPLE),
+    "3b1b/manim (Python): 26 of 41 counted outside pull requests got no human reply, review or merge within 14 days."
+  );
+  assert.equal(text({ gate_reason: "black_hole", unanswered: 1234, counted: 2479 }), "acme/widget (Go): 1,234 of 2,479 counted outside pull requests got no human reply, review or merge within 14 days.", "numbers grouped");
+  const plain = `acme/widget (Go): ${copy.gateReasonText("black_hole")}`;
+  assert.equal(text({ gate_reason: "black_hole", unanswered: null, counted: null }), plain, "without numbers: the plain form");
+  assert.equal(text({ gate_reason: "black_hole" }), plain, "without the fields at all: the plain form");
+  assert.equal(text({ gate_reason: "black_hole", unanswered: 3, counted: null }), plain, "half the numbers: the plain form");
+  assert.equal(text({ gate_reason: "black_hole", unanswered: 26, counted: 41 }, null), plain, "without a report: the plain form");
+  // drawn: each item's whole text is the row's sentence, and nothing but text
+  const state = reasonPageState("/not-ranked/unanswered/1/");
+  const rows = nrState.reasonListPage(state).rows;
+  const items = reasonItemsOf(notRankedRenderShell(state));
+  assert.equal(items.length, 200);
+  items.forEach((item, i) => assert.equal(item.text, nrView.reasonRowText(rows[i], REPORT_EXAMPLE, NR_FLOOR), item.name));
+  assert.ok(items.some((item) => /^\S+ \(\w+\): \d+ of \d+ counted/.test(item.text)) && items.some((item) => item.text.endsWith(copy.gateReasonText("black_hole"))), "both forms on the page");
+  // a planted label or chip beside a name is found
+  assert.throws(() => reasonItemsOf('<li data-owner="a" data-name="b">a/b <span class="eco-chip">Go</span>: Archived.</li>'), /holds markup/);
+  assert.throws(() => reasonItemsOf('<li data-owner="a" data-name="b"><span class="reason-chip">Archived</span></li>'), /holds markup/);
+});
+
+test("not-ranked lists: heading, intro and hooks; the description is the intro's first two sentences; titles fit 70, descriptions 155", () => {
+  const expected = {
+    archived: ["Archived on GitHub — no active development to evaluate. 624 projects, A to Z, 200 a page.", { "list.total": "624" }],
+    insufficient_evidence: ["Not enough measured evidence to rank. 1,198 projects, A to Z, 200 a page.", { "list.total": "1,198" }],
+    black_hole: [
+      "More than half of outside pull requests got no human reply, review or merge on GitHub within 14 days. 638 projects, A to Z, 200 a page. The test: more than half of at least 10 counted pull requests, at 95% confidence.",
+      { "list.deadline_days": "14", "list.total": "638", "list.min_n": "10", "list.ci_percent": "95" },
+    ],
+    stale: [`${copy.gateReasonText("stale")} 2,479 projects, A to Z, 200 a page.`, { "list.total": "2,479" }],
+    off_platform_routed: [`${copy.unratedReasonText("off_platform_routed")} 12 projects, A to Z, 200 a page.`, { "list.total": "12" }],
+  };
+  const titles = new Set();
+  const allTitles = new Set();
+  for (const [slug, reason] of REASON_LIST_SLUGS) {
+    for (let page = 1; page <= pagesOf(reason); page++) {
+      const state = reasonPageState(`/not-ranked/${slug}/${page}/`);
+      const html = notRankedRenderShell(state);
+      const h1 = html.match(/<h1 id="notranked-heading" class="view-heading">(.*?)<\/h1>/);
+      assert.ok(h1, `${slug}: a visible h1`);
+      assert.equal(listTextOf(h1[1]), `Not ranked: ${REASON_NAMES[reason]}`);
+      assert.equal((html.match(/<h1/g) || []).length, 1, `${slug}: one h1`);
+      const intro = html.match(/<p class="list-intro" data-list-intro="true">(.*?)<\/p>/)[1];
+      if (expected[reason]) {
+        assert.equal(listTextOf(intro), expected[reason][0], slug);
+        assert.deepEqual(listHooksOf(intro), expected[reason][1], `${slug}: its hooks`);
+      }
+      const sentences = listTextOf(intro).split(/(?<=\.) (?=[A-Z0-9])/);
+      assert.equal(nrView.reasonListDescription(state), sentences.slice(0, 2).join(" "), `${slug}: the description is the first two sentences`);
+      assert.ok(nrView.reasonListDescription(state).length <= 155, `${slug}: the description fits 155`);
+      const title = titleForState(state);
+      const pageOf = pagesOf(reason) > 1 ? ` (page ${page} of ${pagesOf(reason)})` : "";
+      assert.equal(title, `Not ranked: ${REASON_NAMES[reason]}${pageOf} | Porchlamp`, `${slug} ${page}`);
+      assert.ok(title.length <= 70, `${title}: fits 70`);
+      if (REASON_COUNTS[reason] > 0) titles.add(title);
+      allTitles.add(title);
+    }
+  }
+  assert.equal(titles.size, 38, "38 pages of the lists with projects, no two titles alike");
+  assert.equal(allTitles.size, 40, "and the two empty lists' own titles, unlike them");
+  // without a report the black-hole list says the reason in its own words and leaves the test out
+  const bare = reasonPageState("/not-ranked/unanswered/1/", { report: null });
+  const bareIntro = notRankedRenderShell(bare).match(/<p class="list-intro" data-list-intro="true">(.*?)<\/p>/)[1];
+  assert.equal(listTextOf(bareIntro), `${copy.gateReasonText("black_hole")} 638 projects, A to Z, 200 a page.`);
+  assert.deepEqual(listHooksOf(bareIntro), { "list.total": "638" });
+  const noTest = { ...REPORT_EXAMPLE, values: { ...REPORT_EXAMPLE.values, min_n: undefined } };
+  assert.equal(nrView.reasonListHead(reasonPageState("/not-ranked/unanswered/1/", { report: noTest })).sentences.length, 2, "no test without its min_n");
+  // before the list has loaded: the heading, no intro, no description, and the view's own title
+  const loading = atReason("/not-ranked/archived/2/", { leaderboard: HOME_LEADERBOARD });
+  assert.ok(!notRankedRenderShell(loading).includes("list-intro"));
+  assert.equal(nrView.reasonListDescription(loading), null);
+  assert.equal(titleForState(loading), routeTitle("notranked"));
+  assert.equal(nrView.reasonListHead(atReason("/not-ranked/", { notRanked: NR_LIST })), null, "the whole list has no list head");
+});
+
+test("not-ranked lists: the pages line, above and below the rows, links every page of the list and marks the one shown", () => {
+  const html = notRankedRenderShell(reasonPageState("/not-ranked/stale/2/"));
+  const lines = html.match(/<div class="list-pages" data-list-pages="true">.*?<\/div>/g) || [];
+  assert.equal(lines.length, 2, "above and below the rows");
+  assert.equal(lines[0], lines[1]);
+  assert.ok(html.indexOf(lines[0]) < html.indexOf("<ol") && html.lastIndexOf(lines[1]) > html.indexOf("</ol>"));
+  assert.ok(lines[0].startsWith('<div class="list-pages" data-list-pages="true"><span>The whole list, 200 projects a page:</span> '));
+  const links = [...lines[0].matchAll(/<a href="([^"]+)" class="onboarding-link"( aria-current="page")?>(\d+)<\/a>/g)];
+  assert.equal(links.length, 13);
+  links.forEach(([, href, current, label], i) => {
+    assert.equal(href, `/not-ranked/stale/${i + 1}/`);
+    assert.equal(label, String(i + 1));
+    assert.equal(Boolean(current), i === 1, `page ${i + 1} marked only when shown`);
+  });
+  assert.ok(!html.includes('class="pager'), "the links are the pager");
+  const one = notRankedRenderShell(reasonPageState("/not-ranked/off-platform/1/")).match(/<div class="list-pages" data-list-pages="true">.*?<\/div>/)[0];
+  assert.deepEqual([...one.matchAll(/<a [^>]*>/g)].map((m) => m[0]), ['<a href="/not-ranked/off-platform/1/" class="onboarding-link" aria-current="page">']);
+});
+
+test("not-ranked lists: the \"Lists by reason\" line links each list's first page with its balanced count, leaves out an empty list, on every not-ranked view", () => {
+  const line = (html) => {
+    const found = html.match(/<p class="reason-lists" data-reason-lists="true">(.*?)<\/p>/);
+    assert.ok(found, "the line is drawn");
+    return found[1];
+  };
+  const text =
+    "Lists by reason: No recent human activity (2,479) · Not software (1,067) · Archived (624) · No open-source license (491) · " +
+    "Unanswered pull requests (638) · Not enough evidence (1,198) · No outside contribution workflow (95) · Contributions happen off GitHub (12)";
+  const views = [
+    reasonPageState("/not-ranked/archived/2/"),
+    atReason("/not-ranked/", { notRanked: NR_LIST, leaderboard: HOME_LEADERBOARD }),
+    atReason("/not-ranked/", { ecosystem: "crates", notRanked: NR_LIST, leaderboard: HOME_LEADERBOARD }),
+  ];
+  for (const state of views) {
+    const html = line(notRankedRenderShell(state));
+    assert.equal(listTextOf(html), text, serializeLocation(state));
+    const links = [...html.matchAll(/<a href="([^"]+)" class="onboarding-link">([^<]+)<\/a>/g)].map((m) => m[1]);
+    assert.deepEqual(links, REASON_LIST_SLUGS.filter(([, reason]) => REASON_COUNTS[reason] > 0).map(([slug]) => `/not-ranked/${slug}/1/`), "no link to an empty list");
+  }
+  // a snapshot with forks: their list is linked, in the table's order; the empty mirror list is left out
+  const forks = listTextOf(line(notRankedRenderShell(atReason("/not-ranked/", { notRanked: notRankedFixture({ ...REASON_COUNTS, fork: 3 }), leaderboard: HOME_LEADERBOARD }))));
+  assert.ok(forks.includes("· Unanswered pull requests (638) · Fork of another repository (3) · Not enough evidence (1,198) ·"), forks);
+  assert.doesNotMatch(forks, /Mirror/);
+  assert.doesNotMatch(forks, /\(0\)/, "no list with a count of 0");
+  // another lens's list is not the balanced one: every name, without counts
+  const lens = atReason("/not-ranked/", { persona: "first_timer", notRanked: NR_LIST, leaderboard: HOME_LEADERBOARD });
+  const lensLine = line(notRankedRenderShell(lens));
+  assert.doesNotMatch(listTextOf(lensLine), /\d/);
+  assert.equal((lensLine.match(/<a /g) || []).length, 10, "all ten names while the counts are not known");
+});
+
+test("not-ranked tab: it counts the list it opens, the ecosystem's on /rust/, and never another list's number", () => {
+  const tabCount = (html) => html.match(/Not ranked<span class="count">([^<]*)<\/span>/)[1];
+  const rustRows = [...NR_LIST.gated, ...NR_LIST.unrated].filter((row) => row.ecosystem === "crates").length;
+  const all = HOME_COUNTS.gated + HOME_COUNTS.unrated;
+  assert.notEqual(rustRows, all);
+  // /rust/ with the not-ranked list loaded: Rust's own count, in the shell and in the prerendered board
+  const rust = atAddress("/rust/", { leaderboard: listBoard(LIST_ROWS), notRanked: NR_LIST, snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, methodology: METHODOLOGY_DOC });
+  assert.equal(tabCount(leaderboardRenderShell(rust, DESKTOP)), String(rustRows), "/rust/ shows Rust's count");
+  assert.equal(tabCount(renderPrerenderedBoard(rust)), String(rustRows));
+  // with an ecosystem or a search and no list loaded: no number, never the all-ecosystem one
+  assert.equal(tabCount(leaderboardRenderShell({ ...rust, notRanked: null }, DESKTOP)), "", "/rust/ before the list loads");
+  assert.equal(tabCount(leaderboardRenderShell(atAddress("/", { query: "flask", leaderboard: HOME_LEADERBOARD }), DESKTOP)), "", "a search before the list loads");
+  // a search with the list loaded counts the matches
+  const flask = atAddress("/", { query: "org-stale-000", leaderboard: HOME_LEADERBOARD, notRanked: NR_LIST });
+  assert.equal(tabCount(leaderboardRenderShell(flask, DESKTOP)), "10");
+  // no ecosystem or search: balanced is gated + unrated; a lens is the snapshot's total less what the lens ranks
+  assert.equal(tabCount(leaderboardRenderShell(atAddress("/", { leaderboard: HOME_LEADERBOARD }), DESKTOP)), String(all));
+  const career = atAddress("/career/", { leaderboard: listBoard(LIST_ROWS), snapshot: SNAPSHOT_DOC });
+  const lensCount = SNAPSHOT_DOC.counts.total - SNAPSHOT_DOC.persona_visible_counts.career_capital;
+  assert.equal(tabCount(leaderboardRenderShell(career, DESKTOP)), String(lensCount), "a lens list: total less the lens's ranked");
+  assert.equal(nrState.notRankedTabCount({ ...career, snapshot: null }), null, "a lens without the snapshot: no number");
+  // the not-ranked view counts the same list
+  const nrRust = atReason("/not-ranked/", { ecosystem: "crates", notRanked: NR_LIST, leaderboard: HOME_LEADERBOARD });
+  assert.equal(tabCount(notRankedRenderShell(nrRust)), String(rustRows));
+  assert.equal(nrState.notRankedTabCount(nrRust), notRankedFlatten(NR_LIST, { ecosystem: "crates" }).length);
+  assert.equal(renderTabs("ranked", HOME_COUNTS, 1, null).match(/Not ranked<span class="count">([^<]*)</)[1], "", "null draws no number");
+});
+
+test("not-ranked lists: the app takes over a list's prerendered page for its own state, and leaves a page of another list alone", () => {
+  const state = reasonPageState("/not-ranked/archived/2/");
+  const drawn = nrView.renderPrerenderedReasonList(state);
+  assert.ok(drawn.includes('data-prerendered-board="notranked-archived:2"'), "keyed by its list and page");
+  assert.equal(drawn.replace(' data-prerendered-board="notranked-archived:2"', ""), notRankedRenderShell(state), "the board is the app's shell");
+  /** A page holding `html`, read back as the document reads it (here: as written). */
+  const pageWith = (html) => {
+    const attrs = new Map([["data-prerendered-board", html.match(/data-prerendered-board="([^"]+)"/)[1]]]);
+    const board = {
+      getAttribute: (name) => (attrs.has(name) ? attrs.get(name) : null),
+      removeAttribute: (name) => attrs.delete(name),
+      get outerHTML() {
+        return attrs.has("data-prerendered-board") ? html : html.replace(/ data-prerendered-board="[^"]+"/, "");
+      },
+    };
+    const root = { written: null, querySelector: (sel) => (sel === "[data-prerendered-board]" ? board : null), set innerHTML(v) { this.written = v; } };
+    return { root, board };
+  };
+  const doc = { createElement: () => ({ innerHTML: "" }) };
+  for (const other of ["/not-ranked/archived/3/", "/not-ranked/stale/2/", "/not-ranked/"]) {
+    const { root, board } = pageWith(drawn);
+    assert.equal(nrView.adoptReasonListBoard(root, reasonPageState(other), doc), false, other);
+    assert.equal(board.getAttribute("data-prerendered-board"), "notranked-archived:2", `${other}: the page is left as it is`);
+    assert.equal(root.written, null);
+  }
+  const { root, board } = pageWith(drawn);
+  assert.equal(nrView.adoptReasonListBoard(root, state, doc), true);
+  assert.equal(board.getAttribute("data-prerendered-board"), null, "the mark is removed");
+  assert.equal(root.written, null, "nothing redrawn");
+  // the app's data differs (its report failed to load): the page is drawn from what the app has
+  const differs = pageWith(drawn);
+  const noReport = { ...state, report: null };
+  assert.equal(nrView.adoptReasonListBoard(differs.root, reasonPageState("/not-ranked/unanswered/1/", { report: null }), doc), false, "another list");
+  const blackHole = pageWith(nrView.renderPrerenderedReasonList(reasonPageState("/not-ranked/unanswered/1/")));
+  assert.equal(nrView.adoptReasonListBoard(blackHole.root, reasonPageState("/not-ranked/unanswered/1/", { report: null }), doc), true);
+  assert.equal(blackHole.root.written, notRankedRenderShell(reasonPageState("/not-ranked/unanswered/1/", { report: null })), "redrawn from the app's data");
+  assert.equal(nrView.rebuildKey(noReport), nrView.rebuildKey({ ...noReport }), "the shell's key is stable");
+  assert.notEqual(nrView.rebuildKey(state), nrView.rebuildKey(reasonPageState("/not-ranked/archived/3/")), "and changes with the page");
+  // app.js takes it over this way, from the not-ranked view's branch
+  const app = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "app.js"), "utf8");
+  assert.match(app, /prerenderedBoardKey\(main\) !== reasonListKey\(state\)/);
+  assert.match(app, /adoptReasonListBoard\(main, state, doc\)/);
+});
+
+test("not-ranked lists: the prerender draws a list's page from its address: the view, the title and the description", () => {
+  const frame = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "404.html"), "utf8");
+  const data = { snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, leaderboard: HOME_LEADERBOARD, notRanked: NR_LIST };
+  const address = "/not-ranked/archived/2/";
+  const page = drawPage(frame, { path: "not-ranked/archived/2/index.html", view: "notranked", address }, data);
+  const state = { ...nrPrerender.stateForAddress(address), ...data };
+  assert.ok(page.includes('<main class="app-main" id="app-main" tabindex="-1" data-prerendered="notranked">'));
+  assert.ok(page.includes(nrView.renderPrerenderedReasonList(state)), "the view of its state");
+  assert.equal(reasonItemsOf(page).length, 200);
+  assert.equal(decodeAttr(page.match(/<title>([^<]*)<\/title>/)[1]), "Not ranked: archived (page 2 of 4) | Porchlamp");
+  assert.equal(decodeAttr(page.match(/<meta name="description" content="([^"]*)">/)[1]), "Archived on GitHub — no active development to evaluate. 624 projects, A to Z, 200 a page.");
+  assert.equal((page.match(/<title>/g) || []).length, 1);
+  assert.equal(chromeFor({ path: "not-ranked/archived/2/index.html", view: "notranked", address }, SNAPSHOT_DOC).header, renderAppHeader("notranked", SNAPSHOT_DOC, state));
+  // the whole list's page is not drawn here, as before
+  const whole = drawPage(frame, { path: "not-ranked/index.html", view: "notranked", address: "/not-ranked/" }, data);
+  assert.ok(!whole.includes("data-prerendered="), "/not-ranked/ has no prerendered view");
+  assert.ok(whole.includes("<title>Page not found | Porchlamp</title>"), "and keeps the head the export wrote");
+  assert.throws(() => nrPrerender.stateForAddress("/not-ranked/"), /not the address of a list/);
+  // a list with an ecosystem draws the Not ranked tab with the ecosystem's count from the same list
+  const rust = drawPage(frame, { path: "rust/index.html", view: "ranked", address: "/rust/" }, { ...data, methodology: METHODOLOGY_DOC, leaderboard: listBoard(LIST_ROWS) });
+  const rustRows = [...NR_LIST.gated, ...NR_LIST.unrated].filter((row) => row.ecosystem === "crates").length;
+  assert.ok(rust.includes(`Not ranked<span class="count">${rustRows}</span>`), "the ecosystem's count");
+  assert.equal(nrPrerender.needsNotRanked(nrPrerender.stateForAddress("/rust/")), true);
+  assert.equal(nrPrerender.needsNotRanked(nrPrerender.stateForAddress("/career/")), false);
+});
+
+test("not-ranked: the insufficient-evidence reason names the methodology's coverage floor, in every view that prints it", () => {
+  assert.equal(copy.unratedCoverageFloor(METHODOLOGY_DOC), 0.6, "methodology.json missingness.coverage_thresholds.unrated_below");
+  assert.equal(copy.unratedCoverageFloor(null), null);
+  assert.equal(copy.unratedCoverageFloor({ missingness: {} }), null);
+  assert.equal(copySourceString("UNRATED_COVERAGE_BELOW_FLOOR"), "(coverage {coverage}, below the {floor} floor).");
+  assert.equal(copy.unratedReasonText("unrated: insufficient_evidence", 0.42, 0.6), "Not enough measured evidence to rank (coverage 42%, below the 60% floor).");
+  assert.equal(copy.unratedReasonText("insufficient_evidence", 0.42, 0.55), "Not enough measured evidence to rank (coverage 42%, below the 55% floor).", "a whole percent of the floor given");
+  assert.equal(copy.unratedReasonText("insufficient_evidence", 0.42), "Not enough measured evidence to rank.", "no floor: the reason alone, never a typed floor");
+  assert.equal(copy.unratedReasonText("off_platform_routed", 0.42, 0.6), copy.unratedReasonText("off_platform_routed", 0.42), "other reasons have no floor");
+  // a planted floor of 0.5 is what every caller prints
+  const planted = { ...METHODOLOGY_DOC, missingness: { ...METHODOLOGY_DOC.missingness, coverage_thresholds: { ...METHODOLOGY_DOC.missingness.coverage_thresholds, unrated_below: 0.5 } } };
+  const says = (html) => {
+    assert.ok(html.includes("below the 50% floor"), "the planted floor is printed");
+    assert.ok(!html.includes("60%"), "and no other");
+  };
+  // a list by reason
+  says(notRankedRenderShell(reasonPageState("/not-ranked/insufficient-evidence/1/", { methodology: planted })));
+  // the whole not-ranked list's rows (the chip), as its patch draws them
+  const container = { innerHTML: "" };
+  const root = { querySelector: (sel) => (sel === "[data-notranked-rows]" ? container : null), querySelectorAll: () => [] };
+  const unrated = { ...NR_LIST, gated: [] };
+  nrView.patchNotRankedBody(root, atReason("/not-ranked/", { notRanked: unrated, methodology: planted }));
+  says(container.innerHTML);
+  // compare: the status row and the summary card
+  const detail = { ...FLAT_RATED_DETAIL, owner: "acme", name: "tool", rated: false, rank: null, porchlamp: null, unrated_reason: "insufficient_evidence", coverage: 0.42 };
+  const compare = renderCompareTable({
+    persona: "balanced",
+    compareRepos: ["acme/tool", "acme/tool2"],
+    compareDataByRepo: { "acme/tool": { row: detail, evidence: [] }, "acme/tool2": { row: { ...detail, name: "tool2" }, evidence: [] } },
+    methodology: planted,
+  });
+  assert.equal((compare.match(/below the 50% floor/g) || []).length, 4, "two status cells and two summary cards");
+  says(compare);
+  // the project panel's banner
+  says(renderDrawer({ ...defaultState(), repo: "acme/tool", repoDetailByKey: { "acme/tool": detail }, evidenceByRepo: { "acme/tool": [] }, methodology: planted }));
+  // before the methodology has loaded: the reason alone, in the app and nowhere a guessed floor
+  assert.ok(!notRankedRenderShell(reasonPageState("/not-ranked/insufficient-evidence/1/", { methodology: null })).includes("floor"));
+  // the prerendered list says what the app says, from the same methodology
+  const frame = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "404.html"), "utf8");
+  const data = { snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, leaderboard: HOME_LEADERBOARD, notRanked: NR_LIST, methodology: planted };
+  const page = drawPage(frame, { path: "not-ranked/insufficient-evidence/1/index.html", view: "notranked", address: "/not-ranked/insufficient-evidence/1/" }, data);
+  says(page);
+  const appState = reasonPageState("/not-ranked/insufficient-evidence/1/", { methodology: planted });
+  const board = nrView.renderPrerenderedReasonList(appState);
+  assert.ok(page.includes(board), "the prerendered board of the app's state");
+  assert.equal(board.replace(/ data-prerendered-board="[^"]+"/, ""), notRankedRenderShell(appState), "the app's text, byte for byte");
+  // app.js loads it for the not-ranked view and a project's panel, and the takeover waits for it
+  const app = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "app.js"), "utf8");
+  assert.match(app, /if \(tab === "notranked"\) loadMethodologyOnce\(\);/);
+  const panelLoad = app.slice(app.indexOf("function loadRepoDetail(owner, name) {"), app.indexOf("function loadRepoDetail(owner, name) {") + 300);
+  assert.match(panelLoad, /^function loadRepoDetail[\s\S]*\n\s*loadMethodologyOnce\(\);/, "a panel's record load asks for the methodology");
+  assert.match(app, /\(!state\.methodology && !state\.methodologyError\);/);
+});
+
+test("not-ranked lists: the page size printed in the intro and the pages line is the route's own", () => {
+  const state = reasonPageState("/not-ranked/stale/1/");
+  const at = nrState.reasonListPage(state);
+  assert.equal(at.pageSize, routeById("notranked-stale").fixed.page_size, "the route's fixed page_size");
+  const fifty = { ...at, pageSize: 50, pages: Math.ceil(at.total / 50), rows: at.rows.slice(0, 50) };
+  const html = nrView.renderReasonListShell(state, fifty);
+  const intro = listTextOf(html.match(/<p class="list-intro" data-list-intro="true">(.*?)<\/p>/)[1]);
+  assert.ok(intro.endsWith("2,479 projects, A to Z, 50 a page."), intro);
+  assert.ok(html.includes("<span>The whole list, 50 projects a page:</span>"));
+  assert.equal([...html.match(/<div class="list-pages" data-list-pages="true">.*?<\/div>/)[0].matchAll(/<a /g)].length, 50, "2,479 at 50 a page");
+  assert.ok(!html.includes("200"), "no 200 anywhere at 50 a page");
 });

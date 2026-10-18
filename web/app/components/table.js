@@ -270,7 +270,7 @@ export function rowCells(row, opts) {
     { key: "rank", html: `${row.rank}${tieMark}`, numeric: true },
     {
       key: "repository",
-      html: `${repoLinkHtml(row, showPersonaDelta)}<span class="eco-chip">${escapeHtml(copy.ecosystemName(row.ecosystem))}</span>`,
+      html: repoLineHtml(row, showPersonaDelta),
     },
     { key: "porchlamp", html: row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE, numeric: true },
     { key: "coverage", html: renderCoverageBadge(row.coverage) },
@@ -303,6 +303,17 @@ export function repoLinkHtml(row, onLens = false) {
   const hasProjectPage = !onLens || (row.balanced_rank !== null && row.balanced_rank !== undefined);
   if (!hasProjectPage) return name;
   return `<a class="repo-link" href="${escapeHtml(projectPath(row.owner, row.name))}">${name}</a>`;
+}
+
+/**
+ * The name line of a row and a card: the name (`repoLinkHtml`), which shortens with "…" when the line is too narrow,
+ * and the ecosystem's chip beside it, always whole (styles/components.css `.repo-line`).
+ */
+export function repoLineHtml(row, onLens = false) {
+  return (
+    `<span class="repo-line"><span class="repo-line-name">${repoLinkHtml(row, onLens)}</span>` +
+    `<span class="eco-chip">${escapeHtml(copy.ecosystemName(row.ecosystem))}</span></span>`
+  );
 }
 
 /** A click that is only "go here" in this tab: the left button, no modifier key. */
@@ -441,7 +452,7 @@ function cardInnerHtml(row, opts) {
     `<span class="cell-numeric">#${row.rank}${tieMark}</span>` +
     `<span>${renderCoverageBadge(row.coverage)}</span>` +
     `</div>` +
-    `<div>${repoLinkHtml(row, showPersonaDelta)}<span class="eco-chip">${escapeHtml(copy.ecosystemName(row.ecosystem))}</span></div>` +
+    `<div>${repoLineHtml(row, showPersonaDelta)}</div>` +
     `<div class="cell-numeric">${copy.COLUMN_PORCHLAMP} ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
     `<div class="leaderboard-card-replies">${escapeHtml(copy.COLUMN_FIRST_REPLY)} ` +
     `<span data-card-field="first_reply">${firstReplyHtml(row, top)}</span> · ` +

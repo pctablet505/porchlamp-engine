@@ -73,7 +73,7 @@ def _pages(site: Path) -> dict[str, Page]:
     for route in export_static.app_routes():
         if not route["shell"]:
             continue
-        if route.get("fixed"):  # a list view: the leaderboard at each of its addresses (every page of the ranking)
+        if route.get("fixed"):  # a list view (the leaderboard's or the not-ranked view's) at each of its addresses
             for path in sorted(site.glob(route["path"].strip("/").replace("{page}", "*") + "/index.html")):
                 address = "/" + path.parent.relative_to(site).as_posix() + "/"
                 pages[path.relative_to(site).as_posix()] = Page(json.dumps({"view": route["view"], "address": address}), "app")
@@ -200,8 +200,8 @@ def test_every_page_carries_the_header_nav_and_footer_chrome_js_draws(built, tmp
     pages = _pages(site)
     assert len(pages) > 300 and {page.scripts for page in pages.values()} == {"app", "page", "project", "check"}
     expected = _expected_chrome(site, pages, tmp_path)
-    lists = {page.chrome for page in pages.values() if '"address"' in page.chrome}  # the leaderboard at a list's address
-    assert lists and all(json.loads(spec)["view"] == "ranked" for spec in lists)
+    lists = {page.chrome for page in pages.values() if '"address"' in page.chrome}  # a list view at one of its addresses
+    assert {json.loads(spec)["view"] for spec in lists} == {"ranked", "notranked"}  # the leaderboard's and the not-ranked view's
     assert len({page.chrome for page in pages.values()} - lists) == 9  # eight app views (the report among them), every page with no nav entry
     report = expected[json.dumps({"view": "report"})]["nav"]
     assert report.count('aria-current="page"') == 1 and 'href="/black-holes/" data-route-tab="report" aria-current="page"' in report

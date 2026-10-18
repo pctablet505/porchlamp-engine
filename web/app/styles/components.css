@@ -635,6 +635,27 @@ input.control::placeholder {
   text-decoration: none;
 }
 
+/* A row's and a card's name line (components/table.js repoLineHtml): a long name ends in "…" and its ecosystem chip
+ * stays whole beside it, inside the cell or the card. */
+.repo-line {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.repo-line-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-line .eco-chip {
+  flex: none;
+  white-space: nowrap;
+}
+
 .eco-chip {
   font-size: var(--text-caption);
   color: var(--text-secondary);
@@ -784,6 +805,30 @@ input.control::placeholder {
   color: var(--text-primary);
   font-weight: 700;
   text-decoration: none;
+}
+
+/* ---- The not-ranked lists by reason (views/notranked.js): the lists line, and one sentence a project ---- */
+.reason-lists {
+  margin: var(--space-sm) 0;
+  font-size: var(--text-body-md);
+  line-height: 1.8;
+}
+
+.reason-list {
+  margin: 0;
+  padding-left: 4.5em;
+  font-size: var(--text-body-md);
+  line-height: 1.45;
+}
+
+.reason-list li {
+  padding: var(--space-2xs) 0;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.reason-list li:hover {
+  background: var(--bg-surface-hover);
 }
 
 /* ---- Reason chips (Not ranked) ---- */

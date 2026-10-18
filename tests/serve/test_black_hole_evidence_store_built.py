@@ -271,3 +271,19 @@ def test_a_window_without_the_rule_inputs_is_stored_undecided_never_a_black_hole
         "SELECT gate_undecided FROM repositories WHERE owner = ? AND name = ?", (OWNER, OLD_SHAPE)).fetchone()
     conn.close()
     assert "D-GATE-5" in json.loads(undecided)
+
+
+def test_a_black_holes_not_ranked_row_carries_the_numbers_its_evidence_shows(built: dict[str, Any]) -> None:
+    """The not-ranked list states each black hole's own numbers: its row's ``unanswered`` and ``counted`` are the
+    ``unanswered`` and ``population_n`` of the evidence ``/repos`` serves for it. Every other not-ranked row has
+    none, and an app without evidence files serves none."""
+    body = built["client"].get("/v1/porchlamp/not-ranked").json()
+    rows = {row["name"]: row for row in body["gated"] + body["unrated"]}
+    for name in (SILENT, EARLY_ANCHOR):
+        evidence = _detail(built["client"], name)["black_hole_evidence"]
+        assert (rows[name]["unanswered"], rows[name]["counted"]) == (evidence["unanswered"], evidence["population_n"])
+    assert (rows[SILENT]["unanswered"], rows[SILENT]["counted"]) == (12, 13)
+    others = [row for row in rows.values() if row["gate_reason"] != "black_hole"]
+    assert others and all(row["unanswered"] is None and row["counted"] is None for row in others), others
+    plain = TestClient(create_app(built["db_path"], web_dir=built["tmp_path"])).get("/v1/porchlamp/not-ranked").json()
+    assert all(row["unanswered"] is None and row["counted"] is None for row in plain["gated"] + plain["unrated"])

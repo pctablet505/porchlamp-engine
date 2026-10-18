@@ -369,6 +369,13 @@ class NotRankedRow(StrictModel):
     unrated_reason: UnratedReason | None = None
     persona_gate_reason: str | None = None
     coverage: float | None = None
+    #: A black-hole row's own numbers, from its record's evidence (the
+    #: `black_hole_evidence` of `/repos`): of the outside pull requests it
+    #: counted (`counted`, the evidence's `population_n`), how many got no
+    #: human reply, review or merge in time (`unanswered`). `None` for every
+    #: other reason, and when the app was given no evidence files.
+    unanswered: int | None = None
+    counted: int | None = None
 
     @model_validator(mode="after")
     def _at_least_one_reason(self) -> "NotRankedRow":

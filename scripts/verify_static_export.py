@@ -233,7 +233,8 @@ def _not_ranked(grid: Grid, params: dict) -> dict:
 def _not_ranked_full(grid: Grid, conn: sqlite3.Connection, snapshot_id: str, params: dict, served: dict) -> None:
     """``fetchNotRankedFull`` returns every matching row. The API cuts its answer at ``MAX_LIMIT``: where it did
     not cut, the two answers are identical; where it did, the whole list comes from the store query and the
-    classification the endpoint itself runs (the same ones ``export_static`` uses), with the API's own counts."""
+    classification the endpoint itself runs (the same ones ``export_static`` uses, a black hole's numbers from the
+    grid's evidence files), with the API's own counts."""
     if not served["ok"]:
         grid.expect("not-ranked-full", "fetchNotRankedFull", [params], served)
         return
@@ -256,7 +257,8 @@ def _not_ranked_full(grid: Grid, conn: sqlite3.Connection, snapshot_id: str, par
     groups: dict[str, list] = {"gated": [], "unrated": [], "persona_hidden": []}
     for record in records:
         group, reason = serve_app._classify_not_ranked(record, persona=persona)
-        groups[group].append(serve_app._not_ranked_row(record, group=group, reason=reason).model_dump(mode="json"))
+        counts = serve_app._black_hole_counts(conn, snapshot_id, record, grid.evidence_files)
+        groups[group].append(serve_app._not_ranked_row(record, group=group, reason=reason, counts=counts).model_dump(mode="json"))
     grid.expect(
         "not-ranked-full", "fetchNotRankedFull", [params],
         {"ok": True, "data": {**groups, "counts": served["data"]["counts"], "truncated": False}},
@@ -807,7 +809,8 @@ def _shipped_stylesheet(site: Path) -> str:
 
 def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any = None, log=print) -> dict:
     """The report (``/black-holes/``, the app's report view drawn into the page at export) and its frozen copy, then
-    the CSV, against the database, the API and the stats file. ``{"checked", "hooks", "csv_cells", "errors"}``;
+    the CSV, against the database, the API and the stats file. ``{"checked", "hooks", "csv_cells", "errors",
+    "record", "black_hole_numbers"}`` (each black hole's ``(unanswered, counted)`` as ``/repos`` serves its evidence);
     passing means no errors.
 
     The expected values come from sources the export's report code does not read here: the judged / black-hole
@@ -863,10 +866,12 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
             boards[lens] = collected
         ranked = len(boards["balanced"])
         evidence = []
+        numbers: dict[tuple[str, str], tuple[int, int]] = {}
         for row in conn_names(copy, sid):
             detail = api(f"/v1/porchlamp/repos/{quote(row[0], safe='')}/{quote(row[1], safe='')}")
             if detail["black_hole_evidence"]:
                 evidence.append(detail["black_hole_evidence"])
+                numbers[(row[0], row[1])] = (detail["black_hole_evidence"]["unanswered"], detail["black_hole_evidence"]["population_n"])
         black_hole_records = len(conn_names(copy, sid))
     if len(evidence) != black_hole_records:
         ledger.errors.append(
@@ -1091,7 +1096,7 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
     for error in ledger.errors[:60]:
         log(f"REPORT MISMATCH {error}")
     return {"checked": ledger.checked, "hooks": len(hooks), "csv_cells": csv_cells, "errors": ledger.errors,
-            "record": record if again is not None else None}
+            "record": record if again is not None else None, "black_hole_numbers": numbers}
 
 
 def _redraw_report(site: Path, sid: str, snapshot: dict, methodology: dict, db_sha: str, record: dict) -> Optional[str]:
@@ -2304,6 +2309,59 @@ def _cell_texts(fragment: str, cell: str) -> list[str]:
     return [_plain(m) for m in re.findall(rf'<td data-cell="{cell}"[^>]*>(.*?)</td>', fragment, re.S)]
 
 
+def _redraw(db: Path, site: Path, snapshot: dict, methodology: dict, report: Optional[dict], jobs: list[dict],
+            pages: dict[str, str], ledger: "_Ledger") -> None:
+    """Each job's page again, drawn by ``web/prerender.mjs`` through the site's api.js from the API's answers and the
+    verifier's own digest and record (the leaderboard and not-ranked files are the ones the request grid proves equal
+    to the API), and compared with the export's page byte for byte (``pages``, by address)."""
+    export_static = _export_static()
+    sid = snapshot["snapshot_id"]
+    db_sha = hashlib.sha256(db.read_bytes()).hexdigest()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        data = root / "data" / sid
+        data.mkdir(parents=True)
+        shipped = json.loads((site / "data" / sid / "manifest.json").read_text(encoding="utf-8"))
+        payloads = [("snapshot", snapshot), ("methodology", methodology),
+                    ("manifest", {"source_db_sha256": db_sha, "sort_fields": shipped.get("sort_fields", [])})]
+        if report is not None:
+            payloads.append(("report", report))
+        for name, payload in payloads:
+            (data / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+        for pattern in ("leaderboard-*.json", "not-ranked-*.json"):
+            for board in (site / "data" / sid).glob(pattern):
+                shutil.copyfile(board, data / board.name)
+        (root / "api.js").write_bytes(export_static.STATIC_API.read_bytes())
+        (root / "data-version.js").write_text(export_static.data_version_js(sid), encoding="utf-8")
+        for job in jobs:
+            target = root / job["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(export_static.view_page({**job["route"], "path": job["address"]}), encoding="utf-8")
+        (root / "job.json").write_text(json.dumps({"pages": [{k: v for k, v in j.items() if k != "route"} for j in jobs]}), encoding="utf-8")
+        ran = subprocess.run([find_node(), str(REPO_ROOT / "web" / "prerender.mjs"), str(root), str(root / "job.json")],
+                             capture_output=True, text=True, timeout=600, check=False)
+        if ran.returncode != 0:
+            ledger.errors.append(f"the prerender failed: {ran.stderr[-600:]}")
+            return
+        for job in jobs:
+            again = (root / job["path"]).read_text(encoding="utf-8")
+            ledger.equal(f"{job['address']} is what the prerender draws from the API's answers (bytes)", again == pages[job["address"]], True)
+
+
+#: The "Not ranked" tab's count on a page: the length of the list the tab opens.
+_NOT_RANKED_TAB_COUNT = re.compile(r'data-route-tab="notranked"[^>]*>[^<]*<span class="count">([^<]*)</span>')
+
+
+def _universe(db: Path, sid: str) -> dict[Optional[str], int]:
+    """Projects in the snapshot, by ecosystem, and all of them (``None``)."""
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        counts = dict(conn.execute("SELECT ecosystem, COUNT(*) FROM repositories WHERE snapshot_id = ? GROUP BY ecosystem", (sid,)))
+    finally:
+        conn.close()
+    return {**counts, None: sum(counts.values())}
+
+
 def verify_lists(db: Path, site: Path, *, report: Optional[dict], log=print) -> dict:
     """Every list view (the presets of ``web/app/routes.js``: the ranking's pages, the ecosystem and lens pages, the
     first-timer and the fastest-first-reply views), at every address the route table and the API's own counts give:
@@ -2323,10 +2381,11 @@ def verify_lists(db: Path, site: Path, *, report: Optional[dict], log=print) -> 
     snapshot, methodology = _api_answers(db, "/v1/porchlamp/snapshot", "/v1/porchlamp/methodology")
     sid = snapshot["snapshot_id"]
     min_n = next(q["min_n"] for q in methodology["parameters"] if q["input_id"] == "ttfhr_hours")
+    universe = _universe(db, sid)
     sitemap = site / "sitemap-pages.xml"
     listed = set(re.findall(r"<loc>https://porchlamp\.org(/[^<]*)</loc>", sitemap.read_text(encoding="utf-8"))) if sitemap.is_file() else set()
     jobs, pages, titles, hook_counts = [], {}, {}, {}
-    routes = [route for route in export_static.app_routes() if route.get("fixed") and route["shell"]]
+    routes = [route for route in export_static.app_routes() if route.get("fixed") and route["shell"] and route.get("view") == "ranked"]
     given: set[str] = set()
     for route in routes:
         # the addresses: one, or one per page of what the route lists, counted by the API
@@ -2365,6 +2424,9 @@ def verify_lists(db: Path, site: Path, *, report: Optional[dict], log=print) -> 
             hooks = [(i, v) for i, v in read_page(view).hooks if i.startswith("list.")]
             hook_counts[route["id"]] = hook_counts.get(route["id"], 0) + len(hooks)
             _compare_hooks(ledger, address, hooks, _expected_list_hooks(route, request, body["total"], shown, report, methodology, min_n))
+            # the Not ranked tab: the projects of this lens and ecosystem the ranking leaves out
+            tab = _NOT_RANKED_TAB_COUNT.search(view)
+            ledger.equal(f"{address} Not ranked tab", tab.group(1) if tab else None, str(universe[request["eco"]] - probe["total"]))
             # the head
             title = html.unescape(re.search(r"<title>([^<]*)</title>", text).group(1))
             description = html.unescape(re.search(r'<meta name="description" content="([^"]*)">', text).group(1))
@@ -2382,41 +2444,192 @@ def verify_lists(db: Path, site: Path, *, report: Optional[dict], log=print) -> 
         drawn.update(site.glob(route["path"].strip("/").replace("{page}", "*") + "/index.html"))
     found = {"/" + "".join(f"{part}/" for part in path.parent.relative_to(site).parts) for path in drawn}
     ledger.equal("list pages at no address of the route table", sorted(found - given - {"/"}), [])
-    # the pages again, from the API's answers and the verifier's own digest, through the site's api.js
-    db_sha = hashlib.sha256(db.read_bytes()).hexdigest()
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        data = root / "data" / sid
-        data.mkdir(parents=True)
-        shipped = json.loads((site / "data" / sid / "manifest.json").read_text(encoding="utf-8"))
-        payloads = [("snapshot", snapshot), ("methodology", methodology),
-                    ("manifest", {"source_db_sha256": db_sha, "sort_fields": shipped.get("sort_fields", [])})]
-        if report is not None:
-            payloads.append(("report", report))
-        for name, payload in payloads:
-            (data / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
-        for board in (site / "data" / sid).glob("leaderboard-*.json"):  # the files the request grid proves equal to the API
-            shutil.copyfile(board, data / board.name)
-        (root / "api.js").write_bytes(export_static.STATIC_API.read_bytes())
-        (root / "data-version.js").write_text(export_static.data_version_js(sid), encoding="utf-8")
-        for job in jobs:
-            target = root / job["path"]
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(export_static.view_page({**job["route"], "path": job["address"]}), encoding="utf-8")
-        (root / "job.json").write_text(json.dumps({"pages": [{k: v for k, v in j.items() if k != "route"} for j in jobs]}), encoding="utf-8")
-        ran = subprocess.run([find_node(), str(REPO_ROOT / "web" / "prerender.mjs"), str(root), str(root / "job.json")],
-                             capture_output=True, text=True, timeout=600, check=False)
-        if ran.returncode != 0:
-            ledger.errors.append(f"the list views' prerender failed: {ran.stderr[-600:]}")
-        else:
-            for job in jobs:
-                again = (root / job["path"]).read_text(encoding="utf-8")
-                ledger.equal(f"{job['address']} is what the prerender draws from the API's answers (bytes)", again == pages[job["address"]], True)
+    _redraw(db, site, snapshot, methodology, report, jobs, pages, ledger)
     log(f"verify: list views: {len(pages)} pages; hooks per view {dict(sorted(hook_counts.items()))}; "
         f"re-drawn from the API's answers; checked {ledger.checked} values")
     for error in ledger.errors[:40]:
         log(f"LIST MISMATCH {error}")
     return {"pages": len(pages), "hooks": hook_counts, "errors": ledger.errors}
+
+
+def not_ranked_projects(db: Path, sid: str) -> list[dict]:
+    """Every project the balanced ranking leaves out, A to Z as a reader expects (sorted here: by lowercase owner, then
+    lowercase name), each with its group and its reason as the route table names it, classified here from the stored
+    columns: a stage-0 gate
+    (``eligible = 0``) is gated under its ``gate_reason``, except the gate the engine spells
+    ``"unrated: no_external_workflow"``, which is unrated; an eligible project that is not rated is unrated, as
+    ``off_platform_routed`` when it is routed off-platform, else under its ``unrated_reason``. The ``"unrated: "``
+    prefix is dropped."""
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        records = conn.execute(
+            "SELECT owner, name, ecosystem, eligible, gate_reason, unrated_reason, routed, coverage FROM repositories "
+            "WHERE snapshot_id = ? AND (eligible = 0 OR rated = 0)", (sid,)).fetchall()
+    finally:
+        conn.close()
+    projects = []
+    for owner, name, ecosystem, eligible, gate, unrated, routed, coverage in records:
+        if not eligible:
+            group, reason = ("unrated" if gate.startswith("unrated: ") else "gated"), gate.removeprefix("unrated: ")
+        else:
+            group, reason = "unrated", "off_platform_routed" if routed == "off_platform" else unrated.removeprefix("unrated: ")
+        projects.append({"owner": owner, "name": name, "ecosystem": ecosystem, "group": group, "reason": reason, "coverage": coverage})
+    return sorted(projects, key=lambda p: (p["owner"].lower(), p["name"].lower()))
+
+
+def not_ranked_sentence(project: dict, *, report: Optional[dict], numbers: dict[tuple[str, str], tuple[int, int]],
+                        floor: Optional[float]) -> str:
+    """A project's sentence on its reason list, built here from copy.js's words and the values worked out here:
+    ``owner/name (Ecosystem): <its reason in words>``, a black hole with its own two numbers and the report's deadline
+    when both are known (DESIGN, PR 2, R5 a), a project short of evidence with its coverage and ``floor`` (the
+    methodology's ``unrated_below``) when that is known. Nothing else stands beside the name."""
+    from porchlamp.serve import report_pages as rp
+
+    gate, unrated, row, black_hole_row, below_floor, list_reasons = _not_ranked_words()
+    reason, key = project["reason"], (project["owner"], project["name"])
+
+    def whole(share: float) -> str:
+        return f"{math.floor(share * 100 + 0.5)}%"
+
+    if reason == "insufficient_evidence":
+        coverage = project["coverage"]
+        sentence = list_reasons[reason] if floor is None else (
+            f"{unrated[reason]} {_fill(below_floor, coverage='unknown' if coverage is None else whole(coverage), floor=whole(floor))}")
+    elif reason == "black_hole" and report is not None and key in numbers:
+        unanswered, counted = numbers[key]
+        sentence = _fill(black_hole_row, unanswered=rp.fmt_int(unanswered),
+                         counted=rp.fmt_int(counted), deadline_days=report["values"]["deadline_days"])
+    else:
+        sentence = gate.get(reason) or unrated.get(reason) or reason
+    return _fill(row, repo=f"{project['owner']}/{project['name']}", ecosystem=rp.ECOSYSTEM_NAMES[project["ecosystem"]], sentence=sentence)
+
+
+@functools.lru_cache(maxsize=1)
+def _not_ranked_words() -> tuple[dict[str, str], dict[str, str], str, str, str, dict[str, str]]:
+    """copy.js's reason sentences (gated, unrated), its row ("{repo} ({ecosystem}): {sentence}"), its sentence for a
+    black hole's row with its numbers, its coverage clause with the floor, and its lists' own reason sentences."""
+    from porchlamp.serve import report_pages as rp
+
+    return (rp.copy_js_map("GATE_REASON_COPY"), rp.copy_js_map("UNRATED_REASON_COPY"), rp.copy_js_string("NOT_RANKED_LIST_ROW"),
+            rp.copy_js_string("NOT_RANKED_LIST_ROW_BLACK_HOLE"), rp.copy_js_string("UNRATED_COVERAGE_BELOW_FLOOR"),
+            rp.copy_js_map("NOT_RANKED_LIST_REASONS"))
+_REASON_LIST = re.compile(r'<ol class="reason-list"[^>]*?start="(\d+)"[^>]*>(.*?)</ol>', re.S)
+_REASON_ROW = re.compile(r"<li\b[^>]*>(.*?)</li>", re.S)
+
+
+def _fill(template: str, **slots: str) -> str:
+    return re.sub(r"\{(\w+)\}", lambda m: slots[m.group(1)], template)
+
+
+def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], numbers: Optional[dict], stats: Optional[dict],
+                            log=print) -> dict:
+    """The not-ranked projects as lists by reason (``/not-ranked/<reason>/<n>/``, the route table's presets of the
+    not-ranked view), against a classification worked out here from the database:
+
+    - each list's pages exist, the sitemap lists them, and no other page sits under a list's address;
+    - each page's rows are its reason's projects, alphabetical, 200 a page, each one sentence built here
+      (:func:`not_ranked_sentence`; a black hole's numbers from ``numbers``, what ``/repos`` serves), with nothing
+      beside the name;
+    - every not-ranked project is in exactly one list, once; the counts per reason add up to the snapshot's gated and
+      unrated counts and, with ``stats``, the black holes and the total to the stats file's;
+    - the hooks, the head (title and description whole in a search result, no two titles alike), the links to every
+      page of the list, the Not ranked tab;
+    - each page is byte for byte what ``web/prerender.mjs`` draws from the API's answers.
+    ``{"pages", "rows", "errors"}``."""
+    from porchlamp.serve import report_pages as rp
+
+    ledger = _Ledger()
+    export_static = _export_static()
+    snapshot, methodology = _api_answers(db, "/v1/porchlamp/snapshot", "/v1/porchlamp/methodology")
+    sid = snapshot["snapshot_id"]
+    projects = not_ranked_projects(db, sid)
+    numbers = numbers or {}
+    floor = ((methodology.get("missingness") or {}).get("coverage_thresholds") or {}).get("unrated_below")
+    sitemap = site / "sitemap-pages.xml"
+    listed = set(re.findall(r"<loc>https://porchlamp\.org(/[^<]*)</loc>", sitemap.read_text(encoding="utf-8"))) if sitemap.is_file() else set()
+    # the counts: the snapshot's groups and, with the stats file, its black holes and its total
+    by_group = {group: sum(1 for p in projects if p["group"] == group) for group in ("gated", "unrated")}
+    ledger.equal("not-ranked gated projects = the snapshot's gated count", by_group["gated"], snapshot["counts"]["gated"])
+    ledger.equal("not-ranked unrated projects = the snapshot's unrated count", by_group["unrated"], snapshot["counts"]["unrated"])
+    if stats is not None:
+        ledger.equal("not-ranked projects = the stats file's repos - rated", len(projects), stats["repos"] - stats["rated"])
+        ledger.equal("black-hole list = the stats file's black holes", sum(1 for p in projects if p["reason"] == "black_hole"),
+                     stats["black_holes"])
+    routes = [route for route in export_static.app_routes() if (route.get("fixed") or {}).get("reason") and route["shell"]]
+    # each list's first page and its count: the "Lists by reason" line links the lists that have projects
+    first_pages = {route["path"].replace("{page}", "1"): sum(1 for p in projects if p["reason"] == route["fixed"]["reason"])
+                   for route in routes}
+    seen: dict[tuple[str, str], int] = {}
+    on_pages: dict[str, int] = {}  # rows found on each reason's pages
+    jobs, pages, titles, given, per_reason = [], {}, {}, set(), {}
+    for route in routes:
+        reason, size = route["fixed"]["reason"], route["fixed"]["page_size"]
+        members = [p for p in projects if p["reason"] == reason]
+        per_reason[reason] = len(members)
+        addresses = [route["path"].replace("{page}", str(n)) for n in range(1, -(-len(members) // size) + 1)]  # none when empty
+        given.update(addresses)
+        for number, address in enumerate(addresses, start=1):
+            path = site / address.strip("/") / "index.html"
+            ledger.equal(f"{address} is a page of the export", path.is_file(), True)
+            ledger.equal(f"{address} is in sitemap-pages.xml", address in listed, True)
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8")
+            pages[address] = text
+            jobs.append({"path": path.relative_to(site).as_posix(), "view": route["view"], "address": address, "route": route})
+            view = _home_view(text) or ""
+            shown = members[(number - 1) * size : number * size]
+            found = _REASON_LIST.search(view)
+            items = _REASON_ROW.findall(found.group(2)) if found else []
+            ledger.equal(f"{address} list starts at", found.group(1) if found else None, str((number - 1) * size + 1))
+            ledger.equal(f"{address} rows are its reason's projects, alphabetical", keyed_items(found.group(2) if found else "", "li"),
+                         [(p["owner"], p["name"]) for p in shown])
+            got = [_plain(item) for item in items]
+            want = [not_ranked_sentence(p, report=report, numbers=numbers, floor=floor) for p in shown]
+            for i, (g, w) in enumerate(zip(got, want)):
+                ledger.equal(f"{address} row {i + 1}", g, w)
+            ledger.equal(f"{address} row count", len(got), len(want))
+            for key in keyed_items(found.group(2) if found else "", "li"):
+                seen[key] = seen.get(key, 0) + 1
+                on_pages[reason] = on_pages.get(reason, 0) + 1
+            hooks = [(i, v) for i, v in read_page(view).hooks if i.startswith("list.")]
+            expected = {"list.total": rp.fmt_int(len(members))}
+            if reason == "black_hole" and report is not None:
+                expected.update({k: report["values"][v] for k, v in (("list.deadline_days", "deadline_days"),
+                                 ("list.min_n", "min_n"), ("list.ci_percent", "ci_percent"))})
+            _compare_hooks(ledger, address, hooks, expected)
+            links = set(read_page(view).links)
+            ledger.equal(f"{address} links every page of its list", [a for a in addresses if a not in links], [])
+            ledger.equal(f"{address} links every other list with projects, and no list without",
+                         sorted(a for a in links if a in first_pages), sorted(a for a, n in first_pages.items() if n))
+            tab = _NOT_RANKED_TAB_COUNT.search(view)
+            ledger.equal(f"{address} Not ranked tab", tab.group(1) if tab else None, str(len(projects)))
+            title = html.unescape(re.search(r"<title>([^<]*)</title>", text).group(1))
+            description = html.unescape(re.search(r'<meta name="description" content="([^"]*)">', text).group(1))
+            ledger.equal(f"{address} title fits ({TITLE_MAX})", len(title) <= TITLE_MAX, True)
+            ledger.equal(f"{address} description fits ({DESCRIPTION_MAX})", len(description) <= DESCRIPTION_MAX, True)
+            ledger.equal(f"{address} title is its own", titles.setdefault(title, address), address)
+    # the rows the gated lists and the unrated lists hold, against the snapshot's counts
+    group_of = {p["reason"]: p["group"] for p in projects}
+    by_list = {group: sum(n for reason, n in on_pages.items() if group_of.get(reason) == group) for group in ("gated", "unrated")}
+    ledger.equal("rows on the gated lists = the snapshot's gated count", by_list["gated"], snapshot["counts"]["gated"])
+    ledger.equal("rows on the unrated lists = the snapshot's unrated count", by_list["unrated"], snapshot["counts"]["unrated"])
+    # every not-ranked project in exactly one list, once
+    everyone = {(p["owner"], p["name"]) for p in projects}
+    ledger.equal("not-ranked projects in no list", sorted(everyone - set(seen))[:20], [])
+    ledger.equal("not-ranked projects listed more than once", sorted(k for k, n in seen.items() if n > 1)[:20], [])
+    ledger.equal("listed projects that are ranked", sorted(set(seen) - everyone)[:20], [])
+    # no page under a list's address that the route table does not give
+    under = {path for pattern in ("not-ranked/*/index.html", "not-ranked/*/*/index.html") for path in site.glob(pattern)}
+    found_addresses = {"/" + "".join(f"{part}/" for part in path.parent.relative_to(site).parts) for path in under}
+    ledger.equal("not-ranked list pages at no address of the route table", sorted(found_addresses - given), [])
+    _redraw(db, site, snapshot, methodology, report, jobs, pages, ledger)
+    log(f"verify: not-ranked lists: {len(pages)} pages; rows per reason {dict(sorted(per_reason.items()))}; rows listed "
+        f"{sum(on_pages.values())} of {len(projects)} not ranked (gated lists {by_list['gated']}, unrated lists {by_list['unrated']}), "
+        f"each once: {not ledger.errors}; re-drawn from the API's answers; checked {ledger.checked} values")
+    for error in ledger.errors[:40]:
+        log(f"NOT-RANKED MISMATCH {error}")
+    return {"pages": len(pages), "rows": sum(seen.values()), "errors": ledger.errors}
 
 
 #: Every ranked project's page is at most this many plain-link clicks from ``/`` (owner, 2026-10-17).
@@ -2520,12 +2733,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"SITEMAP {problem}")
     ok = ok and not problems
     ok = not verify_chrome(args.db.resolve(), site)["errors"] and ok
-    record = None
+    record, numbers, stats = None, None, None
     if args.stats is not None:
         result = verify_report(args.db.resolve(), args.stats.resolve(), site, evidence_files=evidence_files)
-        ok, record = not result["errors"] and ok, result.get("record")
+        ok, record, numbers = not result["errors"] and ok, result.get("record"), result.get("black_hole_numbers")
+        stats = json.loads(args.stats.read_text(encoding="utf-8"))
     ok = not verify_methodology(args.db.resolve(), site, report=record)["errors"] and ok
     ok = not verify_lists(args.db.resolve(), site, report=record)["errors"] and ok
+    ok = not verify_not_ranked_lists(args.db.resolve(), site, report=record, numbers=numbers, stats=stats)["errors"] and ok
     if args.stats is not None:
         ok = not verify_projects(args.db.resolve(), site)["errors"] and ok
         ok = not verify_home(args.db.resolve(), site, report=record)["errors"] and ok

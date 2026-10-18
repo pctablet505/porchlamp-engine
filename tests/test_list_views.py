@@ -51,7 +51,7 @@ def test_each_route_address_has_its_list_page_and_no_list_page_lacks_its_route(b
     site, db, *_ = built
     result = verify_static_export.verify_lists(db, site, report=report_record, log=lambda _line: None)
     assert result["errors"] == [], result["errors"][:5]
-    assert result["pages"] >= len([r for r in verify_static_export._export_static().app_routes() if r.get("fixed")])
+    assert result["pages"] >= len([r for r in verify_static_export._export_static().app_routes() if r.get("view") == "ranked" and r.get("fixed")])
     copy = tmp_path / "site"
     shutil.copytree(site, copy)
     (copy / "go" / "first-timers" / "index.html").unlink()  # a route without its page
@@ -72,5 +72,5 @@ def test_a_paged_route_has_a_page_for_each_full_hundred_rows_and_one_for_the_res
     def boards(rows: int) -> dict:
         return {"balanced": {"rows": [{"ecosystem": "go"}] * rows}}
 
-    assert [len(export_static.route_instances(route, boards(n))) for n in (0, 1, 100, 101, 200, 201)] == [1, 1, 1, 2, 2, 3]
-    assert export_static.route_instances(route, boards(101)) == ["/rankings/1/", "/rankings/2/"]
+    assert [len(export_static.route_instances(route, boards(n), {})) for n in (0, 1, 100, 101, 200, 201)] == [1, 1, 1, 2, 2, 3]
+    assert export_static.route_instances(route, boards(101), {}) == ["/rankings/1/", "/rankings/2/"]

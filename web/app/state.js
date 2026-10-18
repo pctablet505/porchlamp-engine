@@ -204,6 +204,9 @@ export function defaultState() {
     notRankedError: null,
     notRankedPage: 1,
     notRankedPageSize: DEFAULT_PAGE_SIZE,
+    // The reason a list of the not-ranked projects by reason shows (routes.js `fixed.reason`, a bare reason code), at
+    // its own address; null on every other view, and on the whole not-ranked list.
+    notRankedReason: null,
 
     snapshot: null,
     snapshotLoading: false,
@@ -325,6 +328,7 @@ const LIST_FIELDS = Object.freeze({
   sort: { state: "sort", value: "rank" },
   page: { state: "page", value: 1 },
   page_size: { state: "pageSize", value: DEFAULT_PAGE_SIZE },
+  reason: { state: "notRankedReason", value: null },
 });
 
 const owns = (object, key) => Boolean(object) && Object.prototype.hasOwnProperty.call(object, key);
@@ -339,9 +343,11 @@ function fixedValue(route, key) {
   return route.fixed[key] === null ? LIST_FIELDS[key].value : route.fixed[key];
 }
 
-/** The list fields of a whole state, by query-field name. */
+/** The list fields of a whole state, by query-field name. Only the not-ranked view reads a reason. */
 function listFieldsOf(state) {
-  return Object.fromEntries(Object.entries(LIST_FIELDS).map(([key, field]) => [key, state[field.state]]));
+  const fields = Object.fromEntries(Object.entries(LIST_FIELDS).map(([key, field]) => [key, state[field.state]]));
+  if (state.tab !== "notranked" || fields.reason === undefined) fields.reason = null;
+  return fields;
 }
 
 /**
@@ -581,6 +587,7 @@ export function listSpan(state) {
  */
 export function listTitleSlots(route, state) {
   const fixed = route.fixed || {};
+  if (fixed.reason) return reasonListTitleSlots(route, state);
   const slots = {};
   if (fixed.eco) slots.ecosystem = copy.ecosystemName(fixed.eco);
   if (fixed.persona && fixed.persona !== "balanced") slots.lens = copy.LENS_PHRASES[fixed.persona];
@@ -594,6 +601,94 @@ export function listTitleSlots(route, state) {
   return slots;
 }
 
+// --- The lists of the not-ranked projects by reason (routes.js "notranked-*") ---------------------------------------
+
+/** A not-ranked row's reason: its gate, else its unrated reason, in the bare form ("unrated: insufficient_evidence" is
+ *  "insufficient_evidence"), as the routes fix it. */
+export function notRankedRowReason(row) {
+  return copy.bareUnratedReason(row.gate_reason ?? row.unrated_reason ?? null);
+}
+
+/** The not-ranked rows in `ecosystem` (a code) whose "owner/name" holds `query`; all of them without either. */
+export function filterNotRankedRows(rows, ecosystem, query) {
+  if (!rows) return [];
+  const eco = ecosystem ? ecosystem.trim().toLowerCase() : "";
+  const q = query ? query.trim().toLowerCase() : "";
+  if (!eco && !q) return rows;
+  return rows.filter((r) => {
+    if (eco && String(r.ecosystem || "").toLowerCase() !== eco) return false;
+    if (q && !`${r.owner}/${r.name}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+/**
+ * The Not ranked tab's count: the size of the list the tab opens, that lens's not-ranked list filtered by the page's
+ * ecosystem and search (what views/notranked.js lists). With the list loaded, its rows; without it and with no
+ * ecosystem or search, the snapshot's own numbers (balanced: gated + unrated; another lens: the total less the
+ * projects the lens ranks). With an ecosystem or a search and no list loaded: null, never another list's number.
+ */
+export function notRankedTabCount(state) {
+  const searched = Boolean(state.query && state.query.trim());
+  const notRanked = state.notRanked;
+  if (notRanked && !(notRanked.truncated && !state.ecosystem && !searched)) {
+    return ["gated", "unrated", "persona_hidden"].reduce(
+      (sum, group) => sum + filterNotRankedRows(notRanked[group], state.ecosystem, state.query).length,
+      0
+    );
+  }
+  if (state.ecosystem || searched) return null;
+  const counts = state.leaderboard ? state.leaderboard.counts : null;
+  if (state.persona === "balanced") return counts ? counts.gated + counts.unrated : null;
+  const snapshot = state.snapshot;
+  const visible = snapshot && snapshot.persona_visible_counts ? snapshot.persona_visible_counts[state.persona] : undefined;
+  const total = snapshot && snapshot.counts ? snapshot.counts.total : undefined;
+  return typeof visible === "number" && typeof total === "number" ? total - visible : null;
+}
+
+/** Every not-ranked row with `reason`, in the API's order (lower-case owner/name, gated then unrated). */
+export function notRankedReasonRows(notRanked, reason) {
+  if (!notRanked) return [];
+  return [...(notRanked.gated || []), ...(notRanked.unrated || [])].filter((row) => notRankedRowReason(row) === reason);
+}
+
+/**
+ * The page of a list by reason `state` is at: `{ route, reason, rows, total, page, pages, pageSize, first }`, the rows
+ * of that page (`pageSize` a page, the API's order) with `page` held to the list's pages (a list with no rows has one
+ * empty page). `rows`, `total` and `pages` are null before the not-ranked list has loaded. Null at any other address.
+ */
+export function reasonListPage(state) {
+  const route = state.tab === "notranked" ? routeForState(state) : null;
+  const reason = route && route.fixed ? route.fixed.reason : null;
+  if (!reason) return null;
+  const pageSize = route.fixed.page_size;
+  const all = state.notRanked ? notRankedReasonRows(state.notRanked, reason) : null;
+  const pages = all ? Math.max(1, Math.ceil(all.length / pageSize)) : null;
+  const page = pages ? Math.min(Math.max(1, state.page || 1), pages) : Math.max(1, state.page || 1);
+  const start = (page - 1) * pageSize;
+  return {
+    route,
+    reason,
+    rows: all ? all.slice(start, start + pageSize) : null,
+    total: all ? all.length : null,
+    page,
+    pages,
+    pageSize,
+    first: start + 1,
+  };
+}
+
+/** A list by reason's title slots: its name, and its page part when it has more than one page; null before the
+ *  not-ranked list has loaded (the view's own title stands until then). */
+function reasonListTitleSlots(route, state) {
+  const at = reasonListPage({ ...state, tab: "notranked" });
+  if (!at || at.route !== route || at.pages === null) return null;
+  const pageOf =
+    at.pages > 1
+      ? copy.NOT_RANKED_LIST_PAGE_OF.replace("{page}", groupThousands(at.page)).replace("{pages}", groupThousands(at.pages))
+      : "";
+  return { list: copy.NOT_RANKED_LIST_NAMES[route.fixed.reason], page_of: pageOf };
+}
 
 export function weightsEqual(a, b) {
   return PILLAR_IDS.every((p) => Math.abs((a[p] ?? 0) - (b[p] ?? 0)) < 1e-9);
@@ -747,6 +842,19 @@ export function reduce(state, action) {
         if (payload.pageSize !== undefined) tabSync.configurePageSize = payload.pageSize;
         if (payload.sort !== undefined) tabSync.configureSort = payload.sort;
       }
+      // A lens, an ecosystem or a search chosen on a list by reason leaves the list for the whole not-ranked list
+      // (`/not-ranked/?…`), at its own page size: the list's address fixes all three.
+      const leavesReasonList =
+        Boolean(state.notRankedReason) && payload.notRankedReason === undefined && Boolean(personaChanged || filterChanged);
+      const reasonSync = leavesReasonList
+        ? {
+            notRankedReason: null,
+            notRankedPage: 1,
+            notRankedPageSize: DEFAULT_PAGE_SIZE,
+            ...(payload.page === undefined ? { page: 1 } : {}),
+            ...(nextTab === "notranked" && payload.pageSize === undefined ? { pageSize: DEFAULT_PAGE_SIZE } : {}),
+          }
+        : {};
       const repoChanged = payload.repo !== undefined && payload.repo !== state.repo;
       const validRepo = isValidRepoKey(payload.repo);
       const repoSync = repoChanged
@@ -785,6 +893,7 @@ export function reduce(state, action) {
                 ...(payload.page === undefined ? { page: 1 } : {}),
               }
             : {}),
+        ...reasonSync,
         ...tabSync,
       };
     }
@@ -800,6 +909,14 @@ export function reduce(state, action) {
       };
     case "SET_TAB": {
       if (action.tab === state.tab) return state;
+      // A list by reason is a page of the not-ranked view: another view, and the Not ranked tab opened from there,
+      // come back to the whole list.
+      if (state.notRankedReason) {
+        return reduce(
+          { ...state, notRankedReason: null, notRankedPage: 1, notRankedPageSize: DEFAULT_PAGE_SIZE },
+          action
+        );
+      }
       if (action.tab === "notranked") {
         return {
           ...state,

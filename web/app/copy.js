@@ -190,7 +190,7 @@ const GATE_REASON_COPY = Object.freeze({
 // A project record carries the engine's own spelling of an unrated reason
 // ("unrated: off_platform_routed", porchlamp/core/gates.py); the Not-ranked
 // list sends it bare ("off_platform_routed"). Both read the same sentence.
-function bareUnratedReason(reason) {
+export function bareUnratedReason(reason) {
   return typeof reason === "string" ? reason.replace(/^unrated: /, "") : reason;
 }
 export function gateReasonText(reason) {
@@ -205,11 +205,28 @@ const UNRATED_REASON_COPY = Object.freeze({
   off_platform_routed:
     "Contribution activity happens off-platform and cannot be measured here.",
 });
-export function unratedReasonText(reason, coverage) {
+/** The insufficient-evidence sentence's coverage clause: the row's coverage and the methodology's floor, each a whole
+ *  percent. `unratedReasonText` fills it and no view reads it, so it is not exported: the verifier and the tests read
+ *  it from this file, as they read the reason maps above. */
+const UNRATED_COVERAGE_BELOW_FLOOR = "(coverage {coverage}, below the {floor} floor).";
+/** The coverage floor an unrated project fell below: methodology.json `missingness.coverage_thresholds.unrated_below`
+ *  (a share); null without a methodology that states it. */
+export function unratedCoverageFloor(methodology) {
+  const thresholds = methodology && methodology.missingness ? methodology.missingness.coverage_thresholds : null;
+  return thresholds && typeof thresholds.unrated_below === "number" ? thresholds.unrated_below : null;
+}
+/**
+ * An unrated reason's sentence. Insufficient evidence names the project's coverage and the floor it fell below
+ * (`floor`, a share from `unratedCoverageFloor`); without a floor (the methodology has not loaded) the sentence says
+ * the reason alone, never a floor it was not given.
+ */
+export function unratedReasonText(reason, coverage, floor = null) {
   const bare = bareUnratedReason(reason);
   if (bare === "insufficient_evidence") {
-    const pct = typeof coverage === "number" ? `${Math.round(coverage * 100)}%` : "unknown";
-    return `${UNRATED_REASON_COPY[bare]} (coverage ${pct}, below the 60% floor).`;
+    if (typeof floor !== "number") return NOT_RANKED_LIST_REASONS.insufficient_evidence;
+    const whole = (share) => `${Math.round(share * 100)}%`;
+    const pct = typeof coverage === "number" ? whole(coverage) : "unknown";
+    return `${UNRATED_REASON_COPY[bare]} ${UNRATED_COVERAGE_BELOW_FLOOR.replace("{coverage}", pct).replace("{floor}", whole(floor))}`;
   }
   return UNRATED_REASON_COPY[bare] || reason;
 }
@@ -1132,6 +1149,39 @@ export const COLUMN_FIRST_REPLY = "First reply (median)";
 export const COLUMN_NO_REPLY = "No reply in {deadline_days} days";
 /** A median's sample: the first-reply cell's title, and a second line of it on the fastest-reply lists. */
 export const REPLY_SAMPLE_TEXT = "{n} pull requests";
+
+// --- The not-ranked projects by reason, one list each at its own address (routes.js "notranked-*"; views/notranked.js)
+// No digit and no typed count in any of these: every number fills a slot. Keyed by the bare reason code a row carries.
+/** Each list's name: its h1 ("Not ranked: {list}"), its title, and, capitalised, its link in the "Lists by reason" line. */
+export const NOT_RANKED_LIST_NAMES = Object.freeze({
+  stale: "no recent human activity",
+  non_software: "not software",
+  archived: "archived",
+  unlicensed: "no open-source license",
+  black_hole: "unanswered pull requests",
+  fork: "fork of another repository",
+  mirror: "mirror of another repository",
+  insufficient_evidence: "not enough evidence",
+  no_external_workflow: "no outside contribution workflow",
+  off_platform_routed: "contributions happen off GitHub",
+});
+/** A list's title, after its name, when it has more than one page (routes.js "{page_of}"). */
+export const NOT_RANKED_LIST_PAGE_OF = " (page {page} of {pages})";
+/** The intro's first sentence where it is not the reason's own sentence (GATE_REASON_COPY, UNRATED_REASON_COPY): the
+ *  black-hole one with the report's deadline in a slot, and the insufficient-evidence one without a row's coverage. */
+export const NOT_RANKED_LIST_REASONS = Object.freeze({
+  black_hole: "More than half of outside pull requests got no human reply, review or merge on GitHub within {deadline_days} days.",
+  insufficient_evidence: "Not enough measured evidence to rank.",
+});
+export const NOT_RANKED_LIST_COUNT = "{total} projects, A to Z, {page_size} a page.";
+export const NOT_RANKED_LIST_TEST = "The test: more than half of at least {min_n} counted pull requests, at {ci_percent}% confidence.";
+/** One row: the whole text of its list item. */
+export const NOT_RANKED_LIST_ROW = "{repo} ({ecosystem}): {sentence}";
+export const NOT_RANKED_LIST_ROW_BLACK_HOLE =
+  "{unanswered} of {counted} counted outside pull requests got no human reply, review or merge within {deadline_days} days.";
+export const NOT_RANKED_LIST_PAGES_LABEL = "The whole list, {page_size} projects a page:";
+export const NOT_RANKED_LISTS_LABEL = "Lists by reason:";
+export const NOT_RANKED_LISTS_ITEM = "{list} ({count})";
 export const REPORT_PAGE_HREF = "/black-holes/";
 export const FOOTER_REPORT_LABEL = "Report";
 export const FOOTER_METHODOLOGY_LABEL = "Methodology";
