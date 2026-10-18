@@ -84,8 +84,8 @@ def _pages(site: Path) -> dict[str, Page]:
     pages[REPORT_PAGES[1]] = Page(json.dumps({"view": "report"}), "page")
     for path in sorted(site.glob("projects/*/*/index.html")):
         pages[path.relative_to(site).as_posix()] = Page(nowhere, "project")
-    pages["check/index.html"] = Page(nowhere, "check")
-    on_disk = {path.relative_to(site).as_posix() for path in site.rglob("index.html")} | {"404.html"}
+    # /check/ is a stub with no chrome (verify_projects checks it)
+    on_disk = ({path.relative_to(site).as_posix() for path in site.rglob("index.html")} - {"check/index.html"}) | {"404.html"}
     assert on_disk == set(pages), f"unclassified: {sorted(on_disk - set(pages))}; missing: {sorted(set(pages) - on_disk)}"
     return pages
 
@@ -198,7 +198,7 @@ def chrome_problems(root: Path, pages: dict[str, Page], expected: dict[str, dict
 def test_every_page_carries_the_header_nav_and_footer_chrome_js_draws(built, tmp_path):
     site = built[0]
     pages = _pages(site)
-    assert len(pages) > 300 and {page.scripts for page in pages.values()} == {"app", "page", "project", "check"}
+    assert len(pages) > 300 and {page.scripts for page in pages.values()} == {"app", "page", "project"}
     expected = _expected_chrome(site, pages, tmp_path)
     lists = {page.chrome for page in pages.values() if '"address"' in page.chrome}  # a list view at one of its addresses
     assert {json.loads(spec)["view"] for spec in lists} == {"ranked", "notranked"}  # the leaderboard's and the not-ranked view's
@@ -323,7 +323,7 @@ def test_the_theme_runs_in_head_before_the_stylesheets_on_every_page(built, tmp_
     assert theme_problems(site, pages) == []
 
     plain = '<script src="/theme-init.js"></script>'
-    deferred, late = "projects/acme/flagged-repo/index.html", "check/index.html"
+    deferred, late = "projects/acme/flagged-repo/index.html", "methodology/index.html"
     planted = tmp_path / "planted"
     _copy_pages(site, planted, [deferred, late])
     _rewrite(planted, deferred, plain, '<script src="/theme-init.js" defer></script>')
@@ -435,8 +435,11 @@ def methodology_problems(text: str, record: tuple[dict, dict, dict]) -> list[str
     for lens, slug in report_pages.LENS_SLUGS.items():
         if (f"/{slug}/", names[lens]) not in anchors:
             problems.append(f"no link {names[lens]!r} to /{slug}/")
-    if not any(href == "/check/" for href, _ in anchors):
-        problems.append("no link to /check/")
+    if any(href == "/check/" for href, _ in anchors):
+        problems.append("a link to /check/, a stub")
+    check_line = report_pages.copy_js_string("METHODOLOGY_CHECK_LINE")
+    if not any(node.text() == check_line for node in nodes if node.tag == "p"):
+        problems.append(f"no paragraph {check_line!r}")
     ids = {node.attrs["id"] for node in nodes if "id" in node.attrs}
     problems += [f"no element with id {anchor!r}" for anchor in OLD_ANCHORS if anchor not in ids]
 

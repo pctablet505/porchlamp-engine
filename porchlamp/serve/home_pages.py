@@ -273,7 +273,6 @@ def llms_txt(f: HomeFacts) -> str:
         f"- [The same report, frozen for citation (snapshot `{sid}`)]({f.report_frozen})",
         f"- [CSV of the {fmt_int(f.ranked)} ranked projects (CC BY 4.0)]({f.report_csv})",
         f"- [Methodology: every gate, pillar, lens, weight and parameter]({SITE}/methodology/)",
-        f"- [Check any project: a search over the {fmt_int(f.ranked)} ranked projects]({SITE}/check/)",
         "",
         "## One page per ranked project (readable without JavaScript)",
         f"To check a project, open {SITE}/projects/<owner>/<name>/ (lower case).",

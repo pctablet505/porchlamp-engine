@@ -259,7 +259,7 @@ const QUERY_FIELDS = Object.freeze({
     write: (state) => (state.persona && state.persona !== "balanced" ? state.persona : null),
   },
   eco: { read: (value) => ({ ecosystem: value }), write: (state) => state.ecosystem || null },
-  q: { read: (value) => ({ query: value }), write: (state) => state.query || null },
+  q: { read: (value) => ({ query: normalizeQuery(value) }), write: (state) => state.query || null },
   sort: {
     read: (value) => (VALID_SORT_FIELDS.has(value.startsWith("-") ? value.slice(1) : value) ? { sort: value } : null),
     write: (state) => (state.sort && state.sort !== "rank" ? state.sort : null),
@@ -601,6 +601,46 @@ export function listTitleSlots(route, state) {
   return slots;
 }
 
+/**
+ * What a person typed or pasted into the search, as the text to look for: the spaces at its ends, its case, a GitHub
+ * address's `https://`, `www.` and `github.com/`, and trailing slashes are dropped, so `https://github.com/Pallets/Flask/`
+ * reads as `pallets/flask`.
+ */
+export function normalizeQuery(text) {
+  return String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//, "")
+    .replace(/\/+$/, "");
+}
+
+/**
+ * Where the header search's Enter takes a reader, from what they typed or pasted (`text`) and where they are
+ * (`state`): text that is not an owner/name stays the list's filter (`{ kind: "filter" }`), or opens the rankings
+ * filtered by it on a view without one (`{ kind: "address", href }`). An owner/name opens its project:
+ * - one the snapshot holds unranked, the not-ranked list filtered to its row, which shows its reason
+ *   (`{ kind: "address", href }`, its ecosystem filter dropped);
+ * - any other, its panel over the list (`{ kind: "panel", owner, name }`): a ranked project's, in its real spelling,
+ *   or the panel of a name the snapshot does not hold, which says so.
+ * `lookup(owner, name)` answers `{ owner, name, rated }` for a project the snapshot holds (its real spelling), `null`
+ * for one it does not, and `undefined` when it cannot tell.
+ */
+export async function searchDestination(text, state, lookup) {
+  const query = normalizeQuery(text);
+  const slug = parseRepoSlug(query);
+  if (!slug) {
+    if (routeById(state.tab) && routeById(state.tab).query.includes("q")) return { kind: "filter" };
+    return { kind: "address", href: hrefFor({ ...state, query, page: 1 }, "ranked") };
+  }
+  const held = await lookup(slug.owner, slug.name);
+  if (held && held.rated === false) {
+    const row = normalizeQuery(`${held.owner}/${held.name}`);
+    return { kind: "address", href: hrefFor({ ...state, ecosystem: "", query: row, notRankedPage: 1 }, "notranked") };
+  }
+  const at = held || slug;
+  return { kind: "panel", owner: at.owner, name: at.name };
+}
+
 // --- The lists of the not-ranked projects by reason (routes.js "notranked-*") ---------------------------------------
 
 /** A not-ranked row's reason: its gate, else its unrated reason, in the bare form ("unrated: insufficient_evidence" is
@@ -811,6 +851,7 @@ export function reduce(state, action) {
       const rawPayload = action.payload || {};
       const { resetTabSlices: payloadReset, ...payload } = rawPayload;
       if (payload.repo !== undefined) payload.repo = normalizeRepoParam(payload.repo);
+      if (payload.query !== undefined) payload.query = normalizeQuery(payload.query);
       const shouldResetSlices = Boolean(action.resetTabSlices || payloadReset);
       const nextTab = payload.tab !== undefined ? payload.tab : state.tab;
       const personaChanged = payload.persona && payload.persona !== state.persona;

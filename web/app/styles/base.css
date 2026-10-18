@@ -106,6 +106,8 @@ a {
   }
 }
 
+/* The frozen report copy /black-holes/2026-10-14/ (carried from the published tree, never re-rendered) uses the
+ * .seo-fallback rules; no page the export writes does (scripts/export_static.py CARRIED_FROZEN_ASSETS). */
 .seo-fallback {
   max-width: 960px;
   margin: 0 auto;

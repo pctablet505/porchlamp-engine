@@ -2696,9 +2696,9 @@ test("footer: one methodology link, the report and the data, real links from the
   assert.ok(failed.includes('data-footer-retry="true">') && !failed.includes("data-v="), "an error offers the retry and hooks nothing");
 });
 
-// ------------------------------------------------ E3: project pages (rows link to them; the badge targets them; /check/)
+// ------------------------------------------------ E3: project pages (rows link to them; the badge targets them)
 import { rowCells, renderCard, handleRepoLinkClick, repoLinkHtml } from "../components/table.js";
-import { projectAddress, normalizeQuery, matchProjects, renderResults } from "../check.js";
+import { normalizeQuery, searchDestination } from "../state.js";
 
 const E3_ROW = { owner: "FreeCAD", name: "FreeCAD", ecosystem: "systems", rank: 37, porchlamp: 70.1, tier: "B", tier_ceiling: "A", coverage: 0.9, quadrant: "Sweet Spot" };
 
@@ -2789,21 +2789,80 @@ test("the sitemap index names both child sitemaps, and the exporter writes both"
   for (const child of children) assert.ok(!existsSync(path.join(webRoot, child)), `${child} is written by the exporter, not shipped by hand`);
 });
 
-test("E3: /check/ search: the address rule, pasted GitHub addresses, ranking of matches and real links", () => {
-  assert.equal(projectAddress("ggml-org/llama.cpp"), "projects/ggml-org/llama.cpp/");
-  assert.equal(projectAddress("FreeCAD/FreeCAD"), "projects/freecad/freecad/");
+test("search: what a person types or pastes reads as the text to look for, a GitHub address, case, end spaces and trailing slashes dropped", () => {
   assert.equal(normalizeQuery("  https://github.com/Pallets/Flask/ "), "pallets/flask");
-  const names = ["psf/requests", "pallets/flask", "someone/flask-extras", "pallets/click", "FreeCAD/FreeCAD"];
-  assert.deepEqual(matchProjects(names, "flask"), ["pallets/flask", "someone/flask-extras"], "both start the name: rank order is kept");
-  assert.deepEqual(matchProjects(["ab/xflask", "cd/flask"], "flask"), ["cd/flask", "ab/xflask"], "a name that starts with it comes before one that only contains it");
-  assert.deepEqual(matchProjects(names, "pallets/flask"), ["pallets/flask"]);
-  assert.deepEqual(matchProjects(names, "FREECAD"), ["FreeCAD/FreeCAD"]);
-  assert.deepEqual(matchProjects(names, "   "), []);
-  assert.equal(matchProjects(names, "a", 2).length, 2, "the limit holds");
-  const html = renderResults(["FreeCAD/FreeCAD"], "freecad");
-  assert.equal(html, '<li><a href="../projects/freecad/freecad/">FreeCAD/FreeCAD</a></li>');
-  assert.ok(renderResults([], 'x<y"').includes("No ranked project matches"), "an empty result says so");
-  assert.ok(!renderResults([], "<img>").includes("<img>"), "the query is escaped");
+  assert.equal(normalizeQuery("www.github.com/Keras-Team/keras"), "keras-team/keras");
+  assert.equal(normalizeQuery("github.com/keras-team/keras//"), "keras-team/keras");
+  assert.equal(normalizeQuery("Keras-Team/Keras/"), "keras-team/keras");
+  assert.equal(normalizeQuery("kera"), "kera");
+  assert.equal(normalizeQuery("   "), "");
+  assert.equal(normalizeQuery(null), "");
+  assert.equal(normalizeQuery("gitlab.com/a/b"), "gitlab.com/a/b", "only GitHub's address is dropped");
+});
+
+test("search: the filter reads the typed or pasted text as normalizeQuery does, and ?q= holds that one spelling", () => {
+  // typing, Enter and leaving the box all dispatch SET_PARAMS: a pasted address filters as its owner/name
+  const typed = reduce(defaultState(), { type: "SET_PARAMS", payload: { query: " https://github.com/Keras-Team/Keras/ ", page: 1 } });
+  assert.equal(typed.query, "keras-team/keras");
+  assert.equal(serializeLocation(typed), "/?q=keras-team%2Fkeras");
+  // an address someone wrote by hand, or a page without the app sent, reads the same
+  assert.equal(parseLocation("/", "?q=Keras-Team/Keras/").query, "keras-team/keras");
+  assert.equal(parseLocation("/not-ranked/", "?q=https%3A%2F%2Fgithub.com%2FOrg-Stale-0001%2FRepo1").query, "org-stale-0001/repo1");
+  // and finds the row, whatever its case
+  const rows = [{ owner: "Keras-Team", name: "Keras", ecosystem: "pypi" }, { owner: "other", name: "keras-x", ecosystem: "pypi" }];
+  assert.deepEqual(nrState.filterNotRankedRows(rows, "", typed.query).map((r) => `${r.owner}/${r.name}`), ["Keras-Team/Keras"]);
+  assert.equal(reduce(defaultState(), { type: "SET_PARAMS", payload: { query: "kera" } }).query, "kera", "a partial name is kept as typed");
+});
+
+test("search: Enter on an owner/name opens its project (a ranked one's panel, a not-ranked one's row, an unknown one's panel); other text stays the filter", async () => {
+  const asked = [];
+  const held = {
+    "keras-team/keras": { owner: "keras-team", name: "keras", rated: true },
+    "freecad/freecad": { owner: "FreeCAD", name: "FreeCAD", rated: true },
+    "org-stale-0001/repo1": { owner: "Org-stale-0001", name: "Repo1", rated: false },
+    "broken/record": { owner: "broken", name: "record", rated: null },
+  };
+  const lookup = async (owner, name) => {
+    asked.push(`${owner}/${name}`);
+    if (owner === "unsure") return undefined;
+    return held[`${owner}/${name}`] || null;
+  };
+  const at = (address, extra = {}) => ({ ...defaultState(), ...parseLocation(address, ""), ...extra });
+  // an exact ranked project, in any spelling normalizeQuery accepts: its panel, in its real spelling
+  for (const text of ["https://github.com/keras-team/keras", "Keras-Team/Keras/", " www.github.com/keras-team/keras "]) {
+    assert.deepEqual(await searchDestination(text, at("/"), lookup), { kind: "panel", owner: "keras-team", name: "keras" }, text);
+  }
+  assert.deepEqual(await searchDestination("freecad/freecad", at("/rust/"), lookup), { kind: "panel", owner: "FreeCAD", name: "FreeCAD" });
+  // an exact not-ranked project: the not-ranked list filtered to its row, its ecosystem filter dropped, its lens kept
+  assert.deepEqual(await searchDestination("ORG-STALE-0001/repo1", at("/rust/"), lookup), { kind: "address", href: "/not-ranked/?q=org-stale-0001%2Frepo1" });
+  assert.deepEqual(await searchDestination("org-stale-0001/repo1", at("/career/"), lookup),
+    { kind: "address", href: "/not-ranked/?persona=career_capital&q=org-stale-0001%2Frepo1" });
+  // a name the snapshot does not hold, or cannot be told: its panel, which says so
+  assert.deepEqual(await searchDestination("nobody/nothing", at("/"), lookup), { kind: "panel", owner: "nobody", name: "nothing" });
+  assert.deepEqual(await searchDestination("unsure/name", at("/"), lookup), { kind: "panel", owner: "unsure", name: "name" });
+  assert.deepEqual(await searchDestination("broken/record", at("/"), lookup), { kind: "panel", owner: "broken", name: "record" }, "a record that failed to load: the panel says so");
+  // text that is not an owner/name: the filter the list already applied, or the rankings filtered by it
+  asked.length = 0;
+  assert.deepEqual(await searchDestination("kera", at("/"), lookup), { kind: "filter" });
+  assert.deepEqual(await searchDestination("kera", at("/not-ranked/"), lookup), { kind: "filter" });
+  assert.deepEqual(await searchDestination("Kera", at("/methodology/"), lookup), { kind: "address", href: "/?q=kera" });
+  assert.deepEqual(await searchDestination("https://github.com/keras-team", at("/"), lookup), { kind: "filter" }, "an owner's address is not a project");
+  assert.deepEqual(asked, [], "a filter looks nothing up");
+  // app.js answers the header's Enter this way, and opens or moves to what it says
+  const app = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "app.js"), "utf8");
+  const submit = app.slice(app.indexOf('header.addEventListener("submit"'), app.indexOf("async function lookUpProject"));
+  assert.match(submit, /await searchDestination\(form\.querySelector\("\[data-search-input\]"\)\.value, store\.getState\(\), lookUpProject\)/);
+  assert.match(submit, /if \(where\.kind === "panel"\) openRepo\(where\.owner, where\.name\);\s*else if \(where\.kind === "address"\) navigateTo\(where\.href\);/);
+  assert.match(submit, /if \(submit !== searchSubmits\) return;/, "an Enter overtaken by a newer one is dropped");
+});
+
+test("methodology: the check line names a project's address and the header's search, and links no check page", () => {
+  const html = methodologyShell(SNAPSHOT_DOC);
+  const line = html.match(/<p class="snapshot-check">(.*?)<\/p>/)[1];
+  assert.equal(decodeAttr(line), copy.METHODOLOGY_CHECK_LINE);
+  assert.ok(copy.METHODOLOGY_CHECK_LINE.startsWith("To check a project, open "), copy.METHODOLOGY_CHECK_LINE);
+  assert.ok(copy.METHODOLOGY_CHECK_LINE.endsWith("/projects/<owner>/<name>/ (lower case), or type its name or GitHub address into the search at the top of the page."));
+  assert.ok(!html.includes('href="/check/"'));
 });
 
 // ------------------------------------------------ live-site fixes: no test harness, honest links, wording

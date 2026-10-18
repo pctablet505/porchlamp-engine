@@ -1,11 +1,9 @@
-/* The text of the pages the app does not draw: the report, the project pages and /check/
- * (scripts/export_static.py --stats). Their header, nav and footer are the app's (components/chrome.js, styled in
- * components.css); tokens, the page shell and the article/table styles come from tokens.css and base.css. This file
- * sets the reading size, the findings and the two SVG charts. No external resources: system fonts, inline SVG.
- *
- * A frozen report copy published before the shared chrome (/black-holes/2026-10-14/, carried from the published
- * tree, never re-rendered) still has its own nav and footer and links this file: the .report-nav and .report-footer
- * rules and the plain anchor offsets below keep it looking as it was published. */
+/* The frozen report copy published before the shared chrome (/black-holes/2026-10-14/, carried from the published
+ * tree, never re-rendered) links this file, with tokens.css and base.css; no page the export writes links it, and
+ * the export ships it for that copy (scripts/export_static.py CARRIED_FROZEN_ASSETS). It sets the copy's reading
+ * size, its findings and its two SVG charts; the copy has its own nav and footer, and the .report-nav and
+ * .report-footer rules and the plain anchor offsets below keep it looking as it was published. No external
+ * resources: system fonts, inline SVG. */
 
 .report-nav {
   display: flex;
@@ -226,47 +224,4 @@
   .report .finding {
     padding: var(--space-xs) var(--space-sm);
   }
-}
-
-/* A project page (porchlamp/serve/project_pages.py) and the /check/ page. */
-.report .answer {
-  margin: var(--space-sm) 0;
-  padding: var(--space-xs) var(--space-md);
-  background: var(--bg-surface);
-  border-left: 3px solid var(--lamp-glow);
-  border-radius: 0 var(--radius-card) var(--radius-card) 0;
-}
-
-.report ul.facts,
-.report ul.evidence {
-  padding-left: var(--space-lg);
-}
-
-.report .check-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2xs);
-  margin: var(--space-md) 0;
-}
-
-.report .check-form input {
-  width: 100%;
-  max-width: 28rem;
-  box-sizing: border-box;
-  padding: var(--space-xs) var(--space-sm);
-  font: inherit;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-card);
-}
-
-.report ul.check-results {
-  padding-left: var(--space-lg);
-}
-
-.report .check-empty {
-  list-style: none;
-  margin-left: calc(var(--space-lg) * -1);
-  color: var(--text-secondary);
 }

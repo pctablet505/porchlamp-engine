@@ -1000,10 +1000,9 @@ export const METHODOLOGY_COPIED_LABEL = "Copied";
 // verifier reads it back from (components/fill.js).
 export const METHODOLOGY_BENCHMARK_LINE = "Benchmark {benchmark_version} · schema {schema_version} · constants hash {constants_hash}…";
 export const METHODOLOGY_SNAPSHOT_LINE = "{snapshot_id} · as of {as_of}";
-/** How a project's own record is found: its page's address, or the search on the check page ({check_page}). */
+/** How a project's own record is found: its page's address, or the header's search. */
 export const METHODOLOGY_CHECK_LINE =
-  "To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case), or search on the {check_page}.";
-export const METHODOLOGY_CHECK_LINK_LABEL = "check page";
+  "To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case), or type its name or GitHub address into the search at the top of the page.";
 /** The digest of the database file this snapshot was published from (the export's manifest.json). */
 export const METHODOLOGY_DB_SHA256_LABEL = "Snapshot database SHA-256";
 /** The first characters of a digest, where a line names one without printing all of it. */
@@ -1198,7 +1197,6 @@ export const LENS_PAGE_HREFS = Object.freeze({
   senior_systems: "/senior-systems/",
   ai_assisted: "/ai-assisted/",
 });
-export const CHECK_PAGE_HREF = "/check/";
 
 /**
  * What the numbers cannot tell a reader. The report prints them under "What this is not" and the methodology under

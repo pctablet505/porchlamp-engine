@@ -29,14 +29,14 @@ from the database, the API and the stats file and compared with what the page pr
 grid. Whatever the flags, every ``<loc>`` of ``sitemap.xml`` (and, for a sitemap index, of each child sitemap it
 names) must have a page in the site.
 
-``verify_projects`` (also run by ``--stats``) proves the project pages and /check/: every ranked project has its page
+``verify_projects`` (also run by ``--stats``) proves the project pages and the /check/ stub: every ranked project has its page
 at ``projects/<owner>/<name>/`` and no other page exists; every value each page prints (a ``data-v`` hook: the answer
 sentences, the key facts, the rating, the five pillars and their coverage, each parameter's value with its unit, score,
 count and window, each lens rank, the similar projects, the record's identity) is recomputed from the API with this
 file's own formatters and compared; so are the head (the title, and a description that names the project and its rank in
 at most 155 characters), the outline (one h1, no skipped level, nothing collapsed, the anchors), and the links;
-``sitemap-projects.xml`` lists every ranked project in balanced-rank order; ``check/projects.json`` lists the ranked
-projects.
+``sitemap-projects.xml`` lists every ranked project in balanced-rank order; ``/check/`` is a stub that sends the address
+on to ``/`` (a meta refresh and the canonical address ``/``), with no script and no place in the sitemap.
 
 Whatever the flags, ``verify_chrome`` proves every page carries the one header, nav and footer
 (``web/app/components/chrome.js``, drawn at export by ``web/prerender.mjs``), one Content-Security-Policy and only the
@@ -857,8 +857,9 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
     ``data/``. On each page every ``data-v`` hook must equal its value, every hook must be there (the page type's hook
     count) and no other may be; every sentence with a number is compared whole (:func:`_report_sentences`); the
     page's ``<main>`` is byte for byte what ``web/prerender.mjs`` draws from a record holding the values worked out
-    here (ENG-17); and the frozen copy loads no app and one stylesheet, the site's own stylesheets joined (ENG-14).
-    ``evidence_files`` (:class:`porchlamp.serve.app.PinnedEvidenceFiles`) are the files the export read the
+    here (ENG-17); the frozen copy loads no app and one stylesheet, the site's own stylesheets joined (ENG-14); and
+    every file the older frozen copies a publish carries link from the site root is in the site
+    (``export_static.CARRIED_FROZEN_ASSETS``). ``evidence_files`` (:class:`porchlamp.serve.app.PinnedEvidenceFiles`) are the files the export read the
     black-hole evidence from; their data root is also the stats file's."""
     from fastapi.testclient import TestClient
 
@@ -1061,6 +1062,9 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         f"black-holes/{sid}/styles.css is the site's stylesheets, joined",
         styles.read_text(encoding="utf-8") if styles.is_file() else None, _shipped_stylesheet(site),
     )
+    # the older frozen copies a publish carries from the published tree are never drawn again: what they link is here
+    ledger.equal("the files the carried frozen copies link (export_static.CARRIED_FROZEN_ASSETS), missing",
+                 [asset for asset in _export_static().CARRIED_FROZEN_ASSETS if not (site / asset).is_file()], [])
 
     # the page again, from a record that holds the values worked out here: the view's own bytes (ENG-17)
     record_path = site / "data" / sid / "report.json"
@@ -1434,7 +1438,7 @@ def _page_kinds(site: Path, snapshot_id: str) -> dict[str, dict]:
         if rel.startswith("projects/"):
             pages[rel] = {"nav": None, "kind": "project"}
         elif rel == "check/index.html":
-            pages[rel] = {"nav": None, "kind": "check"}
+            continue  # the /check/ stub has no chrome: verify_projects checks it
         else:
             pages[rel] = {"nav": None, "kind": "page"}
     return pages
@@ -1550,7 +1554,8 @@ def verify_methodology(db: Path, site: Path, *, report: Optional[dict] = None, l
     ledger.equal("methodology h2", [t for tag, t in page.headings if tag == "h2"], [rp.copy_js_string("WHY_HEADING"), *labels])
     lens_links = [f"/{rp.LENS_SLUGS[lens]}/" for lens in methodology["personas"]["presets"] if lens in rp.LENS_SLUGS]
     ledger.equal("methodology links the lens pages", [link for link in page.links if link in lens_links], lens_links)
-    ledger.equal("methodology links /check/", "/check/" in page.links, True)
+    ledger.contains("methodology says how to check a project", _plain(text), rp.copy_js_string("METHODOLOGY_CHECK_LINE"))
+    ledger.equal("methodology links no /check/", "/check/" in page.links, False)
     gate_ids = [gate["id"].lower() for gate in methodology["gates"]]
     ledger.equal("methodology keeps the old anchors", sorted(set(METHODOLOGY_FORMER_IDS + tuple(gate_ids)) - page.ids), [])
     limits = re.search(r'id="limits">.*?<ul class="spec-rules">(.*?)</ul>', text, re.S)
@@ -1927,7 +1932,7 @@ def check_sitemap_files(site: Path) -> list[str]:
 def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     """Recompute every value on every project page from the API (the leaderboards, ``/repos/{owner}/{name}`` and its
     ``/evidence``) and compare with what the page prints (its ``data-v`` hooks) and its head; check the page set, the
-    sitemaps and /check/.
+    sitemaps and the /check/ stub.
     ``{"checked": n, "pages": m, "errors": [...]}``."""
     from fastapi.testclient import TestClient
 
@@ -2103,18 +2108,19 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     for problem in check_sitemap_files(site):
         ledger.errors.append(problem)
 
-    # /check/
-    check_page = site / "check" / "index.html"
-    if check_page.is_file() and (site / "check" / "projects.json").is_file():
-        text = check_page.read_text(encoding="utf-8")
-        ledger.equal("check canonical", re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1), f"{SITE_ORIGIN}/check/")
-        ledger.contains("check address pattern", _plain(text), "To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case).")
-        ledger.equal("check scripts", re.findall(r"<script[^>]*\ssrc=\"([^\"]*)\"", text), list(rp.PAGE_SCRIPTS["check"]))
-        listed = json.loads((site / "check" / "projects.json").read_text(encoding="utf-8"))
-        ledger.equal("check index lists the ranked projects in rank order", listed, [f"{r['owner']}/{r['name']}" for r in ranked])
-        ledger.equal("check.js ships with the site", (site / "check.js").is_file(), True)
-    else:
-        ledger.errors.append("check/index.html or check/projects.json is missing")
+    # /check/: a stub that sends the address on to the rankings; the header's search finds a project
+    stub = site / "check" / "index.html"
+    ledger.equal("check stub is in the export", stub.is_file(), True)
+    if stub.is_file():
+        text = stub.read_text(encoding="utf-8")
+        ledger.equal("check stub refreshes to /", re.findall(r'<meta http-equiv="refresh" content="([^"]*)">', text), ["0; url=/"])
+        ledger.equal("check stub canonical", re.findall(r'<link rel="canonical" href="([^"]*)"', text), [f"{SITE_ORIGIN}/"])
+        ledger.equal("check stub scripts", re.findall(r"<script\b[^>]*>", text, re.I), [])
+        ledger.equal("check stub links /", read_page(text).links, ["/"])
+    sitemap_pages = site / "sitemap-pages.xml"
+    listed = sitemap_pages.read_text(encoding="utf-8") if sitemap_pages.is_file() else ""
+    ledger.equal("check stub is out of sitemap-pages.xml", f"<loc>{SITE_ORIGIN}/check/</loc>" in listed, False)
+    ledger.equal("check search files are gone", [rel for rel in ("check/projects.json", "check.js") if (site / rel).exists()], [])
 
     log(f"verify: project pages: checked {hooks_checked} printed values (data-v hooks) and {ledger.checked - hooks_checked} other "
         f"values on {len(found_dirs & expected_dirs)} of {len(expected_dirs)} pages")
