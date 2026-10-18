@@ -22,10 +22,13 @@ matching is removed.
 
 from __future__ import annotations
 
+import hashlib
+import heapq
 import json
 import random
 import statistics
-from collections.abc import Mapping, Sequence
+import subprocess
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -48,10 +51,38 @@ from porchlamp.core.hygiene import (
 
 #: D-IN-4: PRs opened in the trailing 180 days.
 PR_WINDOW_DAYS: int = 180
-#: D-IN-4: at most the 500 newest PRs; ``truncated`` when the cap is hit.
-PR_CAP: int = 500
-#: One GraphQL page (``first``); the cap is reached in five full pages.
+#: D-IN-4 (RFC-0013): every PR of the window is recorded with all fields up to
+#: this many; ``truncated`` when a fetch without a reply sample stops here.
+PR_CAP: int = constants.PR_CAP
+#: RFC-0013: above :data:`PR_CAP`, every PR of the window is recorded with the
+#: light fields and replies on an equal-probability sample of this many.
+PR_SAMPLE_CAP: int = constants.PR_SAMPLE_CAP
+#: RFC-0013: the fixed seed of the reply sample (:func:`reply_sample_numbers`).
+PR_SAMPLE_SEED: int = constants.PR_SAMPLE_SEED
+#: #51: aliased ``pullRequest(number:)`` lookups per reply batch query.
+PR_REPLIES_BATCH_SIZE: int = 25
+#: #51: narrower retry widths for reply aliases a batch left unresolved.
+PR_REPLIES_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
+#: #51: a page that fails with a heavy-query error is fetched again from the
+#: same cursor in pages of this size until its span is covered.
+PR_PAGE_SIZE_RETRY: int = 10
+#: #51: substrings marking a heavy-query failure (an HTTP 502 or 504, a body
+#: cut off mid-JSON, a timeout): a page that fails with one is read again in
+#: smaller pages (:class:`_PageSizer`), where the phone used to fetch the whole
+#: project again at page size 10.
+_HEAVY_QUERY_ERRORS: tuple[str, ...] = (
+    "504",
+    "502",
+    "end of JSON",
+    "timed out",
+    "timeout",
+    "Timeout",
+)
+#: One GraphQL page (``first``); 2,000 PRs are reached in twenty full pages.
 PAGE_SIZE: int = 100
+#: #51: the light continuation's page size, whatever the heavy page size: a
+#: 100-PR light page costs 1 point and stays well inside the time budget.
+PR_LIGHT_PAGE_SIZE: int = 100
 #: 02 §4.3: a review counts as substantive at an 80-char body or 1 inline.
 SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
 
@@ -91,11 +122,149 @@ PR_WINDOW_QUERY: str = (
     " } } }"
 )
 
+#: Light PR-window continuation query for repositories with > 2,000 PRs in 180 d.
+#: Carries all PR-level and timeline fields (1 pt/page at 100 PRs/page), omitting
+#: ``reviews``, ``comments``, and ``reviewThreads`` which are fetched for the
+#: seeded 1,000-PR sample via :func:`_pr_replies_batch_query`.
+PR_WINDOW_LIGHT_QUERY: str = (
+    "query PrWindowLight($owner: String!, $name: String!, $first: Int, $after: String) {"
+    " rateLimit { cost }"
+    " r: repository(owner: $owner, name: $name) {"
+    " pullRequests(states: [OPEN, MERGED, CLOSED], first: $first, after: $after,"
+    " orderBy: {field: CREATED_AT, direction: DESC}) {"
+    " pageInfo { hasNextPage endCursor }"
+    " nodes { number createdAt closedAt mergedAt state isDraft mergedBy { login }"
+    " author { __typename login ... on User { createdAt } } authorAssociation"
+    " timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 5) {"
+    " nodes { __typename ... on ReadyForReviewEvent { createdAt }"
+    " ... on ClosedEvent { createdAt actor { __typename login } } } } }"
+    " } } }"
+)
+
 #: The identity of :data:`PR_WINDOW_QUERY`'s text, recorded in every
 #: ``pr_window`` envelope's ``data`` as ``query_sha256``. An envelope that
 #: records another value, or none, was fetched by a different query and may
 #: lack fields this one asks for; a refresh refetches it in full.
 PR_WINDOW_QUERY_SHA256: str = sha256_hex(PR_WINDOW_QUERY)
+
+
+def _pr_replies_batch_query(n: int) -> str:
+    """Aliased ``pullRequest(number:)`` batch query for ``n`` sampled PRs."""
+    var_decls = ", ".join(f"$n{i}: Int!" for i in range(n))
+    aliases = " ".join(
+        f"p{i}: pullRequest(number: $n{i}) {{"
+        " number"
+        " reviews(first: 10) { nodes { author { __typename login } state body createdAt"
+        " authorAssociation comments { totalCount } } }"
+        " comments(first: 20) { nodes { author { __typename login } authorAssociation"
+        " bodyText createdAt } }"
+        " reviewThreads { totalCount } }"
+        for i in range(n)
+    )
+    return (
+        f"query PrRepliesBatch($owner: String!, $name: String!, {var_decls}) {{"
+        f" rateLimit {{ cost }} r: repository(owner: $owner, name: $name) {{ {aliases} }} }}"
+    )
+
+
+def _is_heavy_query_error(msg: str) -> bool:
+    """True when ``msg`` carries one of :data:`_HEAVY_QUERY_ERRORS`."""
+    return any(needle in msg for needle in _HEAVY_QUERY_ERRORS)
+
+
+class _PageSizer:
+    """#51 per-page retry for one connection walk.
+
+    :attr:`first` is the size of the next page. A page that fails with a
+    heavy-query error (:func:`_is_heavy_query_error`) is fetched again from
+    the same cursor in pages of :data:`PR_PAGE_SIZE_RETRY` until they cover
+    the failed page's span; the walk then returns to its own page size. A
+    failure inside that span, any other error, or a failure at a page size no
+    larger than :data:`PR_PAGE_SIZE_RETRY` propagates, failing the fetch as
+    before. Pages read before the failure are kept: the project is not
+    repeated from its first page.
+    """
+
+    def __init__(self, page_size: int) -> None:
+        self.page_size = page_size
+        self._small_pages_left = 0
+
+    @property
+    def first(self) -> int:
+        """The ``first`` of the next page."""
+        return PR_PAGE_SIZE_RETRY if self._small_pages_left else self.page_size
+
+    def retry_smaller(self, message: str) -> bool:
+        """Whether the page that failed with ``message`` is fetched again in
+        smaller pages (and switch to them when it is)."""
+        if self._small_pages_left or self.page_size <= PR_PAGE_SIZE_RETRY:
+            return False
+        if not _is_heavy_query_error(message):
+            return False
+        self._small_pages_left = -(-self.page_size // PR_PAGE_SIZE_RETRY)
+        return True
+
+    def page_done(self) -> None:
+        """Count one page read successfully."""
+        if self._small_pages_left:
+            self._small_pages_left -= 1
+
+
+def _execute_page(transport: "GraphqlTransport", query: str, variables: dict[str, Any],
+                  sizer: _PageSizer,
+                  raise_errors: Callable[[dict[str, Any]], None]) -> Optional[dict[str, Any]]:
+    """One page of a connection walk, ``first`` set by ``sizer``.
+
+    ``None`` when the page failed with a heavy-query error and is to be read
+    again, smaller, from the same cursor (:class:`_PageSizer`). Any other
+    GraphQL error goes to ``raise_errors(doc)``; a transport failure that is
+    not a heavy-query one propagates.
+    """
+    try:
+        doc = transport.execute(query, {**variables, "first": sizer.first})
+    except (RuntimeError, subprocess.TimeoutExpired) as exc:
+        if sizer.retry_smaller(str(exc)):
+            return None
+        raise
+    errors = doc.get("errors")
+    if errors:
+        first_error = errors[0] if isinstance(errors, list) else errors
+        message = str(first_error.get("message") if isinstance(first_error, Mapping) else first_error)
+        if sizer.retry_smaller(message):
+            return None
+        raise_errors(doc)
+    sizer.page_done()
+    return doc
+
+
+def reply_sample_numbers(owner: str, name: str, numbers: Sequence[int], size: int,
+                         seed: int = PR_SAMPLE_SEED) -> frozenset[int]:
+    """#51: the PR numbers whose replies a window of more than :data:`PR_CAP`
+    PRs records: the ``size`` numbers with the smallest
+    ``sha256("<seed>:<owner>/<name>:<number>")`` (repository lowercased).
+
+    Bottom-k sampling: the hash gives each PR an independent uniform key, so
+    the result is an equal-probability sample of ``size`` of the window's PRs,
+    without replacement, that needs no weights. It is drawn by PR number with
+    a fixed seed, so a rerun over the same PRs draws the same sample. A PR
+    keeps its key as the window slides, so consecutive collections share most
+    of their sample and their reply measures differ by what changed, not by a
+    fresh draw; and two repositories' samples are independent.
+    """
+    repo = f"{owner}/{name}".lower()
+
+    def key(number: int) -> bytes:
+        return hashlib.sha256(f"{seed}:{repo}:{number}".encode("utf-8")).digest()
+
+    return frozenset(heapq.nsmallest(max(size, 0), set(numbers), key=key))
+
+
+#: #51: the core definitions (:mod:`porchlamp.core.gates`), re-exported for
+#: the collector's callers: the reply-sample marker, the PR nodes whose
+#: replies a record holds, and whether a record stopped short of its window.
+REPLIES_RECORDED_KEY: str = gates.REPLIES_RECORDED_KEY
+reply_sampled_prs = gates.reply_sampled_prs
+pr_window_cut_short = gates.pr_window_cut_short
 
 
 def pr_window_query_is_current(data: Any) -> bool:
@@ -198,31 +367,42 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     response predates the opening). ``substantive_review`` (02 §4.3) is any
     review with 1+ inline comments or an 80+ character body, by someone who
     is neither a bot nor the PR's own author.
+
+    When ``prs`` comes from a >2,000-PR light+sample window, ``maintainers`` is
+    computed across all ``prs`` while reply-based fields (``first_substantive_response_at``,
+    ``ttfhr_hours``, ``substantive_review``) are evaluated only on the 1,000-PR
+    reply sample (:func:`reply_sampled_prs`), and set to ``None`` on unsampled PRs.
     """
     maintainers = gates.maintainer_logins(prs)
+    sampled_ids = {id(p) for p in reply_sampled_prs(prs)}
     out: list[dict] = []
     for pr in prs:
         author = pr.get("author") or {}
         author_login = str(author.get("login") or "").lower()
-        response = gates.first_substantive_response(pr, maintainers)
-        best_at, best_kind = response if response is not None else (None, None)
-        best_dt = _parse_iso(best_at)
-        ttfhr: Optional[float] = None
-        if best_dt is not None:
-            created_dt = _parse_iso(pr.get("createdAt"))
-            if created_dt is not None and best_dt >= created_dt:
-                ttfhr = (best_dt - created_dt).total_seconds() / 3600.0
-        # A review by the PR's own author is not the project reviewing the PR.
-        # Self-review is common (contributors annotate their own diffs), and
-        # counting it credited the repository with scrutiny nobody outside
-        # the change ever applied.
-        substantive_review = any(
-            not is_bot_actor((raw.get("author") or {}).get("__typename"),
-                             (raw.get("author") or {}).get("login"))
-            and str((raw.get("author") or {}).get("login") or "").lower() != author_login
-            and (int((raw.get("comments") or {}).get("totalCount") or 0) >= 1
-                 or len(str(raw.get("body") or "")) >= SUBSTANTIVE_REVIEW_BODY_CHARS)
-            for raw in ((pr.get("reviews") or {}).get("nodes") or []))
+        if id(pr) in sampled_ids:
+            response = gates.first_substantive_response(pr, maintainers)
+            best_at, best_kind = response if response is not None else (None, None)
+            best_dt = _parse_iso(best_at)
+            ttfhr: Optional[float] = None
+            if best_dt is not None:
+                created_dt = _parse_iso(pr.get("createdAt"))
+                if created_dt is not None and best_dt >= created_dt:
+                    ttfhr = (best_dt - created_dt).total_seconds() / 3600.0
+            # A review by the PR's own author is not the project reviewing the PR.
+            # Self-review is common (contributors annotate their own diffs), and
+            # counting it credited the repository with scrutiny nobody outside
+            # the change ever applied.
+            substantive_review: Optional[bool] = any(
+                not is_bot_actor((raw.get("author") or {}).get("__typename"),
+                                 (raw.get("author") or {}).get("login"))
+                and str((raw.get("author") or {}).get("login") or "").lower() != author_login
+                and (int((raw.get("comments") or {}).get("totalCount") or 0) >= 1
+                     or len(str(raw.get("body") or "")) >= SUBSTANTIVE_REVIEW_BODY_CHARS)
+                for raw in ((pr.get("reviews") or {}).get("nodes") or []))
+        else:
+            best_at, best_kind = None, None
+            ttfhr = None
+            substantive_review = None
         ready_for_review_at: Optional[str] = (
             pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None
         )
@@ -310,13 +490,18 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
 def ghost_rate_prs_from_window(
     prs: Sequence[Mapping[str, Any]],
 ) -> list[gates.GhostRatePR]:
-    """Pair recorded PR nodes with their derived attributes for D-GATE-5.
+    """Pair recorded PR nodes with their derived attributes for D-GATE-5 / GR_14.
 
+    Reads the reply-sampled PRs (:func:`reply_sampled_prs`) while keeping
+    :func:`derive_pr_window`'s full-window :func:`gates.maintainer_logins` set.
     Skips entries with unparseable ``createdAt`` and populates all
     :class:`~porchlamp.core.gates.GhostRatePR` fields.
     """
+    sampled_ids = {id(p) for p in reply_sampled_prs(prs)}
     out: list[gates.GhostRatePR] = []
     for pr, d in zip(prs, derive_pr_window(prs)):
+        if id(pr) not in sampled_ids:
+            continue
         if _parse_iso(pr.get("createdAt")) is None:
             continue
         out.append(
@@ -338,6 +523,92 @@ def ghost_rate_prs_from_window(
     return out
 
 
+def _run_pr_replies_batch_query(
+    owner: str,
+    name: str,
+    numbers: Sequence[int],
+    transport: GraphqlTransport,
+) -> tuple[dict[int, dict[str, Any]], list[int], int]:
+    """One ``PrRepliesBatch`` call over ``numbers``: ``(replies by number,
+    unresolved numbers, point cost)``. A heavy-query failure leaves every number
+    unresolved, for :func:`_fetch_pr_replies_batch` to retry narrower; any other
+    transport failure propagates."""
+    variables: dict[str, Any] = {"owner": owner, "name": name}
+    for i, num in enumerate(numbers):
+        variables[f"n{i}"] = int(num)
+    try:
+        doc = transport.execute(_pr_replies_batch_query(len(numbers)), variables)
+    except (RuntimeError, subprocess.TimeoutExpired) as exc:
+        if _is_heavy_query_error(str(exc)):
+            return {}, list(numbers), 0
+        raise
+    data = doc.get("data") or {}
+    cost = int(((data.get("rateLimit") or {}).get("cost")) or 0)
+    errors = [error for error in (doc.get("errors") or []) if isinstance(error, Mapping)]
+    if len(errors) != len(doc.get("errors") or []) or any(not error.get("path") for error in errors):
+        return {}, list(numbers), cost
+    errored: set[str] = set()
+    for error in errors:
+        for part in (error.get("path") or []):
+            if isinstance(part, str) and part.startswith("p"):
+                errored.add(part)
+    repo = data.get("r")
+    if not isinstance(repo, Mapping):
+        return {}, list(numbers), cost
+    resolved: dict[int, dict[str, Any]] = {}
+    unresolved: list[int] = []
+    for i, num in enumerate(numbers):
+        alias = f"p{i}"
+        node = repo.get(alias)
+        if not isinstance(node, Mapping) or alias in errored:
+            unresolved.append(int(num))
+            continue
+        resolved[int(num)] = {
+            "reviews": node.get("reviews") or {"nodes": []},
+            "comments": node.get("comments") or {"nodes": []},
+            "reviewThreads": node.get("reviewThreads") or {"totalCount": 0},
+        }
+    return resolved, unresolved, cost
+
+
+def _fetch_pr_replies_batch(
+    owner: str,
+    name: str,
+    numbers: Sequence[int],
+    transport: GraphqlTransport,
+    batch_size: int = PR_REPLIES_BATCH_SIZE,
+) -> tuple[dict[int, dict[str, Any]], int]:
+    """Fetch ``reviews``, ``comments``, and ``reviewThreads`` for sampled PRs
+    in aliased batches of :data:`PR_REPLIES_BATCH_SIZE`, retrying unresolved
+    aliases at :data:`PR_REPLIES_RETRY_WIDTHS`."""
+    out: dict[int, dict[str, Any]] = {}
+    cost = 0
+
+    def _run(pool: Sequence[int]) -> list[int]:
+        nonlocal cost
+        resolved, unresolved, c = _run_pr_replies_batch_query(owner, name, pool, transport)
+        out.update(resolved)
+        cost += c
+        return unresolved
+
+    fresh = list(dict.fromkeys(int(n) for n in numbers))
+    while fresh:
+        chunk, fresh = fresh[:batch_size], fresh[batch_size:]
+        pool = _run(chunk)
+        for width in PR_REPLIES_RETRY_WIDTHS:
+            if not pool:
+                break
+            next_pool: list[int] = []
+            for start in range(0, len(pool), width):
+                next_pool.extend(_run(pool[start : start + width]))
+            pool = next_pool
+        if pool:
+            raise RuntimeError(
+                f"pr replies batch failed for {owner}/{name} PRs: {pool[:10]}"
+            )
+    return out, cost
+
+
 # --------------------------------------------------------------------------- #
 # Windowed fetch (D-IN-4)                                                     #
 # --------------------------------------------------------------------------- #
@@ -352,12 +623,15 @@ class PrWindowResult:
     truncated: bool
     cost_points: int
     prs: tuple[dict, ...]
+    sampled: bool = False
 
 
 def fetch_pr_window(owner: str, name: str, now: datetime,
                     transport: GraphqlTransport,
                     page_size: int = PAGE_SIZE,
                     *,
+                    cap: Optional[int] = PR_CAP,
+                    sample_cap: Optional[int] = PR_SAMPLE_CAP,
                     existing_prs: Optional[Sequence[dict]] = None,
                     existing_anchor: Optional[datetime] = None,
                     existing_truncated: bool = False) -> PrWindowResult:
@@ -365,14 +639,27 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
 
     Pages newest-first and stops when a returned PR was opened before the
     window start (the boundary is exclusive, a PR opened exactly at
-    ``now - 180 d`` is inside), when no page remains, or when :data:`PR_CAP`
-    records are collected — in which case ``truncated`` is True (D-IN-4).
+    ``now - 180 d`` is inside), when no page remains, or when ``cap``
+    records are collected without a reply sample (``sample_cap=None``) —
+    in which case ``truncated`` is True (D-IN-4).
     When ``existing_prs`` is supplied (W6-3 incremental ledger refresh),
     stops paging once all unsettled PRs in the window have been refreshed and
     a settled PR is reached, then merges the delta with ``existing_prs``.
     ``cost_points`` sums each page's ``rateLimit.cost``. Raises
     ``RuntimeError`` on GraphQL errors, a missing repository, or transport
     failure.
+
+    #51: ``cap`` (default :data:`PR_CAP`) bounds the PRs recorded with all
+    fields. With ``sample_cap`` set (default :data:`PR_SAMPLE_CAP`) a window
+    holding more PRs is not truncated: the walk finishes the page it is on,
+    continues to the window start with :data:`PR_WINDOW_LIGHT_QUERY` in pages
+    of :data:`PR_LIGHT_PAGE_SIZE`, and keeps replies on an equal-probability
+    sample of every PR in the window (:func:`_apply_reply_sample`); the
+    result is ``sampled``. A page that fails with a heavy-query error is read
+    again in smaller pages from the same cursor (:class:`_PageSizer`). A
+    ledger delta that reaches ``cap`` without meeting a settled PR has read
+    exactly the first pages of a fresh fetch, so it continues as one and the
+    existing records are not reused.
     """
     window_start = now - timedelta(days=PR_WINDOW_DAYS)
     prs: list[dict] = []
@@ -395,17 +682,24 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
                 elif created is None or created >= window_start:
                     remaining_unsettled.add(num)
 
+    def raise_errors(doc: dict[str, Any]) -> None:
+        errors = doc.get("errors")
+        first_error = errors[0] if isinstance(errors, list) and errors else errors
+        message = first_error.get("message") if isinstance(first_error, Mapping) else first_error
+        raise RuntimeError(f"graphql errors for {owner}/{name}: {str(message)[:160]}")
+
+    sampling = cap is not None and sample_cap is not None
     stopped_early = False
     stopped_on_settled = False
-    while len(prs) < PR_CAP:
-        variables: dict[str, Any] = {"owner": owner, "name": name, "first": page_size}
+    sizer = _PageSizer(page_size)
+    page_info: Mapping[str, Any] = {}
+    while cap is None or len(prs) < cap:
+        variables: dict[str, Any] = {"owner": owner, "name": name}
         if after is not None:
             variables["after"] = after
-        doc = transport.execute(PR_WINDOW_QUERY, variables)
-        errors = doc.get("errors")
-        if errors:
-            raise RuntimeError(f"graphql errors for {owner}/{name}: "
-                               f"{str(errors[0].get('message'))[:160]}")
+        doc = _execute_page(transport, PR_WINDOW_QUERY, variables, sizer, raise_errors)
+        if doc is None:
+            continue
         data = doc.get("data") or {}
         cost += int((data.get("rateLimit") or {}).get("cost") or 0)
         if (data.get("r") or None) is None:
@@ -420,31 +714,115 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
             if isinstance(raw_num, int) and not isinstance(raw_num, bool):
                 remaining_unsettled.discard(raw_num)
                 if existing_prs is not None and raw_num in settled_nums and not remaining_unsettled:
-                    prs.append(raw)
+                    prs.append(dict(raw))
                     stopped_early = True
                     stopped_on_settled = True
                     break
-            prs.append(raw)
-            if len(prs) >= PR_CAP:
+            prs.append(dict(raw))
+            # Without a reply sample the record stops at exactly ``cap`` PRs. With
+            # one, the page is finished: the light walk resumes after this page,
+            # so leaving it part-way would drop its remaining PRs from the record.
+            if not sampling and cap is not None and len(prs) >= cap:
                 break
         if stopped_early:
             break
         page_info = connection.get("pageInfo") or {}
         if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+            stopped_early = True
             break
         after = page_info["endCursor"]
 
+    if sampling and not stopped_early and existing_prs is not None:
+        # The ledger delta reached ``cap`` without meeting a settled PR: its pages
+        # are exactly the first pages a fresh fetch reads, so it continues as one.
+        existing_prs = None
+
+    sampled = False
+    if sampling and cap is not None and sample_cap is not None and not stopped_early:
+        light = _PageSizer(PR_LIGHT_PAGE_SIZE)
+        while page_info.get("hasNextPage") and page_info.get("endCursor"):
+            doc = _execute_page(
+                transport, PR_WINDOW_LIGHT_QUERY,
+                {"owner": owner, "name": name, "after": page_info["endCursor"]},
+                light, raise_errors,
+            )
+            if doc is None:
+                continue
+            data = doc.get("data") or {}
+            cost += int((data.get("rateLimit") or {}).get("cost") or 0)
+            if (data.get("r") or None) is None:
+                raise RuntimeError(f"repository not found: {owner}/{name}")
+            connection = data["r"].get("pullRequests") or {}
+            reached_start = False
+            for raw in connection.get("nodes") or []:
+                created = _parse_iso(raw.get("createdAt"))
+                if created is not None and created < window_start:
+                    reached_start = True
+                    break
+                prs.append(dict(raw))
+            if reached_start:
+                break
+            page_info = connection.get("pageInfo") or {}
+        # The light walk has no cap: it ends at the window start or at the end
+        # of the list, so the record holds the whole window.
+        stopped_early = True
+        if len(prs) > cap:
+            cost += _apply_reply_sample(owner, name, prs, sample_cap, transport)
+            sampled = True
+
     if existing_prs is not None:
         merged = ledger.merge_pr_window_delta(
-            existing_prs, prs, now=now, window_days=PR_WINDOW_DAYS, cap=PR_CAP
+            existing_prs, prs, now=now, window_days=PR_WINDOW_DAYS, cap=None
         )
         trunc = (
-            (not stopped_early and len(prs) >= PR_CAP)
-            or len(merged) >= PR_CAP
+            (not stopped_early and cap is not None and len(prs) >= cap)
             or (stopped_on_settled and existing_truncated)
         )
         return PrWindowResult(owner, name, now, trunc, cost, tuple(merged))
-    return PrWindowResult(owner, name, now, not stopped_early and len(prs) >= PR_CAP, cost, tuple(prs))
+    return PrWindowResult(
+        owner,
+        name,
+        now,
+        not stopped_early and cap is not None and len(prs) >= cap,
+        cost,
+        tuple(prs),
+        sampled=sampled,
+    )
+
+
+def _apply_reply_sample(owner: str, name: str, prs: list[dict], size: int,
+                        transport: GraphqlTransport) -> int:
+    """#51: keep replies on the :func:`reply_sample_numbers` sample of ``prs``
+    (in place); return the point cost of reading the replies it lacks.
+
+    A sampled PR the light query read gets its replies from
+    :func:`_fetch_pr_replies_batch` (the reply fields of
+    :data:`PR_WINDOW_QUERY`). Every other PR loses its replies and is marked
+    ``REPLIES_RECORDED_KEY: False``, so no reader mistakes the newest pages,
+    whose replies the full query carried, for part of the sample.
+    """
+    numbers = [pr["number"] for pr in prs
+               if isinstance(pr.get("number"), int) and not isinstance(pr.get("number"), bool)]
+    sample = reply_sample_numbers(owner, name, numbers, size)
+    missing: list[int] = []
+    for pr in prs:
+        num = pr.get("number")
+        if isinstance(num, int) and not isinstance(num, bool) and num in sample:
+            pr.pop(REPLIES_RECORDED_KEY, None)
+            if "reviews" not in pr:
+                missing.append(num)
+            continue
+        for field in ("reviews", "comments", "reviewThreads"):
+            pr.pop(field, None)
+        pr[REPLIES_RECORDED_KEY] = False
+    if not missing:
+        return 0
+    replies, cost = _fetch_pr_replies_batch(owner, name, missing, transport)
+    for pr in prs:
+        num = pr.get("number")
+        if isinstance(num, int) and not isinstance(num, bool) and num in replies:
+            pr.update(replies[num])
+    return cost
 
 
 # --------------------------------------------------------------------------- #
@@ -472,6 +850,13 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
     reused only when it was fetched by the current query
     (:func:`pr_window_query_is_current`); an envelope from an older query is
     refetched in full, so its records cannot outlive the query change.
+
+    #51: the ledger also refetches in full an envelope that is ``truncated``
+    (a refresh that stops at the first settled PR would never reach back past
+    its cut) or ``sampled`` (merging fresh PRs, every one carrying replies,
+    into a sample would over-represent them). A window of more than
+    :data:`PR_CAP` PRs is recorded ``sampled``, with the sample's
+    ``sample_size``, ``sample_seed`` and ``sample_cap``.
     """
     key = f"{owner}__{name}"
     target = raw_dir / "pr_window" / f"{key}.json"
@@ -480,7 +865,6 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
     now = now or datetime.now(timezone.utc)
     existing_prs: Optional[list[dict]] = None
     existing_anchor: Optional[datetime] = None
-    existing_truncated: bool = False
     if incremental_ledger and target.is_file():
         try:
             prev_env = read_envelope(target)
@@ -488,21 +872,20 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
                 isinstance(prev_env.data, Mapping)
                 and isinstance(prev_env.data.get("prs"), list)
                 and pr_window_query_is_current(prev_env.data)
+                and prev_env.data.get("truncated") is False
+                and not prev_env.data.get("sampled")
             ):
                 existing_prs = prev_env.data["prs"]
                 existing_anchor = (
                     _parse_iso(prev_env.data.get("window_anchor"))
                     or _parse_iso(getattr(prev_env, "fetched_at", None))
                 )
-                existing_truncated = bool(prev_env.data.get("truncated") is True)
         except Exception:
             existing_prs = None
             existing_anchor = None
-            existing_truncated = False
     result = fetch_pr_window(owner, name, now, transport or GhCliTransport(),
                              page_size=page_size, existing_prs=existing_prs,
-                             existing_anchor=existing_anchor,
-                             existing_truncated=existing_truncated)
+                             existing_anchor=existing_anchor)
     data: dict[str, Any] = {
         "window_anchor": now.isoformat(),
         "query_sha256": PR_WINDOW_QUERY_SHA256,
@@ -514,6 +897,11 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
         "prs": list(result.prs),
         "derived": derive_pr_window(result.prs),
     }
+    if result.sampled:
+        data["sampled"] = True
+        data["sample_cap"] = PR_SAMPLE_CAP
+        data["sample_seed"] = PR_SAMPLE_SEED
+        data["sample_size"] = len(reply_sampled_prs(result.prs))
     write_envelope(target, source="github-graphql:pr-window", data=data,
                    fetched_at=now.isoformat())
     return "ok"
@@ -545,9 +933,16 @@ def closed_unread_counts(prs: Sequence[dict]) -> tuple[int, int]:
     merged with no D-IN-2 response ever recorded (:func:`derive_pr_window`'s
     ``first_substantive_response_at``, recomputed from the recorded nodes as
     GR_14 and D-GATE-5 recompute it).
+
+    #51: both count the PRs whose replies the record holds
+    (:func:`reply_sampled_prs`): the whole window up to :data:`PR_CAP` PRs,
+    else its sample. The detector reads their share, which needs no weights.
     """
+    sampled_ids = {id(p) for p in reply_sampled_prs(prs)}
     outside = closed_unread = 0
-    for d in derive_pr_window(prs):
+    for pr, d in zip(prs, derive_pr_window(prs)):
+        if id(pr) not in sampled_ids:
+            continue
         if not d["is_external"] or d["is_bot_author"]:
             continue
         outside += 1
@@ -567,14 +962,35 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
     with a substantive review (02 §4 4.3), and the outside PRs and the
     closed-unread ones among them (:func:`closed_unread_counts`; absent when
     the envelope records no PR list). Empty dict when ``prw`` is None.
+
+    #51: the statistics read the PRs whose replies the record holds (rows
+    whose ``substantive_review`` is ``None`` were not sampled). A record that
+    stopped short of its window (:func:`pr_window_cut_short`) keeps its
+    recorded facts and refuses every statistic: ``(None, "missing")``.
     """
     if not prw:
         return {}
+    if pr_window_cut_short(prw):
+        fields: dict[str, tuple[Any, str]] = {
+            "pr_window_count": (int(prw.get("count") or 0), "verified"),
+            "pr_window_truncated": (bool(prw.get("truncated")), "verified"),
+            "pr_window_cost_points": (int(prw.get("cost_points") or 0), "verified"),
+            "pr_window_external_measured_latency_count": (None, "missing"),
+            "pr_window_ttfhr_median_hours": (None, "missing"),
+            "pr_window_substantive_review_rate": (None, "missing"),
+        }
+        if isinstance(prw.get("prs"), list):
+            fields["pr_window_outside_pr_count"] = (None, "missing")
+            fields["pr_window_closed_unread_count"] = (None, "missing")
+        return fields
     derived = prw.get("derived") or []
     external = [d for d in derived if d.get("is_external")]
     with_latency = [d["ttfhr_hours"] for d in external
                     if d.get("ttfhr_hours") is not None]
-    decided_external = [d for d in external if d.get("decided")]
+    decided_external = [
+        d for d in external
+        if d.get("decided") and ("substantive_review" not in d or d.get("substantive_review") is not None)
+    ]
     substantive = [d for d in decided_external if d.get("substantive_review")]
     fields = {
         "pr_window_count": (int(prw.get("count") or 0), "verified"),
@@ -646,8 +1062,10 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
 
 #: D-IN-4: the author-history window — 365 d of PRs.
 AUTHOR_WINDOW_DAYS: int = 365
-#: D-IN-4: at most the 500 newest PRs of the author-history window.
-AUTHOR_WINDOW_CAP: int = 500
+#: D-IN-4 (#51): the whole 365-d window, bounded only for safety: far above the
+#: busiest measured history (about 153,000 PRs), so a record that reaches it is
+#: ``truncated`` and its cohort rates are refused, never computed on part of it.
+AUTHOR_WINDOW_CAP: Optional[int] = 250_000
 #: D-IN-4: newcomer band, older edge — the first PR was opened at most 365 d ago.
 NEWCOMER_BAND_START_DAYS: int = 365
 #: D-IN-4: newcomer band, newer edge — the first PR was opened at least 180 d ago.
@@ -777,30 +1195,43 @@ class AuthorHistoryResult:
 
 def fetch_author_window(owner: str, name: str, now: datetime,
                         transport: GraphqlTransport,
-                        page_size: int = PAGE_SIZE) -> AuthorHistoryResult:
+                        page_size: int = PAGE_SIZE,
+                        *,
+                        cap: Optional[int] = AUTHOR_WINDOW_CAP) -> AuthorHistoryResult:
     """Fetch the PRs ``owner/name`` opened in the trailing 365 days.
 
     Pages newest-first and stops when a returned PR was opened before the
     window start (a PR opened exactly at ``now - 365 d`` is inside), when no
-    page remains, or when :data:`AUTHOR_WINDOW_CAP` records are collected —
+    page remains, or when ``cap`` records are collected —
     in which case ``truncated`` is True (D-IN-4). ``cost_points`` sums each
     page's ``rateLimit.cost``; ``remaining`` is the last-observed
     ``rateLimit.remaining``. Raises ``RuntimeError`` on GraphQL errors, a
     missing repository, or transport failure — a broken window fetch leaves
     no cohort computable for the whole repo, unlike a single bad per-author
     lookup (see :func:`collect_author_history`).
+
+    #51: ``cap`` defaults to :data:`AUTHOR_WINDOW_CAP`, a safety bound far above
+    any measured history, so the walk reads the whole 365 days (``None`` lifts
+    the bound). A page that fails with a heavy-query
+    error is read again in smaller pages from the same cursor
+    (:class:`_PageSizer`).
     """
     window_start = now - timedelta(days=AUTHOR_WINDOW_DAYS)
     prs: list[dict] = []
     cost = 0
     remaining: Optional[int] = None
     after: Optional[str] = None
-    while len(prs) < AUTHOR_WINDOW_CAP:
-        variables: dict[str, Any] = {"owner": owner, "name": name, "first": page_size}
+    sizer = _PageSizer(page_size)
+    while cap is None or len(prs) < cap:
+        variables: dict[str, Any] = {"owner": owner, "name": name}
         if after is not None:
             variables["after"] = after
-        doc = transport.execute(AUTHOR_WINDOW_QUERY, variables)
-        _raise_on_graphql_errors(doc, f"author window {owner}/{name}")
+        doc = _execute_page(
+            transport, AUTHOR_WINDOW_QUERY, variables, sizer,
+            lambda failed: _raise_on_graphql_errors(failed, f"author window {owner}/{name}"),
+        )
+        if doc is None:
+            continue
         data = doc.get("data") or {}
         rl = data.get("rateLimit") or {}
         cost += int(rl.get("cost") or 0)
@@ -814,13 +1245,13 @@ def fetch_author_window(owner: str, name: str, now: datetime,
             if created is not None and created < window_start:
                 return AuthorHistoryResult(owner, name, now, False, cost, remaining, tuple(prs))
             prs.append(raw)
-            if len(prs) >= AUTHOR_WINDOW_CAP:
+            if cap is not None and len(prs) >= cap:
                 break
         page_info = connection.get("pageInfo") or {}
         if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
-            break
+            return AuthorHistoryResult(owner, name, now, False, cost, remaining, tuple(prs))
         after = page_info["endCursor"]
-    return AuthorHistoryResult(owner, name, now, len(prs) >= AUTHOR_WINDOW_CAP,
+    return AuthorHistoryResult(owner, name, now, cap is not None and len(prs) >= cap,
                                cost, remaining, tuple(prs))
 
 
@@ -1192,6 +1623,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
                            page_size: int = PAGE_SIZE,
                            user_cache: Optional[UserCache] = None,
                            *,
+                           cap: Optional[int] = AUTHOR_WINDOW_CAP,
                            light_history: bool = False) -> str:
     """Collect the author-history envelope for one repository.
 
@@ -1240,7 +1672,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
             prev_records_by_login = {}
             prev_anchor_iso = ""
 
-    window = fetch_author_window(owner, name, now, t, page_size=page_size)
+    window = fetch_author_window(owner, name, now, t, page_size=page_size, cap=cap)
     cost = window.cost_points
     remaining = window.remaining
     sample = _select_newcomer_sample(window.prs, now, window.truncated)
@@ -1323,7 +1755,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     data: dict[str, Any] = {
         "window_anchor": now.isoformat(),
         "window_days": AUTHOR_WINDOW_DAYS,
-        "cap": AUTHOR_WINDOW_CAP,
+        "cap": cap,
         "count": len(window.prs),
         "truncated": window.truncated,
         "cost_points": cost,
@@ -1614,6 +2046,9 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     out["authors_excluded_ineligible"] = (authors_excluded_ineligible, "verified")
     unmeasured_fraction = (authors_excluded_unmeasured / authors_total) if authors_total else 0.0
     collector_failed = unmeasured_fraction > AUTHOR_UNMEASURED_MAX_FRACTION
+    # #51 rule 5: a record cut short of the decision cohort's start yields no
+    # cohort rate (the core's one definition, which the bundle reader also uses).
+    decision_window_cut = gates.record_cut_short(ah, DECISION_COHORT_START_DAYS)
 
     # --- 1.2 DR_90 / 1.3 MR_first: the decision cohort ----------------------
     cohort_prs = [pr for pr in window_prs if _in_decision_band(pr, anchor) and _is_external_nonbot(pr)]
@@ -1633,9 +2068,13 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     out["mr_first_rate_raw"] = (_ratio(raw_mr_merged, len(raw_mr_decided)), "derived")
     out["mr_first_pr_count_raw"] = (len(raw_mr_decided), "derived")
 
-    if collector_failed:
-        # Collector failure gate: when too many authors are unmeasured, mark missing.
-        detail = f"{authors_excluded_unmeasured} of {authors_total} authors unmeasured"
+    if collector_failed or decision_window_cut:
+        # Collector failure or cut window gate: mark missing.
+        if decision_window_cut:
+            detail = (f"author_history window truncated before reaching the {DECISION_COHORT_START_DAYS}d "
+                      f"decision-cohort start ({gap_days}d short)")
+        else:
+            detail = f"{authors_excluded_unmeasured} of {authors_total} authors unmeasured"
         out["dr90_decision_rate_author_history_cohort"] = (None, "missing")
         out["dr90_decision_pr_count_author_history_cohort"] = (None, "missing")
         out["mr_first_rate"] = (None, "missing")
@@ -1662,15 +2101,19 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         _ratio(sum(1 for a in authors if a["_converted"]), len(authors)), "derived")
     out["newcomer_conversion_raw_author_count"] = (len(authors), "derived")
 
-    # Collector failure gate over the sampled newcomer roster.
+    # Collector failure / cut window gate over the sampled newcomer roster.
     newcomer_total = len(authors)
     newcomer_unmeasured = sum(1 for a in authors if a["_eligible"] is None)
     newcomer_fraction = (newcomer_unmeasured / newcomer_total) if newcomer_total else 0.0
     newcomer_collector_failed = newcomer_fraction > AUTHOR_UNMEASURED_MAX_FRACTION
+    newcomer_window_cut = gates.record_cut_short(ah, NEWCOMER_BAND_START_DAYS)
 
     eligible_authors = [a for a in authors if a["_eligible"] is True]
-    if newcomer_collector_failed:
-        detail = f"{newcomer_unmeasured} of {newcomer_total} newcomer authors unmeasured"
+    if newcomer_collector_failed or newcomer_window_cut:
+        if newcomer_window_cut:
+            detail = "author_history window truncated before reaching 365d newcomer band start"
+        else:
+            detail = f"{newcomer_unmeasured} of {newcomer_total} newcomer authors unmeasured"
         out["newcomer_conversion"] = (None, "missing")
         out["newcomer_conversion_author_count"] = (None, "missing")
         out["rr90_return_rate"] = (None, "missing")

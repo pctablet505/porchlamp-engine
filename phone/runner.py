@@ -64,8 +64,6 @@ LAYER_FLAGS: dict[str, tuple[str, ...]] = {
 }
 
 PAGE = 25
-PAGE_RETRY = 10
-_HEAVY = ("504", "502", "end of JSON", "timed out", "timeout", "Timeout")
 _DONE = re.compile(r"done: (\d+) clean, (\d+) with failures")
 #: The one line gather.main prints per repo (the prefix is ``phone.entry.REPO_LINE``) and the run's size line.
 _OUTCOME = re.compile(r"^[\w.-]+/[\w.-]+ \[[^\]]*\]: (?:(?P<stopped>OK \(stopped at black_hole\))|(?P<ok>OK)"
@@ -176,7 +174,11 @@ def load_gather(engine: Path, home: Path) -> ModuleType:
 
 
 def apply_pagesize() -> None:
-    """Default collect_pr_window to page_size 25; retry once at 10 on query-weight errors.
+    """Default collect_pr_window to page_size 25.
+
+    A page that fails with a query-weight error is read again in pages of 10 by the collector itself, which then
+    goes on at 25 (``github_graphql._PageSizer``), so the project is never fetched again from its first page. A
+    project that still fails is counted by gather.py and fetched again by the layer's next run.
 
     Idempotent: the wrapper is marked, so a second call does nothing.
     """
@@ -188,13 +190,7 @@ def apply_pagesize() -> None:
 
     def collect_pr_window(*args, **kwargs):
         kwargs.setdefault("page_size", PAGE)
-        try:
-            return orig(*args, **kwargs)
-        except Exception as e:  # gather.py logs and counts any failure
-            if kwargs["page_size"] > PAGE_RETRY and any(m in str(e) for m in _HEAVY):
-                kwargs["page_size"] = PAGE_RETRY
-                return orig(*args, **kwargs)
-            raise
+        return orig(*args, **kwargs)
 
     collect_pr_window._phone_pagesize = True  # type: ignore[attr-defined]
     g.collect_pr_window = collect_pr_window

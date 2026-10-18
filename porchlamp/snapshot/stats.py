@@ -35,11 +35,19 @@ The definitions:
     the same kind of projects, with the rule inputs recorded, left undecided on gate 5 only because their
     recorded PR window does not cover the window ending at ``--as-of``: the collector stopped at its PR cap
     before reaching the window's start, or the record does not say whether it did
-    (:func:`porchlamp.derive.gate_evidence.pr_window_coverage_in`, the rule ``snapshot build`` records);
+    (:func:`porchlamp.derive.gate_evidence.pr_window_coverage_in`, the rule ``snapshot build`` records).
+    A cut record's share is not measured (#51), so for such a project the minimum population is read from
+    its recorded window instead (:func:`porchlamp.derive.gate_evidence.black_hole_window_breakdown_from_raw`);
 ``gate5_undecided_cut_record_caps``
     the PR caps those records stopped at, as their envelopes record them (``cap``), each once, in
     ascending order; ``null`` stands for a record that does not say it stopped at its cap (its
     ``truncated`` is not true, or its ``cap`` is not a whole number);
+``pr_window_sampled``
+    recorded PR windows holding more PRs than the collector records with every field (RFC-0013): every PR
+    of the window is recorded, and replies and reviews only on an even random sample of them (``sampled``
+    in the envelope), so the reply measures and D-GATE-5 read that sample;
+``pr_window_sampled_caps``
+    the ``[cap, sample_cap]`` pairs those envelopes record, each once, in ascending order;
 ``corpus``
     derived bundle files (``derived_repos``), how many of them have a recorded PR window
     (``pr_windows``), the outside PRs opened in the PR window ending at ``--as-of``
@@ -62,6 +70,7 @@ from typing import Any, Optional, Sequence
 from porchlamp.core.constants import GATE5_MIN_N, PR_WINDOW_DAYS
 from porchlamp.derive.gate_evidence import (
     _review_handoff_in,
+    black_hole_window_breakdown_from_raw,
     outside_pr_authors,
     pr_rule_inputs_recorded,
     pr_window_coverage_in,
@@ -169,11 +178,18 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
             "SELECT owner, name, gate_reason, gate_undecided, rated, p_responsiveness, "
             f"{score}, rank, ttfhr_p75 FROM repositories"
         ).fetchall()
-        # gate 5 had enough pull requests to decide: a measured share over at least the minimum population
+        # gate 5 had enough pull requests to decide: a measured share over at least the minimum population,
+        # or an unmeasured share (e.g. refused because the pr_window record was cut short) whose raw window
+        # holds at least GATE5_MIN_N countable outside PRs.
         populated = {
             (owner.lower(), name.lower()) for owner, name in con.execute(
                 "SELECT r.owner, r.name FROM repositories r JOIN params p ON p.repo_id = r.id "
                 "AND p.param_id = 'gr14_ghost_rate' WHERE p.measured = 1 AND p.n >= ?", (GATE5_MIN_N,))
+        }
+        unmeasured_gr14 = {
+            (owner.lower(), name.lower()) for owner, name in con.execute(
+                "SELECT r.owner, r.name FROM repositories r JOIN params p ON p.repo_id = r.id "
+                "AND p.param_id = 'gr14_ghost_rate' WHERE p.measured = 0")
         }
     finally:
         con.close()
@@ -223,14 +239,15 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
 
     # the corpus: outside PRs opened in the PR window, from the recorded pr_window envelopes; and the
     # gate-5 undecided projects whose window lacks the rules' inputs, or stops short of the window
-    gate5_undecided = {
+    gate5_undecided_candidates = {
         key(r) for r in rows
         if r[2] in (None, "black_hole", "unrated: no_external_workflow") and "D-GATE-5" in json.loads(r[3] or "[]")
-        and key(r) in populated
+        and (key(r) in populated or key(r) in unmeasured_gr14)
     }
     window_start = now - timedelta(days=PR_WINDOW_DAYS)
-    n_repo = n_window = n_pr = n_rule_inputs = n_cut_record = 0
+    n_repo = n_window = n_pr = n_rule_inputs = n_cut_record = n_sampled = 0
     cut_caps: set[Optional[int]] = set()
+    sampled_caps: set[tuple[Any, Any]] = set()
     authors: set[str] = set()
     for path in derived.glob("*.json"):
         n_repo += 1
@@ -240,21 +257,34 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
         if not isinstance(prs, list):
             continue
         n_window += 1
+        if window.get("sampled") is True:
+            n_sampled += 1
+            sampled_caps.add((window.get("cap"), window.get("sample_cap")))
         owner, _, name = path.stem.partition("__")
-        if (owner.lower(), name.lower()) in gate5_undecided and _review_handoff_in(window) is not True:
-            if not pr_rule_inputs_recorded(prs):
-                n_rule_inputs += 1
-            elif pr_window_coverage_in(document, now)[0] is False:
-                n_cut_record += 1
-                cap = window.get("cap")
-                cut_at_cap = window.get("truncated") is True and isinstance(cap, int) and not isinstance(cap, bool)
-                cut_caps.add(cap if cut_at_cap else None)
+        repo_key = (owner.lower(), name.lower())
+        if repo_key in gate5_undecided_candidates and _review_handoff_in(window) is not True:
+            cut = pr_window_coverage_in(document, now)[0] is False
+            has_min_n = repo_key in populated
+            if not has_min_n and cut:
+                # #51 rule 5 refuses a cut record's share: read its population from the window itself.
+                bd = black_hole_window_breakdown_from_raw(raw, path.stem, now=now)
+                has_min_n = bd is not None and bd.population_n >= GATE5_MIN_N
+            if has_min_n:
+                if not pr_rule_inputs_recorded(prs):
+                    n_rule_inputs += 1
+                elif cut:
+                    n_cut_record += 1
+                    cap = window.get("cap")
+                    cut_at_cap = window.get("truncated") is True and isinstance(cap, int) and not isinstance(cap, bool)
+                    cut_caps.add(cap if cut_at_cap else None)
         logins = outside_pr_authors(prs, start=window_start, end=now)
         n_pr += len(logins)
         authors.update(login for login in logins if login)
     out["gate5_undecided_rule_inputs"] = n_rule_inputs
     out["gate5_undecided_cut_record"] = n_cut_record
     out["gate5_undecided_cut_record_caps"] = sorted(cut_caps, key=lambda cap: -1 if cap is None else cap)
+    out["pr_window_sampled"] = n_sampled
+    out["pr_window_sampled_caps"] = [list(pair) for pair in sorted(sampled_caps, key=repr)]
     out["corpus"] = {
         "derived_repos": n_repo, "pr_windows": n_window,
         "human_outside_prs": n_pr, "distinct_outside_authors": len(authors),

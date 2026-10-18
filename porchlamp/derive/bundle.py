@@ -28,7 +28,7 @@ from datetime import timezone as _utc_timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
-from porchlamp.core import commit_domains, constants, hygiene, models, openssf
+from porchlamp.core import commit_domains, constants, gates, hygiene, models, openssf
 from porchlamp.core.models import (
     BundleValidationError,
     Cohorts,
@@ -1128,6 +1128,12 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
         if confidence_value in ("verified", "derived", "flag") and value_ok:
             path = _resolve_envelope(source, ctx.raw_root)
             mapped = _map_v1_value(value, vocab)
+            # #51 rule 5: on a pr_window record cut short of its window only an
+            # observed promotion (VERIFIED) is evidence; every other rung rests on
+            # the absence of something the unrecorded part could hold.
+            if (v1_field == "promotion_ladder" and mapped != "VERIFIED"
+                    and _pr_window_cut_short(_pr_window_envelope(ctx)[1])):
+                return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
             if path is not None and isinstance(fetched_at, str) and fetched_at and mapped is not None:
                 source_hash = _envelope_hash(path)
                 relative = _relative_source(path, ctx.raw_root)
@@ -1142,6 +1148,9 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
                 detail = f"v1 value {value!r} for {v1_field!r} has no v2 vocabulary mapping"
             return Unmeasured(reason="collector_failure", detail=detail)
         if confidence_value == "missing":
+            # #51 rule 5: the deriver withholds every rung but VERIFIED on a cut pr_window record; say why.
+            if v1_field == "promotion_ladder" and _pr_window_cut_short(_pr_window_envelope(ctx)[1]):
+                return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
             return Unmeasured(reason="collector_failure", detail="v1 deriver recorded no value")
         return Unmeasured(reason="collector_failure",
                            detail=f"v1 confidence {confidence_value!r} for {v1_field!r} is not recognized")
@@ -1315,6 +1324,15 @@ def _author_history_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapp
         result = (None, None, None)
     ctx.cache["author_history"] = result
     return result
+
+
+#: #51: the core definitions (:mod:`porchlamp.core.gates`), shared with the
+#: collector and D-GATE-5: the PR nodes whose replies a ``pr_window`` record
+#: holds, whether a ``pr_window`` record stopped short of its own window, and
+#: whether a windowed record stopped short of the days a measure needs.
+_reply_sampled_prs = gates.reply_sampled_prs
+_pr_window_cut_short = gates.pr_window_cut_short
+_author_history_cut_short = gates.record_cut_short
 
 
 def _pr_window_bounds(data: Optional[Mapping[str, Any]]) -> tuple[Optional[str], Optional[str]]:
@@ -1543,6 +1561,11 @@ def _dr90_decision_cohort(
     return decided, len(kept), len(entries), malformed, gate_applied
 
 
+#: #51 rule 5: the detail of a window measure refused because its ``pr_window``
+#: record stopped short of its window (:func:`porchlamp.core.gates.pr_window_cut_short`).
+_PR_WINDOW_CUT_SHORT_DETAIL = "pr_window envelope is truncated before reaching the 180d window start"
+
+
 def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     """1.2 DR_90 decision rate (D-IN-4 amendment; D-IN-3 per-author cap and
     eligibility gate). No v1 summary field exists for this cohort (the v1
@@ -1561,10 +1584,15 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     cohorts, not two computations of the same one). This resolver does not
     read that field: it recomputes the cap and gate directly against
     ``pr_window``'s narrower (180 d, D-IN-4-amended) cohort.
+
+    #51: it reads every PR of the window, a sampled one included (decisions
+    are PR-level facts), and refuses a record cut short of its window.
     """
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    if _pr_window_cut_short(data):
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
     anchor = _parse_iso_or_none(data.get("window_anchor"))
     if anchor is None:
         return Unmeasured(
@@ -1624,6 +1652,8 @@ def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    if _pr_window_cut_short(data):
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
     n_value = ctx.meta.get("pr_window_external_measured_latency_count")
     n = n_value if isinstance(n_value, int) and not isinstance(n_value, bool) else 0
     min_n = constants.PARAM_MIN_N["ttfhr_hours"]
@@ -1645,14 +1675,19 @@ def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
 def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     """4.3 Substantive review rate. The rate itself is the
     ``pr_window_substantive_review_rate`` summary field; ``n`` (decided
-    external PRs) has no summary field and is counted from the raw
-    envelope's ``derived`` classifications."""
+    external PRs in the reply sample) has no summary field and is counted
+    from the raw envelope's ``derived`` classifications."""
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    if _pr_window_cut_short(data):
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
     decided_external = [
         entry for entry in (data.get("derived") or [])
-        if isinstance(entry, Mapping) and entry.get("is_external") and entry.get("decided")
+        if isinstance(entry, Mapping)
+        and entry.get("is_external")
+        and entry.get("decided")
+        and ("substantive_review" not in entry or entry.get("substantive_review") is not None)
     ]
     n = len(decided_external)
     min_n = constants.PARAM_MIN_N["substantive_review_rate"]
@@ -1679,6 +1714,8 @@ def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    if _pr_window_cut_short(data):
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
     latencies = _merged_external_latency_hours(data)
     n = len(latencies)
     min_n = constants.PARAM_MIN_N["ttm_p90_hours"]
@@ -1701,10 +1738,16 @@ def _resolve_gr14_ghost_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     time (``gr14_window_end``), from the pr_window envelope; this row only
     carries them. ``n`` below the minimum stays ``Measured`` with its true
     ``n``: scoring reports ``insufficient_n`` and the gate is UNDECIDED.
-    ``n == 0`` has no share to carry and is ``insufficient_n`` here."""
-    path, _data, fetched_at = _pr_window_envelope(ctx)
+    ``n == 0`` has no share to carry and is ``insufficient_n`` here.
+
+    #51 rule 5: refused when the record stopped short of the window the share
+    was computed over (``gr14_window_start``; the record's own window when
+    derive recorded none), the rule derive itself applies."""
+    path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    if _pr_window_cut_short(data, _parse_iso_or_none(ctx.meta.get("gr14_window_start"))):
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
     n = ctx.meta.get("gr14_population_n")
     if ctx.confidence.get("gr14_population_n") != "derived" or not _is_count(n):
         return Unmeasured(reason="collector_failure",
@@ -1730,8 +1773,8 @@ def _resolve_closed_unread(ctx: _V1Ctx) -> ClosedUnreadCounts | None:
     the envelope folded into the bundle's provenance as GR_14 folds it. ``None``
     (the flag is unmeasured) when the envelope does not resolve or derive
     recorded no counts: the v1 ``pr_events`` sample is never read for them."""
-    path, _data, _fetched_at = _pr_window_envelope(ctx)
-    if path is None:
+    path, data, _fetched_at = _pr_window_envelope(ctx)
+    if path is None or _pr_window_cut_short(data):
         return None
     counts = _closed_unread_counts_or_none(
         ctx.meta.get("pr_window_closed_unread_count"), ctx.meta.get("pr_window_outside_pr_count"))
@@ -1943,8 +1986,11 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
         n = 0
         if method == _PIPELINE_DEFENSES_PROXY_METHOD:
             data = _envelope_data(paths[0])
+            if _pr_window_cut_short(data):
+                return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
             prs = data.get("prs") if isinstance(data, Mapping) else None
-            n = sum(1 for pr in (prs or []) if isinstance(pr, Mapping) and pr.get("mergedAt") is not None)
+            sampled_prs = _reply_sampled_prs(prs or [])
+            n = sum(1 for pr in sampled_prs if pr.get("mergedAt") is not None)
         return Measured(value=float(value), n=n, window_start=None, window_end=None, method=method,
                          source=_relative_source(paths[0], ctx.raw_root),
                          source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
@@ -1956,12 +2002,26 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
         )
     if confidence_value == "collector_failure":
         # Pike signals deriver crashed before it could report either method
-        # for this repo -- the companion detail field names the exception.
+        # for this repo -- the companion detail field names the exception --
+        # or (#51) refused the review/CI proxy on a pr_window record cut short
+        # of its window, which the detail field says instead.
         detail = ctx.meta.get("pipeline_defenses_detail")
         return Unmeasured(reason="collector_failure",
                            detail=detail if isinstance(detail, str) and detail else "pike_signals collector failed")
     return Unmeasured(reason="collector_failure",
                        detail=f"v1 confidence {confidence_value!r} for 'pipeline_defenses' is not recognized")
+
+
+#: #51 rule 5: how far back an ``author_history`` record must reach for each
+#: cohort rate: the 1.3 decision cohort starts 270 d back, the 5.2/5.3
+#: newcomer band 365 d back (``porchlamp.collect.github_graphql``'s
+#: ``DECISION_COHORT_START_DAYS`` and ``NEWCOMER_BAND_START_DAYS``, which
+#: ``porchlamp.derive`` cannot import; a test pins them equal).
+_AUTHOR_HISTORY_REQUIRED_DAYS: dict[str, int] = {
+    "mr_first_rate": 270,
+    "newcomer_conversion": 365,
+    "rr90_return_rate": 365,
+}
 
 
 def _author_history_rate_resolver(
@@ -2000,11 +2060,27 @@ def _author_history_rate_resolver(
     ``insufficient_n`` detail -- ``"authors"`` for newcomer conversion
     and retention rate, but ``mr_first_rate``'s ``mr_first_pr_count`` counts
     PRs, not authors, so that row passes ``count_unit="PRs"``.
+
+    #51 rule 5: a ``"derived"`` rate whose ``author_history`` record stopped
+    short of the days its cohort needs (:data:`_AUTHOR_HISTORY_REQUIRED_DAYS`)
+    is ``Unmeasured(collector_failure)``, whatever the deriver recorded.
     """
 
     def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
         confidence_value = ctx.confidence.get(rate_field)
         if confidence_value == "derived":
+            entry = ctx.provenance.get(rate_field)
+            source = _first_source(entry)
+            fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+            path = _resolve_envelope(source, ctx.raw_root)
+            if path is not None:
+                required_days = _AUTHOR_HISTORY_REQUIRED_DAYS.get(rate_field, 365)
+                if _author_history_cut_short(_envelope_data(path), required_days):
+                    return Unmeasured(
+                        reason="collector_failure",
+                        detail=(f"author_history window is truncated before reaching the "
+                                f"{required_days}d cohort start"),
+                    )
             value = ctx.meta.get(rate_field)
             count = ctx.meta.get(count_field)
             count_ok = isinstance(count, int) and not isinstance(count, bool)
@@ -2016,10 +2092,6 @@ def _author_history_rate_resolver(
                 )
             value_ok = isinstance(value, (int, float)) and not isinstance(value, bool)
             if value_ok and count_ok:
-                entry = ctx.provenance.get(rate_field)
-                source = _first_source(entry)
-                fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
-                path = _resolve_envelope(source, ctx.raw_root)
                 if path is not None and isinstance(fetched_at, str) and fetched_at:
                     source_hash = _envelope_hash(path)
                     relative = _relative_source(path, ctx.raw_root)

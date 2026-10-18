@@ -600,7 +600,8 @@ def report_hooks(
     *, sid: str, judged: int, black_holes: int, deadline: int, min_n: int, confidence: int, bands: list,
     below: int, lowest: int, top100_black_holes: int, top100_overlap: int, ranked: int, rho: float, unanswered: int,
     counted: int, corpus: dict, start: date, end: date, undecided: int, ecosystems: list, names: dict[str, str],
-    constants_hash: str, db_sha: str, undecided_cut: int = 0, pr_cap: int | None = None,
+    constants_hash: str, db_sha: str, undecided_cut: int = 0, pr_cap: int | None = None, sampled: int = 0,
+    full_max: int | None = None, sample_size: int | None = None,
 ) -> dict[str, str]:
     """Every ``data-v`` hook the report prints (``web/app/views/report.js``), with the value worked out here from
     the database, the API and the stats file, in this file's own formatting: the page's hook count per type is the
@@ -659,6 +660,10 @@ def report_hooks(
     if undecided_cut:  # the cut-record bullet, only when it is printed
         out["undecided_cut"] = _thousands(undecided_cut)
         out["pr_cap"] = _thousands(pr_cap)
+    if sampled:  # the sampled-record bullet, only when it is printed
+        out["sampled"] = _thousands(sampled)
+        out["full_max"] = _thousands(full_max)
+        out["sample_size"] = _thousands(sample_size)
     return out
 
 
@@ -751,6 +756,13 @@ def _report_sentences(hooks: dict[str, str], names: dict[str, str]) -> dict[str,
         method.append(
             f"We could not judge {v['undecided_cut']} busy projects yet: we hold only the newest {v['pr_cap']} pull "
             f"requests of each, and they do not reach back to {v['window_start']}."
+        )
+    if "sampled" in v:
+        projects = "project" if v["sampled"] == "1" else "projects"
+        method.append(
+            f"{v['sampled']} {projects} had more than {v['full_max']} pull requests in that time. For each, we read "
+            f"replies and reviews on an even random sample of {v['sample_size']} of them; every pull request counts for "
+            "decisions and merges."
         )
     method.append(
         f"It is a black hole when, with {v['ci_percent']}% confidence, more than half of those pull requests got no "
@@ -909,6 +921,8 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         unanswered=unanswered, counted=counted, corpus=stats["corpus"], start=date.fromisoformat(start),
         end=date.fromisoformat(end), undecided=stats.get("gate5_undecided_rule_inputs", 0),
         undecided_cut=stats.get("gate5_undecided_cut_record", 0), pr_cap=(stats.get("gate5_undecided_cut_record_caps") or [None])[0],
+        sampled=stats.get("pr_window_sampled", 0), full_max=((stats.get("pr_window_sampled_caps") or [[None, None]])[0])[0],
+        sample_size=((stats.get("pr_window_sampled_caps") or [[None, None]])[0])[1],
         ecosystems=[(e, *per_eco[e]) for e in eco_order], names=names, constants_hash=snapshot["constants_hash"],
         db_sha=db_sha,
     )
@@ -928,6 +942,11 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         caps = stats.get("gate5_undecided_cut_record_caps")
         ledger.equal("'we hold only the newest N pull requests of each' holds (the cut records name one cap)",
                      isinstance(caps, list) and len(caps) == 1 and type(caps[0]) is int, True)
+    if stats.get("pr_window_sampled"):
+        pairs = stats.get("pr_window_sampled_caps")
+        ledger.equal("'more than N pull requests ... a sample of M of them' holds (the sampled records name one pair)",
+                     isinstance(pairs, list) and len(pairs) == 1 and isinstance(pairs[0], list) and len(pairs[0]) == 2
+                     and all(type(n) is int for n in pairs[0]), True)
 
     h2_expected = [rp.copy_js_string(n) for n in (
         "REPORT_FINDINGS_HEADING", "REPORT_STARS_HEADING", "REPORT_ECOSYSTEMS_HEADING", "REPORT_METHOD_HEADING",
@@ -1679,14 +1698,22 @@ def _rank_band(rank: int, total: int) -> str:
 def _expected_reply(detail: dict, evidence: list[dict], min_n: dict[str, int]) -> tuple[str, str, str]:
     """``(first sentence, the rest, the first sentence as the head says it)`` of the reply answer, from the API's own
     evidence rows and the methodology's minimum samples. The first sentence names the project; the head's form does
-    not, and has no bracket."""
+    not, and has no bracket. A value unmeasured for ``collector_failure`` is one whose PR record does not cover the
+    window (RFC-0013); any other reason is a too-small sample."""
     ev = {e["param_id"]: e for e in evidence}
     t, g = ev["ttfhr_hours"], ev["gr14_ghost_rate"]
     t_ok, g_ok = t["unmeasured_reason"] is None, g["unmeasured_reason"] is None
+    t_gone, g_gone = t["unmeasured_reason"] == "collector_failure", g["unmeasured_reason"] == "collector_failure"
     who = f"{detail['owner']}/{detail['name']}"
+    gone = "we do not hold a complete record of its pull requests for the window"
 
     def prs(n: int) -> str:
         return f"{n:,} pull request" + ("" if n == 1 else "s")
+
+    def g_missing() -> str:
+        if g_gone:
+            return f"The share with no reply within 14 days is not measured: {gone}."
+        return f"The share with no reply within 14 days has too small a sample to measure ({prs(g['n'])} counted; {min_n['gr14_ghost_rate']} needed)."
 
     if t_ok:
         median = f"got a first human reply in a median of {_reply_time(t['value'])}"
@@ -1694,22 +1721,26 @@ def _expected_reply(detail: dict, evidence: list[dict], min_n: dict[str, int]) -
         if g_ok:
             tail = f"; {_half_up(g['value'], 100)}% got none within 14 days."
             return f"Outside pull requests to {who} {median}{bracket}{tail}", "", f"Outside pull requests {median}{tail}"
-        return (
-            f"Outside pull requests to {who} {median}{bracket}.",
-            f"The share with no reply within 14 days has too small a sample to measure ({prs(g['n'])} counted; {min_n['gr14_ghost_rate']} needed).",
-            f"Outside pull requests {median}.",
-        )
+        return f"Outside pull requests to {who} {median}{bracket}.", g_missing(), f"Outside pull requests {median}."
+    if t_gone and g_gone:
+        both = "the reply time and the share with no reply within 14 days are not measured"
+        return f"For {who}, {both}: {gone}.", "", f"T{both[1:]}."
+    if not t_gone and not g_ok and not g_gone:
+        lo, hi = min_n["ttfhr_hours"], min_n["gr14_ghost_rate"]
+        needed = f"{lo} needed" if lo == hi else f"{lo} and {hi} needed"
+        both = "the reply time and the share with no reply within 14 days both have too small a sample to measure"
+        return f"For {who}, {both} ({t['n']:,} and {prs(g['n'])} counted; {needed}).", "", f"T{both[1:]}."
+    if t_gone:
+        first, short = f"For {who}, the reply time is not measured: {gone}.", "The reply time is not measured."
+    else:
+        first = f"For {who}, the reply time has too small a sample to measure ({prs(t['n'])} counted; {min_n['ttfhr_hours']} needed)."
+        short = "The reply time has too small a sample to measure."
     if g_ok:
         noun = "pull request" if g["n"] == 1 else "pull requests"
-        return (
-            f"For {who}, the reply time has too small a sample to measure ({prs(t['n'])} counted; {min_n['ttfhr_hours']} needed).",
-            f"{_half_up(g['value'], 100)}% of {g['n']:,} outside {noun} got no reply within 14 days ({_date_range(g['window_start'], g['window_end'])}).",
-            "The reply time has too small a sample to measure.",
-        )
-    lo, hi = min_n["ttfhr_hours"], min_n["gr14_ghost_rate"]
-    needed = f"{lo} needed" if lo == hi else f"{lo} and {hi} needed"
-    both = "the reply time and the share with no reply within 14 days both have too small a sample to measure"
-    return f"For {who}, {both} ({t['n']:,} and {prs(g['n'])} counted; {needed}).", "", f"T{both[1:]}."
+        rest = f"{_half_up(g['value'], 100)}% of {g['n']:,} outside {noun} got no reply within 14 days ({_date_range(g['window_start'], g['window_end'])})."
+    else:
+        rest = g_missing()
+    return first, rest, short
 
 
 #: The longest description a project page may have.

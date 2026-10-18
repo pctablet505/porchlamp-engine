@@ -2114,3 +2114,147 @@ def test_dx_resolver_measured_insufficient_n_and_missing(tmp_path: Path) -> None
         reason="collector_failure",
         detail="v1 deriver recorded no dx value (no actions_runs envelope)",
     )
+
+
+def _cut_records(tmp_path: Path, key: str) -> None:
+    """A ``pr_window`` record cut at its cap 31 days into its 180-day window and an
+    ``author_history`` record cut 123 days into its 365 (short of 270 and 365)."""
+    cut_prw = pr_window_data(
+        window_anchor="2026-09-01T00:00:00+00:00",
+        window_days=180,
+        truncated=True,
+        prs=[
+            {
+                "number": i,
+                "createdAt": f"2026-08-{i:02d}T00:00:00+00:00",
+                "mergedAt": f"2026-08-{i:02d}T10:00:00+00:00",
+                "closedAt": f"2026-08-{i:02d}T10:00:00+00:00",
+                "authorAssociation": "NONE",
+                "author": {"login": f"u{i}", "__typename": "User"},
+            }
+            for i in range(1, 16)
+        ],
+        derived=[
+            {"number": i, "is_external": True, "decided": True, "merged": True}
+            for i in range(1, 16)
+        ],
+    )
+    write_envelope(tmp_path / "raw", "pr_window", key, cut_prw, "2026-09-01T00:05:00+00:00")
+    cut_ah = {
+        "window_anchor": "2026-09-01T00:00:00+00:00",
+        "window_days": 365,
+        "truncated": True,
+        "cost_points": 1,
+        "prs": [
+            {
+                "number": i,
+                "createdAt": f"2026-05-{i:02d}T00:00:00+00:00",
+                "mergedAt": f"2026-05-{i:02d}T10:00:00+00:00",
+                "authorAssociation": "NONE",
+                "author": {"login": f"u{i}", "__typename": "User"},
+            }
+            for i in range(1, 16)
+        ],
+        "author_records": [],
+    }
+    write_envelope(tmp_path / "raw", "author_history", key, cut_ah, "2026-09-01T00:05:00+00:00")
+    write_envelope(tmp_path / "raw", "governance", key, {"files": {}}, "2026-09-01T00:05:00+00:00")
+    write_envelope(tmp_path / "raw", "runs", key, {"runs": []}, "2026-09-01T00:03:00+00:00")
+
+
+def _cut_document(key: str, ladder: str) -> dict[str, Any]:
+    return base_document(
+        meta={
+            "pr_window_ttfhr_median_hours": 4.0,
+            "pr_window_external_measured_latency_count": 15,
+            "pr_window_substantive_review_rate": 0.8,
+            "gr14_ghost_rate": 0.1,
+            "gr14_population_n": 15,
+            "gr14_window_start": "2026-03-05T00:00:00+00:00",
+            "gr14_window_end": "2026-09-01T00:00:00+00:00",
+            "pipeline_defenses": 80.0,
+            "pipeline_defenses_method": "proxy:review_ci",
+            "promotion_ladder": ladder,
+            "mr_first_rate": 0.5,
+            "mr_first_pr_count": 10,
+            "newcomer_conversion": 0.5,
+            "newcomer_conversion_author_count": 10,
+            "rr90_return_rate": 0.5,
+            "rr90_return_author_count": 10,
+        },
+        provenance={
+            "pr_window_count": prov("pr_window", key=key),
+            # the review/CI proxy records both of its envelopes, as derive does
+            "pipeline_defenses": {
+                "source": [f"/original-data-dir/raw/pr_window/{key}.json",
+                           f"/original-data-dir/raw/runs/{key}.json"],
+                "fetched_at": "2026-09-01T00:05:00+00:00",
+            },
+            "promotion_ladder": prov("governance", key=key),
+            "author_history_cost_points": prov("author_history", key=key),
+            "mr_first_rate": prov("author_history", key=key),
+            "newcomer_conversion": prov("author_history", key=key),
+            "rr90_return_rate": prov("author_history", key=key),
+        },
+        confidence={
+            "pr_window_count": "verified",
+            "gr14_population_n": "derived",
+            "pipeline_defenses": "derived",
+            "promotion_ladder": "derived",
+            "author_history_cost_points": "verified",
+            "mr_first_rate": "derived",
+            "newcomer_conversion": "derived",
+            "rr90_return_rate": "derived",
+        },
+    )
+
+
+def test_cut_short_windows_refused_by_bundle_resolvers(tmp_path: Path) -> None:
+    """#51 rule 5: every pr_window and author_history reader in bundle.py refuses a
+    record that stopped short of the window it needs, whatever the deriver recorded."""
+    _cut_records(tmp_path, "acme__cut")
+    bundle = load(tmp_path, _cut_document("acme__cut", "CLOSED"), key="acme__cut")
+    window_refusal = Unmeasured(
+        reason="collector_failure", detail="pr_window envelope is truncated before reaching the 180d window start")
+    for param_id in ("ttfhr_hours", "dr90_decision_rate", "gr14_ghost_rate", "ttm_p90_hours",
+                     "substantive_review_rate", "pipeline_defenses", "promotion_ladder"):
+        assert bundle.inputs[param_id] == window_refusal, param_id
+    for param_id, days in (("mr_first_rate", 270), ("newcomer_conversion", 365), ("rr90_return_rate", 365)):
+        assert bundle.inputs[param_id] == Unmeasured(
+            reason="collector_failure",
+            detail=f"author_history window is truncated before reaching the {days}d cohort start",
+        ), param_id
+
+
+def test_a_ladder_the_deriver_withheld_on_a_cut_pr_window_names_the_cut(tmp_path: Path) -> None:
+    """The governance deriver records no rung but VERIFIED on a cut record (confidence ``missing``); the bundle says
+    why, where a ladder missing for any other cause keeps the generic detail."""
+    _cut_records(tmp_path, "acme__cut-missing")
+    document = _cut_document("acme__cut-missing", "CLOSED")
+    document["confidence"]["promotion_ladder"] = "missing"
+    bundle = load(tmp_path, document, key="acme__cut-missing")
+    assert bundle.inputs["promotion_ladder"] == Unmeasured(
+        reason="collector_failure", detail="pr_window envelope is truncated before reaching the 180d window start")
+    uncut = base_document(confidence={"promotion_ladder": "missing"})
+    assert load(tmp_path / "uncut", uncut).inputs["promotion_ladder"] == Unmeasured(
+        reason="collector_failure", detail="v1 deriver recorded no value")
+
+
+def test_a_verified_promotion_stands_on_a_cut_pr_window(tmp_path: Path) -> None:
+    """An observed promotion is positive evidence: a cut record does not refute it."""
+    _cut_records(tmp_path, "acme__cut-verified")
+    bundle = load(tmp_path, _cut_document("acme__cut-verified", "VERIFIED"), key="acme__cut-verified")
+    value = bundle.inputs["promotion_ladder"]
+    assert isinstance(value, Measured) and value.value == "VERIFIED"
+
+
+def test_author_history_required_days_match_the_collector() -> None:
+    from porchlamp.collect import github_graphql
+    from porchlamp.derive.bundle import _AUTHOR_HISTORY_REQUIRED_DAYS
+
+    assert _AUTHOR_HISTORY_REQUIRED_DAYS == {
+        "mr_first_rate": github_graphql.DECISION_COHORT_START_DAYS,
+        "newcomer_conversion": github_graphql.NEWCOMER_BAND_START_DAYS,
+        "rr90_return_rate": github_graphql.NEWCOMER_BAND_START_DAYS,
+    }
+
