@@ -423,7 +423,7 @@ input.control::placeholder {
 }
 
 .suspicion-icon {
-  color: var(--accent-warning);
+  color: var(--text-warning);
   cursor: default;
 }
 
@@ -552,7 +552,11 @@ input.control::placeholder {
   .leaderboard-table [data-col="stars"],
   .leaderboard-table [data-cell="stars"],
   .leaderboard-table [data-col="suspicion"],
-  .leaderboard-table [data-cell="suspicion"] {
+  .leaderboard-table [data-cell="suspicion"],
+  .leaderboard-table [data-col="no_reply_14d"],
+  .leaderboard-table [data-cell="no_reply_14d"],
+  .leaderboard-table [data-col="quadrant"],
+  .leaderboard-table [data-cell="quadrant"] {
     display: none;
   }
 
@@ -641,11 +645,11 @@ input.control::placeholder {
 }
 
 .delta-up {
-  color: var(--accent-success);
+  color: var(--text-success);
 }
 
 .delta-down {
-  color: var(--accent-warning);
+  color: var(--text-warning);
 }
 
 .delta-flat {
@@ -685,10 +689,10 @@ input.control::placeholder {
 }
 
 .leaderboard-card {
-  height: 156px;
+  height: 180px;
   box-sizing: border-box;
   overflow: hidden;
-  margin-bottom: 12px; /* 156 + 12 = components/table.js CARD_HEIGHT_PX (168) */
+  margin-bottom: 12px; /* 180 + 12 = components/table.js CARD_HEIGHT_PX (192): six lines, the replies one of them */
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
@@ -724,6 +728,62 @@ input.control::placeholder {
   justify-content: space-between;
   gap: var(--space-sm);
   margin-top: var(--space-2xs);
+}
+
+.leaderboard-card-replies {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The fastest-reply lists print a median's sample under it (components/table.js firstReplyHtml). */
+.reply-sample {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.leaderboard-card-replies .reply-sample {
+  display: inline;
+  margin-left: var(--space-2xs);
+}
+
+/* ---- A list at its own address: heading, intro, caveat, its other lists, the ranking's page links ---- */
+.list-head {
+  margin: 0 0 var(--space-md);
+  max-width: 72ch;
+}
+
+.list-head .view-heading {
+  margin-bottom: var(--space-xs);
+}
+
+.list-intro,
+.list-caveat,
+.list-sublinks {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-body-md);
+  line-height: 1.45;
+}
+
+.list-caveat {
+  color: var(--text-secondary);
+}
+
+.list-pages {
+  margin: var(--space-sm) 0;
+  font-size: var(--text-body-md);
+  line-height: 1.8;
+}
+
+.list-pages a[aria-current="page"],
+[data-ranking-pages] a[aria-current="page"] {
+  color: var(--text-primary);
+  font-weight: 700;
+  text-decoration: none;
 }
 
 /* ---- Reason chips (Not ranked) ---- */

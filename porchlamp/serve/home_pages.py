@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from html import escape
 from typing import Any, Mapping, Sequence
 
-from porchlamp.serve.landing_pages import ECOSYSTEM_PAGES, LENS_PAGES, TOP, lens_weights_text
 from porchlamp.serve.project_pages import Copy, js_fixed, project_url
 from porchlamp.serve.report_pages import (
     CITE_TITLE,
@@ -80,6 +79,9 @@ class HomeFacts:
     report_csv: str
     lens_weights: Mapping[str, str]  # lens -> "responsiveness 35%, ..."
     rows: tuple[Row, ...]
+    ecosystem_pages: tuple[tuple[str, str, str], ...]  # (ecosystem code, address, plain name), the route table's order
+    lens_pages: tuple[tuple[str, str, str], ...]  # (lens code, address, phrase), likewise
+    preset_rows: int  # the rows an ecosystem or lens page shows first
 
 
 def _percent(fraction: float) -> int:
@@ -87,10 +89,52 @@ def _percent(fraction: float) -> int:
     return math.floor(fraction * 100 + 0.5)
 
 
+def _joined(items: Sequence[str]) -> str:
+    """``a``, ``a and b``, ``a, b and c``."""
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def lens_weights_text(methodology: Mapping[str, Any], lens: str) -> str:
+    """``responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%``: the lens's weights
+    from ``methodology.json``, largest first (equal weights keep the methodology's pillar order), zero weights left
+    out, the pillar names copy.js's."""
+    names = copy_js_map("PILLAR_NAMES")
+    order = [p["name"] for p in methodology["pillars"]]
+    weights = methodology["personas"]["presets"].get(lens)
+    if weights is None:
+        raise ReportError(f"methodology.json has no weights for the lens {lens}")
+    ranked = sorted((p for p in order if weights.get(p)), key=lambda p: (-weights[p], order.index(p)))
+    if not ranked:
+        raise ReportError(f"the lens {lens} weighs no pillar")
+    return _joined([f"{names[p].lower()} {_percent(weights[p])}%" for p in ranked])
+
+
+def preset_pages(routes: Sequence[Mapping[str, Any]]) -> tuple[tuple, tuple, int]:
+    """The ecosystem pages and the lens pages of the route table (``web/app/routes.js``: the presets that fix one
+    ecosystem, or one lens, and nothing else), each ``(code, address, words)`` in the table's order, with copy.js's
+    plain ecosystem name or lens phrase (``LENS_PHRASES``); and the rows those pages show first."""
+    phrases = copy_js_map("LENS_PHRASES")
+    ecosystems, lenses, sizes = [], [], set()
+    for route in routes:
+        fixed = route.get("fixed") or {}
+        if route.get("view") != "ranked" or route.get("top") or len(fixed) != 1:
+            continue
+        if "eco" in fixed:
+            ecosystems.append((fixed["eco"], route["path"], ECOSYSTEM_NAMES[fixed["eco"]]))
+        elif "persona" in fixed:
+            lenses.append((fixed["persona"], route["path"], phrases[fixed["persona"]]))
+        else:
+            continue
+        sizes.add((route.get("defaults") or {}).get("page_size"))
+    if len(sizes) != 1 or None in sizes or not ecosystems or not lenses:
+        raise ReportError(f"the route table's ecosystem and lens pages do not share one first page size: {sorted(map(str, sizes))}")
+    return tuple(ecosystems), tuple(lenses), sizes.pop()
+
+
 def home_facts(snapshot: Mapping[str, Any], methodology: Mapping[str, Any], report: Mapping[str, Any],
-               rows: Sequence[Mapping[str, Any]]) -> HomeFacts:
-    """What the generated texts state, from the snapshot, the methodology, the report (``report.json``) and the
-    balanced leaderboard's first rows."""
+               rows: Sequence[Mapping[str, Any]], routes: Sequence[Mapping[str, Any]]) -> HomeFacts:
+    """What the generated texts state, from the snapshot, the methodology, the report (``report.json``), the
+    balanced leaderboard's first rows and the route table (``web/app/routes.js``, for the list pages)."""
     if report.get("snapshot_id") != snapshot["snapshot_id"]:
         raise ReportError("report.json is for another snapshot than snapshot.json")
     names = copy_js_map("PARAM_NAMES")
@@ -98,6 +142,7 @@ def home_facts(snapshot: Mapping[str, Any], methodology: Mapping[str, Any], repo
     quadrants = copy_js_map("QUADRANT_LABELS")
     copy = Copy.load()
     values = report["values"]
+    ecosystem_pages, lens_pages, preset_rows = preset_pages(routes)
     pillars = tuple(
         (pillar_names[p["name"]], _percent(p["weight"]),
          tuple(names[q["input_id"]] for q in methodology["parameters"] if q["pillar"] == p["name"]))
@@ -122,8 +167,9 @@ def home_facts(snapshot: Mapping[str, Any], methodology: Mapping[str, Any], repo
         corpus=fill(report["sentences"]["method"][0], values), deadline_days=values["deadline_days"],
         report_latest=f"{SITE}{report['urls']['latest']}", report_frozen=f"{SITE}{report['urls']['frozen']}",
         report_csv=f"{SITE}{report['urls']['csv']}",
-        lens_weights={spec.key: lens_weights_text(methodology, spec.key, copy) for spec in LENS_PAGES},
+        lens_weights={code: lens_weights_text(methodology, code) for code, _path, _phrase in lens_pages},
         rows=tuple(top),
+        ecosystem_pages=ecosystem_pages, lens_pages=lens_pages, preset_rows=preset_rows,
     )
 
 
@@ -236,9 +282,9 @@ def llms_txt(f: HomeFacts) -> str:
         f"[{top.owner}/{top.name}]({project_url(top.owner, top.name)})",
         "",
         "## Ecosystem and lens pages (readable without JavaScript)",
-        f"Each page lists the top {TOP} projects of its cut, with score and tier, and each name opens that project's page.",
-        *(f"- [{p.name} projects that answer outside pull requests]({SITE}/{p.slug}/)" for p in ECOSYSTEM_PAGES),
-        *(f"- [Open-source projects for {p.phrase}]({SITE}/{p.slug}/)" for p in LENS_PAGES),
+        f"Each page lists the top {f.preset_rows} projects of its cut, with score and tier, and each name opens that project's page.",
+        *(f"- [{name} projects that answer outside pull requests]({SITE}{path})" for _code, path, name in f.ecosystem_pages),
+        *(f"- [Open-source projects for {phrase}]({SITE}{path})" for _code, path, phrase in f.lens_pages),
         "",
         f"## {len(f.pillars)} pillars and {_parameter_count(f)} parameters (balanced weights)",
         *(f"{i}. **{name} ({weight}%):** {', '.join(params)}." for i, (name, weight, params) in enumerate(f.pillars, 1)),
@@ -282,12 +328,12 @@ def feed_xml(f: HomeFacts) -> str:
         _entry(CITE_TITLE, f.report_latest, f"{f.report_latest}#snapshot-{sid}", updated,
                " ".join(f"{lead} {text}" for lead, text in f.findings[:2])),
     ]
-    for spec in LENS_PAGES:
-        if spec.key in ("first_timer", "ai_assisted"):
-            url = f"{SITE}/{spec.slug}/"
+    for code, path, phrase in f.lens_pages:
+        if code in ("first_timer", "ai_assisted"):
+            url = f"{SITE}{path}"
             entries.append(_entry(
-                f"Open-source projects for {spec.phrase} ({fmt_int(f.lens_totals[spec.key])} ranked)", url, f"{url}#snapshot-{sid}", updated,
-                f"This view ranks {fmt_int(f.lens_totals[spec.key])} projects for {spec.phrase}. It weighs {f.lens_weights[spec.key]}.",
+                f"Open-source projects for {phrase} ({fmt_int(f.lens_totals[code])} ranked)", url, f"{url}#snapshot-{sid}", updated,
+                f"This view ranks {fmt_int(f.lens_totals[code])} projects for {phrase}. It weighs {f.lens_weights[code]}.",
             ))
     entries.append(_entry(
         f"Porchlamp methodology: {len(f.pillars)} pillars, {_parameter_count(f)} parameters, gates and hashes",

@@ -190,6 +190,18 @@ class LeaderboardRow(StrictModel):
     #: integrity section alongside snapshot ID and suspicion flags.
     raw_hash: str
 
+    #: The two reply measures, from the project's own evidence (the
+    #: `ttfhr_hours` and `gr14_ghost_rate` rows of `/evidence`): the median
+    #: hours to a first human reply to an outside pull request, and the share
+    #: of outside pull requests with no reply within 14 days. Each value is
+    #: `None` when the parameter is unmeasured; each `_n` is its sample
+    #: whether measured or not (`None` only with no evidence row). Each
+    #: defaults to `None`, so a payload without them still reads.
+    first_reply_hours: float | None = None
+    first_reply_n: int | None = None
+    no_reply_14d_share: float | None = None
+    no_reply_14d_n: int | None = None
+
     #: Persona delta fields for comparative ranking:
     #: `balanced_rank` is this repo's `rank` under the balanced lens;
     #: `rank_delta = balanced_rank - rank` (positive means the row ranks

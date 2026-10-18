@@ -33,9 +33,8 @@ prerender draws the report view into: ``black-holes/index.html``, the app's page
 Older frozen copies are not written here: a publish carries them from the published tree. Then one page per ranked
 project (``projects/<owner>/<name>/index.html``, lower case), with its head (``porchlamp/serve/project_pages.py``), which
 the prerender draws the project view into from the project's record, ``check/index.html`` with its search index
-``check/projects.json``, and ``sitemap-projects.xml`` (every project page, in balanced-rank order), then ten landing pages
-(``porchlamp/serve/landing_pages.py``): ``rust/``, ``python/``, ``javascript/``, ``go/``, ``java/``, ``c-cpp/`` and the lenses
-``first-timers/``, ``career/``, ``senior-systems/``, ``ai-assisted/``. The black-hole evidence the report sums is recomputed from the raw ``pr_window``
+``check/projects.json``, and ``sitemap-projects.xml`` (every project page, in balanced-rank order). The black-hole
+evidence the report sums is recomputed from the raw ``pr_window``
 envelopes the stored snapshot pinned: pass ``--snapshot-dir`` (the directory ``porchlamp.snapshot store`` read)
 and ``--data-dir`` (the data root holding ``raw/``); an envelope that changed since the store stops the export.
 The export refuses when the stats file is for another snapshot or disagrees with the database, or when a guarded
@@ -153,7 +152,7 @@ def bucket_of(owner: str, name: str) -> str:
 def sort_keys(pillars: tuple[str, ...]) -> tuple[str, ...]:
     """Every ``sort`` value ``/leaderboard`` accepts (``porchlamp.serve.app.
     _translate_sort``), both directions."""
-    fields = ("rank", "porchlamp", "coverage", "tier") + tuple(f"p_{p}" for p in pillars)
+    fields = ("rank", "porchlamp", "coverage", "tier") + tuple(f"p_{p}" for p in pillars) + ("first_reply",)
     return tuple(s for f in fields for s in (f, f"-{f}"))
 
 
@@ -278,6 +277,8 @@ _REPROJECT_STORED = (
     "friction_coverage", "persona_gates", "persona_composites", "suspicion", "stars_audited",
     "snapshot_id", "benchmark_version", "raw_hash",
 )
+#: The reply measures every leaderboard and reprojected row carries (``porchlamp.store.queries.with_reply``).
+_REPLY_FIELDS = ("first_reply_hours", "first_reply_n", "no_reply_14d_share", "no_reply_14d_n")
 
 
 def _export_reproject(conn: sqlite3.Connection, snapshot_id: str, details: dict[tuple[str, str], dict]) -> dict:
@@ -301,6 +302,14 @@ def _export_reproject(conn: sqlite3.Connection, snapshot_id: str, details: dict[
     lowered = [f"{o}/{n}".lower() for o, n, _t, _l in tail]
     if len(set(lowered)) != len(lowered):
         raise SystemExit("export: two reprojection candidates share lower(owner/name); D-TIE-1's last level is not total")
+    # the reply measures a row carries, read and decoded as the store reads them for the API's rows
+    cursor = conn.execute(
+        f"SELECT r.owner AS owner, r.name AS name, {queries.REPLY_SELECT_SQL} FROM repositories r{queries.REPLY_JOIN_SQL} "
+        f"WHERE r.snapshot_id = ? AND {queries.REPROJECT_CANDIDATE_SQL}",
+        (snapshot_id,),
+    )
+    columns = [d[0] for d in cursor.description]
+    replies = {(rec["owner"], rec["name"]): rec for rec in (queries.with_reply(dict(zip(columns, raw))) for raw in cursor.fetchall())}
     rows = []
     for owner, name, ttfhr_p75, last_commit in tail:
         if not (ttfhr_p75 is None or isinstance(ttfhr_p75, (int, float))):
@@ -319,6 +328,7 @@ def _export_reproject(conn: sqlite3.Connection, snapshot_id: str, details: dict[
             balanced_coverage=detail["coverage"], balanced_tier=detail["tier"],
             ttfhr_p75=ttfhr_p75, last_human_commit_at=last_commit,
         )
+        row.update({field: replies[(owner, name)][field] for field in _REPLY_FIELDS})
         rows.append(row)
     return {
         "pillars": list(pillars),
@@ -378,23 +388,45 @@ def view_page(route: dict, template: Path = APP_SHELL) -> str:
 VIEWS_WRITTEN_ELSEWHERE = frozenset({"report"})
 
 
-def _write_view_pages(out: Path) -> list[dict]:
-    """The app's page at the address of each view it draws in place (``shell`` in the route table), so a static host
-    serves every view at its own path; ``/`` is ``index.html`` itself. Written after every other page: a path two
-    pages claim stops the export. Returns each page for :func:`_prerender`."""
+def route_instances(route: dict, boards: dict[str, dict]) -> list[str]:
+    """The addresses a route answers at: its path, or, for a path with ``{page}``, one per page of the list its fixed
+    state names (its lens, all ecosystems or one), ``fixed.page_size`` rows a page, counted in ``boards`` (each
+    lens's leaderboard: ``{"rows", ...}``, the API's own rows)."""
+    path = route["path"]
+    if "{page}" not in path:
+        return [path]
+    fixed = route.get("fixed") or {}
+    persona, eco = fixed.get("persona") or "balanced", fixed.get("eco")
+    listed = sum(1 for row in boards[persona]["rows"] if eco is None or row["ecosystem"] == eco)
+    pages = max(1, -(-listed // fixed["page_size"]))
+    return [path.replace("{page}", str(n)) for n in range(1, pages + 1)]
+
+
+def _write_view_pages(out: Path, boards: dict[str, dict]) -> list[dict]:
+    """The app's page at each address of each view it draws in place (``shell`` in the route table; every page of a
+    route with ``{page}``, :func:`route_instances`), so a static host serves every view at its own path; ``/`` is
+    ``index.html`` itself. Written after every other page: a path two pages claim stops the export. Returns each page
+    for :func:`_prerender`, with the address it answers at."""
     written = []
     for route in app_routes():
         if not route["shell"] or route["path"] == "/" or route["id"] in VIEWS_WRITTEN_ELSEWHERE:
             continue
-        if not re.fullmatch(r"(/[a-z0-9-]+)+/", route["path"]):
-            raise SystemExit(f"export: the {route['id']} view's address {route['path']!r} is not a plain directory path")
-        target = out / route["path"].strip("/") / "index.html"
-        if target.exists():
-            raise SystemExit(f"export: {target.relative_to(out)} is both the {route['id']} view and another page")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(view_page(route), encoding="utf-8")
-        written.append({"path": target.relative_to(out).as_posix(), "view": route["id"]})
+        for address in route_instances(route, boards):
+            if not re.fullmatch(r"(/[a-z0-9-]+)+/", address):
+                raise SystemExit(f"export: the {route['id']} view's address {address!r} is not a plain directory path")
+            target = out / address.strip("/") / "index.html"
+            if target.exists():
+                raise SystemExit(f"export: {target.relative_to(out)} is both the {route['id']} view and another page")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(view_page({**route, "path": address}), encoding="utf-8")
+            written.append({"path": target.relative_to(out).as_posix(), "view": route.get("view", route["id"]), "address": address})
     return written
+
+
+def listed_addresses(boards: dict[str, dict]) -> list[str]:
+    """The list views' addresses the sitemap names: every address of every preset route (one with ``fixed``), in the
+    route table's order."""
+    return [address for route in app_routes() if route.get("fixed") and route["shell"] for address in route_instances(route, boards)]
 
 
 def data_version_js(snapshot_id: str) -> str:
@@ -600,7 +632,8 @@ def _write_home(out: Path, data: Path) -> None:
         return json.loads((data / name).read_text(encoding="utf-8"))
 
     try:
-        f = home_pages.home_facts(load("snapshot.json"), load("methodology.json"), load("report.json"), load("leaderboard-balanced.json")["rows"])
+        f = home_pages.home_facts(load("snapshot.json"), load("methodology.json"), load("report.json"),
+                                  load("leaderboard-balanced.json")["rows"], app_routes())
         (out / "index.html").write_text(home_pages.home_page((WEB_APP / "index.html").read_text(encoding="utf-8"), f), encoding="utf-8")
         (out / "llms.txt").write_text(home_pages.llms_txt(f), encoding="utf-8")
         (out / "feed.xml").write_text(home_pages.feed_xml(f), encoding="utf-8")
@@ -608,32 +641,13 @@ def _write_home(out: Path, data: Path) -> None:
         raise SystemExit(f"export: {error}") from error
 
 
-def _write_landing_pages(out: Path, facts: Any, methodology: dict, boards: dict[str, dict]) -> list[dict]:
-    """The six ecosystem pages and the four lens pages (``<slug>/index.html``), each with its top-50 table; returns
-    them for :func:`_prerender` (the leaderboard's presets one day, no nav entry's today)."""
-    from porchlamp.serve import landing_pages as lp
-    from porchlamp.serve import project_pages as pp
+def _sitemap_pages(out: Path, snapshot_id: str, as_of: str, listed: list[str]) -> str:
+    """``sitemap-pages.xml``: the site's own pages that this export wrote (the root, the report and its frozen copy,
+    the methodology, /check/, then the list views at ``listed``, :func:`listed_addresses`), in that order, each dated
+    with the snapshot. A page the export did not write is not listed."""
     from porchlamp.serve import report_pages
 
-    try:
-        copy = pp.Copy.load()
-        index = pp.ProjectIndex(boards, copy)
-        landings = lp.build_landings(facts, methodology, index, copy)
-        for landing in landings:
-            (out / landing.slug).mkdir(parents=True, exist_ok=True)
-            (out / landing.slug / "index.html").write_text(lp.render_landing(facts, landing), encoding="utf-8")
-    except report_pages.ReportError as error:
-        raise SystemExit(f"export: {error}") from error
-    return [{"path": f"{landing.slug}/index.html", "nav": None} for landing in landings]
-
-
-def _sitemap_pages(out: Path, snapshot_id: str, as_of: str) -> str:
-    """``sitemap-pages.xml``: the site's own pages that this export wrote (the root, the report and its frozen copy,
-    the methodology, /check/ and the landing pages), in that order, each dated with the snapshot. A page the export
-    did not write is not listed."""
-    from porchlamp.serve import landing_pages, report_pages
-
-    paths = ["", "black-holes/", f"black-holes/{snapshot_id}/", "methodology/", "check/", *(f"{s}/" for s in landing_pages.SLUGS)]
+    paths = ["", "black-holes/", f"black-holes/{snapshot_id}/", "methodology/", "check/", *(a.lstrip("/") for a in listed)]
     stamp = as_of[:10]
     urls = "".join(
         f"  <url>\n    <loc>{report_pages.SITE}/{p}</loc>\n    <lastmod>{stamp}</lastmod>\n  </url>\n"
@@ -734,12 +748,11 @@ def export(
     if facts is not None:
         pages += _write_report_pages(out, facts, boards, manifest)
         pages += _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
-        pages += _write_landing_pages(out, facts, methodology, boards)
         _write_home(out, out / "data" / snapshot_id)
-    pages += _write_view_pages(out)
+    pages += _write_view_pages(out, boards)
     (out / "data-version.js").write_text(data_version_js(snapshot_id), encoding="utf-8")
     _prerender(out, pages)
-    (out / "sitemap-pages.xml").write_text(_sitemap_pages(out, snapshot_id, snapshot["as_of"]), encoding="utf-8")
+    (out / "sitemap-pages.xml").write_text(_sitemap_pages(out, snapshot_id, snapshot["as_of"], listed_addresses(boards)), encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
     _scan_for_forbidden(out)
     return manifest

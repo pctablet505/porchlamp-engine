@@ -243,7 +243,7 @@ function renderPickerResults(state) {
       const key = `${r.owner}/${r.name}`;
       return (
         `<li><button type="button" data-compare-add="${escapeHtml(key)}" aria-label="${escapeHtml(copy.COMPARE_ADD_LABEL)}: ${escapeHtml(key)}">` +
-        `${escapeHtml(key)} <span class="eco-chip">${escapeHtml(r.ecosystem)}</span></button></li>`
+        `${escapeHtml(key)} <span class="eco-chip">${escapeHtml(copy.ecosystemName(r.ecosystem))}</span></button></li>`
       );
     })
     .join("");

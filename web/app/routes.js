@@ -14,10 +14,46 @@
 //   query  the query fields the view reads, in the order the address writes them;
 //   shell  true when the export writes the app's own page at `path`, so the app moves there without a page load;
 //          false when another page answers there: a ranked project's page, or 404.html.
+//
+// A list of the leaderboard at its own address (a preset) adds:
+//   view      the view that draws it, its `state.tab` ("ranked"); without it the view is the route's id;
+//   fixed     the state fields the path fixes, by query-field name (persona, eco, q, sort, page_size); null is the
+//             field unset, at its default;
+//   defaults  the query fields whose default differs on this path ({"page_size": 50});
+//   top       true on the fastest-reply lists: the list stops before the first row without a measured median
+//             first reply, and has no pager;
+//   "{page}"  in the path: one address per page, `state.page`.
+// state.js serializeLocation picks, among the routes of a view, the one whose fixed fields the state has and whose
+// query holds every other field the state sets off its default; the most fixed fields win, then table order.
+// "{ecosystem}", "{lens}", "{first}", "{last}" and "{total}" in a title are filled from copy.js and the data.
 
 export const ROUTES = deepFreeze([
   // routes:begin
   {"id": "ranked", "path": "/", "title": "Porchlamp rankings: find the projects that leave the light on", "query": ["persona", "eco", "q", "sort", "page", "page_size"], "shell": true},
+  {"id": "rankings", "view": "ranked", "path": "/rankings/{page}/", "title": "Open-source projects ranked {first} to {last} of {total} | Porchlamp", "query": [], "fixed": {"persona": "balanced", "eco": null, "q": null, "sort": "rank", "page_size": 100}, "shell": true},
+  {"id": "rust", "view": "ranked", "path": "/rust/", "title": "{ecosystem} projects that answer outside pull requests | Porchlamp", "query": ["persona", "sort", "page", "page_size", "q"], "fixed": {"eco": "crates"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "python", "view": "ranked", "path": "/python/", "title": "{ecosystem} projects that answer outside pull requests | Porchlamp", "query": ["persona", "sort", "page", "page_size", "q"], "fixed": {"eco": "pypi"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "javascript", "view": "ranked", "path": "/javascript/", "title": "{ecosystem} projects that answer outside pull requests | Porchlamp", "query": ["persona", "sort", "page", "page_size", "q"], "fixed": {"eco": "npm"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "go", "view": "ranked", "path": "/go/", "title": "{ecosystem} projects that answer outside pull requests | Porchlamp", "query": ["persona", "sort", "page", "page_size", "q"], "fixed": {"eco": "go"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "java", "view": "ranked", "path": "/java/", "title": "{ecosystem} projects that answer outside pull requests | Porchlamp", "query": ["persona", "sort", "page", "page_size", "q"], "fixed": {"eco": "maven"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "c-cpp", "view": "ranked", "path": "/c-cpp/", "title": "{ecosystem} projects that answer outside pull requests | Porchlamp", "query": ["persona", "sort", "page", "page_size", "q"], "fixed": {"eco": "systems"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "rust-first-timers", "view": "ranked", "path": "/rust/first-timers/", "title": "{ecosystem} projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"eco": "crates", "persona": "first_timer"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "python-first-timers", "view": "ranked", "path": "/python/first-timers/", "title": "{ecosystem} projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"eco": "pypi", "persona": "first_timer"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "javascript-first-timers", "view": "ranked", "path": "/javascript/first-timers/", "title": "{ecosystem} projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"eco": "npm", "persona": "first_timer"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "go-first-timers", "view": "ranked", "path": "/go/first-timers/", "title": "{ecosystem} projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"eco": "go", "persona": "first_timer"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "java-first-timers", "view": "ranked", "path": "/java/first-timers/", "title": "{ecosystem} projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"eco": "maven", "persona": "first_timer"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "c-cpp-first-timers", "view": "ranked", "path": "/c-cpp/first-timers/", "title": "{ecosystem} projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"eco": "systems", "persona": "first_timer"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "first-timers", "view": "ranked", "path": "/first-timers/", "title": "Open-source projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"persona": "first_timer"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "career", "view": "ranked", "path": "/career/", "title": "Open-source projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"persona": "career_capital"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "senior-systems", "view": "ranked", "path": "/senior-systems/", "title": "Open-source projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"persona": "senior_systems"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "ai-assisted", "view": "ranked", "path": "/ai-assisted/", "title": "Open-source projects for {lens} | Porchlamp", "query": ["sort", "page", "page_size", "q"], "fixed": {"persona": "ai_assisted"}, "defaults": {"page_size": 50}, "shell": true},
+  {"id": "fastest-replies", "view": "ranked", "path": "/fastest-replies/", "title": "Fastest first reply to pull requests | Porchlamp", "query": [], "fixed": {"sort": "first_reply", "persona": "balanced", "eco": null}, "defaults": {"page_size": 50}, "top": true, "shell": true},
+  {"id": "rust-fastest-replies", "view": "ranked", "path": "/rust/fastest-replies/", "title": "Fastest first reply to pull requests: {ecosystem} projects | Porchlamp", "query": [], "fixed": {"sort": "first_reply", "persona": "balanced", "eco": "crates"}, "defaults": {"page_size": 50}, "top": true, "shell": true},
+  {"id": "python-fastest-replies", "view": "ranked", "path": "/python/fastest-replies/", "title": "Fastest first reply to pull requests: {ecosystem} projects | Porchlamp", "query": [], "fixed": {"sort": "first_reply", "persona": "balanced", "eco": "pypi"}, "defaults": {"page_size": 50}, "top": true, "shell": true},
+  {"id": "javascript-fastest-replies", "view": "ranked", "path": "/javascript/fastest-replies/", "title": "Fastest first reply to pull requests: {ecosystem} projects | Porchlamp", "query": [], "fixed": {"sort": "first_reply", "persona": "balanced", "eco": "npm"}, "defaults": {"page_size": 50}, "top": true, "shell": true},
+  {"id": "go-fastest-replies", "view": "ranked", "path": "/go/fastest-replies/", "title": "Fastest first reply to pull requests: {ecosystem} projects | Porchlamp", "query": [], "fixed": {"sort": "first_reply", "persona": "balanced", "eco": "go"}, "defaults": {"page_size": 50}, "top": true, "shell": true},
+  {"id": "java-fastest-replies", "view": "ranked", "path": "/java/fastest-replies/", "title": "Fastest first reply to pull requests: {ecosystem} projects | Porchlamp", "query": [], "fixed": {"sort": "first_reply", "persona": "balanced", "eco": "maven"}, "defaults": {"page_size": 50}, "top": true, "shell": true},
+  {"id": "c-cpp-fastest-replies", "view": "ranked", "path": "/c-cpp/fastest-replies/", "title": "Fastest first reply to pull requests: {ecosystem} projects | Porchlamp", "query": [], "fixed": {"sort": "first_reply", "persona": "balanced", "eco": "systems"}, "defaults": {"page_size": 50}, "top": true, "shell": true},
   {"id": "notranked", "path": "/not-ranked/", "title": "Not ranked: the gated and unrated projects, with their reasons | Porchlamp", "query": ["persona", "eco", "q", "page", "page_size"], "shell": true},
   {"id": "matrix", "path": "/matrix/", "title": "Leverage vs. friction matrix of open-source projects | Porchlamp", "query": ["eco", "q"], "shell": true},
   {"id": "compare", "path": "/compare/", "title": "Compare open-source projects side by side | Porchlamp", "query": ["persona", "cmp"], "shell": true},
@@ -32,6 +68,8 @@ export const ROUTES = deepFreeze([
 function deepFreeze(routes) {
   for (const route of routes) {
     Object.freeze(route.query);
+    if (route.fixed) Object.freeze(route.fixed);
+    if (route.defaults) Object.freeze(route.defaults);
     Object.freeze(route);
   }
   return Object.freeze(routes);
@@ -42,6 +80,16 @@ const BY_ID = new Map(ROUTES.map((route) => [route.id, route]));
 /** The route with this id; `undefined` for an id the table does not hold. */
 export function routeById(id) {
   return BY_ID.get(id);
+}
+
+/** The view that draws a route: its `state.tab`. */
+export function routeView(route) {
+  return route.view || route.id;
+}
+
+/** The routes a view is drawn at, in table order (the view's own route first). */
+export function routesOfView(view) {
+  return ROUTES.filter((route) => route.path !== null && route.id !== "project" && routeView(route) === view);
 }
 
 //: A project name part as GitHub spells one: letters, digits, `-`, `_` and `.`, never `.` or `..` alone.
@@ -62,7 +110,8 @@ function addressPart(value) {
   return encodeURIComponent(String(value).toLowerCase()).replace(/[()]/g, (ch) => (ch === "(" ? "%28" : "%29"));
 }
 
-//: A route path as a pattern: each "{owner}"/"{name}" matches one path segment.
+//: A route path as a pattern: each "{owner}"/"{name}" matches one path segment, "{page}" a page number (1 and up,
+//: no leading zero, so each page has one address).
 const PATTERNS = ROUTES.filter((route) => route.path !== null).map((route) => {
   const names = [];
   const source = route.path
@@ -71,7 +120,7 @@ const PATTERNS = ROUTES.filter((route) => route.path !== null).map((route) => {
       const slot = /^\{([a-z]+)\}$/.exec(piece);
       if (slot) {
         names.push(slot[1]);
-        return "([^/]+)";
+        return slot[1] === "page" ? "([1-9][0-9]*)" : "([^/]+)";
       }
       return piece.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     })
@@ -82,7 +131,8 @@ const PATTERNS = ROUTES.filter((route) => route.path !== null).map((route) => {
 /**
  * The route an address path names. `index.html` at the end is the directory itself, and a path without its
  * closing slash is the same address (a static host answers `/matrix` with a redirect to `/matrix/`). Returns
- * `{ route, owner, name }` for a project (each part as written, case kept), `{ route }` otherwise, and the
+ * `{ route, owner, name }` for a project (each part as written, case kept), `{ route, page }` for a route with a page
+ * in its path, `{ route }` otherwise, and the
  * "notfound" route for a path no route claims or a project part that is not a GitHub name.
  */
 export function matchRoute(pathname) {
@@ -94,6 +144,10 @@ export function matchRoute(pathname) {
     if (!found) continue;
     const params = {};
     for (let i = 0; i < names.length; i++) {
+      if (names[i] === "page") {
+        params.page = Number(found[i + 1]);
+        continue;
+      }
       const part = namePart(found[i + 1]);
       if (part === null) return { route: BY_ID.get("notfound") };
       params[names[i]] = part;
@@ -107,7 +161,7 @@ export function matchRoute(pathname) {
 export function routePath(id, params = {}) {
   const route = BY_ID.get(id);
   if (!route || route.path === null) return null;
-  return route.path.replace(/\{([a-z]+)\}/g, (_slot, key) => addressPart(params[key]));
+  return route.path.replace(/\{([a-z]+)\}/g, (_slot, key) => (key === "page" ? String(params.page ?? 1) : addressPart(params[key])));
 }
 
 /** A ranked project's own page, and the address of its side panel: `/projects/<owner>/<name>/`, lower case. */

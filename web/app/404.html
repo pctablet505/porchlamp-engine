@@ -6,7 +6,7 @@
        this page, and the app shows what the address names: a project's side panel, or "page not found".
        Every page of the site is built from it: scripts/export_static.py writes it at each view's address (/matrix/,
        ...) with that view's title and canonical address, and the pages the app does not draw (the report, the
-       project and landing pages, /check/) with their own head and text in place of the app's script; then
+       project pages, /check/) with their own head and text in place of the app's script; then
        web/prerender.mjs draws the header, nav and footer into every page (components/chrome.js). The head and the
        body's frame are index.html's (tests/test_app_routes.py), without the home page's own text and data. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'self'">

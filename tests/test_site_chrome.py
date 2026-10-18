@@ -71,16 +71,20 @@ def _pages(site: Path) -> dict[str, Page]:
     nowhere = json.dumps({"nav": None})
     pages: dict[str, Page] = {}
     for route in export_static.app_routes():
-        if route["shell"]:
-            pages["index.html" if route["path"] == "/" else route["path"].strip("/") + "/index.html"] = app(route["id"])
+        if not route["shell"]:
+            continue
+        if route.get("fixed"):  # a list view: the leaderboard at each of its addresses (every page of the ranking)
+            for path in sorted(site.glob(route["path"].strip("/").replace("{page}", "*") + "/index.html")):
+                address = "/" + path.parent.relative_to(site).as_posix() + "/"
+                pages[path.relative_to(site).as_posix()] = Page(json.dumps({"view": route["view"], "address": address}), "app")
+            continue
+        pages["index.html" if route["path"] == "/" else route["path"].strip("/") + "/index.html"] = app(route["id"])
     pages["404.html"] = app("notfound")
     # /black-holes/ is the app's report view (a route above); its frozen copy is the same view on a page with no app
     pages[REPORT_PAGES[1]] = Page(json.dumps({"view": "report"}), "page")
     for path in sorted(site.glob("projects/*/*/index.html")):
         pages[path.relative_to(site).as_posix()] = Page(nowhere, "project")
     pages["check/index.html"] = Page(nowhere, "check")
-    for slug in (*report_pages.ECOSYSTEM_SLUGS.values(), *report_pages.LENS_SLUGS.values()):
-        pages[f"{slug}/index.html"] = Page(nowhere, "page")
     on_disk = {path.relative_to(site).as_posix() for path in site.rglob("index.html")} | {"404.html"}
     assert on_disk == set(pages), f"unclassified: {sorted(on_disk - set(pages))}; missing: {sorted(set(pages) - on_disk)}"
     return pages
@@ -196,7 +200,9 @@ def test_every_page_carries_the_header_nav_and_footer_chrome_js_draws(built, tmp
     pages = _pages(site)
     assert len(pages) > 300 and {page.scripts for page in pages.values()} == {"app", "page", "project", "check"}
     expected = _expected_chrome(site, pages, tmp_path)
-    assert len({page.chrome for page in pages.values()}) == 9  # eight app views (the report among them), every page with no nav entry
+    lists = {page.chrome for page in pages.values() if '"address"' in page.chrome}  # the leaderboard at a list's address
+    assert lists and all(json.loads(spec)["view"] == "ranked" for spec in lists)
+    assert len({page.chrome for page in pages.values()} - lists) == 9  # eight app views (the report among them), every page with no nav entry
     report = expected[json.dumps({"view": "report"})]["nav"]
     assert report.count('aria-current="page"') == 1 and 'href="/black-holes/" data-route-tab="report" aria-current="page"' in report
     assert 'aria-current' not in expected[json.dumps({"nav": None})]["nav"]

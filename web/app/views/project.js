@@ -75,11 +75,11 @@ function decimalHalfUp(value, times, by, places) {
 /** Hours with one decimal ("3.9", "148.3"), half up from the printed decimal. */
 const hoursText = (hours) => decimalHalfUp(hours, 1n, 1n, 1);
 /** Days with one decimal from hours ("6.2"; a trailing ".0" drops, as in Python's "3 days"). */
-const daysText = (hours) => String(Number(decimalHalfUp(hours, 1n, 24n, 1)));
+export const daysText = (hours) => String(Number(decimalHalfUp(hours, 1n, 24n, 1)));
 /** A share (a fraction) as a percent with one decimal ("45.2"), half up from the printed decimal. */
 const shareText = (fraction) => decimalHalfUp(fraction, 100n, 1n, 1);
 /** A fraction as a whole percent, half up from its printed decimal (project_pages.percent_text: 0.6667 -> "67%"). */
-const percentWhole = (fraction) => `${decimalHalfUp(fraction, 100n, 1n, 0)}%`;
+export const percentWhole = (fraction) => `${decimalHalfUp(fraction, 100n, 1n, 0)}%`;
 
 /** The median first reply, in words (project_pages.reply_time_text): hours under 48 ("3.9 hours"), else days
  *  ("6.2 days") and, as the key facts print it, the hours too ("6.2 days (148.3 hours)"). */

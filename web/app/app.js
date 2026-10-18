@@ -63,6 +63,13 @@ import {
   prerenderedBoardKey,
   adoptPrerenderedBoard,
   syncFindingsLine,
+  pageDescription,
+  listRows,
+  listRowOpts,
+  listNeedsMethodology,
+  listInstanceKey,
+  renderListHead,
+  syncListHead,
 } from "./views/leaderboard.js";
 import {
   renderShell as renderNotRankedShell,
@@ -74,7 +81,7 @@ import {
 import { renderDrawer, classifyKindForLens } from "./views/drawer.js";
 import { parseRepoSlug, runLiveCheck } from "./livecheck.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
-import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom, isPlainLeftClick } from "./components/table.js";
+import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom, isPlainLeftClick, noReplyColumnLabel } from "./components/table.js";
 import {
   renderAppHeader,
   renderChip,
@@ -86,7 +93,7 @@ import {
   navEntryFor,
   headerControlsFor,
 } from "./components/chrome.js";
-import { matchRoute, routeById } from "./routes.js";
+import { matchRoute, routeById, routeView } from "./routes.js";
 import { renderShell as renderNotFoundShell } from "./views/notfound.js";
 import {
   renderShell as renderMatrixShell,
@@ -164,6 +171,11 @@ export function boot(win = window, doc = document) {
   // the "did the SHAPE change" flags that decide shell-rebuild vs patch). ---
   let currentTab = null;
   let currentShellShape = null;
+  let drawnListHead = null; // the markup of the list's head last drawn (views/leaderboard.js renderListHead)
+  // The description the document loaded with, kept when its first address was `/`, to put back on `/` after a list.
+  const descriptionMeta = typeof doc.querySelector === "function" ? doc.querySelector('meta[name="description"]') : null;
+  const homeDescription =
+    descriptionMeta && matchRoute(win.location.pathname).route.id === "ranked" ? descriptionMeta.getAttribute("content") : null;
   let currentNotRankedShape = null;
   let currentMatrixShape = null;
   let currentConfigureShape = null;
@@ -209,7 +221,7 @@ export function boot(win = window, doc = document) {
   let footerHtml = null;
 
   function buildHeaderOnce() {
-    if (!chromeDrawn) header.innerHTML = renderAppHeader(store.getState().tab);
+    if (!chromeDrawn) header.innerHTML = renderAppHeader(store.getState().tab, null, store.getState());
   }
 
   function buildPrimaryNavOnce() {
@@ -229,6 +241,8 @@ export function boot(win = window, doc = document) {
     if (tab === "matrix" && !state.matrix && !state.matrixLoading) loadMatrix();
     if (tab === "configure" && !state.reproject && !state.reprojectLoading) runReproject();
     if (tab === "methodology" && !state.methodology && !state.methodologyLoading) loadMethodology();
+    // A lens's list states its weights, a fastest-reply list its sample floor (min_n): both from the methodology.
+    if (tab === "ranked" && listNeedsMethodology(state) && !state.methodology && !state.methodologyLoading && !state.methodologyError) loadMethodology();
     if (tab === "methodology" && state.manifestLoad === "idle") loadManifest();
     if (tab === "report" && !state.report && !state.reportLoading) loadReport();
     // The ranked view's findings line and the methodology's Finding paragraph are filled from the report; a report
@@ -393,9 +407,13 @@ export function boot(win = window, doc = document) {
     syncCountsStrip(state);
     if (state.leaderboard) syncPager(main, state.page, state.pageSize, state.leaderboard.total, "pager");
 
+    const noReplyHeader = main.querySelector('.leaderboard-table th[data-col="no_reply_14d"]');
+    const noReplyLabel = noReplyColumnLabel(state.report);
+    if (noReplyHeader && noReplyHeader.textContent !== noReplyLabel) noReplyHeader.textContent = noReplyLabel;
+
     const viewport = currentViewport();
-    const rows = state.leaderboard ? state.leaderboard.rows : [];
-    const opts = { showPersonaDelta: state.persona !== "balanced", selectedRepoKey: state.selectedRepoKey };
+    const rows = listRows(state);
+    const opts = { ...listRowOpts(state), selectedRepoKey: state.selectedRepoKey };
 
     if (viewport.isMobile) {
       const container = main.querySelector("[data-leaderboard-cards]");
@@ -613,7 +631,8 @@ export function boot(win = window, doc = document) {
 
     const viewport = currentViewport();
     const shape = shellShape(state, viewport);
-    const shellKey = shape === "empty" ? `${shape}:${state.ecosystem}:${state.query}` : shape;
+    // Each list at its own address (a preset, a page of the ranking) has a shell of its own: its heading and pager.
+    const shellKey = `${shape === "empty" ? `${shape}:${state.ecosystem}:${state.query}` : shape}@${listInstanceKey(state)}`;
     if (prerendered) {
       // The export drew the first page of the ranked view (web/prerender.mjs). A board that shows something else
       // than this state asks for (another lens, a page, a search) can never be taken over: draw as usual.
@@ -624,15 +643,18 @@ export function boot(win = window, doc = document) {
         const pending =
           (!state.leaderboard && !state.leaderboardError) ||
           (!state.snapshot && !state.snapshotError) ||
-          (!state.report && !state.reportError);
+          (!state.report && !state.reportError) ||
+          (listNeedsMethodology(state) && !state.methodology && !state.methodologyError);
         if (pending) return;
         prerendered = null;
         if (adoptPrerenderedBoard(main, state, viewport)) {
           currentTab = "ranked";
           currentShellShape = shellKey;
+          drawnListHead = renderListHead(state);
           forgetOtherShapes("ranked");
           patchLeaderboardBody(state);
           syncFindingsLine(main, state.report);
+          drawnListHead = syncListHead(main, state, drawnListHead);
           return;
         }
       }
@@ -646,10 +668,12 @@ export function boot(win = window, doc = document) {
       if (focusedSubTab) main.querySelector(`[data-route-tab="${focusedSubTab}"]`)?.focus();
       currentTab = "ranked";
       currentShellShape = shellKey;
+      drawnListHead = renderListHead(state);
       forgetOtherShapes("ranked");
     }
     if (shape.startsWith("table")) patchLeaderboardBody(state);
     syncFindingsLine(main, state.report);
+    drawnListHead = syncListHead(main, state, drawnListHead);
   }
 
   /** Configure's slider/preset/sum controls render in EVERY shape (loading/error/empty/body — the controls stay visible while re-projecting), so a weight/lock change never rebuilds the shell; this syncs the five sliders' value/output/lock state plus the sum display. Also called from `syncView`'s non-"body" branch, since the controls exist there too. */
@@ -1082,6 +1106,7 @@ export function boot(win = window, doc = document) {
    */
   function loadLeaderboard() {
     const state = store.getState();
+    if (state.tab === "ranked" && listNeedsMethodology(state) && !state.methodology && !state.methodologyLoading && !state.methodologyError) loadMethodology();
     const signature = requestSignature(state);
     inFlightSignature = signature;
 
@@ -1221,6 +1246,10 @@ export function boot(win = window, doc = document) {
     // A page the export drew carries its own title until the app has taken it over (the report's names its month).
     const title = titleForState(state);
     if (!prerendered && doc.title !== title) doc.title = title;
+    // A list at its own address describes itself (its intro's first sentence), as its exported page does; `/` gets
+    // back the description it loaded with.
+    const description = !prerendered && descriptionMeta ? pageDescription(state, homeDescription) : null;
+    if (description !== null && descriptionMeta.getAttribute("content") !== description) descriptionMeta.setAttribute("content", description);
     syncHeaderControls(state);
     syncFooter(state);
     syncNav(primaryNav, navEntryFor(state.tab), state);
@@ -1347,7 +1376,7 @@ export function boot(win = window, doc = document) {
     if (!route.shell) return;
     evt.preventDefault();
     const tab = link.getAttribute("data-route-tab");
-    if (tab === route.id) {
+    if (tab === routeView(route)) {
       const hadFocus = doc.activeElement === link && main.contains(link);
       goToTab(tab);
       if (hadFocus) main.querySelector(`[data-route-tab="${CSS.escape(tab)}"]`)?.focus();
@@ -2120,7 +2149,7 @@ export function boot(win = window, doc = document) {
           focusRowByKey(nextKey);
           return;
         }
-        const rows = s.leaderboard ? s.leaderboard.rows : [];
+        const rows = listRows(s);
         if (rows.length === 0) return;
         const curIdx = rows.findIndex((r) => rowKey(r) === s.selectedRepoKey);
         const delta = action === "cursor-down" ? 1 : -1;

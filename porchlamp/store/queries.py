@@ -100,6 +100,9 @@ from porchlamp.core.params import PARAMS
 __all__ = [
     "ORDER_BY_SQL",
     "ALLOWED_SORT_FIELDS",
+    "REPLY_JOIN_SQL",
+    "REPLY_SELECT_SQL",
+    "with_reply",
     "AXIS_CAPTION_MIN_MISSING_FRACTION",
     "CUSTOM_WEIGHT_LABEL",
     "REPROJECT_CANDIDATE_SQL",
@@ -147,7 +150,37 @@ REPROJECT_CANDIDATE_SQL: str = f"eligible = 1 AND routed IS NOT '{ROUTED_OFF_PLA
 
 #: `06` section 3 A / D-TIE-1: the only columns a leaderboard may sort on --
 #: vanity fields (stars, forks, downloads) are never sortable (U-3).
-ALLOWED_SORT_FIELDS: Tuple[str, ...] = ("rank", "porchlamp", "coverage", "tier") + _PILLAR_NAMES
+#: ``first_reply`` is the median first human reply (``ttfhr_hours``), fastest
+#: first (:func:`_build_order_by`).
+ALLOWED_SORT_FIELDS: Tuple[str, ...] = ("rank", "porchlamp", "coverage", "tier") + _PILLAR_NAMES + ("first_reply",)
+
+#: The two reply measures every leaderboard row carries, from the project's
+#: own evidence (the ``params`` table, as ``/repos/{owner}/{name}/evidence``
+#: reads it): each value only when it is measured, and its sample either way.
+_REPLY_PARAMS: Tuple[Tuple[str, str], ...] = (("first_reply", "ttfhr_hours"), ("no_reply_14d", "gr14_ghost_rate"))
+REPLY_JOIN_SQL: str = "".join(
+    f" LEFT JOIN params {field} ON {field}.repo_id = r.id AND {field}.param_id = '{param_id}'"
+    for field, param_id in _REPLY_PARAMS
+)
+REPLY_SELECT_SQL: str = ", ".join(
+    f"{field}.raw_value AS {field}_raw, {field}.measured AS {field}_measured, {field}.n AS {field}_n"
+    for field, _param_id in _REPLY_PARAMS
+)
+#: The median first reply in hours, for ``ORDER BY`` only (the row's value is
+#: decoded in Python, as the evidence endpoint decodes it).
+_FIRST_REPLY_ORDER_SQL: str = "(CASE WHEN first_reply.measured = 1 THEN CAST(first_reply.raw_value AS REAL) END)"
+
+
+def with_reply(record: Dict[str, Any]) -> Dict[str, Any]:
+    """``record`` with ``first_reply_hours``/``first_reply_n`` and
+    ``no_reply_14d_share``/``no_reply_14d_n`` in place of the joined columns:
+    the value (decoded like the evidence endpoint's ``value``) when the
+    parameter is measured, else ``None``; the sample either way, ``None``
+    only when the project has no evidence row for it."""
+    for field, value_name in (("first_reply", "first_reply_hours"), ("no_reply_14d", "no_reply_14d_share")):
+        raw, measured = record.pop(f"{field}_raw"), record.pop(f"{field}_measured")
+        record[value_name] = json.loads(raw) if measured == 1 and raw is not None else None
+    return record
 
 #: `06` U-13 (paginated leaderboard): the page-size menu is 20
 #: (default)/50/100/500/1000 -- 1000 is the largest a caller may request,
@@ -269,6 +302,10 @@ def _build_order_by(
         return f"{_tier_index_sql(tier_expr)} {direction} NULLS LAST, {default}"
     if sort in _PILLAR_SORT_FIELDS:
         return f"p_{sort} {direction} NULLS LAST, {default}"
+    if sort == "first_reply":
+        # The best first reply is the fastest, the fewest hours: ``descending`` (best first, as for every other
+        # field) orders the hours up. A project without a measured median comes last either way.
+        return f"{_FIRST_REPLY_ORDER_SQL} {'ASC' if descending else 'DESC'} NULLS LAST, {default}"
     raise ValueError(f"sort must be one of {ALLOWED_SORT_FIELDS} or None; got {sort!r}")
 
 
@@ -475,14 +512,14 @@ def list_ranked(
 
         total = conn.execute(f"SELECT COUNT(*) FROM repositories r WHERE {where}", params).fetchone()[0]
         sql = f"""
-            SELECT r.*, s.benchmark_version AS benchmark_version
-            FROM repositories r JOIN snapshots s ON r.snapshot_id = s.id
+            SELECT r.*, s.benchmark_version AS benchmark_version, {REPLY_SELECT_SQL}
+            FROM repositories r JOIN snapshots s ON r.snapshot_id = s.id{REPLY_JOIN_SQL}
             WHERE {where}
             ORDER BY {order_expr}
             LIMIT ? OFFSET ?
         """
         columns, raw_rows = _fetch(conn, sql, [*params, limit, offset])
-        return [row_to_dict(columns, row) for row in raw_rows], total
+        return [with_reply(row_to_dict(columns, row)) for row in raw_rows], total
 
     paths = _persona_paths(persona)
     visible_clause, visible_params = _persona_visible_where_sql(persona)
@@ -517,10 +554,10 @@ def list_ranked(
         )
         SELECT r.*, s.benchmark_version AS benchmark_version,
             rk.porchlamp_p, rk.coverage_p, rk.tier_p, rk.rated_p,
-            rk.rank_p, rk.tie_group_p
+            rk.rank_p, rk.tie_group_p, {REPLY_SELECT_SQL}
         FROM ranked rk
         JOIN repositories r ON rk.id = r.id
-        JOIN snapshots s ON r.snapshot_id = s.id
+        JOIN snapshots s ON r.snapshot_id = s.id{REPLY_JOIN_SQL}
         WHERE 1=1{extra_where}
         ORDER BY {display_order_expr}
         LIMIT ? OFFSET ?
@@ -528,7 +565,7 @@ def list_ranked(
     columns, raw_rows = _fetch(conn, sql, [*proj_select_params, *extra_params, limit, offset])
     rows = []
     for raw in raw_rows:
-        record = row_to_dict(columns, raw)
+        record = with_reply(row_to_dict(columns, raw))
         record["rated_p"] = bool(record["rated_p"]) if record.get("rated_p") is not None else False
         rows.append(record)
     return rows, total
@@ -1077,17 +1114,17 @@ def reproject(
         )
         SELECT r.*, s.benchmark_version AS benchmark_version,
             rk.porchlamp_display, rk.tier_custom, rk.coverage_custom,
-            rk.rank_custom, rk.tie_group_custom
+            rk.rank_custom, rk.tie_group_custom, {REPLY_SELECT_SQL}
         FROM ranked rk
         JOIN repositories r ON rk.id = r.id
-        JOIN snapshots s ON r.snapshot_id = s.id
+        JOIN snapshots s ON r.snapshot_id = s.id{REPLY_JOIN_SQL}
         ORDER BY {order_expr}
     """
     columns, raw_rows = _fetch(conn, sql, [*proj_full_params, limit, offset])
 
     rows = []
     for raw in raw_rows:
-        record = row_to_dict(columns, raw)
+        record = with_reply(row_to_dict(columns, raw))
         record["balanced_rank"] = record.pop("rank")
         record["balanced_tie_group"] = record.pop("tie_group")
         record["balanced_porchlamp"] = record.pop("porchlamp")

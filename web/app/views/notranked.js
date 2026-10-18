@@ -52,7 +52,7 @@ function renderReasonChip(row) {
 function renderRow(row, selected = false) {
   return (
     `<div class="notranked-row${selected ? " row-selected" : ""}" data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(row.owner)}/${escapeHtml(row.name)}">` +
-    `<span><span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(row.ecosystem)}</span></span>` +
+    `<span><span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(copy.ecosystemName(row.ecosystem))}</span></span>` +
     renderReasonChip(row) +
     `</div>`
   );
