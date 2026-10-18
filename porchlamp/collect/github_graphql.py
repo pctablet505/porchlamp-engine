@@ -66,9 +66,10 @@ PR_REPLIES_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 #: #51: a page that fails with a heavy-query error is fetched again from the
 #: same cursor in pages of this size until its span is covered.
 PR_PAGE_SIZE_RETRY: int = 10
-#: #51: substrings marking a heavy-query failure: the same markers the phone's
-#: page-size wrapper retries on (``phone/runner.py`` ``_HEAVY``), so a page is
-#: retried smaller exactly when the phone used to repeat the whole project.
+#: #51: substrings marking a heavy-query failure (an HTTP 502 or 504, a body
+#: cut off mid-JSON, a timeout): a page that fails with one is read again in
+#: smaller pages (:class:`_PageSizer`), where the phone used to fetch the whole
+#: project again at page size 10.
 _HEAVY_QUERY_ERRORS: tuple[str, ...] = (
     "504",
     "502",

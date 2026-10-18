@@ -1131,9 +1131,9 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
             # #51 rule 5: on a pr_window record cut short of its window only an
             # observed promotion (VERIFIED) is evidence; every other rung rests on
             # the absence of something the unrecorded part could hold.
-            if v1_field == "promotion_ladder" and mapped != "VERIFIED":
-                if _pr_window_cut_short(_pr_window_envelope(ctx)[1]):
-                    return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
+            if (v1_field == "promotion_ladder" and mapped != "VERIFIED"
+                    and _pr_window_cut_short(_pr_window_envelope(ctx)[1])):
+                return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
             if path is not None and isinstance(fetched_at, str) and fetched_at and mapped is not None:
                 source_hash = _envelope_hash(path)
                 relative = _relative_source(path, ctx.raw_root)

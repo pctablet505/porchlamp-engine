@@ -81,7 +81,7 @@ def fake_gql(monkeypatch):
         mod.pages.append(page)
         if mod.mode == "other":
             raise ValueError("bad input")
-        if mod.mode == "always" or page == 25:
+        if mod.mode == "always" or (mod.mode == "fail25" and page == 25):
             raise RuntimeError("HTTP 504 Gateway Timeout")
         return f"ok{page}"
 
@@ -296,22 +296,26 @@ def test_keyless_failure_keeps_main_done(home, kw):
     assert _ex(home, "MAIN.done")
 
 
-def test_apply_pagesize_is_idempotent_and_defaults_25_then_10(fake_gql):
+def test_apply_pagesize_is_idempotent_and_never_refetches_a_failed_project(fake_gql):
+    """The collector reads a failing page again in pages of 10 itself, so the wrapper only sets the page size: a
+    project that still fails is not fetched again from its first page (the layer's next run does that)."""
     R.apply_pagesize()
     R.apply_pagesize()
     g = fake_gql.collect_pr_window
-    assert g("x") == "ok10"
-    assert fake_gql.pages == [25, 10]
+    fake_gql.mode = "ok"
+    assert g("x") == "ok25"
+    assert g("x", page_size=10) == "ok10"  # a page size the caller passes stands
+    assert fake_gql.pages == [25, 10]  # a double wrap would call twice
     fake_gql.pages.clear()
-    fake_gql.mode = "always"
+    fake_gql.mode = "fail25"
     with pytest.raises(RuntimeError):
         g("x")
-    assert fake_gql.pages == [25, 10]  # a double wrap would retry a second time
+    assert fake_gql.pages == [25]  # a query-weight failure is not retried for the whole project
     fake_gql.pages.clear()
     fake_gql.mode = "other"
     with pytest.raises(ValueError):
         g("x")
-    assert fake_gql.pages == [25]  # not a query-weight error: no retry
+    assert fake_gql.pages == [25]
 
 
 def test_run_forever_starts_when_main_done_missing_or_old_and_sleeps_otherwise(home, fkw):

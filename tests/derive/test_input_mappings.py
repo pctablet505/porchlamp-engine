@@ -2159,6 +2159,7 @@ def _cut_records(tmp_path: Path, key: str) -> None:
     }
     write_envelope(tmp_path / "raw", "author_history", key, cut_ah, "2026-09-01T00:05:00+00:00")
     write_envelope(tmp_path / "raw", "governance", key, {"files": {}}, "2026-09-01T00:05:00+00:00")
+    write_envelope(tmp_path / "raw", "runs", key, {"runs": []}, "2026-09-01T00:03:00+00:00")
 
 
 def _cut_document(key: str, ladder: str) -> dict[str, Any]:
@@ -2183,7 +2184,12 @@ def _cut_document(key: str, ladder: str) -> dict[str, Any]:
         },
         provenance={
             "pr_window_count": prov("pr_window", key=key),
-            "pipeline_defenses": prov("pr_window", key=key),
+            # the review/CI proxy records both of its envelopes, as derive does
+            "pipeline_defenses": {
+                "source": [f"/original-data-dir/raw/pr_window/{key}.json",
+                           f"/original-data-dir/raw/runs/{key}.json"],
+                "fetched_at": "2026-09-01T00:05:00+00:00",
+            },
             "promotion_ladder": prov("governance", key=key),
             "author_history_cost_points": prov("author_history", key=key),
             "mr_first_rate": prov("author_history", key=key),
