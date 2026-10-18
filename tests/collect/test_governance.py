@@ -1413,3 +1413,52 @@ def test_collect_governance_falls_back_when_tree_truncated_or_missing(tmp_path):
     assert len(fetched_files) == len(gov.POLICY_FILES)
     assert set(fetched_files) == set(gov.POLICY_FILES)
 
+
+def test_promotion_closed_holds_when_commit_authors_have_no_merged_pr_in_the_window():
+    """Over-correction guard (#51 review): commits_365d spans 365 days and direct pushes,
+    the PR window 180 days, so a commit author with no merged PR in the window is ordinary.
+    It must not lift a closed single-org repo out of CLOSED into DOCUMENTED."""
+    prw = _prw([
+        _raw_pr(1, "2026-06-01T00:00:00Z", "2026-06-02T00:00:00Z", "bob", "MEMBER"),
+        _raw_pr(2, "2026-07-01T00:00:00Z", "2026-07-02T00:00:00Z", "carol", "COLLABORATOR"),
+    ])
+    c365 = _corp365(("bob", "bob@acme-corp.com"), ("carol", "carol@acme-corp.com"),
+                    ("dave", "dave@outside.org"))
+    files = {"GOVERNANCE.md": {"present": True, "sha256": "h",
+                               "body": "Contributors can become a maintainer through nomination.\n"}}
+    value, ev = gov.classify_promotion_ladder(prw, files, c365)
+    assert value == "CLOSED"
+    assert ev["rule"] == "closed_single_org"
+    assert "pr_window_cut_short" not in ev
+
+
+def test_promotion_on_a_cut_pr_window_measures_only_a_verified_transition():
+    """#51 rule 5: on a record cut short of its window, CLOSED, DOCUMENTED and AD_HOC
+    all rest on an absence the unrecorded part could refute; only VERIFIED stands."""
+    def cut(prs: list[dict]) -> dict:
+        return {"window_anchor": "2026-09-12T00:00:00Z", "window_days": 180, "truncated": True,
+                "prs": prs, "derived": []}
+
+    closed_prs = [_raw_pr(1, "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z", "bob", "MEMBER"),
+                  _raw_pr(2, "2026-08-10T00:00:00Z", "2026-08-11T00:00:00Z", "carol", "COLLABORATOR")]
+    c365 = _corp365(("bob", "bob@acme-corp.com"), ("carol", "carol@acme-corp.com"))
+    value, ev = gov.classify_promotion_ladder(cut(closed_prs), {}, c365)
+    assert value == "AD_HOC"  # CLOSED is never claimed from a cut record
+    assert ev["pr_window_cut_short"] is True
+    docs = _gov_data(merged_prs=[], checks=[], check_names=[], files={
+        "GOVERNANCE.md": {"present": True, "sha256": "h",
+                          "body": "Contributors may become a maintainer by nomination.\n"}})
+    for gov_data in (None, docs):  # AD_HOC, then DOCUMENTED: neither is measured
+        fields = gov.derive_governance_fields(gov_data, cut(closed_prs), c365)
+        assert fields["promotion_ladder"][1] == "missing"
+        assert fields["promotion_ladder_evidence"][0]["reason"] == (
+            "pr_window truncated before reaching 180d window start")
+    promoted = [_raw_pr(3, "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z", "alice", "NONE"),
+                _raw_pr(4, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z", "alice", "MEMBER")]
+    assert gov.derive_governance_fields(docs, cut(promoted), c365)["promotion_ladder"] == (
+        "VERIFIED", "derived")
+    # the same record, uncut: CLOSED, measured
+    uncut = {**cut(closed_prs), "truncated": False}
+    assert gov.derive_governance_fields(None, uncut, c365)["promotion_ladder"] == ("CLOSED", "derived")
+
+

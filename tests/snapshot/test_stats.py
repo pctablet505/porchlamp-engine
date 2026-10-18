@@ -179,6 +179,31 @@ def test_an_undecided_project_below_the_minimum_population_is_not_counted(tmp_pa
     assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 0
 
 
+def test_a_cut_record_whose_share_is_not_measured_is_counted_from_its_window(tmp_path):
+    """#51 refuses a cut record's share (``measured = 0``), so h's population is read from its recorded
+    window instead: counted as cut with 12 countable outside PRs, not with 9."""
+    db, data = _snapshot(tmp_path)
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE params SET measured = 0 WHERE repo_id = (SELECT id FROM repositories WHERE name = 'h')")
+    conn.commit()
+    conn.close()
+
+    def record(count: int) -> None:
+        prs = [{**_pr(f"w{k}"), "number": k + 1, "isDraft": False, "timelineItems": {"nodes": []}}
+               for k in range(count)]
+        _h_window(data, prs)
+        path = data / "raw" / "pr_window" / "Org__h.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["data"].update(window_anchor=AS_OF, window_days=180, truncated=True, cap=500)
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+    record(12)
+    stats = compute_stats(db, data)
+    assert (stats["gate5_undecided_cut_record"], stats["gate5_undecided_cut_record_caps"]) == (1, [500])
+    record(9)
+    assert compute_stats(db, data)["gate5_undecided_cut_record"] == 0
+
+
 def test_an_undecided_project_that_hands_review_off_is_not_counted(tmp_path):
     """Five outside PRs, each with a Gerrit import notice: review is handed off, so gate 5 is undecided anyway."""
     db, data = _snapshot(tmp_path)

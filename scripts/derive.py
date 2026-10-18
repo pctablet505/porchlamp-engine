@@ -767,7 +767,10 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # window_anchor (rulings 2026-10-06). ---
     from porchlamp.core import constants as core_constants, gates as core_gates
     prw_prs = prw.get("prs") if isinstance(prw, dict) else None
-    if isinstance(prw_prs, list):
+    # #51 rule 5: no ghost rate from a record cut short of the window it is
+    # computed over (the one ending at `now`, recorded as gr14_window_start).
+    gr14_start = now - timedelta(days=core_constants.PR_WINDOW_DAYS)
+    if isinstance(prw_prs, list) and not prw_mod.pr_window_cut_short(prw, gr14_start):
         records = prw_mod.ghost_rate_prs_from_window(prw_prs)
         read_times = [t for t in (_parse_dt(prw_at), _parse_dt(prw.get("window_anchor"))) if t is not None]
         unanswered, gr_n = core_gates.zero_response_counts(

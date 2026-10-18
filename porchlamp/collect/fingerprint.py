@@ -982,9 +982,8 @@ def _review_handoff(raw_root: Path, basename: str) -> bool | None:
         row.get("number"): row for row in derived if isinstance(row, Mapping) and row.get("number") is not None
     }
     outside = [
-        pr for pr in prs
-        if isinstance(pr, Mapping)
-        and (row := classified.get(pr.get("number"))) is not None
+        pr for pr in github_graphql.reply_sampled_prs(prs)
+        if (row := classified.get(pr.get("number"))) is not None
         and row.get("is_external") and not row.get("is_bot_author")
     ]
     notices = sum(_pr_has_review_handoff_notice(pr) for pr in outside)
@@ -1057,10 +1056,11 @@ def is_confirmed_black_hole_in_raw(
     derived_by_num = {
         d.get("number"): d for d in derived if isinstance(d, Mapping) and d.get("number") is not None
     }
+    sampled_ids = {id(p) for p in github_graphql.reply_sampled_prs(prs)}
     field_names = {f.name for f in dataclasses.fields(gates.GhostRatePR)}
     records: list[gates.GhostRatePR] = []
     for idx, pr in enumerate(prs):
-        if not isinstance(pr, Mapping):
+        if not isinstance(pr, Mapping) or id(pr) not in sampled_ids:
             continue
         num = pr.get("number")
         d = derived_by_num.get(num) if num is not None else (derived[idx] if idx < len(derived) else {})

@@ -379,6 +379,11 @@ def _rule_inputs_in(data: Mapping[str, Any] | None) -> bool | None:
     return pr_rule_inputs_recorded(prs) if isinstance(prs, list) else None
 
 
+#: #51: the PR nodes whose replies a ``pr_window`` record holds (the whole
+#: window up to the PR cap, else its sample): the core's one definition.
+_reply_sampled_prs = gates.reply_sampled_prs
+
+
 def _review_handoff(raw_root: Path, basename: str) -> bool | None:
     """D-GATE-6 review hand-off from ``raw/pr_window/{basename}.json``
     (:func:`_review_handoff_in`)."""
@@ -391,7 +396,9 @@ def _review_handoff_in(data: Mapping[str, Any] | None) -> bool | None:
     The outside PRs are those the collector's own ``derived`` rows (joined to
     ``prs`` by PR number) classify as external and not bot-authored, so there
     is one definition of "external" and "bot" (``derive_pr_window``); no age or
-    date filter. The repository hands review off when
+    date filter. #51: only PRs whose comments the record holds are read
+    (:func:`_reply_sampled_prs`: the whole window up to the PR cap, else its
+    sample). The repository hands review off when
     ``constants.GATE6_HANDOFF_MIN_PRS`` or more of them, and at least
     ``constants.GATE6_HANDOFF_MIN_SHARE`` of them, carry a notice
     (:func:`_pr_has_review_handoff_notice`). ``None`` (no opinion) when the
@@ -406,9 +413,8 @@ def _review_handoff_in(data: Mapping[str, Any] | None) -> bool | None:
         row.get("number"): row for row in derived if isinstance(row, Mapping) and row.get("number") is not None
     }
     outside = [
-        pr for pr in prs
-        if isinstance(pr, Mapping)
-        and (row := classified.get(pr.get("number"))) is not None
+        pr for pr in _reply_sampled_prs(prs)
+        if (row := classified.get(pr.get("number"))) is not None
         and row.get("is_external") and not row.get("is_bot_author")
     ]
     notices = sum(_pr_has_review_handoff_notice(pr) for pr in outside)
@@ -487,10 +493,12 @@ _is_bot_node = gates.is_bot_actor_node
 def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.GhostRatePR]:
     """D-GATE-5's records from recorded PR nodes, the responses by D-IN-2
     (:func:`porchlamp.core.gates.first_substantive_response` over the window's
-    :func:`porchlamp.core.gates.maintainer_logins`)."""
+    :func:`porchlamp.core.gates.maintainer_logins`). #51: one record per PR
+    whose replies the record holds (:func:`_reply_sampled_prs`); the
+    maintainers come from every PR."""
     maintainers = gates.maintainer_logins(prs)
     out: list[gates.GhostRatePR] = []
-    for pr in prs:
+    for pr in _reply_sampled_prs(prs):
         if not isinstance(pr, Mapping):
             continue
         created_raw = pr.get("createdAt")

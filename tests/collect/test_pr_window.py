@@ -3,7 +3,7 @@
 Subject: ``porchlamp.collect.github_graphql``:
 recorded-response oracles at the GraphQL transport boundary (no live calls)
 asserting the exact values, pagination stop at the window
-boundary, ``truncated`` at the 500 cap, point-cost accounting, and the
+boundary, ``truncated`` at the PR cap, point-cost accounting, and the
 append-only hooks at the end of ``scripts/gather.py`` (the ``pr_window``
 status entry) and ``scripts/derive.py`` (the ``pr_window_*`` bundle fields).
 """
@@ -380,7 +380,7 @@ def test_truncated_set_at_exactly_500_prs():
                    for i in range(100)], True, f"cursor-{p + 1}")
              for p in range(5)]
     fake = FakeTransport(pages, [3, 4, 5, 6, 7])
-    res = gql.fetch_pr_window("acme", "widget", NOW, fake)
+    res = gql.fetch_pr_window("acme", "widget", NOW, fake, cap=500, sample_cap=None)
     assert len(res.prs) == 500
     assert res.truncated is True
     assert res.cost_points == 25
@@ -433,7 +433,7 @@ def test_collect_writes_envelope_with_provenance_hash(tmp_path):
     assert d["truncated"] is False
     assert d["cost_points"] == 5
     assert d["window_days"] == 180
-    assert d["cap"] == 500
+    assert d["cap"] == 2000
     assert d["prs"][0]["reviewThreads"]["totalCount"] == 0
     assert d["derived"][0]["ttfhr_hours"] == 1.0  # review at 01:00 beats comment 02:00
     assert d["derived"][0]["substantive_review"] is True
@@ -991,7 +991,7 @@ def test_author_window_truncated_at_500_and_cost_summed():
                       for i in range(100)], True, f"c{p + 1}")
             for p in range(5)]
     fake = W4Transport(pages, [3, 4, 5, 6, 7], [100, 96, 91, 85, 78], {}, {})
-    res = gql.fetch_author_window("acme", "widget", NOW, fake)
+    res = gql.fetch_author_window("acme", "widget", NOW, fake, cap=500)
     assert len(res.prs) == 500
     assert res.truncated is True
     assert res.cost_points == 25
@@ -1058,7 +1058,7 @@ def test_select_newcomer_sample_truncation_margin_excludes_near_floor():
 
 def _w4_main_window_pages():
     """Two recorded pages: decision-cohort author ext1 (two PRs, 103 d and
-    120 d old) and newcomer-band authors new1 (2026-02-01) / new2
+    120 d old) and newcomer-band author new1 (2026-02-01) / new2
     (2025-12-01, the earlier of the two); a maintainer PR and a bot PR are
     not external; the boundary PR is just before NOW-365d."""
     p1 = _w4_page([
@@ -1105,7 +1105,7 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
     assert env.source == "github-graphql:author-history"
     d = env.data
     assert d["window_days"] == 365
-    assert d["cap"] == 500
+    assert d["cap"] is None
     assert d["count"] == 6
     assert d["truncated"] is False
     # 10+12 window points; searches: ONE batched call for ext1/new1/new2
@@ -2456,3 +2456,253 @@ def test_pr_rule_inputs_recorded_needs_the_draft_flag_and_the_timeline_on_every_
     assert not pr_rule_inputs_recorded([current, old])
     assert not pr_rule_inputs_recorded([{**old, "isDraft": False}])
     assert not pr_rule_inputs_recorded([{**old, "timelineItems": {"nodes": []}}])
+
+
+# --- #51: 2,000 PRs whole, a light walk and a reply sample above, per-page retry -----------
+
+class ScriptedWindow:
+    """A repository's whole PR list (newest first), served from any cursor (the
+    offset as a string) at any page size: ``PrWindow`` pages carry every field,
+    ``PrWindowLight`` pages lose the replies, ``PrRepliesBatch`` returns the
+    replies of the PRs it names. ``fail`` holds ``(query name, offset, first)``
+    calls that fail once with a gateway timeout."""
+
+    def __init__(self, nodes: list[dict], fail=()) -> None:
+        self.nodes = nodes
+        self.by_number = {node["number"]: node for node in nodes}
+        self.fail = set(fail)
+        self.calls: list[tuple[str, dict]] = []
+
+    def execute(self, query: str, variables: dict) -> dict:
+        name = query.split("(", 1)[0].split()[-1]
+        self.calls.append((name, dict(variables)))
+        if name == "PrRepliesBatch":
+            repo = {}
+            for key, number in variables.items():
+                if key.startswith("n") and key[1:].isdigit():
+                    node = self.by_number[number]
+                    repo[f"p{key[1:]}"] = {"number": number, "reviews": node["reviews"],
+                                           "comments": node["comments"],
+                                           "reviewThreads": node["reviewThreads"]}
+            return {"data": {"rateLimit": {"cost": 1}, "r": repo}}
+        offset = int(variables.get("after") or 0)
+        first = variables["first"]
+        if (name, offset, first) in self.fail:
+            self.fail.discard((name, offset, first))
+            raise RuntimeError("gh api graphql rc=1: gh: HTTP 504: Gateway Timeout")
+        chunk = [dict(node) for node in self.nodes[offset:offset + first]]
+        if name == "PrWindowLight":
+            chunk = [{k: v for k, v in node.items() if k not in ("reviews", "comments", "reviewThreads")}
+                     for node in chunk]
+        end = offset + len(chunk)
+        return {"data": {"rateLimit": {"cost": 1}, "r": {"pullRequests": {
+            "pageInfo": {"hasNextPage": end < len(self.nodes), "endCursor": str(end)},
+            "nodes": chunk}}}}
+
+    def pages(self, name: str) -> list[tuple[int, int]]:
+        """``(offset, first)`` of each ``name`` call, failed ones included."""
+        return [(int(v.get("after") or 0), v["first"]) for n, v in self.calls if n == name]
+
+
+def _window_nodes(count: int, *, step_minutes: int = 60) -> list[dict]:
+    """``count`` outside PRs, newest first, one an hour back from ``NOW``; every
+    other one has a member's 90-character review two hours after it opened."""
+    out = []
+    for i in range(count):
+        created = NOW - timedelta(hours=1) - timedelta(minutes=step_minutes * i)
+        reviews = ([review(body="r" * 90, created=(created + timedelta(hours=2)).isoformat())]
+                   if i % 2 == 0 else [])
+        out.append(pr_node(count - i, created.isoformat(), reviews=reviews))
+    return out
+
+
+def test_the_pr_cap_is_2000_and_the_author_window_has_none():
+    assert (gql.PR_CAP, gql.PR_SAMPLE_CAP, gql.PR_PAGE_SIZE_RETRY, gql.PR_LIGHT_PAGE_SIZE) == (2000, 1000, 10, 100)
+    assert gql.AUTHOR_WINDOW_CAP is None
+
+
+def test_a_failing_page_is_read_again_in_pages_of_ten_then_the_walk_returns_to_its_size():
+    nodes = _window_nodes(120)
+    t = ScriptedWindow(nodes, fail=[("PrWindow", 0, 25)])
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    assert [p["number"] for p in res.prs] == [n["number"] for n in nodes]
+    assert res.truncated is False
+    # the failed 25-PR page is covered by three pages of ten, then pages of 25 again
+    assert t.pages("PrWindow") == [(0, 25), (0, 10), (10, 10), (20, 10),
+                                   (30, 25), (55, 25), (80, 25), (105, 25)]
+
+
+def test_a_local_gh_timeout_is_retried_in_pages_of_ten():
+    import subprocess
+
+    class TimesOutOnce(ScriptedWindow):
+        def execute(self, query, variables):
+            if not self.calls:
+                self.calls.append(("PrWindow", dict(variables)))
+                raise subprocess.TimeoutExpired(["gh", "api", "graphql"], 90)
+            return super().execute(query, variables)
+
+    t = TimesOutOnce(_window_nodes(12))
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    assert len(res.prs) == 12
+    assert t.pages("PrWindow") == [(0, 25), (0, 10), (10, 10)]
+
+
+def test_a_page_that_fails_again_in_pages_of_ten_fails_the_fetch():
+    t = ScriptedWindow(_window_nodes(30), fail=[("PrWindow", 0, 25), ("PrWindow", 0, 10)])
+    with pytest.raises(RuntimeError, match="504"):
+        gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+
+
+def test_a_page_failing_for_another_reason_is_not_retried():
+    calls = []
+
+    class Refused:
+        def execute(self, query, variables):
+            calls.append(variables)
+            raise RuntimeError("gh api graphql rc=1: HTTP 401: Bad credentials")
+
+    with pytest.raises(RuntimeError, match="401"):
+        gql.fetch_pr_window("acme", "widget", NOW, Refused())
+    assert len(calls) == 1
+
+
+def test_a_window_above_the_cap_is_recorded_whole_with_replies_on_a_seeded_sample():
+    nodes = _window_nodes(130)
+    t = ScriptedWindow(nodes)
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=30, cap=50, sample_cap=20)
+    # Every PR of the window, in order: the cap fell inside the second page, which is finished
+    # (leaving it part-way would drop its last ten PRs), then the light walk runs at 100.
+    assert [p["number"] for p in res.prs] == [n["number"] for n in nodes]
+    assert (res.truncated, res.sampled) == (False, True)
+    assert t.pages("PrWindow") == [(0, 30), (30, 30)]
+    assert t.pages("PrWindowLight") == [(60, 100)]
+    sample = gql.reply_sample_numbers("acme", "widget", [n["number"] for n in nodes], 20)
+    assert len(sample) == 20
+    assert {p["number"] for p in gql.reply_sampled_prs(res.prs)} == sample
+    for pr in res.prs:
+        if pr["number"] in sample:
+            assert pr["reviews"] == t.by_number[pr["number"]]["reviews"]
+            assert gql.REPLIES_RECORDED_KEY not in pr
+        else:
+            assert pr[gql.REPLIES_RECORDED_KEY] is False
+            assert not {"reviews", "comments", "reviewThreads"} & set(pr)
+    # replies were read by number only for the sampled PRs the light walk listed
+    heavy = {n["number"] for n in nodes[:60]}
+    asked = sorted(v for name, call in t.calls if name == "PrRepliesBatch"
+                   for k, v in call.items() if k.startswith("n") and k[1:].isdigit())
+    assert asked == sorted(n for n in sample if n not in heavy)
+    # reply measures read the sample only: one derived row per PR, None where unsampled
+    derived = {d["number"]: d for d in gql.derive_pr_window(res.prs)}
+    assert {n for n, d in derived.items() if d["substantive_review"] is not None} == sample
+
+
+def test_without_a_reply_sample_the_record_stops_at_exactly_the_cap_and_is_cut():
+    t = ScriptedWindow(_window_nodes(130))
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=30, cap=50, sample_cap=None)
+    assert (len(res.prs), res.truncated, res.sampled) == (50, True, False)
+    assert gql.pr_window_cut_short({"window_anchor": NOW.isoformat(), "window_days": 180,
+                                    "truncated": True, "prs": list(res.prs)})
+
+
+def test_the_reply_sample_is_drawn_by_pr_number_and_survives_a_sliding_window():
+    numbers = list(range(1, 3001))
+    sample = gql.reply_sample_numbers("acme", "widget", numbers, 1000)
+    assert len(sample) == 1000 and sample <= set(numbers)
+    assert gql.reply_sample_numbers("acme", "widget", list(reversed(numbers)), 1000) == sample
+    assert gql.reply_sample_numbers("ACME", "Widget", numbers, 1000) == sample
+    assert gql.reply_sample_numbers("acme", "other", numbers, 1000) != sample
+    # the window slides by 100 PRs: a rerun keeps almost all of the sample
+    slid = gql.reply_sample_numbers("acme", "widget", list(range(101, 3101)), 1000)
+    assert len(sample & slid) >= 900
+    assert gql.reply_sample_numbers("acme", "widget", numbers[:10], 1000) == set(numbers[:10])
+
+
+def test_a_ledger_delta_that_reaches_the_cap_continues_as_a_fresh_fetch():
+    nodes = _window_nodes(80)
+    t = ScriptedWindow(nodes)
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=20, cap=30, sample_cap=10,
+                              existing_prs=[dict(nodes[70])],
+                              existing_anchor=NOW - timedelta(days=1))
+    assert [p["number"] for p in res.prs] == [n["number"] for n in nodes]
+    assert (res.truncated, res.sampled) == (False, True)
+    assert t.pages("PrWindowLight") == [(40, 100)]
+
+
+@pytest.mark.parametrize("old_flags", [{"truncated": True}, {"truncated": False, "sampled": True}])
+def test_the_ledger_refetches_a_cut_or_sampled_envelope_in_full(tmp_path, old_flags):
+    """A cut record would stay cut under a refresh that stops at its first settled
+    PR, and merging fresh PRs into a sample would over-represent them."""
+    raw = tmp_path / "raw"
+    settled = _rule_input_fields(pr_node(2, "2026-08-20T00:00:00Z", merged="2026-08-21T00:00:00Z"))
+    old = {"window_anchor": (NOW - timedelta(days=5)).isoformat(), "window_days": 180, "cap": 500,
+           "count": 1, "cost_points": 1, "derived": [], "prs": [settled],
+           "query_sha256": gql.PR_WINDOW_QUERY_SHA256, **old_flags}
+    write_envelope(raw / "pr_window" / "acme__widget.json", "github-graphql:pr-window", old,
+                   (NOW - timedelta(days=5)).isoformat())
+    fresh = _rule_input_fields(pr_node(3, "2026-09-05T00:00:00Z"))
+    tail = _rule_input_fields(pr_node(1, "2026-08-01T00:00:00Z", merged="2026-08-02T00:00:00Z"))
+    fake = FakeTransport([page([fresh, settled], True, "c1"), page([tail], False)], [1, 1])
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW, transport=fake,
+                                 force=True, incremental_ledger=True) == "ok"
+    assert len(fake.calls) == 2  # paged past the settled PR 2: nothing was reused
+    data = read_envelope(raw / "pr_window" / "acme__widget.json").data
+    assert [p["number"] for p in data["prs"]] == [3, 2, 1]
+    assert data["truncated"] is False
+
+
+def test_the_author_window_is_the_whole_365_days_and_a_failing_page_is_read_in_tens():
+    nodes = [w4_pr(700 - i, (NOW - timedelta(hours=12 * i)).isoformat(), f"u{i}") for i in range(600)]
+    t = ScriptedWindow(nodes, fail=[("AuthorWindow", 500, 100)])
+    res = gql.fetch_author_window("acme", "widget", NOW, t)
+    assert (len(res.prs), res.truncated) == (600, False)
+    assert t.pages("AuthorWindow")[5:] == [(500, 100)] + [(500 + 10 * k, 10) for k in range(10)]
+
+
+def test_a_record_cut_short_of_its_window_yields_no_window_statistics():
+    nodes = _window_nodes(40)
+    cut = {"window_anchor": NOW.isoformat(), "window_days": 180, "cap": 40, "count": 40,
+           "truncated": True, "cost_points": 4, "prs": nodes, "derived": gql.derive_pr_window(nodes)}
+    assert gql.pr_window_cut_short(cut)
+    fields = gql.derive_pr_window_fields(cut)
+    assert fields["pr_window_count"] == (40, "verified")
+    assert fields["pr_window_truncated"] == (True, "verified")
+    for name in ("pr_window_external_measured_latency_count", "pr_window_ttfhr_median_hours",
+                 "pr_window_substantive_review_rate", "pr_window_outside_pr_count",
+                 "pr_window_closed_unread_count"):
+        assert fields[name] == (None, "missing"), name
+    whole = {**cut, "truncated": False}
+    assert not gql.pr_window_cut_short(whole)
+    assert gql.derive_pr_window_fields(whole)["pr_window_ttfhr_median_hours"] == (2.0, "derived")
+
+
+def test_gr14_judges_a_truncated_record_against_the_window_it_is_computed_over():
+    """Fetched ten days before derive, cut at its cap 185 days before derive: short of its
+    own window, but it holds every PR of the window GR_14 is computed over (#52)."""
+    record = {"window_anchor": (NOW - timedelta(days=10)).isoformat(), "window_days": 180,
+              "truncated": True,
+              "prs": [pr_node(2, (NOW - timedelta(days=3)).isoformat()),
+                      pr_node(1, (NOW - timedelta(days=185)).isoformat())]}
+    assert gql.pr_window_cut_short(record)
+    assert not gql.pr_window_cut_short(record, NOW - timedelta(days=180))
+    assert gql.pr_window_cut_short(record, NOW - timedelta(days=186))
+    assert not gql.pr_window_cut_short({**record, "truncated": False})
+
+
+def test_an_author_history_cut_short_of_a_cohort_start_yields_no_rate_for_that_cohort():
+    logins = [f"u{i}" for i in range(10)]
+    prs = [w4_days(500 + i, 300 - i, login, merged_after=5) for i, login in enumerate(logins)]
+    fields = gql.derive_cohort_fields(
+        _w4_ah_data(prs, [w4_rec(login) for login in logins], sampled=logins, truncated=True))
+    # reaching back 300 days covers the 270-day decision cohort, not the 365-day newcomer band
+    assert fields["mr_first_rate"][1] == "derived"
+    assert fields["newcomer_conversion"] == (None, "missing")
+    assert fields["rr90_return_rate"] == (None, "missing")
+    assert fields["newcomer_unmeasured_detail"][0] == (
+        "author_history window truncated before reaching 365d newcomer band start")
+    short = gql.derive_cohort_fields(_w4_ah_data([w4_days(600, 200, "v")], [w4_rec("v")], truncated=True))
+    assert short["mr_first_rate"] == (None, "missing")
+    assert short["dr90_decision_rate_author_history_cohort"] == (None, "missing")
+    assert short["cohort_unmeasured_detail"][0].startswith(
+        "author_history window truncated before reaching the 270d decision-cohort start")
+
