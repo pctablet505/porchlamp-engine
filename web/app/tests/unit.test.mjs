@@ -3967,6 +3967,7 @@ import {
   renderFindingsLine,
   syncFindingsLine,
   renderBrowseLinks,
+  RANKING_PAGE_SIZE,
   patchTableBody,
   patchCardBody,
   PRERENDERED_BOARD_CLASS,
@@ -4288,9 +4289,22 @@ test("home: no digit is typed into the findings line or the Finding template", (
   assert.ok(copy.WHY_PARAGRAPHS.includes(copy.WHY_FINDING_TEMPLATE), "the paragraph is the template");
 });
 
+test("home: the lists are folded under one closed row, and every link stays inside the folded part", () => {
+  const html = renderBrowseLinks(HOME_COUNTS.rated);
+  assert.equal((html.match(/<details/g) || []).length, 1, "one fold, not one per line");
+  assert.ok(!/<details[^>]*\sopen/.test(html), "closed until the reader opens it: the ranking is what the first screen shows");
+  assert.equal(html.match(/<summary class="browse-summary">([^<]*)<\/summary>/)[1], copy.HOME_BROWSE_SUMMARY);
+  assert.ok(html.indexOf("<summary") < html.indexOf("<a "), "the row comes before any link");
+  assert.ok(html.indexOf("</summary>") < html.indexOf("<a "), "and every link is after it, inside the details");
+  const hrefs = [...html.matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(hrefs.length, 23 + Math.ceil(HOME_COUNTS.rated / RANKING_PAGE_SIZE), "no link lost by folding: 23 to the lists, one per page of the ranking");
+  assert.equal(new Set(hrefs).size, hrefs.length, "each link once");
+  assert.equal(copy.HOME_BROWSE_SUMMARY, "Browse by ecosystem, lens or reply time");
+});
+
 test("home: the browse block links the six ecosystem pages and the four lens pages as real paths, in order, with copy.js words", () => {
   const html = renderBrowseLinks();
-  assert.match(html, /^<nav class="onboarding-banner" aria-label="Browse"/);
+  assert.match(html, /^<nav class="browse-block" aria-label="Browse" data-home-browse="true"><details class="browse-more"><summary class="browse-summary">/);
   const links = [...html.matchAll(/<a href="([^"]+)" class="onboarding-link">([^<]+)<\/a>/g)].map((m) => [m[1], m[2]]);
   assert.deepEqual(links, [
     ["/rust/", "Rust"], ["/python/", "Python"], ["/javascript/", "JavaScript"], ["/go/", "Go"], ["/java/", "Java"], ["/c-cpp/", "C and C++"],
@@ -4300,8 +4314,8 @@ test("home: the browse block links the six ecosystem pages and the four lens pag
     ["/fastest-replies/", "All projects"], ["/rust/fastest-replies/", "Rust"], ["/python/fastest-replies/", "Python"],
     ["/javascript/fastest-replies/", "JavaScript"], ["/go/fastest-replies/", "Go"], ["/java/fastest-replies/", "Java"], ["/c-cpp/fastest-replies/", "C and C++"],
   ]);
-  assert.ok(html.includes(`<span>${copy.HOME_BROWSE_ECOSYSTEMS_LABEL}</span>`) && copy.HOME_BROWSE_ECOSYSTEMS_LABEL === "Browse by ecosystem:");
-  assert.ok(html.includes(`<span>${copy.HOME_BROWSE_LENSES_LABEL}</span>`) && copy.HOME_BROWSE_LENSES_LABEL === "Browse by contributor lens:");
+  assert.ok(html.includes(`<span class="browse-group-label">${copy.HOME_BROWSE_ECOSYSTEMS_LABEL}</span>`) && copy.HOME_BROWSE_ECOSYSTEMS_LABEL === "Browse by ecosystem:");
+  assert.ok(html.includes(`<span class="browse-group-label">${copy.HOME_BROWSE_LENSES_LABEL}</span>`) && copy.HOME_BROWSE_LENSES_LABEL === "Browse by contributor lens:");
   assert.ok(html.indexOf(copy.HOME_BROWSE_ECOSYSTEMS_LABEL) < html.indexOf("/rust/") && html.indexOf("/c-cpp/") < html.indexOf(copy.HOME_BROWSE_LENSES_LABEL));
   const shell = renderShell(homeState({ leaderboardLoading: false }));
   assert.ok(shell.indexOf("data-findings-line") < shell.indexOf("data-home-browse") && shell.indexOf("data-home-browse") < shell.indexOf('class="tabs"'), "right after the findings line");
@@ -4526,7 +4540,7 @@ test("lists: each page of the ranking links all its sibling pages, the current o
   const home = renderBrowseLinks(4402);
   const homeLinks = [...home.matchAll(/<a href="\/rankings\/(\d+)\/" class="onboarding-link">(\d+)<\/a>/g)].map((m) => Number(m[1]));
   assert.deepEqual(homeLinks, Array.from({ length: 45 }, (_, i) => i + 1));
-  assert.ok(home.includes('<div data-ranking-pages="true"><span>The whole ranking, 100 projects a page:</span> <a href="/rankings/1/"'));
+  assert.ok(home.includes('<div class="browse-group browse-pages" data-ranking-pages="true"><span class="browse-group-label">The whole ranking, 100 projects a page:</span> <a href="/rankings/1/"'));
   assert.ok(!home.includes("aria-current"), "the home marks no page");
   assert.ok(!renderBrowseLinks(null).includes("/rankings/"), "no line before the size is known");
   assert.ok(renderShell(homeState(), DESKTOP).includes(renderBrowseLinks(HOME_COUNTS.rated)), "the home draws it from the snapshot's rated count");
@@ -4606,7 +4620,7 @@ test("lists: each list's heading and intro, with every number a hook, and its de
 
 //: Every copy.js string the lists added (list-views build contract C: "No digit in any new copy.js string").
 const LIST_COPY = [
-  "HOME_BROWSE_RANKING_LABEL", "HOME_BROWSE_FIRST_TIMERS_LABEL", "HOME_BROWSE_FASTEST_LABEL", "HOME_BROWSE_FASTEST_ALL",
+  "HOME_BROWSE_SUMMARY", "HOME_BROWSE_RANKING_LABEL", "HOME_BROWSE_FIRST_TIMERS_LABEL", "HOME_BROWSE_FASTEST_LABEL", "HOME_BROWSE_FASTEST_ALL",
   "LIST_RANKINGS_HEADING", "LIST_INTRO_RANKINGS", "LIST_INTRO_ECOSYSTEM", "LIST_INTRO_ECOSYSTEM_REPORT", "LIST_INTRO_LENS",
   "LIST_INTRO_ECOSYSTEM_LENS", "LIST_INTRO_WEIGHS", "LIST_WEIGHT_ITEM", "LIST_AND", "LIST_INTRO_FASTEST",
   "LIST_INTRO_FASTEST_ECOSYSTEM", "LIST_INTRO_FASTEST_SAMPLE", "LIST_CAVEAT_FASTEST", "COLUMN_FIRST_REPLY", "COLUMN_NO_REPLY",

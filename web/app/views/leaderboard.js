@@ -438,10 +438,15 @@ export function renderBrowseLinks(rated = null) {
   const ecosystemNames = Object.fromEntries(copy.ECOSYSTEMS);
   const link = (href, label) => `<a href="${escapeHtml(href)}" class="onboarding-link">${escapeHtml(label)}</a>`;
   // A middle dot between the names, as the views separate items: "C and C++" and "Career capital" are names of their own.
-  const line = (label, links) => `<div><span>${escapeHtml(label)}</span> ${links.join(" · ")}</div>`;
+  const line = (label, links) =>
+    `<div class="browse-group"><span class="browse-group-label">${escapeHtml(label)}</span> ${links.join(" · ")}</div>`;
   const pages = typeof rated === "number" && rated > 0 ? Math.ceil(rated / RANKING_PAGE_SIZE) : 0;
+  // Folded under one row: the links stay in the page for a reader without JavaScript and for a crawler, and the ranking
+  // is not pushed down the screen by five lines of them (on a phone those lines were a third of the first screen).
   return (
-    `<nav class="onboarding-banner" aria-label="${escapeHtml(copy.HOME_BROWSE_LABEL)}" data-home-browse="true">` +
+    `<nav class="browse-block" aria-label="${escapeHtml(copy.HOME_BROWSE_LABEL)}" data-home-browse="true">` +
+    `<details class="browse-more"><summary class="browse-summary">${escapeHtml(copy.HOME_BROWSE_SUMMARY)}</summary>` +
+    `<div class="browse-groups">` +
     line(copy.HOME_BROWSE_ECOSYSTEMS_LABEL, BROWSE_ECOSYSTEMS.map((key) => link(`/${copy.ECOSYSTEM_SLUGS[key]}/`, ecosystemNames[key]))) +
     line(copy.HOME_BROWSE_LENSES_LABEL, BROWSE_LENSES.map((lens) => link(copy.LENS_PAGE_HREFS[lens], copy.PERSONA_NAMES[lens]))) +
     line(copy.HOME_BROWSE_FIRST_TIMERS_LABEL, BROWSE_ECOSYSTEMS.map((key) => link(`/${copy.ECOSYSTEM_SLUGS[key]}/first-timers/`, ecosystemNames[key]))) +
@@ -449,8 +454,10 @@ export function renderBrowseLinks(rated = null) {
       link(routePath("fastest-replies"), copy.HOME_BROWSE_FASTEST_ALL),
       ...BROWSE_ECOSYSTEMS.map((key) => link(`/${copy.ECOSYSTEM_SLUGS[key]}/fastest-replies/`, ecosystemNames[key])),
     ]) +
-    (pages ? `<div data-ranking-pages="true"><span>${rankingPagesLabel()}</span> ${rankingPageLinks(pages)}</div>` : "") +
-    `</nav>`
+    (pages
+      ? `<div class="browse-group browse-pages" data-ranking-pages="true"><span class="browse-group-label">${rankingPagesLabel()}</span> ${rankingPageLinks(pages)}</div>`
+      : "") +
+    `</div></details></nav>`
   );
 }
 

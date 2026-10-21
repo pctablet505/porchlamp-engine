@@ -218,6 +218,81 @@ input.control::placeholder {
   text-decoration: underline;
 }
 
+/* ---- The home's links to the lists: one row, opened by the reader (views/leaderboard.js renderBrowseLinks) ----
+ * Every link stays in the page, so they are real links to a crawler and to a reader without JavaScript; closed, the
+ * block is one row instead of five lines, which on a phone had pushed the ranking off the first screen. */
+.browse-block {
+  margin: 0 0 var(--space-sm);
+}
+
+.browse-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 40px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-body-md);
+  cursor: pointer;
+  list-style: none;
+}
+
+.browse-summary::-webkit-details-marker {
+  display: none;
+}
+
+.browse-summary::before {
+  content: "▸";
+  color: var(--text-secondary);
+}
+
+.browse-more[open] > .browse-summary::before {
+  content: "▾";
+}
+
+.browse-summary:hover {
+  background: var(--bg-surface-hover);
+}
+
+.browse-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  padding: var(--space-md) var(--space-2xs) var(--space-2xs);
+  font-size: var(--text-body-md);
+}
+
+.browse-group-label {
+  display: block;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Each link is a target of at least 24 px tall (an inline link is only as tall as its text). */
+.browse-groups .onboarding-link {
+  display: inline-block;
+  line-height: 24px;
+}
+
+/* The page numbers of the whole ranking take the full row, each a target a thumb can hit. */
+.browse-pages {
+  grid-column: 1 / -1;
+}
+
+.browse-pages .onboarding-link {
+  min-width: 32px;
+  padding: 0 var(--space-2xs);
+  text-align: center;
+  border-radius: var(--radius-badge);
+}
+
+.browse-pages .onboarding-link:hover {
+  background: var(--bg-surface-hover);
+}
+
 /* ---- Tabs (Leaderboard's own Ranked/Not-ranked sub-tabs) ---- */
 .tabs {
   display: flex;
