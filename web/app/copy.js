@@ -1103,6 +1103,8 @@ export const FINDINGS_LINE = "More than 1 in {one_in} active projects leave most
 export const FINDINGS_LINK_LABEL = "Read the findings";
 /** The home's links to the lists (views/leaderboard.js `renderBrowseLinks`): the nav's name and its lines' labels. */
 export const HOME_BROWSE_LABEL = "Browse";
+/** The one row the home folds those lines under; the links themselves stay in the page, closed until the reader opens them. */
+export const HOME_BROWSE_SUMMARY = "Browse by ecosystem, lens or reply time";
 export const HOME_BROWSE_ECOSYSTEMS_LABEL = "Browse by ecosystem:";
 export const HOME_BROWSE_LENSES_LABEL = "Browse by contributor lens:";
 /** The home's lines to the other lists (views/leaderboard.js `renderBrowseLinks`); the ranking line heads the page
