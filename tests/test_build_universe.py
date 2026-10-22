@@ -63,7 +63,7 @@ def test_dedup_merges_selected_by(sandbox, monkeypatch):
     monkeypatch.setattr(bu, "gh_search", fake_search)
     monkeypatch.setattr(
         bu, "crates_top",
-        lambda limit: [{"owner": "same", "name": "repo", "stars": 77}])
+        lambda limit: [{"owner": "same", "name": "repo", "downloads": 77}])
     _build(max_per_criterion=100, max_total=10000, only="crates", sleep_s=0)
     rows = [json.loads(line) for line in (sandbox / "candidates.jsonl").read_text().splitlines()]
     same = [r for r in rows if r["name"] == "Repo"]
@@ -134,6 +134,106 @@ def test_crates_top_strips_git_suffix(monkeypatch):
                         lambda req, timeout=None: _Resp(json.dumps(payload).encode()))
     hits = bu.crates_top(10)
     assert [h["name"] for h in hits] == ["generic-array", "bar", "qux"]
+
+
+# --------------------------------------------------------------------------- #
+# A registry list's downloads are never a star count (issue #66, C4).        #
+# --------------------------------------------------------------------------- #
+
+
+class _Resp(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_crates_top_reports_downloads_never_stars(monkeypatch):
+    payload = {"crates": [{"repository": "https://github.com/serde-rs/serde", "downloads": 812_345_678},
+                          {"repository": "https://github.com/a/b", "downloads": None}]}
+    monkeypatch.setattr(bu.urllib.request, "urlopen",
+                        lambda req, timeout=None: _Resp(json.dumps(payload).encode()))
+    assert bu.crates_top(10) == [{"owner": "serde-rs", "name": "serde", "downloads": 812_345_678},
+                                 {"owner": "a", "name": "b", "downloads": 0}]
+
+
+def test_registry_only_candidate_records_downloads_and_no_stars(sandbox, monkeypatch):
+    monkeypatch.setattr(bu, "gh_search",
+                        lambda q, p, per_page=100: [{"owner": "o", "name": "starred", "stars": 5000}])
+    monkeypatch.setattr(bu, "crates_top",
+                        lambda limit: [{"owner": "dtolnay", "name": "syn", "downloads": 900_000_000}])
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
+    rows = _rows(sandbox / "candidates.jsonl")
+    assert [r["name"] for r in rows] == ["starred", "syn"]          # unknown stars sort last
+    syn = rows[1]
+    assert syn["stars_at_selection"] is None
+    assert syn["downloads_at_selection"] == 900_000_000
+    assert syn["selected_by"] == ["crates-downloads"]
+    assert rows[0]["stars_at_selection"] == 5000 and "downloads_at_selection" not in rows[0]
+
+
+def test_registry_candidate_is_not_cut_for_its_star_count(sandbox, monkeypatch):
+    """D-UNI-2: the universe is the union of the criteria. The cap orders the
+    star-search repos only; the registry list's repo keeps its place."""
+    monkeypatch.setattr(bu, "gh_search",
+                        lambda q, p, per_page=100: [{"owner": f"o{i}", "name": f"r{i}", "stars": 1000 + i}
+                                                    for i in range(1, 6)])
+    monkeypatch.setattr(bu, "crates_top",
+                        lambda limit: [{"owner": "dtolnay", "name": "syn", "downloads": 900_000_000}])
+    _build(max_per_criterion=100, max_total=3, only="crates", sleep_s=0, now=NOW)
+    rows = _rows(sandbox / "candidates.jsonl")
+    assert [(r["name"], r["stars_at_selection"]) for r in rows] == [
+        ("r5", 1005), ("r4", 1004), ("syn", None)]
+
+
+def test_a_later_star_search_hit_fills_a_registry_rows_stars(sandbox, monkeypatch):
+    """crates_top runs inside the crates pass; a repo whose primary language is
+    Go is found again by the go pass, and that search reports its stars."""
+    def search(q, page, per_page=100):
+        return [{"owner": "o", "name": "x", "stars": 7000}] if "language:Go" in q else []
+
+    monkeypatch.setattr(bu, "gh_search", search)
+    monkeypatch.setattr(bu, "crates_top", lambda limit: [{"owner": "o", "name": "x", "downloads": 42}])
+    _build(max_per_criterion=100, max_total=100, sleep_s=0, now=NOW)
+    (row,) = _rows(sandbox / "candidates.jsonl")
+    assert row["selected_by"] == ["crates-downloads", "github-stars:language:Go"]
+    assert row["stars_at_selection"] == 7000 and row["downloads_at_selection"] == 42
+    assert row["ecosystem"] == "crates"                             # the first criterion's ecosystem
+
+
+def test_carried_row_holding_downloads_as_stars_is_repaired(sandbox, monkeypatch):
+    """A row a pre-fix build created from crates_top carries the download count
+    as stars; its first criterion says so. A row a star search created is
+    untouched even when crates_top also listed it."""
+    old = [{"owner": "dtolnay", "name": "syn", "ecosystem": "crates", "selected_by": ["crates-downloads"],
+            "stars_at_selection": 1_234_567_890, "added_at": "2026-09-11T00:00:00+00:00"},
+           {"owner": "serde-rs", "name": "serde", "ecosystem": "crates",
+            "selected_by": ["github-stars:language:Rust", "crates-downloads"],
+            "stars_at_selection": 9_000, "added_at": "2026-09-11T00:00:00+00:00"}]
+    (sandbox / "candidates.jsonl").write_text("".join(json.dumps(r) + "\n" for r in old))
+    monkeypatch.setattr(bu, "gh_search", lambda q, p, per_page=100: [])
+    monkeypatch.setattr(bu, "crates_top", lambda limit: [])
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
+    by = {r["name"]: r for r in _rows(sandbox / "candidates.jsonl")}
+    assert by["syn"]["stars_at_selection"] is None
+    assert by["syn"]["downloads_at_selection"] == 1_234_567_890
+    assert by["serde"]["stars_at_selection"] == 9_000 and "downloads_at_selection" not in by["serde"]
+    assert [r["name"] for r in _rows(sandbox / "candidates.jsonl")] == ["serde", "syn"]
+
+
+def test_repair_registry_stars_is_idempotent_and_narrow():
+    row = {"selected_by": ["crates-downloads"], "stars_at_selection": 10}
+    once = bu.repair_registry_stars(row)
+    assert once == {"selected_by": ["crates-downloads"], "stars_at_selection": None,
+                    "downloads_at_selection": 10}
+    assert bu.repair_registry_stars(once) == once
+    filled = dict(once, stars_at_selection=7000)                   # a later search filled the stars
+    assert bu.repair_registry_stars(filled) == filled
+    for keep in ({"selected_by": ["github-stars:language:Rust", "crates-downloads"], "stars_at_selection": 10},
+                 {"selected_by": ["crates-downloads"], "stars_at_selection": True},
+                 {"selected_by": [], "stars_at_selection": 10}):
+        assert bu.repair_registry_stars(keep) == keep
 
 
 # --------------------------------------------------------------------------- #

@@ -10,11 +10,17 @@ count probes) until about ``--max-total`` repos qualify. Every repo already in
 ``candidates.jsonl`` is carried: never dropped by the cap or the floor; one the
 new search no longer selects gets a ``carried:<date>`` ``selected_by`` marker.
 Output line: {"owner","name","ecosystem",
-"selected_by":[...],"stars_at_selection":int,"added_at":iso,
+"selected_by":[...],"stars_at_selection":int|null,"added_at":iso,
 "star_velocity_flag":bool,"star_velocity":{...},"stars_audited":int} (the
-last three per D-IN-5 -- see below).
+last three per D-IN-5 -- see below). ``stars_at_selection`` is the GitHub star
+count a search hit reported, null for a repo only a registry list selected
+(``crates-downloads``, which records ``downloads_at_selection`` instead):
+until 2026-10-22 ``crates_top`` wrote the crate's all-time download count into
+that field (issue #66), so a carried row whose first criterion is
+``crates-downloads`` has its old value moved to ``downloads_at_selection``.
 Dedup by (owner,name) lowercased, merging selected_by; cap --max-total
-(highest stars kept, carried repos exempt).
+(registry-list repos first, by downloads, then the highest stars; carried
+repos exempt).
 Checkpoint: data/raw/universe_checkpoint.json (rerun skips completed pages and
 replays their stored items; probe counts are stored too).
 Search API pacing: at most 30 requests/min (``--sleep`` gap plus a trailing
@@ -106,7 +112,12 @@ def gh_search(query: str, page: int, per_page: int = PER_PAGE) -> list[dict[str,
 
 
 def crates_top(limit: int) -> list[dict[str, Any]]:
-    """Top crates.io packages by downloads (User-Agent required)."""
+    """Top crates.io packages by downloads (User-Agent required).
+
+    Each hit is ``{"owner", "name", "downloads"}``: ``downloads`` is the
+    crate's all-time download count, which says nothing about GitHub stars, so
+    it never fills a candidate's ``stars_at_selection``.
+    """
     req = urllib.request.Request(
         "https://crates.io/api/v1/crates?sort=downloads&per_page=100",
         headers={"User-Agent": "porchlamp-research/0.1 (ranking study)"})
@@ -122,8 +133,42 @@ def crates_top(limit: int) -> list[dict[str, Any]]:
                 # (e.g. github.com/fizyk20/generic-array.git); the GitHub API
                 # 404s on that name, so strip it before it becomes a candidate.
                 hits.append({"owner": parts[0], "name": parts[1].removesuffix(".git"),
-                             "stars": int(c.get("downloads") or 0)})
+                             "downloads": int(c.get("downloads") or 0)})
     return hits
+
+
+#: ``selected_by`` criteria that a registry top-list sets, not a star search.
+#: D-UNI-2 makes the universe the union of the criteria, so a repo one of these
+#: selected is not cut for its star count, and its ``stars_at_selection`` is
+#: whatever a star search reported (null when none did).
+REGISTRY_CRITERIA: frozenset[str] = frozenset({"crates-downloads"})
+
+
+def repair_registry_stars(row: dict[str, Any]) -> dict[str, Any]:
+    """``row`` with a registry list's download count moved out of its stars field.
+
+    Before 2026-10-22 :func:`crates_top` handed ``build`` the crate's all-time
+    download count as ``stars`` (issue #66), and ``build`` keeps the
+    ``stars_at_selection`` of whichever criterion created the row, which is the
+    first entry of ``selected_by``. So a row whose first criterion is in
+    :data:`REGISTRY_CRITERIA` and that carries an integer
+    ``stars_at_selection`` but no ``downloads_at_selection`` holds a download
+    count: it is returned as ``downloads_at_selection`` with
+    ``stars_at_selection`` null (a later star-search hit fills the stars). Any
+    other row is returned unchanged, so the repair is idempotent.
+    """
+    criteria = row.get("selected_by") or []
+    stars = row.get("stars_at_selection")
+    if criteria and criteria[0] in REGISTRY_CRITERIA and isinstance(stars, int) \
+            and not isinstance(stars, bool) and "downloads_at_selection" not in row:
+        return dict(row, stars_at_selection=None, downloads_at_selection=stars)
+    return row
+
+
+def star_order(row: dict[str, Any]) -> tuple[bool, int]:
+    """Sort key: most ``stars_at_selection`` first, a row with none (null) last."""
+    stars = row.get("stars_at_selection")
+    return (stars is None, -(stars or 0))
 
 
 def _load_ckpt(path: Optional[Path] = None) -> dict[str, Any]:
@@ -219,7 +264,8 @@ def _summary(rows: list[dict[str, Any]], *, min_stars: int, floor: int, carried:
     return {"total": len(rows), "per_ecosystem": by_eco, "per_language": by_lang,
             "min_stars_requested": min_stars, "floor_used": floor,
             "min_stars_reached": min((r["stars_at_selection"] for r in new_rows
-                                      if any(c.startswith("github-stars:") for c in r["selected_by"])),
+                                      if any(c.startswith("github-stars:") for c in r["selected_by"])
+                                      and r["stars_at_selection"] is not None),
                                      default=None),
             "existing_carried_total": carried, "existing_requalified": requalified,
             "existing_carried_marked": carried - requalified,
@@ -343,20 +389,28 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
             if line.strip():
                 r = json.loads(line)
                 prior[(r["owner"].lower(), r["name"].lower())] = r
-    found: dict[tuple[str, str], dict[str, Any]] = {k: dict(v, selected_by=list(v["selected_by"]))
-                                                    for k, v in prior.items()}
+    found: dict[tuple[str, str], dict[str, Any]] = {
+        k: repair_registry_stars(dict(v, selected_by=list(v["selected_by"]))) for k, v in prior.items()}
     searched: set[tuple[str, str]] = set()
 
-    def add(owner: str, name: str, eco: str, crit: str, stars: int) -> None:
+    def add(owner: str, name: str, eco: str, crit: str, stars: Optional[int],
+            downloads: Optional[int] = None) -> None:
         key = (owner.lower(), name.lower())
         searched.add(key)
         if key in found:
-            if crit not in found[key]["selected_by"]:
-                found[key]["selected_by"].append(crit)
+            row = found[key]
+            if crit not in row["selected_by"]:
+                row["selected_by"].append(crit)
+            if row.get("stars_at_selection") is None and stars is not None:
+                row["stars_at_selection"] = stars
+            if downloads is not None and "downloads_at_selection" not in row:
+                row["downloads_at_selection"] = downloads
             return
         found[key] = {"owner": owner, "name": name, "ecosystem": eco,
                       "selected_by": [crit], "stars_at_selection": stars,
                       "added_at": datetime.now(timezone.utc).isoformat()}
+        if downloads is not None:
+            found[key]["downloads_at_selection"] = downloads
 
     from datetime import timedelta
     from porchlamp.collect.fingerprint import STALE_PUSH_WINDOW_DAYS
@@ -420,7 +474,7 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
         if eco == "crates":
             try:
                 for it in crates_top(max_per_criterion):
-                    add(it["owner"], it["name"], "crates", "crates-downloads", it["stars"])
+                    add(it["owner"], it["name"], "crates", "crates-downloads", None, it["downloads"])
             except Exception as e:  # review-ok: gate-network — registry list optional
                 print(f"WARN crates_top: {e}")
 
@@ -434,9 +488,16 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
             if marker not in row["selected_by"]:
                 row["selected_by"].append(marker)
         carried_rows.append(row)
-    fresh = sorted((r for k, r in found.items() if k not in prior),
-                   key=lambda r: -r["stars_at_selection"])[:max(0, max_total - len(carried_rows))]
-    rows = sorted(carried_rows + fresh, key=lambda r: -r["stars_at_selection"])
+    # D-UNI-2: the universe is the union of the criteria, so a repo a registry
+    # list selected takes its place on that criterion (most downloads first), and
+    # the star cap orders only the star-search repos.
+    new_rows = [r for k, r in found.items() if k not in prior]
+    by_registry = sorted((r for r in new_rows if REGISTRY_CRITERIA.intersection(r["selected_by"])),
+                         key=lambda r: -(r.get("downloads_at_selection") or 0))
+    by_stars = sorted((r for r in new_rows if not REGISTRY_CRITERIA.intersection(r["selected_by"])),
+                      key=star_order)
+    fresh = (by_registry + by_stars)[:max(0, max_total - len(carried_rows))]
+    rows = sorted(carried_rows + fresh, key=star_order)
     if prune_ineligible:
         rows, pruned = prune_ineligible_candidates(rows, raw_dir=DATA, now=now)
         if pruned:
