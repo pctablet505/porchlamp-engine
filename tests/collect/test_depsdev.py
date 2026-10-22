@@ -57,6 +57,20 @@ Source-repo map, captured 2026-10-10T05:18Z, keyless, no auth:
   versions/0.23.2`` (HTTP 200, 2102 bytes, same capture): ``relatedProjects``
   lists only github.com/inventree/inventree-python -- the PyPI name
   ``inventree`` is that client library, not the InvenTree server repo.
+
+Repository lookup, captured 2026-10-22T15:13Z, keyless, no auth (issue #66):
+
+* ``GET https://packages.ecosyste.ms/api/v1/packages/lookup?repository_url=
+  https://github.com/spring-projects/spring-boot&sort=dependent_packages_count
+  &order=desc&per_page=5`` (HTTP 200, 1476597 bytes, sha256 2044797c01b514ad
+  76505b55eb332fbd33959ea2c20c8b8655488b78c5b51d92): five Maven Central
+  packages, most dependents first. ``ecosystemes_lookup_spring_boot_trimmed.json``
+  keeps each object's ``name``, ``registry.name``, ``dependent_packages_count``
+  and ``repository_url`` (the rest is repository metadata the parser never
+  reads). The same day deps.dev's source-repo map of spring-boot was cut at
+  1,500 versions (414 Go, 1,086 Maven) with no ``org.springframework`` package
+  in it: its five most-linked Maven packages were ``be.appify.prefab:*``, each
+  with 0 dependents, and the published 2026-10-21 record measured 0.
 """
 from __future__ import annotations
 
@@ -757,7 +771,8 @@ def _related(repo: str, relation: str = "SOURCE_REPO") -> dict:
 def _script_net(monkeypatch, system: str, counts: dict[str, int],
                 map_answer: tuple[Optional[int], Optional[dict]],
                 linked: Optional[dict[str, str]] = None,
-                ecosystems: Optional[dict[str, object]] = None) -> list[str]:
+                ecosystems: Optional[dict[str, object]] = None,
+                lookup: tuple[Optional[int], object] = (404, None)) -> list[str]:
     """A scripted deps.dev: every package in ``counts`` exists with that many
     dependents, the source-repo map answers ``map_answer``, every other
     package is a 404. ``linked`` maps a package to the ``owner/name`` its
@@ -765,6 +780,8 @@ def _script_net(monkeypatch, system: str, counts: dict[str, int],
     ``ecosystems`` scripts ecosyste.ms, the primary count: package -> count,
     ``"down"`` (HTTP 503) or ``"nocount"`` (200 without a count); every other
     package is a 404 there (absent, so deps.dev's figure is the count).
+    ``lookup`` is the ecosyste.ms repository lookup's ``(status, body)``
+    (asked only on a cut map; default: 404, no packages).
     Returns the list every asked URL is appended to."""
     asked: list[str] = []
     linked = linked or {}
@@ -793,6 +810,8 @@ def _script_net(monkeypatch, system: str, counts: dict[str, int],
 
     def fetch_status(url: str):
         asked.append(url)
+        if url.startswith(f"{ees.ECOSYSTEMES_API}/packages/lookup?"):
+            return lookup
         if url.startswith(ees.ECOSYSTEMES_API):
             return ecosystems_status(url)
         if url.startswith(f"{dd.DEPSDEV_API}/projects/"):
@@ -952,10 +971,12 @@ def test_collect_dependents_cut_map_rejects_a_guess_that_names_another_repo(tmp_
 
 def test_collect_dependents_cut_map_with_nothing_visible_is_unresolved_not_no_package(tmp_path, monkeypatch, block_live_network):
     """apache/thrift (maven, no pom coordinates): deps.dev returned 1,500
-    versions of other registries' packages and none of Maven Central's."""
+    versions of other registries' packages and none of Maven Central's. The
+    cut map asks the ecosyste.ms repository lookup once (here: 404, none)."""
     asked = _script_net(monkeypatch, "maven", {}, (200, _capped_map()))
     assert dd.collect_dependents(tmp_path, "apache", "thrift", "maven") == "unresolved"
-    assert asked == [dd.project_packages_url("apache", "thrift")]
+    assert asked == [dd.project_packages_url("apache", "thrift"),
+                     ees.repository_lookup_url("apache", "thrift", dd.LOOKUP_CANDIDATE_LIMIT)]
     env = read_envelope(tmp_path / "dependents" / "apache__thrift.json")
     assert env.data["source_used"] == "deps.dev:cut_map_unresolved"
     assert env.data["map_truncated"] is True and env.data["guessed_package"] is None
@@ -977,6 +998,160 @@ def test_collect_dependents_cut_map_with_a_guess_deps_dev_does_not_have_is_unres
     _script_net(monkeypatch, "npm", {}, (200, _capped_map()))
     assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "unresolved"
     assert read_envelope(tmp_path / "dependents" / "acme__widget.json").data["guess_linked"] is False
+
+
+# --- a cut map: the repository lookup, the npm spelling, no zero from a rival (#66) -----
+
+SPRING = "spring-projects/spring-boot"
+PREFAB = "be.appify.prefab:prefab-core"
+
+
+def _lookup_row(registry: str, package: str, count: object) -> dict:
+    return {"name": package, "registry": {"name": registry}, "dependent_packages_count": count}
+
+
+def test_repository_lookup_url_exact():
+    assert ees.repository_lookup_url("apache", "kafka", 3) == (
+        "https://packages.ecosyste.ms/api/v1/packages/lookup?repository_url="
+        "https%3A%2F%2Fgithub.com%2Fapache%2Fkafka&sort=dependent_packages_count&order=desc&per_page=3")
+
+
+def test_parse_lookup_recorded_spring_boot_keeps_the_answer_order():
+    payload = _recorded("ecosystemes_lookup_spring_boot_trimmed.json")
+    assert ees.parse_lookup(payload, "repo1.maven.org") == [
+        ("org.springframework.boot:spring-boot-starter-test", 9077),
+        ("org.springframework.boot:spring-boot-starter-web", 8658),
+        ("org.springframework.boot:spring-boot-configuration-processor", 7252),
+        ("org.springframework.boot:spring-boot-autoconfigure", 6483),
+        ("org.springframework.boot:spring-boot-starter", 6138),
+    ]
+    assert ees.parse_lookup(payload, "npmjs.org") == []
+
+
+def test_parse_lookup_drops_other_registries_and_malformed_rows():
+    payload = [_lookup_row("repo1.maven.org", "a:b", 9), _lookup_row("proxy.golang.org", "github.com/x/y", 50),
+               {"name": "c:d", "registry": {"name": "repo1.maven.org"}},
+               _lookup_row("repo1.maven.org", "e:f", 0), "junk", _lookup_row("repo1.maven.org", "", 3),
+               _lookup_row("repo1.maven.org", "g:h", True), {"name": "i:j", "registry": "repo1.maven.org",
+                                                            "dependent_packages_count": 4}]
+    assert ees.parse_lookup(payload, "repo1.maven.org") == [("a:b", 9), ("e:f", 0)]
+    for bad in (None, {"error": "not found"}, "x", 3):
+        assert ees.parse_lookup(bad, "repo1.maven.org") == []
+
+
+def test_collect_dependents_cut_map_rival_zero_loses_to_the_lookups_linked_package(tmp_path, monkeypatch, block_live_network):
+    """spring-projects/spring-boot (module docstring of this file): every Maven
+    package visible in the cut map is a rival's with 0 dependents and the repo
+    has no pom.xml to guess from. The lookup's top package is linked by deps.dev
+    and wins on its count."""
+    real = "org.springframework.boot:spring-boot-starter-test"
+    asked = _script_net(monkeypatch, "maven", {PREFAB: 0, real: 9077},
+                        (200, _capped_map(*_entry("MAVEN", PREFAB, n=58))),
+                        linked={real: SPRING},
+                        lookup=(200, _recorded("ecosystemes_lookup_spring_boot_trimmed.json")[:1]))
+    assert dd.collect_dependents(tmp_path, "spring-projects", "spring-boot", "maven") == "ok"
+    assert dd.version_url("maven", real, "1.0.0") in asked       # linked through its own version
+    env = read_envelope(tmp_path / "dependents" / "spring-projects__spring-boot.json")
+    assert env.data["package"] == real and env.data["deduped_count"] == 9077
+    assert env.data["mapped_candidates"] == [
+        {"package": PREFAB, "linked_versions": 58, "dependent_count": 0},
+        {"package": real, "linked_versions": 0, "dependent_count": 9077}]
+    assert env.data["identifier_method"] == "deps.dev:source_repo_map"
+    assert env.data["map_truncated"] is True and env.data["guessed_package"] is None
+
+
+def test_collect_dependents_cut_map_zero_without_the_namesake_is_unresolved_not_a_measured_zero(tmp_path, monkeypatch, block_live_network):
+    """The same cut map with nothing from the lookup: the rival's 0 is not a
+    measurement of spring-boot's package, so 2.1 stays a third-party gap
+    instead of a measured zero, and the zero candidates are recorded."""
+    _script_net(monkeypatch, "maven", {PREFAB: 0}, (200, _capped_map(*_entry("MAVEN", PREFAB, n=58))),
+                lookup=(200, []))
+    assert dd.collect_dependents(tmp_path, "spring-projects", "spring-boot", "maven") == "unresolved"
+    env = read_envelope(tmp_path / "dependents" / "spring-projects__spring-boot.json")
+    assert env.data["deduped_count"] is None and env.data["package"] is None
+    assert env.data["source_used"] == "deps.dev:cut_map_unresolved"
+    assert env.data["mapped_candidates"] == [{"package": PREFAB, "linked_versions": 58, "dependent_count": 0}]
+
+
+def test_collect_dependents_cut_map_lookup_with_only_zero_packages_is_unresolved(tmp_path, monkeypatch, block_live_network):
+    """apache/kafka (live 2026-10-22): all 1,500 map versions are Go
+    pseudo-versions of the repo; the lookup's linked Maven packages are build
+    plugins with 0 dependents (``kafka-clients``, 2,034 on ecosyste.ms, names
+    no repository there and deps.dev does not link it to apache/kafka)."""
+    plugin = "org.apache.kafka:kafka-api-checker-core"
+    _script_net(monkeypatch, "maven", {plugin: 0}, (200, _capped_map()), linked={plugin: "apache/kafka"},
+                lookup=(200, [_lookup_row("repo1.maven.org", plugin, 0)]))
+    assert dd.collect_dependents(tmp_path, "apache", "kafka", "maven") == "unresolved"
+    env = read_envelope(tmp_path / "dependents" / "apache__kafka.json")
+    assert env.data["mapped_candidates"] == [{"package": plugin, "linked_versions": 0, "dependent_count": 0}]
+
+
+def test_collect_dependents_cut_map_linked_namesake_with_zero_dependents_stays_a_measured_zero(tmp_path, monkeypatch, block_live_network):
+    """comet-ml/opik (live 2026-10-22): the map is cut, and the PyPI namesake
+    names the repo as its source with 0 dependents. The package is the repo's
+    own, so its 0 is a measurement."""
+    _script_net(monkeypatch, "pypi", {"opik": 0}, (200, _capped_map()), linked={"opik": "comet-ml/opik"},
+                lookup=(200, []))
+    assert dd.collect_dependents(tmp_path, "comet-ml", "opik", "pypi") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "comet-ml__opik.json")
+    assert env.data["package"] == "opik" and env.data["deduped_count"] == 0
+    assert env.data["guess_linked"] is True
+
+
+def test_collect_dependents_cut_map_npm_guess_is_checked_in_lower_case(tmp_path, monkeypatch, block_live_network):
+    """KaTeX/KaTeX (live 2026-10-22): the map is 1,500 Go pseudo-versions, deps.dev
+    answers 404 for npm ``KaTeX`` and links ``katex`` (1,186 dependents on
+    ecosyste.ms) to the repo."""
+    asked = _script_net(monkeypatch, "npm", {"katex": 1186}, (200, _capped_map()),
+                        linked={"katex": "KaTeX/KaTeX"})
+    assert dd.collect_dependents(tmp_path, "KaTeX", "KaTeX", "npm") == "ok"
+    assert dd.package_url("npm", "KaTeX") in asked and dd.version_url("npm", "katex", "1.0.0") in asked
+    env = read_envelope(tmp_path / "dependents" / "KaTeX__KaTeX.json")
+    assert env.data["package"] == "katex" and env.data["deduped_count"] == 1186
+    assert env.data["guessed_package"] == "KaTeX" and env.data["guess_linked"] is True
+    assert "identifier_method" not in env.data                  # the namesake, not a map find
+
+
+def test_collect_dependents_cut_map_lookup_package_deps_dev_does_not_link_is_not_attributed(tmp_path, monkeypatch, block_live_network):
+    """flowable/flowable-engine (live 2026-10-22): the lookup names
+    ``org.flowable:flowable-engine`` (77 dependents), but its deps.dev default
+    version does not name the repo, so the precision rule keeps it out."""
+    package = "org.flowable:flowable-engine"
+    asked = _script_net(monkeypatch, "maven", {package: 77}, (200, _capped_map()),
+                        lookup=(200, [_lookup_row("repo1.maven.org", package, 77)]))
+    assert dd.collect_dependents(tmp_path, "flowable", "flowable-engine", "maven") == "unresolved"
+    assert dd.version_url("maven", package, "1.0.0") in asked
+    assert dd.version_dependents_url("maven", package, "1.0.0") not in asked     # never counted
+
+
+def test_collect_dependents_cut_map_lookup_package_the_map_lists_needs_no_version_check(tmp_path, monkeypatch, block_live_network):
+    """A package the visible map lists as SOURCE_REPO but below the candidate
+    limit comes back through the lookup without a second version check, and
+    wins on its count."""
+    top = [f"org.x:mod{i}" for i in range(dd.MAPPED_CANDIDATE_LIMIT)]
+    deep = "org.x:core"
+    entries = [e for p in top for e in _entry("MAVEN", p, n=10)] + _entry("MAVEN", deep, n=1)
+    asked = _script_net(monkeypatch, "maven", {**dict.fromkeys(top, 1), deep: 500}, (200, _capped_map(*entries)),
+                        lookup=(200, [_lookup_row("repo1.maven.org", deep, 500)]))
+    assert dd.collect_dependents(tmp_path, "x", "core", "maven") == "ok"
+    assert dd.version_url("maven", deep, "1.0.0") not in asked
+    env = read_envelope(tmp_path / "dependents" / "x__core.json")
+    assert env.data["package"] == deep and env.data["deduped_count"] == 500
+    assert env.data["mapped_candidates"][-1] == {"package": deep, "linked_versions": 1, "dependent_count": 500}
+
+
+def test_collect_dependents_cut_map_unanswered_lookup_is_fail(tmp_path, monkeypatch, block_live_network):
+    _script_net(monkeypatch, "maven", {}, (200, _capped_map()), lookup=(503, None))
+    assert dd.collect_dependents(tmp_path, "apache", "thrift", "maven") == "fail"
+    assert not (tmp_path / "dependents").is_dir()
+
+
+def test_collect_dependents_complete_map_never_asks_the_lookup(tmp_path, monkeypatch, block_live_network):
+    asked = _script_net(monkeypatch, "pypi", {"flask": 12698}, (200, {"versions": _entry("PYPI", "flask")}),
+                        lookup=(200, [_lookup_row("pypi.org", "flask-rival", 99999)]))
+    assert dd.collect_dependents(tmp_path, "pallets", "flask", "pypi") == "ok"
+    assert not any("/packages/lookup?" in url for url in asked)
+    assert read_envelope(tmp_path / "dependents" / f"{KEY}.json").data["package"] == "flask"
 
 
 def test_guess_is_linked_outcomes(monkeypatch):
