@@ -2022,6 +2022,82 @@ def test_dr90_decision_rate_ignores_history_unmeasured_when_eligibility_is_measu
     )
 
 
+# --------------------------------------------------------------------------- #
+# 1.2 dr90_decision_rate -- #66 F1: an author_history record cut short of the  #
+# decision cohort's start is refused. The start is the instant THIS pr_window  #
+# record fixes (its anchor 2026-09-01 minus 180 d = 2026-03-05), not a day     #
+# count from the history's own anchor: the two are collected at different     #
+# times.                                                                      #
+# --------------------------------------------------------------------------- #
+
+def _cut_author_history(window_anchor: str, oldest_created: str,
+                        author_records: list[dict[str, Any]]) -> dict[str, Any]:
+    """An ``author_history`` record cut at its cap (``truncated``) anchored at
+    ``window_anchor``, holding two PRs, the oldest opened at ``oldest_created``."""
+    return {
+        **author_history_data(author_records=author_records),
+        "window_anchor": window_anchor, "window_days": 365, "truncated": True,
+        "prs": [{"number": 2, "createdAt": "2026-08-30T00:00:00+00:00"},
+                {"number": 1, "createdAt": oldest_created}],
+    }
+
+
+def _load_dr90_with_history(tmp_path: Path, key: str, ah_data: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    data = pr_window_data(prs=_DR90_GATE_PRS, derived=_DR90_GATE_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", key, data, "2026-09-01T00:05:00+00:00")
+    write_envelope(tmp_path / "raw", "author_history", key, ah_data, "2026-09-01T00:06:00+00:00")
+    doc = base_document(
+        provenance={
+            "pr_window_count": prov("pr_window", key=key),
+            "author_history_cost_points": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00", key=key),
+        },
+    )
+    return load(tmp_path, doc, key=key).inputs["dr90_decision_rate"], data
+
+
+def _history_cut_detail(cutoff: str) -> str:
+    return (
+        "author_history envelope is truncated before reaching the decision cohort start "
+        f"2026-03-05T00:00:00+00:00 (pr_window anchor - 180d): it holds the PRs opened from {cutoff}, "
+        "so the D-IN-3 eligibility join would drop every cohort author it never recorded"
+    )
+
+
+def test_dr90_refuses_an_author_history_cut_short_of_the_cohort_start(tmp_path: Path) -> None:
+    """The shape the 2026-10-21 snapshot carried: the history was cut at its cap weeks back,
+    so it recorded none of the cohort's authors. The join used to drop all 14, reading a
+    collector failure as ``insufficient_n`` with n=0; it is now refused as what it is."""
+    value, _data = _load_dr90_with_history(
+        tmp_path, "acme__ah-cut", _cut_author_history("2026-08-25T00:00:00+00:00", "2026-08-01T00:00:00+00:00", []))
+    assert value == Unmeasured(reason="collector_failure", detail=_history_cut_detail("2026-08-01T00:00:00+00:00"))
+
+
+def test_dr90_judges_the_history_cut_at_the_pr_window_cohort_start_not_its_own_anchor(tmp_path: Path) -> None:
+    """A history anchored 14 days AFTER the pr_window (2026-09-15) whose oldest recorded PR
+    opened 2026-03-10 reaches 180 days back from its own anchor (2026-03-19) but not the
+    cohort's start 2026-03-05: refused, although every cohort author has an eligibility
+    record (without the guard this reads Measured 0.4, n=10)."""
+    value, _data = _load_dr90_with_history(
+        tmp_path, "acme__ah-newer",
+        _cut_author_history("2026-09-15T00:00:00+00:00", "2026-03-10T00:00:00+00:00", _DR90_GATE_AUTHOR_RECORDS))
+    assert value == Unmeasured(reason="collector_failure", detail=_history_cut_detail("2026-03-10T00:00:00+00:00"))
+
+
+def test_dr90_reads_a_cut_history_that_still_reaches_the_cohort_start(tmp_path: Path) -> None:
+    """A history anchored 12 days BEFORE the pr_window (2026-08-20), cut at its cap with its
+    oldest PR opened 2026-03-01: short of 180 days from its own anchor (2026-02-21), but it
+    holds every PR since the cohort's start 2026-03-05, so the gated rate stands (the same
+    0.4 over 10 eligible authors as the uncut history above)."""
+    value, data = _load_dr90_with_history(
+        tmp_path, "acme__ah-older",
+        _cut_author_history("2026-08-20T00:00:00+00:00", "2026-03-01T00:00:00+00:00", _DR90_GATE_AUTHOR_RECORDS))
+    assert value == Measured(
+        value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        method=_DR90_METHOD_GATED, source="raw/pr_window/acme__ah-older.json",
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
 @pytest.mark.parametrize("v1_legal_ip", ["CORP_CLA_RECIPROCAL", "CORP_CLA_UNILATERAL"])
 def test_v1_legal_ip_values_map_to_corp_cla(tmp_path: Path, v1_legal_ip: str) -> None:
     """Regression: V1_LEGAL_IP_VALUES (CORP_CLA_RECIPROCAL, CORP_CLA_UNILATERAL)

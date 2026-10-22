@@ -1467,3 +1467,28 @@ def test_the_self_close_limit_is_the_response_deadline_constant(monkeypatch: pyt
     monkeypatch.setattr(gates, "GATE5_RESPONSE_DEADLINE_DAYS", 20)
     bd = gates.evaluate_gate5_window([_self_closed(created, 15)], NOW)
     assert (bd.excluded_self_closed, bd.population_n) == (1, 0)
+
+
+def test_record_cut_short_at_judges_a_truncated_record_against_an_instant() -> None:
+    """#66 F1: the cut test against an instant another envelope fixes, not the
+    record's own anchor. A truncated history anchored 2026-09-15 whose oldest
+    PR opened 2026-03-10 reaches 180 days back from its own anchor (2026-03-19)
+    but not the instant 2026-03-05 a ``pr_window`` anchored 2026-09-01 needs."""
+    from porchlamp.core import gates
+
+    utc = datetime.timezone.utc
+    record = {"window_anchor": "2026-09-15T00:00:00+00:00", "window_days": 365, "truncated": True,
+              "prs": [{"number": 2, "createdAt": "2026-09-01T00:00:00+00:00"},
+                      {"number": 1, "createdAt": "2026-03-10T00:00:00+00:00"}]}
+    assert gates.record_cut_short(record, 180) is False
+    assert gates.record_cut_short_at(record, datetime.datetime(2026, 3, 5, tzinfo=utc)) is True
+    # The oldest PR opened before the instant: the record holds every PR since.
+    assert gates.record_cut_short_at(record, datetime.datetime(2026, 3, 11, tzinfo=utc)) is False
+    # An instant with no offset is read as UTC.
+    assert gates.record_cut_short_at(record, datetime.datetime(2026, 3, 5)) is True
+    # Only a record that says it was truncated is cut; no record is not cut.
+    assert gates.record_cut_short_at({**record, "truncated": False}, datetime.datetime(2026, 3, 5, tzinfo=utc)) is False
+    assert gates.record_cut_short_at(None, datetime.datetime(2026, 3, 5, tzinfo=utc)) is False
+    # A truncated record with no readable createdAt cannot show it reaches the instant.
+    assert gates.record_cut_short_at({"truncated": True, "prs": [{"number": 1}]},
+                                     datetime.datetime(2026, 3, 5, tzinfo=utc)) is True

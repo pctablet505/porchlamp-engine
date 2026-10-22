@@ -1333,6 +1333,10 @@ def _author_history_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapp
 _reply_sampled_prs = gates.reply_sampled_prs
 _pr_window_cut_short = gates.pr_window_cut_short
 _author_history_cut_short = gates.record_cut_short
+#: #66 F1: whether the ``author_history`` record stopped short of an instant
+#: another envelope fixes (1.2 DR_90's cohort start, from the ``pr_window``
+#: record's own anchor).
+_author_history_cut_short_at = gates.record_cut_short_at
 
 
 def _pr_window_bounds(data: Optional[Mapping[str, Any]]) -> tuple[Optional[str], Optional[str]]:
@@ -1566,6 +1570,21 @@ def _dr90_decision_cohort(
 _PR_WINDOW_CUT_SHORT_DETAIL = "pr_window envelope is truncated before reaching the 180d window start"
 
 
+def _author_history_cut_detail(ah_data: Mapping[str, Any], cohort_start: datetime.datetime) -> str:
+    """#66 F1: the detail of a 1.2 DR_90 refused because its ``author_history``
+    record stopped short of the decision cohort's start (an instant the
+    ``pr_window`` record's anchor fixes): the instant, and where the history's
+    PRs begin, from :func:`porchlamp.core.gates.pr_window_coverage`."""
+    start = cohort_start if cohort_start.tzinfo is not None else cohort_start.replace(tzinfo=_utc_timezone.utc)
+    _covered, cutoff = gates.pr_window_coverage(ah_data, start)
+    held = f"it holds the PRs opened from {cutoff}" if cutoff else "it records no PR with a readable createdAt"
+    return (
+        f"author_history envelope is truncated before reaching the decision cohort start {start.isoformat()} "
+        f"(pr_window anchor - {_DR90_COHORT_START_DAYS}d): {held}, so the D-IN-3 eligibility join would drop "
+        f"every cohort author it never recorded"
+    )
+
+
 def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     """1.2 DR_90 decision rate (D-IN-4 amendment; D-IN-3 per-author cap and
     eligibility gate). No v1 summary field exists for this cohort (the v1
@@ -1587,6 +1606,18 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
 
     #51: it reads every PR of the window, a sampled one included (decisions
     are PR-level facts), and refuses a record cut short of its window.
+
+    #66 F1: it also refuses (``collector_failure``) an ``author_history``
+    record cut short of the cohort's start, the instant ``window_anchor``
+    minus 180 d of THIS ``pr_window`` record
+    (:func:`porchlamp.core.gates.record_cut_short_at`): the two envelopes are
+    collected at different times, so the history's own day count does not say
+    whether it reaches this cohort. The join reads eligibility only for the
+    authors the history recorded, so a cut history silently dropped every
+    cohort author it never saw: ``n`` collapsed to an ``insufficient_n`` that
+    was a collector failure, or the rate was computed over the repeat
+    contributors alone. 1.3, 5.2 and 5.3 already refuse a history cut short of
+    their own cohorts (RFC-0013).
     """
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
@@ -1599,9 +1630,12 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
             reason="collector_failure",
             detail=f"pr_window envelope has no parseable window_anchor: {data.get('window_anchor')!r}",
         )
+    cohort_start = anchor - timedelta(days=_DR90_COHORT_START_DAYS)
     _ah_path, ah_data, _ah_fetched_at = _author_history_envelope(ctx)
     author_records: Optional[Mapping[str, Mapping[str, Any]]] = None
     if ah_data is not None:
+        if _author_history_cut_short_at(ah_data, cohort_start):
+            return Unmeasured(reason="collector_failure", detail=_author_history_cut_detail(ah_data, cohort_start))
         author_records = {
             str(record.get("login") or "").lower(): record
             for record in ah_data.get("author_records") or []
@@ -1617,7 +1651,7 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
         if malformed:
             detail += f" ({malformed} excluded: malformed or missing createdAt)"
         return Unmeasured(reason="insufficient_n", detail=detail)
-    window_start = (anchor - timedelta(days=_DR90_COHORT_START_DAYS)).isoformat()
+    window_start = cohort_start.isoformat()
     window_end = (anchor - timedelta(days=_DR90_COHORT_END_DAYS)).isoformat()
     source_hash = _envelope_hash(path)
     relative = _relative_source(path, ctx.raw_root)
@@ -2207,7 +2241,7 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
 #: | Input id | Reads | When absent |
 #: |---|---|---|
 #: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
-#: | dr90_decision_rate | raw pr_window envelope: derived[].is_external joined with prs[].{createdAt,mergedAt,closedAt} by number, cohort [anchor-180d,anchor-90d) (D-IN-4 amendment) | no envelope -> collector_failure; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
+#: | dr90_decision_rate | raw pr_window envelope: derived[].is_external joined with prs[].{createdAt,mergedAt,closedAt} by number, cohort [anchor-180d,anchor-90d) (D-IN-4 amendment); D-IN-3 eligibility joined from the author_history envelope's author_records | no envelope -> collector_failure; author_history truncated before the cohort start instant (pr_window anchor-180d, not the history's own anchor) -> collector_failure; no author_history envelope -> Measured with method proxy:din3_unapplied; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
 #: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
 #: | gr14_ghost_rate | meta.gr14_ghost_rate + .gr14_population_n + .gr14_window_start/_end, computed by derive with porchlamp.core.gates.zero_response_counts (also D-GATE-5's input) | no pr_window envelope -> collector_failure; not derived by this tree -> collector_failure; n=0 -> insufficient_n; n<10 -> insufficient_n at scoring with the true n |
 #: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number | no envelope -> collector_failure; n<5 -> insufficient_n |

@@ -565,6 +565,7 @@ def record_cut_short(data: Mapping[str, Any] | None, required_days: int) -> bool
     D-GATE-5 share one definition. A truncated record with no readable
     ``window_anchor`` cannot show what it covers and counts as cut. A record
     that is not truncated, or holds no ``data``, is not cut.
+    :func:`record_cut_short_at` is the same test against an instant.
     """
     if not isinstance(data, Mapping) or data.get("truncated") is not True:
         return False
@@ -575,7 +576,29 @@ def record_cut_short(data: Mapping[str, Any] | None, required_days: int) -> bool
         anchor = None
     if anchor is None:
         return True
-    covered, _cutoff = pr_window_coverage(data, anchor - timedelta(days=required_days))
+    return record_cut_short_at(data, anchor - timedelta(days=required_days))
+
+
+def record_cut_short_at(data: Mapping[str, Any] | None, start: datetime) -> bool:
+    """#51 rule 5 against an instant: whether a windowed PR record says it
+    stopped at a PR cap before reaching ``start``, whatever its own
+    ``window_anchor``.
+
+    :func:`record_cut_short` counts the days a measure needs back from the
+    record's own anchor. A reader that joins the record to another envelope
+    needs that envelope's instant instead, because the two are collected at
+    different times: 1.2 DR_90 joins the ``pr_window`` record's decision cohort
+    (PRs opened from its ``window_anchor`` minus 180 days) to the
+    ``author_history`` record's per-author eligibility, so the history must
+    hold every PR opened since that instant. As in :func:`record_cut_short`,
+    only a ``truncated`` record is cut, judged by :func:`pr_window_coverage`;
+    a ``start`` with no offset is read as UTC.
+    """
+    if not isinstance(data, Mapping) or data.get("truncated") is not True:
+        return False
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    covered, _cutoff = pr_window_coverage(data, start)
     return not covered
 
 
@@ -593,12 +616,7 @@ def pr_window_cut_short(data: Mapping[str, Any] | None, window_start: datetime |
     truncated record is ever cut, judged by :func:`pr_window_coverage`.
     """
     if window_start is not None:
-        if not isinstance(data, Mapping) or data.get("truncated") is not True:
-            return False
-        if window_start.tzinfo is None:
-            window_start = window_start.replace(tzinfo=timezone.utc)
-        covered, _cutoff = pr_window_coverage(data, window_start)
-        return not covered
+        return record_cut_short_at(data, window_start)
     days = data.get("window_days") if isinstance(data, Mapping) else None
     if isinstance(days, bool) or not isinstance(days, int) or days <= 0:
         days = constants.PR_WINDOW_DAYS
