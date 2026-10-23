@@ -12,54 +12,63 @@
  * webfonts are dropped.
  *
  * Dark is the product's default aesthetic (spec §3: "Dark-Mode First
- * Engineering Aesthetic"), so the dark palette lives on bare :root and the
- * light palette overrides it — under prefers-color-scheme for users who
- * have not chosen explicitly, and under [data-theme] so the in-app toggle
- * (T) wins in both directions. --text-muted in both themes is tuned to
+ * Engineering Aesthetic"). Each themed token is written once, with both
+ * values: `var(--on-light, <light>) var(--on-dark, <dark>)`. Of the two
+ * switches, the theme in force has `initial`, so its var() takes the
+ * value, and the other is empty, so its var() adds nothing. Bare :root sets
+ * dark; the light rules below set light under prefers-color-scheme for
+ * users who have not chosen explicitly, and under [data-theme] so the
+ * in-app toggle (T) wins in both directions. (CSS light-dark() would read
+ * the same, but it leaves every themed colour unset in browsers before
+ * 2024, and the matrix canvas reads the quadrant tokens as plain colours
+ * through getComputedStyle.) --text-muted in both themes is tuned to
  * clear WCAG AA 4.5:1 against every surface token, including the lightest
  * (elevated) one — the spec's own muted value fails that on measurement,
  * see tests/test_ui_contrast.py.
  */
 
 :root {
-  --lamp-glow: #fbbf24;
+  /* The theme switches (see above): dark here, light in the two rules below. */
+  --on-light: ;
+  --on-dark: initial;
+  --lamp-glow: var(--on-light, #f59e0b) var(--on-dark, #fbbf24);
   color-scheme: dark;
 
   /* Canvas & surfaces */
-  --bg-base: #090d16;
-  --bg-surface: #0f172a;
-  --bg-surface-elevated: #1e293b;
-  --bg-surface-hover: #334155;
-  --border-subtle: #1e293b;
-  --border-strong: #334155;
-  --border-focus: #38bdf8;
+  --bg-base: var(--on-light, #f8fafc) var(--on-dark, #090d16);
+  --bg-surface: var(--on-light, #ffffff) var(--on-dark, #0f172a);
+  --bg-surface-elevated: var(--on-light, #f1f5f9) var(--on-dark, #1e293b);
+  --bg-surface-hover: var(--on-light, #e2e8f0) var(--on-dark, #334155);
+  --border-subtle: var(--on-light, #e2e8f0) var(--on-dark, #1e293b);
+  --border-strong: var(--on-light, #cbd5e1) var(--on-dark, #334155);
+  --border-focus: var(--on-light, #0284c7) var(--on-dark, #38bdf8);
 
   /* Text */
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #8896aa;
-  --text-success: #22c55e;  /* a gain in text (a rank moved up): AA on the dark surfaces */
-  --text-warning: #f87171;  /* a flag or a loss in text: AA on the dark surfaces */
-  --text-on-accent: #0b1220;
+  --text-primary: var(--on-light, #0f172a) var(--on-dark, #f8fafc);
+  --text-secondary: var(--on-light, #475569) var(--on-dark, #94a3b8);
+  --text-muted: var(--on-light, #5b6472) var(--on-dark, #8896aa);
+  --text-success: var(--on-light, #15803d) var(--on-dark, #22c55e);  /* a gain in text (a rank moved up): AA on the dark surfaces, and on the light ones, where the accent green is not */
+  --text-warning: var(--on-light, #dc2626) var(--on-dark, #f87171);  /* a flag or a loss in text: AA on the dark surfaces */
+  --text-on-accent: var(--on-light, #f8fafc) var(--on-dark, #0b1220);
 
   /* Quadrants (dual-encoded with glyphs in copy.js; never color-only) */
-  --quad-sweet-spot: #10b981;
-  --quad-crucible: #6366f1;
-  --quad-nursery: #f59e0b;
-  --quad-graveyard: #ef4444;
-  --quad-sweet-spot-wash: rgba(16, 185, 129, 0.1);
-  --quad-crucible-wash: rgba(99, 102, 241, 0.1);
-  --quad-nursery-wash: rgba(245, 158, 11, 0.1);
-  --quad-graveyard-wash: rgba(239, 68, 68, 0.1);
+  --quad-sweet-spot: var(--on-light, #065f46) var(--on-dark, #10b981);
+  --quad-crucible: var(--on-light, #4f46e5) var(--on-dark, #6366f1);
+  --quad-nursery: var(--on-light, #92400e) var(--on-dark, #f59e0b);
+  --quad-graveyard: var(--on-light, #b91c1c) var(--on-dark, #ef4444);
+  --quad-sweet-spot-wash: var(--on-light, rgba(6, 95, 70, 0.08)) var(--on-dark, rgba(16, 185, 129, 0.1));
+  --quad-crucible-wash: var(--on-light, rgba(79, 70, 229, 0.08)) var(--on-dark, rgba(99, 102, 241, 0.1));
+  --quad-nursery-wash: var(--on-light, rgba(146, 64, 14, 0.08)) var(--on-dark, rgba(245, 158, 11, 0.1));
+  --quad-graveyard-wash: var(--on-light, rgba(185, 28, 28, 0.08)) var(--on-dark, rgba(239, 68, 68, 0.1));
 
   /* Coverage bands */
-  --coverage-full: #22c55e;
-  --coverage-a: #06b6d4;
-  --coverage-b: #f59e0b;
-  --coverage-below: #ef4444;
+  --coverage-full: var(--on-light, #16a34a) var(--on-dark, #22c55e);
+  --coverage-a: var(--on-light, #0891b2) var(--on-dark, #06b6d4);
+  --coverage-b: var(--on-light, #b45309) var(--on-dark, #f59e0b);
+  --coverage-below: var(--on-light, #dc2626) var(--on-dark, #ef4444);
 
   /* Functional accents */
-  --accent-cyan: #06b6d4;
+  --accent-cyan: var(--on-light, #155e75) var(--on-dark, #06b6d4);  /* link and label text: 4.5:1 or better on every light surface, the hovered row's included */
   --accent-violet: #8b5cf6;
   --accent-warning: #dc2626;
   --accent-success: #22c55e;
@@ -84,18 +93,18 @@
    * all three clear 3:1 in both themes. Every segment also carries a
    * visible label and count, so colour never carries identity alone.
    * Re-run the validator before changing any of the six values. */
-  --corpus-rated: #22c55e;
-  --corpus-unrated: #cbd5e1;
-  --corpus-gated: #64748b;
+  --corpus-rated: var(--on-light, #16a34a) var(--on-dark, #22c55e);
+  --corpus-unrated: var(--on-light, #475569) var(--on-dark, #cbd5e1);
+  --corpus-gated: var(--on-light, #7a889f) var(--on-dark, #64748b);
 
   /* Screen F pillar-weight bars: one hue (magnitude, single series).
    * Graphic contrast vs --bg-surface, the card they render on (WCAG 1.4.11
    * needs 3:1): MEASURED 8.33:1 dark, 4.10:1 light. Pinned in
    * tests/test_ui_contrast.py. */
-  --spec-bar: #38bdf8;
+  --spec-bar: var(--on-light, #0284c7) var(--on-dark, #38bdf8);
 
   /* Tie-row band */
-  --tie-row-band: rgba(56, 189, 248, 0.08);
+  --tie-row-band: var(--on-light, rgba(2, 132, 199, 0.08)) var(--on-dark, rgba(56, 189, 248, 0.08));
 
   /* Typography */
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -134,8 +143,8 @@
   --radius-pill: 9999px;
 
   /* Elevation */
-  --shadow-popover: 0 10px 25px -5px rgba(0, 0, 0, 0.6);
-  --shadow-drawer: -15px 0 40px rgba(0, 0, 0, 0.8);
+  --shadow-popover: var(--on-light, 0 10px 25px -5px rgba(15, 23, 42, 0.16)) var(--on-dark, 0 10px 25px -5px rgba(0, 0, 0, 0.6));
+  --shadow-drawer: var(--on-light, -15px 0 40px rgba(15, 23, 42, 0.22)) var(--on-dark, -15px 0 40px rgba(0, 0, 0, 0.8));
 
   /* Motion (U-8 / 06 §5: <= 200ms, disabled under reduced motion below) */
   --motion-duration: 200ms;
@@ -143,98 +152,20 @@
   --motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* The light theme: for a system that asks for light, unless the reader chose dark, and for the reader who chose
+ * light. Each turns the switches, so every themed token above takes its light value. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --lamp-glow: #f59e0b;
+    --on-light: initial;
+    --on-dark: ;
     color-scheme: light;
-
-    --bg-base: #f8fafc;
-    --bg-surface: #ffffff;
-    --bg-surface-elevated: #f1f5f9;
-    --bg-surface-hover: #e2e8f0;
-    --border-subtle: #e2e8f0;
-    --border-strong: #cbd5e1;
-    --border-focus: #0284c7;
-
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #5b6472;
-    --text-success: #15803d;  /* AA on the light surfaces, where the accent green is not */
-    --text-warning: #dc2626;
-    --text-on-accent: #f8fafc;
-
-    --quad-sweet-spot: #065f46;
-    --quad-crucible: #4f46e5;
-    --quad-nursery: #92400e;
-    --quad-graveyard: #b91c1c;
-    --quad-sweet-spot-wash: rgba(6, 95, 70, 0.08);
-    --quad-crucible-wash: rgba(79, 70, 229, 0.08);
-    --quad-nursery-wash: rgba(146, 64, 14, 0.08);
-    --quad-graveyard-wash: rgba(185, 28, 28, 0.08);
-
-    --coverage-full: #16a34a;
-    --coverage-a: #0891b2;
-    --coverage-b: #b45309;
-    --coverage-below: #dc2626;
-
-    /* Link and label text: 4.5:1 or better on every light surface, the hovered row's included. */
-    --accent-cyan: #155e75;
-
-    --corpus-rated: #16a34a;
-    --corpus-unrated: #475569;
-    --corpus-gated: #7a889f;
-    --spec-bar: #0284c7;
-
-    --tie-row-band: rgba(2, 132, 199, 0.08);
-    --shadow-popover: 0 10px 25px -5px rgba(15, 23, 42, 0.16);
-    --shadow-drawer: -15px 0 40px rgba(15, 23, 42, 0.22);
   }
 }
 
 :root[data-theme="light"] {
-  --lamp-glow: #f59e0b;
+  --on-light: initial;
+  --on-dark: ;
   color-scheme: light;
-
-  --bg-base: #f8fafc;
-  --bg-surface: #ffffff;
-  --bg-surface-elevated: #f1f5f9;
-  --bg-surface-hover: #e2e8f0;
-  --border-subtle: #e2e8f0;
-  --border-strong: #cbd5e1;
-  --border-focus: #0284c7;
-
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #5b6472;
-  --text-success: #15803d;
-  --text-warning: #dc2626;
-  --text-on-accent: #f8fafc;
-
-  --quad-sweet-spot: #065f46;
-  --quad-crucible: #4f46e5;
-  --quad-nursery: #92400e;
-  --quad-graveyard: #b91c1c;
-  --quad-sweet-spot-wash: rgba(6, 95, 70, 0.08);
-  --quad-crucible-wash: rgba(79, 70, 229, 0.08);
-  --quad-nursery-wash: rgba(146, 64, 14, 0.08);
-  --quad-graveyard-wash: rgba(185, 28, 28, 0.08);
-
-  --coverage-full: #16a34a;
-  --coverage-a: #0891b2;
-  --coverage-b: #b45309;
-  --coverage-below: #dc2626;
-
-  /* Link and label text: 4.5:1 or better on every light surface, the hovered row's included. */
-  --accent-cyan: #155e75;
-
-  --corpus-rated: #16a34a;
-  --corpus-unrated: #475569;
-  --corpus-gated: #7a889f;
-  --spec-bar: #0284c7;
-
-  --tie-row-band: rgba(2, 132, 199, 0.08);
-  --shadow-popover: 0 10px 25px -5px rgba(15, 23, 42, 0.16);
-  --shadow-drawer: -15px 0 40px rgba(15, 23, 42, 0.22);
 }
 
 @media (prefers-reduced-motion: reduce) {

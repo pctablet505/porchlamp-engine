@@ -37,12 +37,7 @@ import {
   DOMAIN_MIN,
   DOMAIN_MAX,
 } from "../components/scatter.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 export const DEFAULT_VIEW = Object.freeze({ x: 0, y: 0, scale: 1 });
 const MIN_SCALE = 1;

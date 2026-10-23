@@ -3,6 +3,7 @@
 // full keymap can be exercised without a DOM.
 
 import * as copy from "../copy.js";
+import { escapeHtml } from "../escape.js";
 
 /**
  * One entry per key documented in 06 §5 / copy.js's KEYMAP_ENTRIES. `key`
@@ -53,12 +54,6 @@ export function actionForKeyEvent(evt, context = { isInputFocused: false, isInte
   if (entry.globalOnly && context.isInputFocused) return null;
   if (entry.action === "open-selected" && context.isInteractiveFocused) return null;
   return entry.action;
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
 }
 
 export function renderKeymapOverlay() {

@@ -15,6 +15,7 @@ import json
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -1188,6 +1189,62 @@ def test_no_two_ranked_projects_share_a_lower_case_address(built):
         project_pages.check_no_collisions([*ranked, ("Acme", "Widget"), ("acme", "WIDGET")])
     with pytest.raises(report_pages.ReportError, match="plain path segment"):
         project_pages.project_path("acme", "..")
+
+
+#: Names in GitHub's alphabet (letters, digits, `-`, `_` and `.`, any case) that the app and the export must spell the
+#: same: upper and mixed case, dots (a leading one, and two together), `_`, `-` and digits.
+ADDRESS_EDGE_NAMES = [
+    ("Keras-Team", "Keras"), ("socket.io", "socket.io-client"), ("a_b", "c-d.e"), ("acme", ".github"),
+    ("x", "y..z"), ("MiXeD-09", "Under_Score.JS"),
+]
+
+
+def _in_the_app(pairs: list[tuple[str, str]], expression: str) -> list:
+    """`expression` for each (owner, name) `[o, n]`, run on the app's route module (``web/app/routes.js``, as `r`)."""
+    script = (
+        'const r = await import(process.argv[1]); const { readFileSync } = await import("node:fs");'
+        f'process.stdout.write(JSON.stringify(JSON.parse(readFileSync(0, "utf8")).map(([o, n]) => {expression})));'
+    )
+    ran = subprocess.run(
+        [export_static.find_node(), "--input-type=module", "-e", script, (ROOT / "web" / "app" / "routes.js").as_uri()],
+        input=json.dumps(pairs), capture_output=True, text=True, timeout=120, check=True,
+    )
+    return json.loads(ran.stdout)
+
+
+def _exported_ranked(site: Path) -> list[tuple[str, str]]:
+    """Every ranked project an export holds, in its own spelling: the rows of its balanced list."""
+    [board] = site.glob("data/*/leaderboard-balanced.json")
+    return [(row["owner"], row["name"]) for row in json.loads(board.read_text(encoding="utf-8"))["rows"]]
+
+
+def test_the_app_and_the_export_give_every_ranked_project_the_same_address(built):
+    """One address rule in two languages: the app's (``routes.js``) and the export's (``project_pages.project_path``)
+    agree on every ranked project of an export, each at the page the export wrote, and on the edge cases above. Only
+    `built[0]`, the site, is read, so a real export can be checked by calling this with ``(site,)``."""
+    site = built[0]
+    ranked = _exported_ranked(site)
+    assert len(ranked) > 100, site
+    pairs = ranked + ADDRESS_EDGE_NAMES
+    export_paths = ["/" + project_pages.project_path(owner, name) for owner, name in pairs]
+    differ = [(p, e, a) for p, e, a in zip(pairs, export_paths, _in_the_app(pairs, "r.projectPath(o, n)"), strict=True) if e != a]
+    assert differ == [], differ[:5]
+    unwritten = [path for path in export_paths[: len(ranked)] if not (site / path.lstrip("/") / "index.html").is_file()]
+    assert unwritten == [], unwritten[:5]
+
+
+#: Name parts outside GitHub's alphabet: parentheses, a space, a letter outside ASCII, and the two dot segments.
+NAMES_GITHUB_CANNOT_HOLD = [("a(b)", "c"), ("x", "y)"), ("a b", "c"), ("\u00c4", "c"), (".", "x"), ("x", "..")]
+
+
+def test_neither_the_app_nor_the_export_gives_a_page_to_a_name_github_cannot_hold():
+    """Outside GitHub's alphabet the two sides do not spell an address alike, but neither gives the name a page: the
+    export refuses it, and the address the app would make for it routes to the app's not-found view."""
+    for owner, name in NAMES_GITHUB_CANNOT_HOLD:
+        with pytest.raises(report_pages.ReportError, match="plain path segment"):
+            project_pages.project_path(owner, name)
+    routed = _in_the_app(NAMES_GITHUB_CANNOT_HOLD, "r.matchRoute(r.projectPath(o, n)).route.id")
+    assert routed == ["notfound"] * len(NAMES_GITHUB_CANNOT_HOLD)
 
 
 def test_the_project_sitemap_lists_every_ranked_project_by_rank_with_the_data_date(built, project_index):

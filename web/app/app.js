@@ -137,12 +137,7 @@ import {
 } from "./views/compare.js";
 import { renderShell as renderMethodologyShell, shellShape as methodologyShellShape } from "./views/methodology.js";
 import { renderShell as renderReportShell, shellShape as reportShellShape } from "./views/report.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "./escape.js";
 
 export function boot(win = window, doc = document) {
   // An old query link (`?tab=`, `?repo=`, `#methodology`) or a project address in another letter case goes to

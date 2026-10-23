@@ -5,7 +5,7 @@
 // A copy.js template names its values as `{slot}`s (`fill`), so the words stay in copy.js and the numbers stay
 // hooked; the template's own text is escaped, the slots are markup the caller built (a hook, a link).
 
-import { escapeHtml } from "./table.js";
+import { escapeHtml } from "../escape.js";
 
 /** `text` as the value of the hook `id`. */
 export function hook(id, text) {

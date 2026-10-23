@@ -1,13 +1,11 @@
 """Screen F must never hardcode a methodology fact (06 §3 F: "every number
 comes from the payload") — `views/methodology.js`'s own module docstring
 states the rule; this test enforces it by finding every genuine numeric
-LITERAL TOKEN in the file's live code (comments, string/template STATIC
-text, and the shared `escapeHtml` boilerplate excluded) and asserting none
-remain.
+LITERAL TOKEN in the file's live code (comments and string/template STATIC
+text excluded) and asserting none remain.
 
 Distinguishing a real numeric literal from an incidental digit character
-(an `h1` tag name, a `06 §3 F` doc citation in a comment, the `&#39;`
-HTML-entity string inside `escapeHtml`) needs more than a bare `\\d+`
+(an `h1` tag name, a `06 §3 F` doc citation in a comment) needs more than a bare `\\d+`
 search — see `extract_numeric_literals`'s docstring for exactly what is
 stripped before scanning, and `TestDetectorItself` for a synthetic
 positive/negative control proving the detector actually detects an
@@ -33,7 +31,6 @@ _NUMERIC_LITERAL_RE = re.compile(r"(?<![A-Za-z0-9_$.])\d+(?:\.\d+)?")
 
 _LINE_COMMENT_RE = re.compile(r"//[^\n]*")
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
-_ESCAPE_HTML_FN_RE = re.compile(r"function escapeHtml\(value\)\s*\{.*?\n\}\n", re.DOTALL)
 #: Splits a template literal into its STATIC text and `${...}` expression
 #: parts (non-greedy; this file nests no `${` inside another `${`).
 _TEMPLATE_EXPR_RE = re.compile(r"\$\{([^{}]*)\}")
@@ -43,14 +40,6 @@ def strip_comments(source: str) -> str:
     source = _BLOCK_COMMENT_RE.sub("", source)
     source = _LINE_COMMENT_RE.sub("", source)
     return source
-
-
-def strip_escape_html_boilerplate(source: str) -> str:
-    # The identical `escapeHtml` helper (with its `&#39;` HTML-entity
-    # string) is copy-pasted verbatim across every web/app/ file — a
-    # utility, never a methodology fact; excluded once, by name, rather
-    # than papering over it with a broader "ignore short strings" rule.
-    return _ESCAPE_HTML_FN_RE.sub("", source)
 
 
 def template_literal_expressions_only(source: str) -> str:
@@ -80,7 +69,6 @@ def template_literal_expressions_only(source: str) -> str:
 
 def extract_numeric_literals(source: str) -> list[str]:
     cleaned = strip_comments(source)
-    cleaned = strip_escape_html_boilerplate(cleaned)
     cleaned = template_literal_expressions_only(cleaned)
     return _NUMERIC_LITERAL_RE.findall(cleaned)
 
@@ -116,16 +104,6 @@ class TestDetectorItself:
 
     def test_ignores_digits_glued_to_an_identifier(self) -> None:
         snippet = "const el = `<h1 class=\"x\">${copy.HEADING}</h1>`;"
-        assert extract_numeric_literals(snippet) == []
-
-    def test_ignores_html_entity_strings_inside_escape_html_boilerplate(self) -> None:
-        snippet = (
-            "function escapeHtml(value) {\n"
-            "  return String(value).replace(/[&<>\"']/g, (ch) => (\n"
-            '    { "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" }[ch]\n'
-            "  ));\n"
-            "}\n"
-        )
         assert extract_numeric_literals(snippet) == []
 
     def test_ignores_static_template_text_outside_expressions(self) -> None:

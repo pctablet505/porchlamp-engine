@@ -12,12 +12,7 @@ import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, PAGE_SIZES } from "../state.js";
 import { renderColumnHeader, syncHeaderSortDom, createRowElement, updateRowElement, rowKey, SORTABLE_COLUMNS } from "../components/table.js";
 import { syncPager } from "./leaderboard.js";
 import { patchRows } from "../components/patch.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 /**
  * Proportional normalisation (06 §3 D): `changedPillar` takes `newValue`

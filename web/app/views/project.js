@@ -24,7 +24,8 @@
 
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderQuadrant, renderTierCell } from "../components/badge.js";
-import { PILLAR_ORDER, escapeHtml as e } from "../components/table.js";
+import { PILLAR_ORDER } from "../components/table.js";
+import { escapeHtml as e } from "../escape.js";
 import { fill, hook } from "../components/fill.js";
 import { projectPath } from "../routes.js";
 

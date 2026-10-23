@@ -4,7 +4,7 @@
 // meaning -- so it is hidden from assistive technology.
 // web/app/favicon.svg is the same drawing with fixed colours.
 import * as copy from "../copy.js";
-import { escapeHtml } from "./table.js";
+import { escapeHtml } from "../escape.js";
 
 export const BRAND_MARK_SVG =
   `<svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" ` +

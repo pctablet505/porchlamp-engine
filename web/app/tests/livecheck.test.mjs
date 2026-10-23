@@ -41,7 +41,7 @@ import {
   runLiveCheck,
 } from "../livecheck.js";
 import { renderNotInSnapshot } from "../components/livepanel.js";
-import { escapeHtml } from "../components/table.js";
+import { escapeHtml } from "../escape.js";
 import { renderFilteredEmpty } from "../views/leaderboard.js";
 import { defaultState, reduce, redirectTarget } from "../state.js";
 import * as copy from "../copy.js";

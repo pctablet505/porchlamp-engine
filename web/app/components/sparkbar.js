@@ -5,12 +5,7 @@
 // carries the "reason on focus" via its title attribute).
 
 import * as copy from "../copy.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 /**
  * @param {{id: string, label: string, score: number|null, coverage: number}[]} pillars

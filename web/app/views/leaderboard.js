@@ -53,12 +53,7 @@ import {
 import { routeById, routePath, routeTitle } from "../routes.js";
 import { parseRepoSlug } from "../livecheck.js";
 import { percentWhole } from "./project.js";
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
-  ));
-}
+import { escapeHtml } from "../escape.js";
 
 export function renderSkeleton(rowCount = 12) {
   const rows = Array.from({ length: rowCount }, () => `<div class="skeleton-row"></div>`).join("");
