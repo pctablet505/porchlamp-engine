@@ -114,3 +114,17 @@ def test_can_derive_180d_from_365d_invalid_payloads() -> None:
     assert can_derive_180d_from_365d(None, now) is False  # type: ignore[arg-type]
     assert can_derive_180d_from_365d({"commits": "not-a-list"}, now) is False
     assert can_derive_180d_from_365d({"rows": []}, now) is True  # empty, not truncated
+
+
+def test_can_derive_180d_from_365d_sampled_is_false() -> None:
+    """RFC-0021: a sampled commits_365d record holds pages spread over the
+    year with gaps between them, not the contiguous 180-day window."""
+    now = NOW
+    commits = [
+        {"date": (now - timedelta(days=1)).isoformat()},
+        {"date": (now - timedelta(days=200)).isoformat()},
+    ] * 200
+    assert can_derive_180d_from_365d(
+        {"rows": commits, "sampled": True, "truncated": False, "total": 12000}, now,
+    ) is False
+

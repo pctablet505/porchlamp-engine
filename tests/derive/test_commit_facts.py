@@ -398,3 +398,30 @@ def test_sidecar_facts_default_when_v2_document_has_neither_optional_key(tmp_pat
         reason="collector_failure",
         detail="no commits_365d or commits_180d envelope resolvable for this bundle",
     )
+
+
+def test_commit_facts_cut_commits_365d_refuses_top_domain_share_but_keeps_last_commit(tmp_path: Path) -> None:
+    """RFC-0021: a cut commits_365d record refuses top_email_domain_share
+    (which needs the year's org distribution) while still resolving
+    last_non_bot_commit_at (the newest human commit is on page 1); an evenly
+    spaced sample resolves both."""
+    from porchlamp.core import commit_domains
+
+    rows = _rows(30, domain="corp.com")
+    cut_data = {"rows": rows, "truncated": True, "count": 30, "cap": 1000}
+    _write(tmp_path / "cut", "commits_365d", cut_data)
+    cut_bundle = load(tmp_path / "cut", _doc(commits_365d=cut_data))
+    assert isinstance(last_non_bot_commit_at(cut_bundle), LastNonBotCommitMeasured)
+    assert top_email_domain_share(cut_bundle) == Unmeasured(
+        reason="collector_failure",
+        detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL,
+    )
+
+    sampled_data = {"rows": rows, "sampled": True, "total": 12000, "truncated": False, "count": 30, "cap": 5000}
+    _write(tmp_path / "sampled", "commits_365d", sampled_data)
+    sampled_bundle = load(tmp_path / "sampled", _doc(commits_365d=sampled_data))
+    assert isinstance(last_non_bot_commit_at(sampled_bundle), LastNonBotCommitMeasured)
+    fact = top_email_domain_share(sampled_bundle)
+    assert isinstance(fact, TopEmailDomainShareMeasured)
+    assert fact.value == 1.0 and fact.n == 30 and fact.top_domain == "corp.com"
+

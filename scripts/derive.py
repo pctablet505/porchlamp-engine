@@ -730,28 +730,37 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # commit_domains.envelope_rows unwraps the collector's window dict.
     c365_data, c365_at = _load(data_dir, "commits_365d", key)
     c365 = commit_domains.envelope_rows(c365_data)
+    # RFC-0021: whether those rows are the whole year, an evenly spaced
+    # sample of it, or the newest commits a pre-RFC-0021 collector stopped at.
+    c365_window = commit_domains.commit_window(c365_data)
     if c365 is None:
         c365_at = None
     if c365 is not None:
         recs = commit_domains.records_from_rows(c365)
-        # Both factors are None when under half the window's commits could be
-        # attributed to an org/author at all: the 50% threshold is then
-        # unreachable, so the measure is missing rather than large (D-MISS-1).
-        ef = commit_domains.elephant_factor(recs, now)
-        if ef is not None:
-            b.set("elephant_factor", ef, src("commits_365d", key), c365_at, "derived")
-            # The sample EF was computed from (D-PARAM 3.2 min n = 30
-            # commits): the bundle loader passes it as Measured.n, so a
-            # thin window scores insufficient_n with its true n.
-            b.set("elephant_factor_commit_count", elephant_factor_sample_n(recs, now),
-                  src("commits_365d", key), c365_at, "derived")
-        else:
+        if c365_window is not None and c365_window.cut:
+            # A cut record holds the newest days of a busier year: the
+            # shares EF and the bus factor read are not the year's.
             b.missing("elephant_factor", 1)
-        bf = commit_domains.bus_factor(recs, now)
-        if bf is not None:
-            b.set("bus_factor", bf, src("commits_365d", key), c365_at, "derived")
-        else:
             b.missing("bus_factor", 1)
+        else:
+            # Both factors are None when under half the window's commits could be
+            # attributed to an org/author at all: the 50% threshold is then
+            # unreachable, so the measure is missing rather than large (D-MISS-1).
+            ef = commit_domains.elephant_factor(recs, now)
+            if ef is not None:
+                b.set("elephant_factor", ef, src("commits_365d", key), c365_at, "derived")
+                # The sample EF was computed from (D-PARAM 3.2 min n = 30
+                # commits): the bundle loader passes it as Measured.n, so a
+                # thin window scores insufficient_n with its true n.
+                b.set("elephant_factor_commit_count", elephant_factor_sample_n(recs, now),
+                      src("commits_365d", key), c365_at, "derived")
+            else:
+                b.missing("elephant_factor", 1)
+            bf = commit_domains.bus_factor(recs, now)
+            if bf is not None:
+                b.set("bus_factor", bf, src("commits_365d", key), c365_at, "derived")
+            else:
+                b.missing("bus_factor", 1)
         b.set("vitality", commit_domains.is_vital(recs, now),
               src("commits_365d", key), c365_at, "derived")
     else:
@@ -825,9 +834,13 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     rel, rel_at = _load(data_dir, "releases", key)
     iss, iss_at = _load(data_dir, "issues_counts", key)
     rns, rns_at = _load(data_dir, "runs", key)
+    # RFC-0021: the hooks below read the commits_365d envelope data itself
+    # (rows plus whether they are the whole year, a sample or a cut record);
+    # None whenever the rows are None, exactly as `c365` above.
+    c365_env = c365_data if c365 is not None else None
     try:
         w17_fields = pike_mod.derive_w17_fields(
-            data_dir, key, now, gh, gh_at, c365, c365_at, dep, dep_at,
+            data_dir, key, now, gh, gh_at, c365_env, c365_at, dep, dep_at,
             rel, rel_at, iss, iss_at, rns, rns_at, sc, sc_at, prw, prw_at,
         )
     except Exception as e:  # review-ok: gate-crash — one repo's
@@ -875,7 +888,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     else:
         gov_src, gov_prov_at = None, None
     for field, (value, conf) in gov_mod.derive_governance_fields(
-            gov, prw, c365, owner.lower() in FOUNDATION_ORGS).items():
+            gov, prw, c365_env, owner.lower() in FOUNDATION_ORGS).items():
         if conf == "missing":
             b.set(field, value, None, None, conf)
         else:

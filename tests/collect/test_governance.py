@@ -1967,3 +1967,36 @@ def test_collect_governance_org_default_fallback_for_contributing_and_security_o
 
 
 
+def test_signoff_share_refuses_cut_window_and_reads_sampled_window():
+    """RFC-0021: signoff_share refuses a cut commits_365d record (truncated dict
+    or 1,000-row bare list) and reads an evenly spaced sample unweighted."""
+    rows = [_c365_row(f"u{i}", f"u{i}@corp.com", signed_off=(i < 60)) for i in range(100)]
+    assert gov.signoff_share({"rows": rows, "truncated": True, "count": 100, "cap": 1000}) is None
+    assert gov.signoff_share([_c365_row("a", "a@corp.com", signed_off=True) for _ in range(1000)]) is None
+
+    sampled = {"rows": rows, "sampled": True, "total": 12000, "truncated": False, "count": 100, "cap": 5000}
+    assert gov.signoff_share(sampled) == {"count": 60, "total": 100, "share": 0.6}
+
+
+def test_derive_governance_fields_cut_commits_withholds_no_evidence_but_keeps_foundation_and_cla():
+    """RFC-0021: on a cut commits_365d record, the negative NONE verdict rests
+    on an unmeasured Signed-off-by share and is withheld (missing), whereas a
+    foundation owner or CLA check still derives."""
+    from porchlamp.core import commit_domains
+
+    cut_c365 = {"rows": [_c365_row("a", "a@corp.com", signed_off=False) for _ in range(100)],
+                "truncated": True, "count": 100, "cap": 1000}
+    gov_empty = _gov_with_probe(gov.CHECK_EVIDENCE_SHA_CAP, 10, ["ci/build"])
+    fields_none = gov.derive_governance_fields(gov_empty, None, cut_c365, foundation_owner=False)
+    assert fields_none["legal_ip"] == ("NONE", "missing")
+    assert fields_none["legal_ip_evidence"][0]["reason"] == commit_domains.COMMIT_WINDOW_CUT_DETAIL
+
+    # Foundation owner and CLA check do not depend on the sign-off share:
+    fields_fnd = gov.derive_governance_fields(gov_empty, None, cut_c365, foundation_owner=True)
+    assert fields_fnd["legal_ip"] == ("FOUNDATION_CLA", "derived")
+
+    gov_cla = _gov_with_probe(1, 1, ["cla/google"])
+    fields_cla = gov.derive_governance_fields(gov_cla, None, cut_c365, foundation_owner=False)
+    assert fields_cla["legal_ip"] == ("CORP_CLA", "derived")
+
+

@@ -146,7 +146,15 @@ def unsettled_pr_numbers(
 
 
 def _commit_key(c: Mapping[str, Any]) -> Any:
-    """Deduplication key for commit records."""
+    """Deduplication key for commit records.
+
+    The commit ``sha`` whenever the row records one: every row
+    ``porchlamp.collect.commits.shape_commit_rows`` writes does (#66 C2).
+    Rows recorded before it kept the sha -- and raw objects without one --
+    fall back to ``(date, author login, author email, signed_off)``, which
+    cannot tell apart two commits one author made in the same second (a
+    rebased or stacked series), so it is only ever a legacy fallback.
+    """
     sha = c.get("sha")
     if sha:
         return str(sha)

@@ -743,7 +743,12 @@ def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValu
 
     domain = commit_domains.top_domain_share(records)
     domain_fact: TopEmailDomainShareValue
-    if domain.n < _TOP_DOMAIN_SHARE_MIN_N:
+    window = None if used_fallback else commit_domains.commit_window(_envelope_data(path))
+    if window is not None and window.cut:
+        # RFC-0021: the newest days of a busier year are not the window's
+        # commits; the share is refused like the EF it is compared with.
+        domain_fact = Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
+    elif domain.n < _TOP_DOMAIN_SHARE_MIN_N:
         domain_fact = Unmeasured(
             reason="insufficient_n",
             detail=f"{domain.n} non-bot commits, minimum {_TOP_DOMAIN_SHARE_MIN_N}",
@@ -1135,6 +1140,11 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
             if (v1_field == "promotion_ladder"
                     and _pr_window_cut_short(_pr_window_envelope(ctx)[1])):
                 return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
+            # RFC-0021: the sign-off regime (DCO by share, or the NONE default
+            # beside it) reads the window's Signed-off-by share, which a
+            # commits record cut at the pre-RFC-0021 cap does not hold.
+            if v1_field == "legal_ip" and _legal_ip_reads_signoff(ctx) and _commits_365d_cut(ctx):
+                return Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
             if path is not None and isinstance(fetched_at, str) and fetched_at and mapped is not None:
                 source_hash = _envelope_hash(path)
                 relative = _relative_source(path, ctx.raw_root)
@@ -1152,6 +1162,9 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
             # #51 rule 5: the deriver withholds every rung but VERIFIED on a cut pr_window record; say why.
             if v1_field == "promotion_ladder" and _pr_window_cut_short(_pr_window_envelope(ctx)[1]):
                 return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
+            # RFC-0021: the deriver withholds the sign-off regime on a cut commits record; say why.
+            if v1_field == "legal_ip" and _legal_ip_reads_signoff(ctx) and _commits_365d_cut(ctx):
+                return Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
             return Unmeasured(reason="collector_failure", detail="v1 deriver recorded no value")
         return Unmeasured(reason="collector_failure",
                            detail=f"v1 confidence {confidence_value!r} for {v1_field!r} is not recognized")
@@ -1325,6 +1338,41 @@ def _author_history_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapp
         result = (None, None, None)
     ctx.cache["author_history"] = result
     return result
+
+
+def _commits_365d_cut(ctx: _V1Ctx) -> bool:
+    """RFC-0021: whether this bundle's ``commits_365d`` record stopped at the
+    pre-RFC-0021 newest-1,000 cap (:func:`porchlamp.core.commit_domains.
+    commit_window`), memoized on ``ctx.cache``.
+
+    Keyed off the ``vitality`` provenance entry: ``scripts/derive.py``
+    records it from the commits_365d envelope whenever that envelope holds
+    rows, a cut one included (vitality reads the newest commits, which a cut
+    record still holds). ``False`` when the entry is absent or ``raw_root``
+    cannot resolve it -- the rows' own readers then already report the
+    envelope missing. The readers of a window measure (3.2 EF, 2.2, 3.1's
+    sign-off regime) refuse a cut record here as well as at derive time, so
+    a derived document written before RFC-0021 cannot carry a value computed
+    on the newest days alone.
+    """
+    if "commits_365d_cut" in ctx.cache:
+        return ctx.cache["commits_365d_cut"]
+    path = _resolve_envelope(_first_source(ctx.provenance.get("vitality")), ctx.raw_root)
+    window = commit_domains.commit_window(_envelope_data(path)) if path is not None else None
+    cut = window is not None and window.cut
+    ctx.cache["commits_365d_cut"] = cut
+    return cut
+
+
+def _legal_ip_reads_signoff(ctx: _V1Ctx) -> bool:
+    """RFC-0021: whether the recorded 3.1 verdict rests on the window's
+    ``Signed-off-by`` share -- rule ``signoff_share`` (DCO by share) or
+    ``no_evidence`` (the NONE default, reached only once the share stayed
+    under half) in ``meta.legal_ip_evidence``, written by
+    ``porchlamp.collect.governance.classify_legal_ip``. A check- or
+    foundation-based verdict does not, and stands on a cut commits record."""
+    evidence = ctx.meta.get("legal_ip_evidence")
+    return isinstance(evidence, Mapping) and evidence.get("rule") in ("signoff_share", "no_evidence")
 
 
 #: #51: the core definitions (:mod:`porchlamp.core.gates`), shared with the
@@ -1960,12 +2008,21 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
     ``constants.OPENSSF_PROXY_MIN_SIGNALS`` of the ten are present, this
     row is ``Measured(method="proxy:no_dependents_signal")`` instead of
     Unmeasured; a dependents ``collector_failure`` still leaves 2.2
-    ``Unmeasured(collector_failure)`` (a retry can still measure it)."""
+    ``Unmeasured(collector_failure)`` (a retry can still measure it).
+
+    RFC-0021: a commits_365d record cut at the pre-RFC-0021 cap
+    (:func:`_commits_365d_cut`) leaves 2.2 ``Unmeasured(collector_failure)``
+    whatever the derived document recorded -- three of the ten signals are
+    counts over the window that record does not hold (it held every busy
+    repository's commit frequency at 19.23 a week), and D-MISS-5 never
+    renormalises a collector failure away."""
     confidence_value = ctx.confidence.get("openssf_signals")
     signals = ctx.meta.get("openssf_signals")
     entry = ctx.provenance.get("openssf_signals")
     source_field = entry.get("source") if isinstance(entry, Mapping) else None
     fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    if confidence_value != "collector_failure" and _commits_365d_cut(ctx):
+        return Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
     if confidence_value == "derived":
         if not isinstance(signals, Mapping):
             return Unmeasured(reason="collector_failure", detail=f"openssf_signals is not a mapping: {signals!r}")
@@ -2290,6 +2347,22 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
     )
 
 
+#: 3.2 EF's carried-through scalar (n = the commits it was computed from).
+_resolve_elephant_factor_scalar: InputResolver = _plain_scalar_resolver(
+    "elephant_factor", n_field="elephant_factor_commit_count")
+
+
+def _resolve_elephant_factor(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """3.2 Elephant factor: :data:`_resolve_elephant_factor_scalar`, refused
+    (``Unmeasured(collector_failure)``) on a commits_365d record cut at the
+    pre-RFC-0021 cap (:func:`_commits_365d_cut`): the org shares EF reads are
+    the newest days', not the year's (RFC-0021). A whole window or an evenly
+    spaced sample of it is read as recorded."""
+    if _commits_365d_cut(ctx):
+        return Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
+    return _resolve_elephant_factor_scalar(ctx)
+
+
 #: The v2 input mapping table: one resolver per
 #: ``constants.PARAM_INPUT_IDS`` entry, in the same pillar order.
 #:
@@ -2301,10 +2374,10 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
 #: | gr14_ghost_rate | meta.gr14_ghost_rate + .gr14_population_n + .gr14_window_start/_end, computed by derive with porchlamp.core.gates.zero_response_counts (also D-GATE-5's input) | no pr_window envelope -> collector_failure; not derived by this tree -> collector_failure; n=0 -> insufficient_n; n<10 -> insufficient_n at scoring with the true n |
 #: | ttm_p90_hours | raw pr_window envelope: prs[] nodes of merged outside PRs (gates.is_outside_pr; #57), merge time porchlamp.core.landing.merged_or_landed_at (RFC-0015) | no envelope -> collector_failure; n<5 -> insufficient_n, detail names meta.pr_window_landed_external_count |
 #: | dependents_deduped | meta.dependents_count when confidence=="derived" (dependents hook); meta.ecosystem gates it | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it |
-#: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
+#: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score); commits_365d record cut at the pre-RFC-0021 cap -> collector_failure |
 #: | downloads_monthly | meta.monthly_downloads; meta.downloads_status refines the Unmeasured detail | go/maven/systems -> not_applicable (D-MISS-5); otherwise third_party_gap, detail per downloads_status |
-#: | legal_ip | meta.legal_ip, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
-#: | elephant_factor | meta.elephant_factor; n = meta.elephant_factor_commit_count (non-bot org-attributed commits in the 365 d window; 0 when absent, e.g. the contributors-only fallback) | collector_failure; n<30 -> insufficient_n at scoring, with the true n |
+#: | legal_ip | meta.legal_ip, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection; a sign-off verdict (rule signoff_share / no_evidence) on a commits_365d record cut at the pre-RFC-0021 cap -> collector_failure |
+#: | elephant_factor | meta.elephant_factor; n = meta.elephant_factor_commit_count (non-bot org-attributed commits in the 365 d window; 0 when absent, e.g. the contributors-only fallback) | collector_failure; n<30 -> insufficient_n at scoring, with the true n; commits_365d record cut at the pre-RFC-0021 cap -> collector_failure |
 #: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
 #: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method: "primary" (scorecard) or "proxy:review_ci" (n = merged or landed PRs, RFC-0015) | confidence absent or missing -> third_party_gap (TP with proxy) |
 #: | ai_posture | meta.ai_posture, vocab-validated against constants.AI_POSTURE_VALUES (identity map) | collector_failure; an out-of-set value is collector_failure too, never Measured |
@@ -2333,7 +2406,7 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     # the legacy regex heuristic.
     "legal_ip": _vocab_scalar_resolver(
         "legal_ip", {value: value for value in constants.LEGAL_IP_VALUES} | V1_LEGAL_IP_VALUES),
-    "elephant_factor": _plain_scalar_resolver("elephant_factor", n_field="elephant_factor_commit_count"),
+    "elephant_factor": _resolve_elephant_factor,
     # "promotion_ladder" accepts both the current vocabulary as identity
     # (VERIFIED/DOCUMENTED/AD_HOC/CLOSED) and the legacy v1 spellings via
     # V1_LADDER_VALUES as a fallback.

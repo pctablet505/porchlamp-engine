@@ -2653,3 +2653,79 @@ def test_author_history_rate_resolvers_append_landing_note_on_insufficient_n(tmp
     )
 
 
+def test_cut_commits_365d_refused_by_bundle_resolvers_and_sampled_accepted(tmp_path: Path) -> None:
+    """RFC-0021: bundle resolvers for elephant_factor, openssf_criticality, and
+    sign-off-based legal_ip refuse a commits_365d record cut at the old cap even
+    when a pre-RFC-0021 derived document recorded them as derived; a check-based
+    legal_ip and an evenly spaced sample stay Measured."""
+    from porchlamp.core import commit_domains
+
+    cut_refusal = Unmeasured(
+        reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL,
+    )
+    key_cut = "acme__commits-cut"
+    _write_openssf_envelopes(tmp_path, key_cut)
+    write_envelope(
+        tmp_path / "raw", "commits_365d", key_cut,
+        {"count": 1000, "cap": 1000, "truncated": True, "rows": [{"author_email": "a@corp.com"}] * 40},
+        "2026-09-01T00:05:00+00:00",
+    )
+    write_envelope(tmp_path / "raw", "governance", key_cut, {"files": {}}, "2026-09-01T00:05:00+00:00")
+
+    def doc_for(key: str, *, legal_ip: str = "DCO", rule: str = "signoff_share",
+                legal_conf: str = "derived") -> dict[str, Any]:
+        return base_document(
+            meta={
+                "elephant_factor": 2,
+                "elephant_factor_commit_count": 40,
+                "openssf_signals": dict(_OPENSSF_SIGNALS),
+                "legal_ip": legal_ip,
+                "legal_ip_evidence": {"rule": rule},
+            },
+            provenance={
+                "vitality": prov("commits_365d", key=key),
+                "elephant_factor": prov("commits_365d", key=key),
+                "openssf_signals": {
+                    "source": [f"/original-data-dir/raw/{c}/{key}.json" for c in _OPENSSF_PROV_COLLECTORS],
+                    "fetched_at": "2026-09-01T00:05:00+00:00",
+                },
+                "legal_ip": prov("governance", key=key),
+            },
+            confidence={
+                "vitality": "derived",
+                "elephant_factor": "derived",
+                "openssf_signals": "derived",
+                "legal_ip": legal_conf,
+            },
+        )
+
+    bundle_cut = load(tmp_path, doc_for(key_cut, legal_ip="DCO", rule="signoff_share"), key=key_cut)
+    assert bundle_cut.inputs["elephant_factor"] == cut_refusal
+    assert bundle_cut.inputs["openssf_criticality"] == cut_refusal
+    assert bundle_cut.inputs["legal_ip"] == cut_refusal
+
+    # NONE with rule "no_evidence" (whether derived before RFC-0021 or withheld as missing):
+    for conf in ("derived", "missing"):
+        b_none = load(tmp_path, doc_for(key_cut, legal_ip="NONE", rule="no_evidence", legal_conf=conf), key=key_cut)
+        assert b_none.inputs["legal_ip"] == cut_refusal
+
+    # A check-based CLA verdict does not read the sign-off share and stands on a cut commits record:
+    b_cla = load(tmp_path, doc_for(key_cut, legal_ip="CORP_CLA", rule="cla_check"), key=key_cut)
+    assert isinstance(b_cla.inputs["legal_ip"], Measured) and b_cla.inputs["legal_ip"].value == "CORP_CLA"
+
+    # An evenly spaced sample (sampled=True, total=12000) resolves all three as Measured:
+    key_sampled = "acme__commits-sampled"
+    _write_openssf_envelopes(tmp_path, key_sampled)
+    write_envelope(
+        tmp_path / "raw", "commits_365d", key_sampled,
+        {"count": 40, "cap": 5000, "truncated": False, "sampled": True, "total": 12000,
+         "rows": [{"author_email": "a@corp.com"}] * 40},
+        "2026-09-01T00:05:00+00:00",
+    )
+    write_envelope(tmp_path / "raw", "governance", key_sampled, {"files": {}}, "2026-09-01T00:05:00+00:00")
+    bundle_sampled = load(tmp_path, doc_for(key_sampled, legal_ip="DCO", rule="signoff_share"), key=key_sampled)
+    assert isinstance(bundle_sampled.inputs["elephant_factor"], Measured)
+    assert isinstance(bundle_sampled.inputs["openssf_criticality"], Measured)
+    assert isinstance(bundle_sampled.inputs["legal_ip"], Measured)
+
+

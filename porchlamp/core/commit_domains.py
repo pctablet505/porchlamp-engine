@@ -238,9 +238,10 @@ def envelope_rows(data: Any) -> Optional[list[Mapping[str, Any]]]:
     as the row list either raised ``AttributeError`` on the first
     ``row.get`` (``scripts/derive.py``, failing the whole bundle) or
     treated the envelope as absent -- for every repo whose commits had been
-    re-collected. ``truncated`` is not consulted: a capped window's rows
-    are read exactly as the list-shaped envelopes' always were (the v1
-    collectors kept the same newest-1000 cap without recording it)."""
+    re-collected. ``truncated`` is not consulted here: this returns the rows
+    only. Whether they are the whole window, an evenly spaced sample of it or
+    a record cut at the old newest-1,000 cap is :func:`commit_window`'s
+    answer (RFC-0021), which every windowed commit measure reads."""
     if isinstance(data, list):
         return data
     if isinstance(data, Mapping):
@@ -248,6 +249,77 @@ def envelope_rows(data: Any) -> Optional[list[Mapping[str, Any]]]:
         if isinstance(rows, list):
             return rows
     return None
+
+
+#: The ``Unmeasured(collector_failure)`` detail every windowed commit measure
+#: (3.2 EF, 3.1's ``Signed-off-by`` share, 2.2's commit signals, 03 section
+#: 6's top email-domain share) gives for a cut record (:func:`commit_window`).
+COMMIT_WINDOW_CUT_DETAIL: str = (
+    f"commits_365d record stops at the newest {constants.LEGACY_COMMIT_CAP:,} commits "
+    "before the 365-day window start and holds no sample or 365-day total (RFC-0021)"
+)
+
+
+@dataclass(frozen=True)
+class CommitWindow:
+    """What one ``commits_365d`` record holds (D-IN-4 Commits, RFC-0021).
+
+    ``rows`` are the recorded commit rows. ``total`` is the number of
+    default-branch commits in the 365-day window: the row count when the
+    record is the whole window, GitHub's own count (``data["total"]``) when
+    it is a sample, ``None`` when the record is cut. ``sampled`` is true when
+    the rows are whole REST pages of 100 spread evenly over the window
+    (``porchlamp.collect.commits.collect_commits_365d`` above
+    ``constants.COMMIT_CAP``): every page stands for the same number of
+    pages, so shares (3.2 EF, the bus factor, 3.1's ``Signed-off-by`` share)
+    read the rows unweighted, and a count of the window is ``total`` times
+    the rows' share. ``cut`` is true when the rows stop short of the window
+    and are no sample -- the newest ``constants.LEGACY_COMMIT_CAP`` commits
+    every collector kept before RFC-0021 -- so no windowed measure reads
+    them (RFC-0013's rule for a cut record).
+    """
+
+    rows: list[Mapping[str, Any]]
+    total: Optional[int]
+    sampled: bool
+    cut: bool
+
+
+def _is_count(value: Any) -> bool:
+    """A non-negative ``int`` that is not a ``bool``."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def commit_window(data: Any) -> Optional[CommitWindow]:
+    """Read a ``commits_365d`` envelope's ``data`` as a :class:`CommitWindow`.
+
+    ``None`` for anything :func:`envelope_rows` reads as no envelope. Then:
+
+    * a bare row list (the v1 collectors, which recorded no ``truncated``)
+      is cut when it holds ``constants.LEGACY_COMMIT_CAP`` rows or more --
+      those collectors stopped there -- and whole below it;
+    * a window dict marked ``sampled`` is a sample when it records a
+      ``total`` at least its row count; a sample without one cannot be
+      scaled to the window and counts as cut;
+    * a window dict marked ``truncated`` (and not sampled) is cut;
+    * any other window dict is the whole window, its ``total`` the row
+      count (the rows are the window; a recorded ``total`` read moments
+      earlier can differ by the commits pushed in between).
+    """
+    rows = envelope_rows(data)
+    if rows is None:
+        return None
+    if not isinstance(data, Mapping):
+        cut = len(rows) >= constants.LEGACY_COMMIT_CAP
+        return CommitWindow(rows=rows, total=None if cut else len(rows), sampled=False, cut=cut)
+    total = data.get("total")
+    if data.get("sampled") is True:
+        if _is_count(total) and total >= len(rows):
+            return CommitWindow(rows=rows, total=total, sampled=True, cut=False)
+        return CommitWindow(rows=rows, total=None, sampled=False, cut=True)
+    if data.get("truncated") is True:
+        return CommitWindow(rows=rows, total=None, sampled=False, cut=True)
+    return CommitWindow(rows=rows, total=len(rows), sampled=False, cut=False)
 
 
 def records_from_rows(rows: Sequence[Mapping[str, Any]]) -> list[CommitRecord]:

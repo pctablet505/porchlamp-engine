@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "93e44701a8a9862e242e0e1f93e7f082848fbc1f222d68bdcd221600192bac8c"
+FROZEN_CONSTANTS_HASH = "b81c8bc48501e62976493eda447ce11944a2d7d53a3cd4a126f71cb766c7ff05"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -242,6 +242,10 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     # RFC-0020: 5.4 DX setup-signals proxy method and minimum CI run count.
     ("DX_PROXY_MIN_N", constants.DX_PROXY_MIN_N, 0),
     ("METHOD_PROXY_DX_SETUP_SIGNALS", constants.METHOD_PROXY_DX_SETUP_SIGNALS, "proxy:setup_signals_only"),
+    # RFC-0021: D-IN-4's commits: every commit of the 365 days up to 5,000, above that 5,000 in evenly
+    # spaced pages with GitHub's count of the year; a record at the old newest-1,000 cap is refused.
+    ("COMMIT_CAP", constants.COMMIT_CAP, 5000),
+    ("LEGACY_COMMIT_CAP", constants.LEGACY_COMMIT_CAP, 1000),
 )
 
 

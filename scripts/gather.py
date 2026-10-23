@@ -30,6 +30,7 @@ from porchlamp.collect import ci_runs, ghcli, net, validate
 from porchlamp.collect.commits import (
     can_derive_180d_from_365d,
     collect_commits_365d,
+    commit_total_fetcher,
     derive_commits_180d_rows,
 )
 from porchlamp.collect.envelope import write_envelope
@@ -494,7 +495,9 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     else:
         status["gfi"] = "skip"
 
-    # --- commits_365d (365 d, cap 1000; author email/login/type) ---
+    # --- commits_365d (365 d: every commit up to COMMIT_CAP, else an evenly
+    # spaced sample with GitHub's count of the year, RFC-0021; author
+    # email/login/type and sha) ---
     if not done("commits_365d"):
         with _collector_scope(key, "commits_365d"):
             def _page(page: int, since: str) -> list[dict]:
@@ -503,6 +506,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                            "-f", "per_page=100", "-f", f"since={since}",
                            "-f", f"page={page}") or []
 
+            from porchlamp.collect.github_graphql import GhCliTransport
+            _total = commit_total_fetcher(GhCliTransport(), owner, name)
             try:
                 existing_c365: Optional[list[dict]] = None
                 existing_c365_truncated: bool = False
@@ -511,7 +516,9 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                     if c365_p.is_file():
                         try:
                             prev_c365 = json.loads(c365_p.read_text(encoding="utf-8")).get("data")
-                            if isinstance(prev_c365, dict):
+                            # A sampled record is pages spread over the year: new
+                            # commits cannot be merged into it (RFC-0021).
+                            if isinstance(prev_c365, dict) and prev_c365.get("sampled") is not True:
                                 rows_or_commits = prev_c365.get("rows") or prev_c365.get("commits")
                                 if isinstance(rows_or_commits, list):
                                     existing_c365 = rows_or_commits
@@ -521,11 +528,12 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 if existing_c365 is not None:
                     c365_data = collect_commits_365d(
                         _page,
+                        fetch_total=_total,
                         existing_rows=existing_c365,
                         existing_truncated=existing_c365_truncated,
                     )
                 else:
-                    c365_data = collect_commits_365d(_page)
+                    c365_data = collect_commits_365d(_page, fetch_total=_total)
                 c365_at = datetime.now(timezone.utc).isoformat()
                 _env("commits_365d", key, "github-rest:commits", c365_data, fetched_at=c365_at)
                 status["commits_365d"] = "ok"

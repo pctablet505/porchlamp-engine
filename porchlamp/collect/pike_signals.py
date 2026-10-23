@@ -25,6 +25,16 @@ search counts, default-branch CI runs) collected by this module:
                                               30-issue sample
   dependents_count          dependents        the deduped dependents count
 
+The commits_365d record (RFC-0021, ``porchlamp.core.commit_domains.
+commit_window``) holds every commit of the year up to
+``constants.COMMIT_CAP`` and an evenly spaced sample above it. On a sample,
+commit_frequency_weekly is the sample's non-bot share times GitHub's count
+of the year's commits (``total``) / 52, and contributor_count / org_count
+count the sampled commits' authors and orgs -- at least that many took part
+in the year. A record cut at the pre-RFC-0021 newest-1,000 cap leaves the
+whole set ``collector_failure``: its count of commits is the cap, not the
+year's (it held every busy repository at 19.23 commits a week).
+
 D-MISS-1 applies: a repo-controlled absence is a measured zero (a repo with
 no releases records 0), but a missing envelope is unmeasured -- nine of the
 ten sources are whole-set-or-nothing, because the Pike engine scores
@@ -623,6 +633,8 @@ def derive_pike_signals(
     iss: Optional[Mapping[str, Any]],
     dep: Optional[Mapping[str, Any]],
     now: datetime,
+    *,
+    window_total: Optional[int] = None,
 ) -> Optional[tuple[dict[str, Union[int, float]], frozenset[str]]]:
     """The Pike signals present, plus which of the ten are missing.
 
@@ -632,6 +644,13 @@ def derive_pike_signals(
     of ``gh``/``c365``/``rel``/``iss`` still maps to a hard-required signal
     group (module docstring table): the first one absent is why the whole
     call returns ``None``.
+
+    ``window_total`` is GitHub's count of the year's commits when ``c365``
+    is an evenly spaced sample of them (RFC-0021,
+    ``porchlamp.core.commit_domains.CommitWindow.total``): the weekly commit
+    frequency is then the rows' non-bot in-window share of that count, / 52.
+    ``None`` (the default) means ``c365`` is the whole window, counted as is.
+    The caller refuses a record cut short of the window before it gets here.
 
     ``dep``/``dep["deduped_count"]`` is not hard-required (D-MISS-5
     consequence for 2.2) -- when it is absent, ``"dependents_count"``
@@ -680,12 +699,15 @@ def derive_pike_signals(
         return None
     if iss is None or iss.get("comments_per_issue") is None:
         return None
+    window_commits = float(stats["commits"])
+    if window_total is not None and c365:
+        window_commits = window_commits * window_total / len(c365)
     signals: dict[str, Union[int, float]] = {
         "created_since_months": round(months_between(created_at, now), 4),
         "updated_since_months": round(months_between(stats["last_commit_at"], now), 4),
         "contributor_count": stats["contributors"],
         "org_count": stats["orgs"],
-        "commit_frequency_weekly": round(stats["commits"] / WEEKS_PER_YEAR, 4),
+        "commit_frequency_weekly": round(window_commits / WEEKS_PER_YEAR, 4),
         "recent_releases_count": recent,
         "closed_issues_count_90d": int(iss.get("closed_90d") or 0),
         "updated_issues_count_90d": int(iss.get("updated_90d") or 0),
@@ -820,6 +842,14 @@ def derive_w17_fields(
     unmeasured, not zeros). Source is the list of envelope paths used;
     fetched_at is the newest of the used sources' recorded times.
 
+    ``c365`` is the commits_365d envelope ``data`` in either recorded shape
+    (``porchlamp.core.commit_domains.commit_window`` reads it, RFC-0021): a
+    record cut short of the window at the pre-RFC-0021 cap records
+    ``openssf_signals`` ``collector_failure`` with the reason in
+    ``openssf_signals_detail`` (D-MISS-5: a collector failure is never
+    renormalised away, a retry measures it); a sample passes GitHub's count
+    of the year's commits to :func:`derive_pike_signals`.
+
     When exactly the dependents signal is missing (D-MISS-5
     consequence for 2.2), ``openssf_signals`` stays unemitted
     but ``openssf_signals_partial`` (the other nine, dict-shaped) and
@@ -852,12 +882,19 @@ def derive_w17_fields(
     elif isinstance(iss, Mapping) and window_anchor_stale(iss.get("window_anchor"), now):
         stale_detail = (f"issues_counts window anchored at {iss.get('window_anchor')}, "
                         f"as_of {now.isoformat()}")
+    # RFC-0021: the same refusal for a commits record cut at the old cap --
+    # its commit count is the cap, not the year's.
+    commit_window = commit_domains.commit_window(c365)
+    if stale_detail is None and commit_window is not None and commit_window.cut:
+        stale_detail = commit_domains.COMMIT_WINDOW_CUT_DETAIL
 
     if stale_detail is not None:
         out["openssf_signals"] = (None, None, None, "collector_failure")
         out["openssf_signals_detail"] = (stale_detail, None, None, "derived")
     else:
-        result = derive_pike_signals(gh, c365, rel, iss, dep, now)
+        result = derive_pike_signals(
+            gh, commit_window.rows if commit_window is not None else None, rel, iss, dep, now,
+            window_total=commit_window.total if commit_window is not None and commit_window.sampled else None)
         if result is not None:
             signals, missing = result
             # Guarded like the pipeline_defenses `at` below -- every

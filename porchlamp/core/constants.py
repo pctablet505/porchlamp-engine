@@ -45,6 +45,20 @@ PR_SAMPLE_CAP: int = 1000
 #: smallest of the window's, so a rerun over the same PRs draws the same sample.
 PR_SAMPLE_SEED: int = 20260912
 
+#: D-IN-4 Commits (RFC-0021): a ``commits_365d`` record holds every
+#: default-branch commit of the trailing 365 days when GitHub counts at most
+#: this many; above it, this many in whole REST pages of 100 spread evenly over
+#: the year (``sampled``), with GitHub's count of the year's commits
+#: (``total``). 3.2 EF and 3.1's ``Signed-off-by`` share read the rows; 2.2's
+#: commit frequency reads the total.
+COMMIT_CAP: int = 5000
+
+#: D-IN-4 Commits (RFC-0021): the newest-commits cap every ``commits_365d``
+#: collector applied before RFC-0021, without a total. A record that stopped
+#: there (``truncated``, or a bare row list of this many rows) holds only the
+#: newest days of a busier year, so no windowed commit measure reads it.
+LEGACY_COMMIT_CAP: int = 1000
+
 #: D-MISS-1 reason for a Measured ECDF-kind input whose (ecosystem, param)
 #: has no frozen population at all (``porchlamp.core.engine``, added 2026-09-12).
 REASON_NO_POPULATION: str = "no_population"
@@ -655,6 +669,7 @@ def constants_dict() -> dict[str, object]:
         "CAREER_CAPITAL_MIN_CRITICALITY": CAREER_CAPITAL_MIN_CRITICALITY,
         "CEILING_A_MIN_COVERAGE": CEILING_A_MIN_COVERAGE,
         "COHORT_RATE_SLOPE": COHORT_RATE_SLOPE,
+        "COMMIT_CAP": COMMIT_CAP,
         "COMPOSITE_DECIMALS": COMPOSITE_DECIMALS,
         "DX_PROXY_MIN_N": DX_PROXY_MIN_N,
         "ELEPHANT_SLOPE": ELEPHANT_SLOPE,
@@ -678,6 +693,7 @@ def constants_dict() -> dict[str, object]:
         "GATED_PERSONAS": GATED_PERSONAS,
         "GHOST_RATE_SLOPE": GHOST_RATE_SLOPE,
         "LANDING_LABELS": tuple(sorted(LANDING_LABELS)),
+        "LEGACY_COMMIT_CAP": LEGACY_COMMIT_CAP,
         "LEGAL_IP_SCORES": LEGAL_IP_SCORES,
         "LEGAL_IP_VALUES": LEGAL_IP_VALUES,
         "LEVERAGE_WEIGHTS": LEVERAGE_WEIGHTS,

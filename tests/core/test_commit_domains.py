@@ -291,3 +291,54 @@ def test_last_non_bot_commit_measured_absence_value_is_none_not_unmeasured() -> 
     assert isinstance(fact, LastNonBotCommitMeasured)
     assert fact.value is None
     assert fact.method == "measured:no_non_bot_commit_365d"
+
+
+# --------------------------------------------------------------------------- #
+# commit_window (RFC-0021: whole, sampled, and cut commits_365d records)      #
+# --------------------------------------------------------------------------- #
+
+def test_commit_window_bare_list_whole_below_legacy_cap_and_cut_at_it() -> None:
+    from porchlamp.core import constants
+    from porchlamp.core.commit_domains import CommitWindow, commit_window
+
+    assert commit_window(None) is None
+    assert commit_window({"not": "rows"}) is None
+
+    below = [{"sha": f"s{i}"} for i in range(constants.LEGACY_COMMIT_CAP - 1)]
+    assert commit_window(below) == CommitWindow(
+        rows=below, total=constants.LEGACY_COMMIT_CAP - 1, sampled=False, cut=False,
+    )
+
+    at_cap = [{"sha": f"s{i}"} for i in range(constants.LEGACY_COMMIT_CAP)]
+    assert commit_window(at_cap) == CommitWindow(
+        rows=at_cap, total=None, sampled=False, cut=True,
+    )
+
+    above_cap = [{"sha": f"s{i}"} for i in range(constants.LEGACY_COMMIT_CAP + 5)]
+    assert commit_window(above_cap) == CommitWindow(
+        rows=above_cap, total=None, sampled=False, cut=True,
+    )
+
+
+def test_commit_window_dict_whole_sampled_and_cut() -> None:
+    from porchlamp.core.commit_domains import CommitWindow, commit_window
+
+    rows = [{"sha": f"s{i}"} for i in range(10)]
+    # Whole window dict: total is len(rows), even if the pre-paging count was 9.
+    assert commit_window({"rows": rows, "truncated": False, "sampled": False, "total": 9}) == CommitWindow(
+        rows=rows, total=10, sampled=False, cut=False,
+    )
+    # Truncated (and not sampled) -> cut.
+    assert commit_window({"rows": rows, "truncated": True, "total": 10}) == CommitWindow(
+        rows=rows, total=None, sampled=False, cut=True,
+    )
+    # Sampled with valid total >= len(rows) -> sampled=True, cut=False.
+    assert commit_window({"rows": rows, "sampled": True, "total": 12345, "truncated": False}) == CommitWindow(
+        rows=rows, total=12345, sampled=True, cut=False,
+    )
+    # Sampled without a valid integer total >= len(rows) -> cut=True, sampled=False.
+    for bad_total in (None, 9, True, "12345"):
+        assert commit_window({"rows": rows, "sampled": True, "total": bad_total}) == CommitWindow(
+            rows=rows, total=None, sampled=False, cut=True,
+        )
+

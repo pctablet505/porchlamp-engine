@@ -832,15 +832,24 @@ def signoff_share(c365_rows: Optional[Sequence[Mapping[str, Any]]]) -> Optional[
 
     ``c365_rows`` are the recorded ``commits_365d`` envelope rows (read by
     the ``scripts/derive.py`` hook and passed straight through -- no
-    separate fetch); each row's ``signed_off`` boolean comes from
+    separate fetch), or that envelope's window dict; each row's
+    ``signed_off`` boolean comes from
     :func:`porchlamp.collect.commits.shape_commit_rows`.
     Returns ``None`` when no ``commits_365d`` envelope was collected at all
     (as opposed to an envelope with zero rows, which returns a share of
     ``None`` inside a real ``{"count": 0, "total": 0, "share": None}``), and
-    also when ``c365_rows`` is a malformed (bare-mapping) shape.
+    also when ``c365_rows`` is a malformed (bare-mapping) shape, and when it
+    is a record cut at the pre-RFC-0021 newest-1,000 cap
+    (``commit_domains.commit_window``): the newest days of a busier year are
+    not the window's commits. An evenly spaced sample of the window (RFC-0021)
+    is read like the whole window: every sampled page stands for the same
+    share of it.
     """
     rows_seq = _row_sequence(c365_rows)
     if rows_seq is None:
+        return None
+    window = commit_domains.commit_window(c365_rows)
+    if window is not None and window.cut:
         return None
     rows = list(rows_seq)
     non_bot = [row for row in rows if not _is_bot_row(row)]
@@ -1500,7 +1509,9 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
     * ``legal_ip``: ``"missing"`` only when **both** the governance-check
       envelope and the commits_365d envelope are absent -- either one alone
       still lets :func:`classify_legal_ip` derive a real value (checks or
-      the sign-off share).
+      the sign-off share) -- or when its NONE default rests on evidence too
+      thin to conclude it: too few probed head SHAs (D-COL-12), or a
+      commits_365d record cut at the pre-RFC-0021 cap (RFC-0021).
     * ``promotion_ladder``: ``"missing"`` only when **both** the
       pr_window envelope and the governance-file envelope are absent --
       VERIFIED/CLOSED both need ``prs`` from pr_window, DOCUMENTED needs
@@ -1549,6 +1560,13 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
                                    f"{CHECK_EVIDENCE_MIN_SHAS} are needed to conclude no CLA"),
                         "checks_shas_probed": probed,
                         "checks_shas_available": (gov or {}).get("checks_shas_available")}
+            legal_conf = "missing"
+        # RFC-0021: on a commits record cut at the pre-RFC-0021 cap the
+        # window's Signed-off-by share is unknown (signoff_share refuses it),
+        # so the same negative default rests on a share nobody measured.
+        c365_window = commit_domains.commit_window(c365) if c365 is not None else None
+        if legal_ev.get("rule") == "no_evidence" and c365_window is not None and c365_window.cut:
+            legal_ev = {**legal_ev, "reason": commit_domains.COMMIT_WINDOW_CUT_DETAIL}
             legal_conf = "missing"
 
     if prw is None and gov is None:
