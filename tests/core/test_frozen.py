@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "b81c8bc48501e62976493eda447ce11944a2d7d53a3cd4a126f71cb766c7ff05"
+FROZEN_CONSTANTS_HASH = "4a6529ef5ca3c97c443442774440b4947ebc849265132fc16a61e3a60f231a2a"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -246,6 +246,8 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     # spaced pages with GitHub's count of the year; a record at the old newest-1,000 cap is refused.
     ("COMMIT_CAP", constants.COMMIT_CAP, 5000),
     ("LEGACY_COMMIT_CAP", constants.LEGACY_COMMIT_CAP, 1000),
+    # RFC-0022: D-IN-4's reply lists: each PR's reviews and comments whole up to 300 nodes.
+    ("PR_REPLY_NODE_CAP", constants.PR_REPLY_NODE_CAP, 300),
 )
 
 

@@ -29,7 +29,7 @@ import random
 import re
 import statistics
 import subprocess
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -90,6 +90,21 @@ SUBSTANTIVE_REVIEW_BODY_CHARS: int = constants.SUBSTANTIVE_REVIEW_BODY_CHARS
 #: 02 §4.3 (RFC-0018): normalized review/comment text repeated across at least
 #: this many distinct PRs in the window is excluded as canned boilerplate.
 SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS: int = constants.SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS
+#: RFC-0022: the reviews and the comments a PR's first read carries (the
+#: :data:`PR_WINDOW_QUERY` page and the ``PrRepliesBatch`` lookups), oldest
+#: first. They were all the record kept; a longer list is now read on by PR
+#: number (:func:`_fetch_reply_followups`), so these sizes set what one page
+#: carries, not what the record holds.
+PR_REVIEWS_FIRST: int = 10
+PR_COMMENTS_FIRST: int = 20
+#: RFC-0022: GitHub's largest page. A follow-up read asks a cut reply list for
+#: at most this many more nodes, and the timeline holds this many of a PR's
+#: ready-for-review and close events, the newest (it held 5; the point cost of
+#: a page does not change with it).
+PR_REPLY_PAGE_SIZE: int = 100
+#: RFC-0022 (D-IN-4): a PR's reviews and comments are read on until whole or
+#: this many of each (:data:`porchlamp.core.constants.PR_REPLY_NODE_CAP`).
+PR_REPLY_NODE_CAP: int = constants.PR_REPLY_NODE_CAP
 
 #: D-IN-1: exact-match bot logins (case-insensitive), the one list
 #: :data:`porchlamp.core.constants.BOT_LOGINS`. Substring matching is removed
@@ -101,6 +116,14 @@ BOT_LOGINS: frozenset[str] = constants.BOT_LOGINS
 #: definition, :data:`porchlamp.core.gates.EXTERNAL_ASSOCIATIONS`.
 EXTERNAL_ASSOCIATIONS: frozenset[str] = gates.EXTERNAL_ASSOCIATIONS
 
+#: RFC-0022: the fields of one review node and of one comment node, and of a
+#: page of either, the same in every query that reads replies (the window page,
+#: the reply batch and the follow-up reads), so a follow-up node is recorded in
+#: the shape of the first page's. ``pageInfo`` says whether GitHub holds more.
+_REVIEW_NODE_FIELDS: str = "author { __typename login } state body createdAt authorAssociation comments { totalCount }"
+_COMMENT_NODE_FIELDS: str = "author { __typename login } authorAssociation bodyText createdAt"
+_REPLY_PAGE_FIELDS: str = "totalCount pageInfo { hasNextPage endCursor }"
+
 #: The windowed-PR query: PRs in all three states, newest first, with the
 #: typed actors (``__typename``), who merged each PR (``mergedBy``, the
 #: window's mergers set for D-IN-2), reviews, issue-style comments and the
@@ -111,6 +134,10 @@ EXTERNAL_ASSOCIATIONS: frozenset[str] = gates.EXTERNAL_ASSOCIATIONS
 #: closed it) are recorded for landing detection, a PR a project lands outside
 #: GitHub's merge (a "Merged" label, a closing commit); no measure reads them
 #: yet. Envelopes recorded before they were requested lack both keys.
+#: RFC-0022: each reply list records its ``totalCount`` and ``pageInfo`` (a
+#: longer list is read on by number), and the timeline its newest
+#: :data:`PR_REPLY_PAGE_SIZE` ready-for-review and close events. Envelopes
+#: recorded before carry neither; their lists read as whole, as they did.
 PR_WINDOW_QUERY: str = (
     "query PrWindow($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost }"
@@ -121,14 +148,12 @@ PR_WINDOW_QUERY: str = (
     " nodes { number createdAt closedAt mergedAt state isDraft mergedBy { login }"
     " author { __typename login ... on User { createdAt } } authorAssociation"
     " labels(first: 10) { nodes { name } }"
-    " timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 5) {"
+    f" timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: {PR_REPLY_PAGE_SIZE}) {{"
     " nodes { __typename ... on ReadyForReviewEvent { createdAt }"
     " ... on ClosedEvent { createdAt actor { __typename login }"
     " closer { __typename ... on Commit { oid } ... on PullRequest { number } } } } }"
-    " reviews(first: 10) { nodes { author { __typename login } state body createdAt"
-    " authorAssociation comments { totalCount } } }"
-    " comments(first: 20) { nodes { author { __typename login } authorAssociation"
-    " bodyText createdAt } }"
+    f" reviews(first: {PR_REVIEWS_FIRST}) {{ {_REPLY_PAGE_FIELDS} nodes {{ {_REVIEW_NODE_FIELDS} }} }}"
+    f" comments(first: {PR_COMMENTS_FIRST}) {{ {_REPLY_PAGE_FIELDS} nodes {{ {_COMMENT_NODE_FIELDS} }} }}"
     " reviewThreads { totalCount } }"
     " } } }"
 )
@@ -137,7 +162,9 @@ PR_WINDOW_QUERY: str = (
 #: Carries all PR-level and timeline fields (2 pts/page at 100 PRs/page, measured
 #: 2026-10-18 with #60's labels and closer; 1 pt without them), omitting
 #: ``reviews``, ``comments``, and ``reviewThreads`` which are fetched for the
-#: seeded 1,000-PR sample via :func:`_pr_replies_batch_query`.
+#: seeded 1,000-PR sample via :func:`_pr_replies_batch_query`. RFC-0022: its
+#: timeline is :data:`PR_WINDOW_QUERY`'s, the newest :data:`PR_REPLY_PAGE_SIZE`
+#: events (still 2 points a page, measured 2026-10-22).
 PR_WINDOW_LIGHT_QUERY: str = (
     "query PrWindowLight($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost }"
@@ -148,7 +175,7 @@ PR_WINDOW_LIGHT_QUERY: str = (
     " nodes { number createdAt closedAt mergedAt state isDraft mergedBy { login }"
     " author { __typename login ... on User { createdAt } } authorAssociation"
     " labels(first: 10) { nodes { name } }"
-    " timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 5) {"
+    f" timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: {PR_REPLY_PAGE_SIZE}) {{"
     " nodes { __typename ... on ReadyForReviewEvent { createdAt }"
     " ... on ClosedEvent { createdAt actor { __typename login }"
     " closer { __typename ... on Commit { oid } ... on PullRequest { number } } } } } }"
@@ -163,15 +190,17 @@ PR_WINDOW_QUERY_SHA256: str = sha256_hex(PR_WINDOW_QUERY)
 
 
 def _pr_replies_batch_query(n: int) -> str:
-    """Aliased ``pullRequest(number:)`` batch query for ``n`` sampled PRs."""
+    """Aliased ``pullRequest(number:)`` batch query for ``n`` sampled PRs.
+
+    RFC-0022: the reply lists are :data:`PR_WINDOW_QUERY`'s, with their
+    ``totalCount`` and ``pageInfo``, so a sampled PR's longer list is read on
+    by :func:`_fetch_reply_followups` like one from a window page."""
     var_decls = ", ".join(f"$n{i}: Int!" for i in range(n))
     aliases = " ".join(
         f"p{i}: pullRequest(number: $n{i}) {{"
         " number"
-        " reviews(first: 10) { nodes { author { __typename login } state body createdAt"
-        " authorAssociation comments { totalCount } } }"
-        " comments(first: 20) { nodes { author { __typename login } authorAssociation"
-        " bodyText createdAt } }"
+        f" reviews(first: {PR_REVIEWS_FIRST}) {{ {_REPLY_PAGE_FIELDS} nodes {{ {_REVIEW_NODE_FIELDS} }} }}"
+        f" comments(first: {PR_COMMENTS_FIRST}) {{ {_REPLY_PAGE_FIELDS} nodes {{ {_COMMENT_NODE_FIELDS} }} }}"
         " reviewThreads { totalCount } }"
         for i in range(n)
     )
@@ -651,21 +680,20 @@ def ghost_rate_prs_from_window(
     return out
 
 
-def _run_pr_replies_batch_query(
-    owner: str,
-    name: str,
-    numbers: Sequence[int],
+def _run_aliased_pr_query(
     transport: GraphqlTransport,
-) -> tuple[dict[int, dict[str, Any]], list[int], int]:
-    """One ``PrRepliesBatch`` call over ``numbers``: ``(replies by number,
-    unresolved numbers, point cost)``. A heavy-query failure leaves every number
-    unresolved, for :func:`_fetch_pr_replies_batch` to retry narrower; any other
-    transport failure propagates."""
-    variables: dict[str, Any] = {"owner": owner, "name": name}
-    for i, num in enumerate(numbers):
-        variables[f"n{i}"] = int(num)
+    query: str,
+    variables: dict[str, Any],
+    numbers: Sequence[int],
+) -> tuple[dict[int, Mapping[str, Any]], list[int], int]:
+    """One aliased ``pullRequest(number:)`` call, alias ``p<i>`` naming
+    ``numbers[i]``: ``(alias node by number, unresolved numbers, point cost)``.
+    A heavy-query failure leaves every number unresolved, for the caller to
+    retry narrower (:func:`_in_aliased_batches`); any other transport failure
+    propagates. An alias with no node, or named by a GraphQL error, is
+    unresolved; an error naming no alias leaves every number unresolved."""
     try:
-        doc = transport.execute(_pr_replies_batch_query(len(numbers)), variables)
+        doc = transport.execute(query, variables)
     except (RuntimeError, subprocess.TimeoutExpired) as exc:
         if _is_heavy_query_error(str(exc)):
             return {}, list(numbers), 0
@@ -683,7 +711,7 @@ def _run_pr_replies_batch_query(
     repo = data.get("r")
     if not isinstance(repo, Mapping):
         return {}, list(numbers), cost
-    resolved: dict[int, dict[str, Any]] = {}
+    resolved: dict[int, Mapping[str, Any]] = {}
     unresolved: list[int] = []
     for i, num in enumerate(numbers):
         alias = f"p{i}"
@@ -691,30 +719,27 @@ def _run_pr_replies_batch_query(
         if not isinstance(node, Mapping) or alias in errored:
             unresolved.append(int(num))
             continue
-        resolved[int(num)] = {
-            "reviews": node.get("reviews") or {"nodes": []},
-            "comments": node.get("comments") or {"nodes": []},
-            "reviewThreads": node.get("reviewThreads") or {"totalCount": 0},
-        }
+        resolved[int(num)] = node
     return resolved, unresolved, cost
 
 
-def _fetch_pr_replies_batch(
-    owner: str,
-    name: str,
+def _in_aliased_batches(
     numbers: Sequence[int],
-    transport: GraphqlTransport,
-    batch_size: int = PR_REPLIES_BATCH_SIZE,
-) -> tuple[dict[int, dict[str, Any]], int]:
-    """Fetch ``reviews``, ``comments``, and ``reviewThreads`` for sampled PRs
-    in aliased batches of :data:`PR_REPLIES_BATCH_SIZE`, retrying unresolved
-    aliases at :data:`PR_REPLIES_RETRY_WIDTHS`."""
-    out: dict[int, dict[str, Any]] = {}
+    run: Callable[[Sequence[int]], tuple[dict[int, Mapping[str, Any]], list[int], int]],
+    batch_size: int,
+    failure: str,
+) -> tuple[dict[int, Mapping[str, Any]], int]:
+    """Run ``run`` (one aliased call, :func:`_run_aliased_pr_query`) over
+    ``numbers`` in batches of ``batch_size``, retrying the numbers a batch left
+    unresolved at :data:`PR_REPLIES_RETRY_WIDTHS`: ``(node by number, point
+    cost)``. A number no width resolves raises ``RuntimeError(f"{failure}:
+    <numbers>")``, failing the fetch."""
+    out: dict[int, Mapping[str, Any]] = {}
     cost = 0
 
     def _run(pool: Sequence[int]) -> list[int]:
         nonlocal cost
-        resolved, unresolved, c = _run_pr_replies_batch_query(owner, name, pool, transport)
+        resolved, unresolved, c = run(pool)
         out.update(resolved)
         cost += c
         return unresolved
@@ -731,10 +756,179 @@ def _fetch_pr_replies_batch(
                 next_pool.extend(_run(pool[start : start + width]))
             pool = next_pool
         if pool:
-            raise RuntimeError(
-                f"pr replies batch failed for {owner}/{name} PRs: {pool[:10]}"
-            )
+            raise RuntimeError(f"{failure}: {pool[:10]}")
     return out, cost
+
+
+def _run_pr_replies_batch_query(
+    owner: str,
+    name: str,
+    numbers: Sequence[int],
+    transport: GraphqlTransport,
+) -> tuple[dict[int, dict[str, Any]], list[int], int]:
+    """One ``PrRepliesBatch`` call over ``numbers``: ``(replies by number,
+    unresolved numbers, point cost)``. A heavy-query failure leaves every number
+    unresolved, for :func:`_fetch_pr_replies_batch` to retry narrower; any other
+    transport failure propagates."""
+    variables: dict[str, Any] = {"owner": owner, "name": name}
+    for i, num in enumerate(numbers):
+        variables[f"n{i}"] = int(num)
+    nodes, unresolved, cost = _run_aliased_pr_query(
+        transport, _pr_replies_batch_query(len(numbers)), variables, numbers)
+    resolved: dict[int, dict[str, Any]] = {
+        num: {
+            "reviews": node.get("reviews") or {"nodes": []},
+            "comments": node.get("comments") or {"nodes": []},
+            "reviewThreads": node.get("reviewThreads") or {"totalCount": 0},
+        }
+        for num, node in nodes.items()
+    }
+    return resolved, unresolved, cost
+
+
+def _fetch_pr_replies_batch(
+    owner: str,
+    name: str,
+    numbers: Sequence[int],
+    transport: GraphqlTransport,
+    batch_size: int = PR_REPLIES_BATCH_SIZE,
+) -> tuple[dict[int, dict[str, Any]], int]:
+    """Fetch ``reviews``, ``comments``, and ``reviewThreads`` for sampled PRs
+    in aliased batches of :data:`PR_REPLIES_BATCH_SIZE`, retrying unresolved
+    aliases at :data:`PR_REPLIES_RETRY_WIDTHS`."""
+    replies, cost = _in_aliased_batches(
+        numbers, lambda pool: _run_pr_replies_batch_query(owner, name, pool, transport),
+        batch_size, f"pr replies batch failed for {owner}/{name} PRs")
+    return {num: dict(reply) for num, reply in replies.items()}, cost
+
+
+def _reply_followup_parts(pr: Mapping[str, Any]) -> dict[str, tuple[str, int]]:
+    """RFC-0022: the reply lists of one PR node a follow-up read goes on with,
+    as ``{field: (endCursor, first)}``: each of ``reviews`` and ``comments``
+    that is cut (:func:`porchlamp.core.gates.reply_connection_cut`), names the
+    cursor to go on from and holds fewer than :data:`PR_REPLY_NODE_CAP` nodes,
+    read for the rest of its cap at most :data:`PR_REPLY_PAGE_SIZE` at a time."""
+    parts: dict[str, tuple[str, int]] = {}
+    for field in ("reviews", "comments"):
+        connection = pr.get(field)
+        if not gates.reply_connection_cut(connection):
+            continue
+        cursor = connection["pageInfo"].get("endCursor")
+        nodes = connection.get("nodes")
+        have = len(nodes) if isinstance(nodes, list) else 0
+        if isinstance(cursor, str) and cursor and have < PR_REPLY_NODE_CAP:
+            parts[field] = (cursor, min(PR_REPLY_PAGE_SIZE, PR_REPLY_NODE_CAP - have))
+    return parts
+
+
+def _reply_followup_query(
+    numbers: Sequence[int], parts: Sequence[Mapping[str, tuple[str, int]]],
+) -> tuple[str, dict[str, Any]]:
+    """RFC-0022: one aliased ``PrRepliesFollowUp`` query and its variables
+    (``owner`` and ``name`` left to the caller): alias ``p<i>`` reads, on PR
+    ``numbers[i]``, the next page of each reply list ``parts[i]`` names
+    (:func:`_reply_followup_parts`), in the first page's fields."""
+    declarations: list[str] = []
+    aliases: list[str] = []
+    variables: dict[str, Any] = {}
+    for i, (number, lists) in enumerate(zip(numbers, parts)):
+        declarations.append(f"$n{i}: Int!")
+        variables[f"n{i}"] = int(number)
+        reads: list[str] = []
+        for field, key, node_fields in (("reviews", "r", _REVIEW_NODE_FIELDS),
+                                        ("comments", "c", _COMMENT_NODE_FIELDS)):
+            if field not in lists:
+                continue
+            cursor, first = lists[field]
+            declarations += [f"${key}f{i}: Int!", f"${key}a{i}: String!"]
+            variables[f"{key}f{i}"] = int(first)
+            variables[f"{key}a{i}"] = cursor
+            reads.append(f"{field}(first: ${key}f{i}, after: ${key}a{i}) {{"
+                         f" {_REPLY_PAGE_FIELDS} nodes {{ {node_fields} }} }}")
+        aliases.append(f"p{i}: pullRequest(number: $n{i}) {{ number {' '.join(reads)} }}")
+    query = (
+        f"query PrRepliesFollowUp($owner: String!, $name: String!, {', '.join(declarations)}) {{"
+        f" rateLimit {{ cost }} r: repository(owner: $owner, name: $name) {{ {' '.join(aliases)} }} }}"
+    )
+    return query, variables
+
+
+def _merge_reply_followup(pr: dict[str, Any], node: Mapping[str, Any], fields: Iterable[str]) -> set[str]:
+    """RFC-0022: append one follow-up read's page of each of ``fields`` to the
+    PR node's recorded list (in place), oldest first, with that page's
+    ``totalCount`` and ``pageInfo``. Returns the fields whose page cannot move
+    the list on: missing, without ``pageInfo``, or adding no node while saying
+    more remain. Such a list is left as it was, still cut, so its readers know
+    it is not whole, and is not read on again (that read would repeat)."""
+    stalled: set[str] = set()
+    for field in fields:
+        page = node.get(field)
+        recorded = pr.get(field)
+        new_nodes = page.get("nodes") if isinstance(page, Mapping) else None
+        page_info = page.get("pageInfo") if isinstance(page, Mapping) else None
+        if (not isinstance(recorded, Mapping) or not isinstance(new_nodes, list)
+                or not isinstance(page_info, Mapping)
+                or (not new_nodes and page_info.get("hasNextPage") is True)):
+            stalled.add(field)
+            continue
+        merged = dict(recorded)
+        merged["nodes"] = [*(recorded.get("nodes") or []), *new_nodes]
+        merged["pageInfo"] = dict(page_info)
+        if "totalCount" in page:
+            merged["totalCount"] = page["totalCount"]
+        pr[field] = merged
+    return stalled
+
+
+def _fetch_reply_followups(owner: str, name: str, prs: Sequence[dict[str, Any]],
+                           transport: GraphqlTransport,
+                           batch_size: int = PR_REPLIES_BATCH_SIZE) -> int:
+    """RFC-0022: read on, by PR number, every reply list that a PR whose
+    replies the record holds left cut, until it is whole or holds
+    :data:`PR_REPLY_NODE_CAP` nodes; returns the point cost.
+
+    A window page and a ``PrRepliesBatch`` lookup carry a PR's first
+    :data:`PR_REVIEWS_FIRST` reviews and :data:`PR_COMMENTS_FIRST` comments,
+    oldest first, with each list's ``pageInfo``. Each round reads the next page
+    of every list left cut, in aliased batches of ``batch_size`` PRs retried
+    narrower like the reply batches (:func:`_in_aliased_batches`): a PR no width
+    resolves fails the fetch. Rounds stop when no list is left to read on, at
+    most ``ceil(PR_REPLY_NODE_CAP / PR_REPLY_PAGE_SIZE)`` of them. A longer list
+    keeps ``pageInfo.hasNextPage`` true, so its readers know it is cut
+    (:func:`porchlamp.core.gates.replies_cut`). PRs of every author are read on:
+    the 4.1 review proxy counts every merged PR's approvals. Nodes marked
+    ``REPLIES_RECORDED_KEY: False`` (outside a reply sample) are not read, and a
+    node recorded without ``pageInfo`` is never cut.
+    """
+    by_number: dict[int, dict[str, Any]] = {}
+    for pr in prs:
+        number = pr.get("number")
+        if isinstance(number, int) and not isinstance(number, bool) and pr.get(REPLIES_RECORDED_KEY) is not False:
+            by_number[number] = pr
+    stalled: set[tuple[int, str]] = set()
+    cost = 0
+    for _round in range(-(-PR_REPLY_NODE_CAP // PR_REPLY_PAGE_SIZE)):
+        todo: dict[int, dict[str, tuple[str, int]]] = {}
+        for number, pr in by_number.items():
+            lists = {field: part for field, part in _reply_followup_parts(pr).items()
+                     if (number, field) not in stalled}
+            if lists:
+                todo[number] = lists
+        if not todo:
+            break
+
+        def run(pool: Sequence[int], todo: Mapping[int, Mapping[str, tuple[str, int]]] = todo,
+                ) -> tuple[dict[int, Mapping[str, Any]], list[int], int]:
+            query, variables = _reply_followup_query(pool, [todo[number] for number in pool])
+            return _run_aliased_pr_query(transport, query, {"owner": owner, "name": name, **variables}, pool)
+
+        pages, round_cost = _in_aliased_batches(
+            list(todo), run, batch_size, f"pr reply follow-up failed for {owner}/{name} PRs")
+        cost += round_cost
+        for number, node in pages.items():
+            for field in _merge_reply_followup(by_number[number], node, todo[number]):
+                stalled.add((number, field))
+    return cost
 
 
 # --------------------------------------------------------------------------- #
@@ -788,6 +982,13 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
     ledger delta that reaches ``cap`` without meeting a settled PR has read
     exactly the first pages of a fresh fetch, so it continues as one and the
     existing records are not reused.
+
+    RFC-0022: a page and a sample lookup carry each PR's first
+    :data:`PR_REVIEWS_FIRST` reviews and :data:`PR_COMMENTS_FIRST` comments with
+    each list's ``pageInfo``; every list they leave cut, on a PR whose replies
+    the record holds, is then read on by PR number until whole or
+    :data:`PR_REPLY_NODE_CAP` long (:func:`_fetch_reply_followups`), its cost in
+    ``cost_points``. A ledger delta's PRs are read on before the merge.
     """
     window_start = now - timedelta(days=PR_WINDOW_DAYS)
     prs: list[dict] = []
@@ -897,6 +1098,10 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
         if len(prs) > cap:
             cost += _apply_reply_sample(owner, name, prs, sample_cap, transport)
             sampled = True
+
+    # RFC-0022: each reply list a page or a sample lookup left cut is read on by
+    # PR number, so the record holds a PR's replies whole up to the cap.
+    cost += _fetch_reply_followups(owner, name, prs, transport)
 
     if existing_prs is not None:
         merged = ledger.merge_pr_window_delta(
@@ -1035,7 +1240,7 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
         data["sampled"] = True
         data["sample_cap"] = PR_SAMPLE_CAP
         data["sample_seed"] = PR_SAMPLE_SEED
-        data["sample_size"] = len(reply_sampled_prs(result.prs))
+        data["sample_size"] = sum(1 for pr in result.prs if pr.get(REPLIES_RECORDED_KEY) is not False)
     write_envelope(target, source="github-graphql:pr-window", data=data,
                    fetched_at=now.isoformat())
     return "ok"

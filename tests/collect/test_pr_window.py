@@ -22,6 +22,7 @@ from porchlamp.collect import github_graphql as gql
 from porchlamp.collect.envelope import envelope_hash, read_envelope, write_envelope
 from porchlamp.collect import user_cache as gql_user_cache
 from porchlamp.collect.user_cache import UserCache
+from porchlamp.core import gates
 from porchlamp.derive.gate_evidence import pr_rule_inputs_recorded
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -3160,3 +3161,279 @@ def test_derive_cohort_fields_counts_landed_prs_in_mr_first_conversion_and_rr90(
     assert cut_fields["rr90_return_landed_author_count"] == (None, "missing")
 
 
+# --- RFC-0022: each PR's reviews and comments whole up to PR_REPLY_NODE_CAP -----------------
+
+def test_the_window_page_and_the_reply_batch_record_each_reply_lists_total_and_page_info():
+    """The first read of a PR's replies records whether GitHub holds more (``pageInfo``) and how
+    many (``totalCount``); the timeline reads the newest 100 ready-for-review and close events."""
+    reviews = ("reviews(first: 10) { totalCount pageInfo { hasNextPage endCursor } nodes { author {"
+               " __typename login } state body createdAt authorAssociation comments { totalCount } } }")
+    comments = ("comments(first: 20) { totalCount pageInfo { hasNextPage endCursor } nodes { author {"
+                " __typename login } authorAssociation bodyText createdAt } }")
+    batch = gql._pr_replies_batch_query(2)
+    for query in (gql.PR_WINDOW_QUERY, batch):
+        assert reviews in query and comments in query
+    assert batch.count(reviews) == batch.count(comments) == 2
+    timeline = "timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 100) {"
+    for query in (gql.PR_WINDOW_QUERY, gql.PR_WINDOW_LIGHT_QUERY):
+        assert timeline in query
+    assert (gql.PR_REVIEWS_FIRST, gql.PR_COMMENTS_FIRST, gql.PR_REPLY_PAGE_SIZE, gql.PR_REPLY_NODE_CAP) == (
+        10, 20, 100, 300)
+
+
+class ThreadedWindow(ScriptedWindow):
+    """A ``ScriptedWindow`` whose PR nodes hold their whole threads. ``PrWindow`` pages and
+    ``PrRepliesBatch`` lookups carry each PR's first ``PR_REVIEWS_FIRST`` reviews and
+    ``PR_COMMENTS_FIRST`` comments with GitHub's ``totalCount`` and ``pageInfo`` (the cursor is
+    the offset); ``PrRepliesFollowUp`` serves the page each alias asks for. A PR in ``stall``
+    gets an empty page that says more remain; one in ``refuse`` gets a GraphQL error."""
+
+    def __init__(self, nodes: list[dict], *, stall=(), refuse=()) -> None:
+        super().__init__(nodes)
+        self.stall, self.refuse = set(stall), set(refuse)
+
+    @staticmethod
+    def _page(items: list, offset: int, first: int) -> dict:
+        chunk = items[offset:offset + first]
+        end = offset + len(chunk)
+        return {"totalCount": len(items), "pageInfo": {"hasNextPage": end < len(items), "endCursor": str(end)},
+                "nodes": chunk}
+
+    def _first_reads(self, node: dict) -> dict:
+        out = dict(node)
+        for field, first in (("reviews", gql.PR_REVIEWS_FIRST), ("comments", gql.PR_COMMENTS_FIRST)):
+            if field in node:
+                out[field] = self._page(node[field]["nodes"], 0, first)
+        return out
+
+    def execute(self, query: str, variables: dict) -> dict:
+        name = query.split("(", 1)[0].split()[-1]
+        if name != "PrRepliesFollowUp":
+            doc = super().execute(query, variables)
+            repo = doc["data"]["r"]
+            if name == "PrWindow":
+                repo["pullRequests"]["nodes"] = [self._first_reads(n) for n in repo["pullRequests"]["nodes"]]
+            elif name == "PrRepliesBatch":
+                for alias, node in repo.items():
+                    repo[alias] = self._first_reads(node)
+            return doc
+        self.calls.append((name, dict(variables)))
+        repo, errors = {}, []
+        for key, number in variables.items():
+            if not (key.startswith("n") and key[1:].isdigit()):
+                continue
+            i = key[1:]
+            if number in self.refuse:
+                errors.append({"message": "Something went wrong", "path": ["r", f"p{i}"]})
+                continue
+            out = {"number": number}
+            for field, short in (("reviews", "r"), ("comments", "c")):
+                if f"{short}a{i}" not in variables:
+                    continue
+                if number in self.stall:
+                    out[field] = {"totalCount": 99, "nodes": [],
+                                  "pageInfo": {"hasNextPage": True, "endCursor": variables[f"{short}a{i}"]}}
+                else:
+                    out[field] = self._page(self.by_number[number][field]["nodes"],
+                                            int(variables[f"{short}a{i}"]), variables[f"{short}f{i}"])
+            repo[f"p{i}"] = out
+        doc = {"data": {"rateLimit": {"cost": 1}, "r": repo}}
+        if errors:
+            doc["errors"] = errors
+        return doc
+
+    def follow_ups(self) -> list[dict]:
+        """``{number: {field: (after, first)}}`` per ``PrRepliesFollowUp`` call."""
+        out = []
+        for name, call in self.calls:
+            if name != "PrRepliesFollowUp":
+                continue
+            asked: dict = {}
+            for key, number in call.items():
+                if key.startswith("n") and key[1:].isdigit():
+                    i = key[1:]
+                    asked[number] = {field: (call[f"{short}a{i}"], call[f"{short}f{i}"])
+                                     for field, short in (("reviews", "r"), ("comments", "c"))
+                                     if f"{short}a{i}" in call}
+            out.append(asked)
+        return out
+
+
+_T0 = datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+
+def _at(hours: float) -> str:
+    return (_T0 + timedelta(hours=hours)).isoformat()
+
+
+def _bot_reply(minutes: int) -> dict:
+    return comment("ci-bot", typ="Bot", assoc="NONE", body="CI report: every check passed on this commit.",
+                   created=_at(minutes / 60))
+
+
+def _threads() -> list[dict]:
+    """Three outside PRs, newest first. PR 3 is whole. PR 2's twelfth review is the first
+    maintainer's (an approval with a 90-character body), after eleven bot reviews. PR 1's
+    twenty-first comment is a maintainer's reply at hour 5, after twenty bot comments; its
+    one review, a maintainer's, comes at hour 50."""
+    pr1 = pr_node(1, _at(0), closed=_at(96),
+                  comments=[_bot_reply(m) for m in range(1, 21)]
+                  + [comment("maint", body="Thanks! Could you add a test for the empty case?", created=_at(5))]
+                  + [comment("passer", assoc="NONE", body="+1, I need this fix too, any update?", created=_at(6 + k))
+                     for k in range(4)],
+                  reviews=[review("maint", created=_at(50))])
+    pr2 = pr_node(2, _at(1), closed=_at(72), merged=_at(72), merged_by="maint",
+                  reviews=[review("copilot-pull-request-reviewer", typ="Bot", assoc="NONE", body="b" * 300,
+                                  created=_at(1 + k)) for k in range(1, 12)]
+                  + [review("maint", state="APPROVED", body="r" * 90, created=_at(31))])
+    pr3 = pr_node(3, _at(2), comments=[comment("maint", body="m" * 45, created=_at(4))])
+    return [pr3, pr2, pr1]
+
+
+def test_a_cut_reply_list_is_read_on_by_number_until_whole():
+    nodes = _threads()
+    t = ThreadedWindow(nodes)
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    got = {pr["number"]: pr for pr in res.prs}
+    full = {node["number"]: node for node in nodes}
+    assert got[1]["comments"]["nodes"] == full[1]["comments"]["nodes"]
+    assert got[1]["comments"]["pageInfo"] == {"hasNextPage": False, "endCursor": "25"}
+    assert got[1]["comments"]["totalCount"] == 25
+    assert got[2]["reviews"]["nodes"] == full[2]["reviews"]["nodes"]
+    assert got[2]["reviews"]["pageInfo"]["hasNextPage"] is False
+    assert not any(gates.replies_cut(pr) for pr in res.prs)
+    # one follow-up read, naming only the cut lists, from where the first read stopped
+    assert t.follow_ups() == [{1: {"comments": ("20", 100)}, 2: {"reviews": ("10", 100)}}]
+    assert res.cost_points == 2  # the page and the follow-up read
+
+
+def test_the_followed_up_replies_reach_ttfhr_the_review_rate_and_the_review_proxy():
+    """1.1, 4.3 and the 4.1 proxy read the replies the first read cut off: PR 1 was answered at
+    hour 5 (not at the review at hour 50), PR 2's approval is its twelfth review."""
+    from porchlamp.collect import pike_signals
+
+    res = gql.fetch_pr_window("acme", "widget", NOW, ThreadedWindow(_threads()), page_size=25)
+    prs = list(res.prs)
+    rows = {row["number"]: row for row in gql.derive_pr_window(prs)}
+    assert (rows[1]["first_substantive_response_at"], rows[1]["ttfhr_hours"]) == (_at(5), 5.0)
+    assert (rows[2]["ttfhr_hours"], rows[2]["substantive_review"]) == (30.0, True)
+    fields = gql.derive_pr_window_fields({"count": 3, "truncated": False, "cost_points": 2,
+                                          "prs": prs, "derived": gql.derive_pr_window(prs)})
+    assert fields["pr_window_ttfhr_median_hours"] == (5.0, "derived")  # of 5, 30 and 2 hours
+    assert fields["pr_window_substantive_review_rate"] == (0.5, "derived")  # PR 2 of PRs 1 and 2
+    assert pike_signals.code_review_rate(prs) == 1.0
+
+
+def _silent_cut_window() -> list[dict]:
+    """PR 7, opened 40 days before ``NOW`` and closed unmerged, holds sixty bot comments and no
+    reply; PR 8, opened 30 days before, a maintainer answered the next day."""
+    opened = NOW - timedelta(days=40)
+    pr7 = pr_node(7, opened.isoformat(), closed=(opened + timedelta(days=20)).isoformat(),
+                  comments=[comment("ci-bot", typ="Bot", assoc="NONE", body="CI report: every check passed.",
+                                    created=(opened + timedelta(minutes=m)).isoformat()) for m in range(60)])
+    opened8 = NOW - timedelta(days=30)
+    pr8 = pr_node(8, opened8.isoformat(),
+                  comments=[comment("maint", body="m" * 45, created=(opened8 + timedelta(days=1)).isoformat())])
+    return [pr8, pr7]
+
+
+def test_a_reply_list_longer_than_the_cap_stays_cut_and_its_silent_pr_reads_as_no_ones(monkeypatch):
+    """The list is read on in rounds until it holds the cap, then keeps ``hasNextPage``; a PR
+    whose recorded part holds no reply is then left out of D-GATE-5 and GR_14 (both record
+    builders), closed-unread and the per-PR reply rows, never counted as unanswered."""
+    from porchlamp.derive import gate_evidence
+
+    monkeypatch.setattr(gql, "PR_REPLY_NODE_CAP", 30)
+    monkeypatch.setattr(gql, "PR_REPLY_PAGE_SIZE", 5)
+    t = ThreadedWindow(_silent_cut_window())
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    prs = list(res.prs)
+    pr7 = next(pr for pr in prs if pr["number"] == 7)
+    assert len(pr7["comments"]["nodes"]) == 30
+    assert (pr7["comments"]["pageInfo"]["hasNextPage"], pr7["comments"]["totalCount"]) == (True, 60)
+    assert t.follow_ups() == [{7: {"comments": ("20", 5)}}, {7: {"comments": ("25", 5)}}]
+    assert [pr["number"] for pr in gates.reply_sampled_prs(prs)] == [8]
+    assert gates.zero_response_counts(gql.ghost_rate_prs_from_window(prs), NOW) == (0, 1)
+    assert [r.number for r in gate_evidence._ghost_rate_prs_from_nodes(prs)] == [8]
+    assert gql.closed_unread_counts(prs) == (0, 1)
+    row7 = next(row for row in gql.derive_pr_window(prs) if row["number"] == 7)
+    assert (row7["first_substantive_response_at"], row7["substantive_review"]) == (None, None)
+
+
+def test_derive_leaves_a_silent_cut_pr_out_of_the_ghost_rate(tmp_path, monkeypatch):
+    """The derive hook's 1.4 GR_14 (the input D-GATE-5 reads) over an envelope the collector
+    wrote: the silent cut PR 7 is not in the population; PR 8 was answered."""
+    monkeypatch.setattr(gql, "PR_REPLY_NODE_CAP", 30)
+    raw = tmp_path / "raw"
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW,
+                                 transport=ThreadedWindow(_silent_cut_window())) == "ok"
+    meta = derive.derive_repo("acme", "widget", derive.Ecosystem.PYPI, tmp_path, fetch=False, now=NOW)["meta"]
+    assert (meta["gr14_population_n"], meta["gr14_ghost_rate"]) == (1, 0.0)
+    assert (meta["pr_window_outside_pr_count"], meta["pr_window_closed_unread_count"]) == (1, 0)
+
+
+def test_a_follow_up_page_that_cannot_move_a_list_on_is_not_read_again():
+    t = ThreadedWindow(_threads(), stall={1})
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    pr1 = next(pr for pr in res.prs if pr["number"] == 1)
+    assert len(pr1["comments"]["nodes"]) == 20
+    assert pr1["comments"]["pageInfo"] == {"hasNextPage": True, "endCursor": "20"}
+    assert t.follow_ups() == [{1: {"comments": ("20", 100)}, 2: {"reviews": ("10", 100)}}]
+
+
+def test_a_follow_up_no_width_resolves_fails_the_fetch():
+    t = ThreadedWindow(_threads(), refuse={1})
+    with pytest.raises(RuntimeError, match=r"pr reply follow-up failed for acme/widget PRs: \[1\]"):
+        gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    # the batch, then PR 1 alone at each narrower width
+    assert [sorted(call) for call in t.follow_ups()] == [[1, 2], [1], [1]]
+
+
+def test_a_record_from_the_query_before_page_info_is_never_read_on():
+    """Nodes without ``pageInfo`` (the shape every envelope before RFC-0022 records) are read
+    as whole: no follow-up read, and every one stays in the reply set."""
+    t = ScriptedWindow([pr_node(2, _at(1), comments=[_bot_reply(m) for m in range(20)]),
+                        pr_node(1, _at(0), reviews=[review(created=_at(1))])])
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    assert [name for name, _ in t.calls] == ["PrWindow"]
+    assert [pr["number"] for pr in gql.reply_sampled_prs(res.prs)] == [2, 1]
+
+
+def test_follow_ups_read_only_the_sampled_prs_of_a_sampled_window():
+    """Above the cap the replies of the sample alone are recorded, so the sample alone is read on."""
+    nodes = _window_nodes(130)
+    for node in nodes:
+        node["comments"] = {"nodes": [_bot_reply(m) for m in range(25)]}
+    t = ThreadedWindow(nodes)
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=30, cap=50, sample_cap=20)
+    sample = gql.reply_sample_numbers("acme", "widget", [n["number"] for n in nodes], 20)
+    asked = {number for call in t.follow_ups() for number in call}
+    assert asked == sample
+    for pr in res.prs:
+        if pr["number"] in sample:
+            assert len(pr["comments"]["nodes"]) == 25 and not gates.replies_cut(pr)
+        else:
+            assert "comments" not in pr
+    assert gql._fetch_reply_followups(
+        "acme", "widget",
+        [{**nodes[0], gql.REPLIES_RECORDED_KEY: False,
+          "comments": ThreadedWindow._page([_bot_reply(m) for m in range(25)], 0, 20)}],
+        t,
+    ) == 0
+
+
+def test_the_sample_size_counts_the_drawn_sample_whatever_its_cut_prs(tmp_path, monkeypatch):
+    """``sample_size`` is the size of the drawn sample: a sampled PR whose replies stay cut is
+    still in it, though no reply measure reads it."""
+    monkeypatch.setattr(gql, "PR_REPLY_NODE_CAP", 20)
+    nodes = _window_nodes(2010, step_minutes=5)
+    cut = [_bot_reply(m) for m in range(21)]
+    for node in nodes:
+        node["comments"] = {"nodes": cut}
+    raw = tmp_path / "raw"
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW, transport=ThreadedWindow(nodes)) == "ok"
+    data = read_envelope(raw / "pr_window" / "acme__widget.json").data
+    assert (data["sampled"], data["sample_size"]) == (True, gql.PR_SAMPLE_CAP)
+    silent = [pr for pr in data["prs"] if pr.get(gql.REPLIES_RECORDED_KEY) is not False and not pr["reviews"]["nodes"]]
+    assert all(gates.replies_cut(pr) for pr in silent) and silent
+    assert len(gql.reply_sampled_prs(data["prs"])) == gql.PR_SAMPLE_CAP - len(silent)

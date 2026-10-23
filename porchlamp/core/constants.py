@@ -59,6 +59,15 @@ COMMIT_CAP: int = 5000
 #: newest days of a busier year, so no windowed commit measure reads it.
 LEGACY_COMMIT_CAP: int = 1000
 
+#: D-IN-4 (RFC-0022): each PR whose replies a ``pr_window`` record holds has its
+#: reviews and its comments recorded whole up to this many of each, oldest first.
+#: The window page reads the first 10 reviews and 20 comments of each PR (all it
+#: kept before), and the collector reads a longer list on by PR number until it
+#: is whole or holds this many; a list still longer stays marked cut
+#: (``pageInfo.hasNextPage``), and no reply measure reads a PR whose recorded part
+#: holds no D-IN-2 response as unanswered (``porchlamp.core.gates.reply_sampled_prs``).
+PR_REPLY_NODE_CAP: int = 300
+
 #: D-MISS-1 reason for a Measured ECDF-kind input whose (ecosystem, param)
 #: has no frozen population at all (``porchlamp.core.engine``, added 2026-09-12).
 REASON_NO_POPULATION: str = "no_population"
@@ -721,6 +730,7 @@ def constants_dict() -> dict[str, object]:
         "PROMOTION_MIN_OUTSIDE_DAYS": PROMOTION_MIN_OUTSIDE_DAYS,
         "PROXY_METHOD_PREFIX": PROXY_METHOD_PREFIX,
         "PR_CAP": PR_CAP,
+        "PR_REPLY_NODE_CAP": PR_REPLY_NODE_CAP,
         "PR_SAMPLE_CAP": PR_SAMPLE_CAP,
         "PR_SAMPLE_SEED": PR_SAMPLE_SEED,
         "PR_WINDOW_DAYS": PR_WINDOW_DAYS,

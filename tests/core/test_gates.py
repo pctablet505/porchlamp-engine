@@ -1513,3 +1513,79 @@ def test_is_outside_pr_is_external_association_and_non_bot_author(node: Any, out
     from porchlamp.core import gates
 
     assert gates.is_outside_pr(node) is outside
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0022: reply lists that stop short of the PR's thread                     #
+# --------------------------------------------------------------------------- #
+
+def _reply_list(nodes: list[dict[str, Any]], *, more: bool | None) -> dict[str, Any]:
+    """A recorded ``reviews``/``comments`` connection; ``more=None`` records no
+    ``pageInfo`` (the query before RFC-0022)."""
+    connection: dict[str, Any] = {"nodes": nodes}
+    if more is not None:
+        connection["pageInfo"] = {"hasNextPage": more, "endCursor": "c1"}
+        connection["totalCount"] = len(nodes) + (5 if more else 0)
+    return connection
+
+
+def _member_comment(login: str = "maint", association: str = "MEMBER") -> dict[str, Any]:
+    return {"author": {"__typename": "User", "login": login}, "authorAssociation": association,
+            "bodyText": "Thanks, this looks right; one question about the cache below.",
+            "createdAt": _iso(_ago(40))}
+
+
+def _bot_comment() -> dict[str, Any]:
+    return {"author": {"__typename": "Bot", "login": "ci-bot"}, "authorAssociation": "NONE",
+            "bodyText": "CI report: all 412 checks passed on this commit, coverage unchanged.",
+            "createdAt": _iso(_ago(41))}
+
+
+def _outside_pr(number: int, comments: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    return {"number": number, "createdAt": _iso(_ago(42)), "authorAssociation": "NONE",
+            "author": {"__typename": "User", "login": f"author{number}"},
+            "reviews": _reply_list([], more=False), "comments": comments, **fields}
+
+
+def test_a_reply_list_is_cut_only_when_its_page_info_says_more_remain() -> None:
+    from porchlamp.core import gates
+
+    assert gates.reply_connection_cut(_reply_list([], more=True)) is True
+    assert gates.reply_connection_cut(_reply_list([], more=False)) is False
+    # recorded before RFC-0022: no pageInfo, read as whole as every reader read it
+    assert gates.reply_connection_cut(_reply_list([], more=None)) is False
+    for odd in (None, [], {"pageInfo": None}, {"pageInfo": {"hasNextPage": "true"}}, {"pageInfo": {}}):
+        assert gates.reply_connection_cut(odd) is False, odd
+    whole = _outside_pr(1, _reply_list([], more=False))
+    assert gates.replies_cut(whole) is False
+    assert gates.replies_cut({**whole, "reviews": _reply_list([], more=True)}) is True
+    assert gates.replies_cut({**whole, "comments": _reply_list([], more=True)}) is True
+
+
+def test_a_cut_pr_without_a_recorded_response_leaves_the_reply_set() -> None:
+    """Twenty bot comments recorded, more on GitHub, no maintainer reply among them:
+    no reply measure may read the PR as unanswered. A cut PR whose recorded part
+    holds a maintainer's reply stays, and so do whole and legacy nodes."""
+    from porchlamp.core import gates
+
+    silent_cut = _outside_pr(1, _reply_list([_bot_comment()] * 20, more=True))
+    answered_cut = _outside_pr(2, _reply_list([_bot_comment()] * 19 + [_member_comment()], more=True))
+    silent_whole = _outside_pr(3, _reply_list([_bot_comment()] * 3, more=False))
+    silent_legacy = _outside_pr(4, _reply_list([_bot_comment()] * 20, more=None))
+    unsampled = {**_outside_pr(5, _reply_list([], more=False)), gates.REPLIES_RECORDED_KEY: False}
+    prs = [silent_cut, answered_cut, silent_whole, silent_legacy, unsampled]
+    assert [pr["number"] for pr in gates.reply_sampled_prs(prs)] == [2, 3, 4]
+    assert [pr["number"] for pr in gates.reply_sampled_prs(iter(prs))] == [2, 3, 4]
+
+
+def test_a_cut_prs_reply_counts_by_the_windows_d_in_2_maintainers() -> None:
+    """The reply on the cut PR is by a CONTRIBUTOR who merged another PR in the
+    window: D-IN-2 counts it (``maintainer_logins`` over every node, sampled or
+    not), so the PR stays; without that merge it is no response and the PR leaves."""
+    from porchlamp.core import gates
+
+    cut = _outside_pr(1, _reply_list([_member_comment("committer", "CONTRIBUTOR")], more=True))
+    merged_elsewhere = {**_outside_pr(9, _reply_list([], more=False)), "mergedAt": _iso(_ago(30)),
+                        "mergedBy": {"login": "committer"}, gates.REPLIES_RECORDED_KEY: False}
+    assert [pr["number"] for pr in gates.reply_sampled_prs([cut, merged_elsewhere])] == [1]
+    assert gates.reply_sampled_prs([cut]) == []

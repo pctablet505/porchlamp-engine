@@ -668,6 +668,28 @@ def pr_window_coverage(
 REPLIES_RECORDED_KEY = "replies_recorded"
 
 
+def reply_connection_cut(connection: object) -> bool:
+    """RFC-0022: whether a recorded ``reviews`` or ``comments`` connection of a
+    PR node stops short of the PR's thread: its recorded ``pageInfo`` says
+    GitHub holds another page (``hasNextPage`` true).
+
+    The collector reads a cut connection on by PR number until it is whole or
+    holds :data:`~porchlamp.core.constants.PR_REPLY_NODE_CAP` nodes, so only a
+    longer thread stays cut. A connection recorded without ``pageInfo`` (by the
+    query before RFC-0022, which kept the first 10 reviews and 20 comments of
+    each PR and did not record whether more existed) is read as whole, as every
+    reader read it then.
+    """
+    page_info = connection.get("pageInfo") if isinstance(connection, Mapping) else None
+    return isinstance(page_info, Mapping) and page_info.get("hasNextPage") is True
+
+
+def replies_cut(pr: Mapping[str, Any]) -> bool:
+    """RFC-0022: whether a PR node's recorded reviews or comments stop short of
+    its thread (:func:`reply_connection_cut` on either connection)."""
+    return reply_connection_cut(pr.get("reviews")) or reply_connection_cut(pr.get("comments"))
+
+
 def reply_sampled_prs(prs: Iterable[object]) -> list[Mapping[str, Any]]:
     """#51: the PR nodes whose replies a ``pr_window`` record holds, in order.
 
@@ -677,8 +699,23 @@ def reply_sampled_prs(prs: Iterable[object]) -> list[Mapping[str, Any]]:
     and D-GATE-5, 4.3 and the 4.1 review proxy, the D-GATE-6 hand-off notices,
     ``closed_unread``) read these nodes only; the sample has equal inclusion
     probabilities, so they need no weights. PR-level measures read every node.
+
+    RFC-0022: nor a node whose recorded replies stop short of its thread
+    (:func:`replies_cut`) and hold no D-IN-2 response
+    (:func:`first_substantive_response` over the :func:`maintainer_logins` of
+    every node in ``prs``): the record cannot show whether the project answered
+    that PR, so no reply measure reads it as unanswered, or as unreviewed. A cut
+    node whose recorded part holds a response stays, since that response is
+    real. Nodes recorded before RFC-0022 carry no ``pageInfo`` and are never cut.
     """
-    return [pr for pr in prs if isinstance(pr, Mapping) and pr.get(REPLIES_RECORDED_KEY) is not False]
+    nodes = [pr for pr in prs if isinstance(pr, Mapping)]
+    recorded = [pr for pr in nodes if pr.get(REPLIES_RECORDED_KEY) is not False]
+    cut = [pr for pr in recorded if replies_cut(pr)]
+    if not cut:
+        return recorded
+    maintainers = maintainer_logins(nodes)
+    unsettled = {id(pr) for pr in cut if first_substantive_response(pr, maintainers) is None}
+    return [pr for pr in recorded if id(pr) not in unsettled]
 
 
 def record_cut_short(data: Mapping[str, Any] | None, required_days: int) -> bool:
