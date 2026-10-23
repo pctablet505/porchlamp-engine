@@ -239,7 +239,10 @@ def _curve_description(input_id: str) -> str:
     if input_id in ("newcomer_conversion", "rr90_return_rate"):
         return f"min(100, {constants.COHORT_RATE_SLOPE:g} * r)"
     if input_id == "dx":
-        return "identity, clamped to [0, 100] (0.5 CI runtime score + 0.5 setup-signal score)"
+        return (
+            "identity, clamped to [0, 100] (0.5 CI runtime score + 0.5 setup-signal score, "
+            "or setup-signal score proxy when CI runtime has fewer than min_n commits)"
+        )
     raise ValueError(f"methodology.py: no curve description registered for input id {input_id!r}")
 
 

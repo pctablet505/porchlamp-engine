@@ -100,6 +100,7 @@ def test_pipeline_defenses_and_openssf_carry_their_proxy_minimums() -> None:
         by_id["openssf_criticality"]["proxy"]["proxy_min_signals"]
         == constants.OPENSSF_PROXY_MIN_SIGNALS
     )
+    assert by_id["dx"]["proxy"]["proxy_min_n"] == constants.DX_PROXY_MIN_N
     # a parameter with neither proxy mechanism carries no "proxy" key at all
     assert "proxy" not in by_id["ttfhr_hours"]
 

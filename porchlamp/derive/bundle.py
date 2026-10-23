@@ -1722,9 +1722,13 @@ def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     if _pr_window_cut_short(data):
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
     prs = data.get("prs")
+    nodes = [pr for pr in prs if isinstance(pr, Mapping)] if isinstance(prs, list) else []
+    maintainers = gates.maintainer_logins(nodes)
     decided_outside = [
-        pr for pr in _reply_sampled_prs(prs if isinstance(prs, list) else [])
-        if _is_outside_pr(pr) and pr.get("closedAt") is not None
+        pr for pr in _reply_sampled_prs(nodes)
+        if _is_outside_pr(pr)
+        and pr.get("closedAt") is not None
+        and not gates.is_excluded_from_review_denominator(pr, maintainers)
     ]
     n = len(decided_outside)
     min_n = constants.PARAM_MIN_N["substantive_review_rate"]
@@ -2205,14 +2209,28 @@ def _unmapped(detail: str) -> InputResolver:
 
 
 def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """5.4 DX (0.5 CI runtime + 0.5 setup signals, on 0-100, min n = 5 pull-request commits)."""
+    """5.4 DX (0.5 CI runtime + 0.5 setup signals on 0-100, min n = 5 PR commits;
+    or setup-signals proxy ``proxy:setup_signals_only`` when < 5 PR commits, RFC-0020)."""
     confidence_value = ctx.confidence.get("dx")
     if confidence_value in ("derived", "verified"):
         value = ctx.meta.get("dx")
         count = ctx.meta.get("dx_run_count")
         count_ok = isinstance(count, int) and not isinstance(count, bool) and count >= 0
         min_n = constants.PARAM_MIN_N.get("dx")
-        if count_ok and min_n is not None and count < min_n:
+        raw_method = ctx.meta.get("dx_method")
+        is_proxy = (
+            raw_method == constants.METHOD_PROXY_DX_SETUP_SIGNALS
+            and count_ok
+            and min_n is not None
+            and count < min_n
+        )
+        method = (
+            constants.METHOD_PROXY_DX_SETUP_SIGNALS
+            if is_proxy
+            else constants.METHOD_PRIMARY
+        )
+        req_min_n = constants.DX_PROXY_MIN_N if is_proxy else min_n
+        if count_ok and req_min_n is not None and count < req_min_n:
             return Unmeasured(
                 reason="insufficient_n",
                 detail=f"{count} pull-request commits with a finished CI run, need >= {min_n}",
@@ -2233,7 +2251,7 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
                 relative = _relative_source(path, ctx.raw_root)
                 ctx.referenced[relative] = source_hash
                 return Measured(
-                    value=float(value), n=count, window_start=None, window_end=None, method="primary",
+                    value=float(value), n=count, window_start=None, window_end=None, method=method,
                     source=relative, source_hash=source_hash, fetched_at=fetched_at,
                 )
             detail = (f"v1 source is not an envelope: {source!r}" if path is None
@@ -2294,7 +2312,7 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
 #: | newcomer_issue_supply | meta.active_unclaimed_gfis | collector_failure |
 #: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted; a first PR landed outside GitHub's merge converts, RFC-0015: .newcomer_conversion_landed_author_count) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n, detail names the landed count |
 #: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted; a first PR landed outside GitHub's merge starts the clock, RFC-0015: .rr90_return_landed_author_count) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n, detail names the landed count |
-#: | dx | meta.dx + .dx_run_count (0.5 CI runtime + 0.5 setup signals) | no actions_runs envelope -> collector_failure; n<5 -> insufficient_n |
+#: | dx | meta.dx + .dx_run_count (0.5 CI runtime + 0.5 setup signals; proxy:setup_signals_only when n<5 and setup signals present) | no actions_runs envelope and no setup signals -> collector_failure; n<5 with no setup signals -> insufficient_n |
 INPUT_MAPPINGS: dict[str, InputResolver] = {
     "ttfhr_hours": _resolve_ttfhr_hours,
     "dr90_decision_rate": _resolve_dr90_decision_rate,

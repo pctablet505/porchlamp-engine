@@ -53,6 +53,7 @@ from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relativ
 from porchlamp.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
 from porchlamp.constants import BOT_LOGIN_MARKERS
 from porchlamp.core import constants as core_constants
+v2_constants = core_constants
 from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
@@ -396,14 +397,18 @@ def _derive_dx_54(
     readme_body: Optional[str],
     gov: Optional[dict] = None,
 ) -> tuple[Optional[float], int]:
-    """02 §4 5.4 DX: 0.5 * runtime_score + 0.5 * setup_signals_score.
+    """02 §4 5.4 DX (RFC-0020): ``0.5 * runtime_score + 0.5 * setup_signals_score``
+    when >= ``PARAM_MIN_N["dx"]`` pull-request commits have a finished CI run, or
+    ``setup_signals_score`` alone (``proxy:setup_signals_only``) when fewer than
+    ``PARAM_MIN_N["dx"]`` commits have a finished CI run and at least one
+    setup-signal source (``tree``, ``CONTRIBUTING.md``, ``README.md``, or
+    ``governance``) was collected.
 
     Runtime score: the median CI wait over the newest 30 pull-request commits
     with a usable wait (``porchlamp.collect.ci_runs.commit_waits`` over the
     ``actions_runs`` envelope: a commit's wait is its slowest workflow run):
     100 if <= 20 min, -5/min after, floor 0; ``None`` (unmeasured) if ``runs``
-    is None or no commit has a usable wait. The count returned is the number
-    of commits the median is taken over.
+    is None or neither sufficient CI runs nor setup-signal sources are present.
     Setup signals (0/1/2/3 -> 0/40/70/100):
       1. devcontainer or Dockerfile or flake.nix in tree paths,
       2. CONTRIBUTING.md with a setup/development section,
@@ -412,13 +417,13 @@ def _derive_dx_54(
     if runs is None:
         return None, 0
     waits = _dx_commit_waits(runs)
-    if not waits:
-        return None, 0
-    median_minutes = statistics.median(waits) / 60.0
-    if median_minutes <= 20.0:
-        runtime_score = 100.0
-    else:
-        runtime_score = max(0.0, 100.0 - 5.0 * (median_minutes - 20.0))
+    n = len(waits)
+    has_setup_evidence = (
+        (isinstance(tree, dict) and "paths" in tree)
+        or bool(contrib_body)
+        or bool(readme_body)
+        or isinstance(gov, dict)
+    )
 
     tree_paths = (tree or {}).get("paths") or [] if isinstance(tree, dict) else []
     sig_env = _has_dx_env_file(tree_paths)
@@ -435,7 +440,18 @@ def _derive_dx_54(
 
     signal_count = int(sig_env) + int(sig_contrib) + int(sig_readme)
     setup_score = _DX_SETUP_SCORE_MAP[signal_count]
-    return round(0.5 * runtime_score + 0.5 * setup_score, 4), len(waits)
+
+    min_n = v2_constants.PARAM_MIN_N["dx"] or 5
+    if n >= min_n:
+        median_minutes = statistics.median(waits) / 60.0
+        if median_minutes <= 20.0:
+            runtime_score = 100.0
+        else:
+            runtime_score = max(0.0, 100.0 - 5.0 * (median_minutes - 20.0))
+        return round(0.5 * runtime_score + 0.5 * setup_score, 4), n
+    if has_setup_evidence:
+        return round(setup_score, 4), n
+    return None, n
 
 
 def _jsonable(v: Any) -> Any:
@@ -873,13 +889,21 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     )
     b.set("hard_ai_ban", is_proscribed, "derived from ai_posture", None, "derived")
 
-    # --- 5.4 DX (02 §4 5.4): 0.5 CI runtime + 0.5 setup signals ---
+    # --- 5.4 DX (02 §4 5.4, RFC-0020): 0.5 CI runtime + 0.5 setup signals,
+    # or setup-signals proxy when < PARAM_MIN_N["dx"] CI runs ---
     dx_val, dx_n = _derive_dx_54(runs, tree, contrib_body, readme_body, gov)
+    dx_min_n = v2_constants.PARAM_MIN_N["dx"] or 5
     if runs is not None and dx_val is not None:
+        dx_method = (
+            v2_constants.METHOD_PRIMARY
+            if dx_n >= dx_min_n
+            else v2_constants.METHOD_PROXY_DX_SETUP_SIGNALS
+        )
         b.set("dx", dx_val, src("actions_runs", key), runs_at, "derived")
         b.set("dx_run_count", dx_n, src("actions_runs", key), runs_at, "derived")
+        b.set("dx_method", dx_method, src("actions_runs", key), runs_at, "derived")
     elif runs is not None:
-        b.set("dx_run_count", 0, src("actions_runs", key), runs_at, "derived")
+        b.set("dx_run_count", dx_n, src("actions_runs", key), runs_at, "derived")
         b.missing("dx", None)
     else:
         b.missing("dx_run_count", 0)

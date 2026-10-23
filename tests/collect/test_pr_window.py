@@ -317,6 +317,120 @@ def test_substantive_review_thresholds_exact():
     assert [d["substantive_review"] for d in out] == [False, True, True, False, True, False]
 
 
+def test_substantive_review_counts_maintainer_issue_comments_and_cjk_weight():
+    """RFC-0018: D-IN-2 maintainer issue comments of >= 80 effective chars
+    (including CJK weight 3) count as substantive review, while non-maintainer,
+    bot, self, or < 80-effective-char comments do not."""
+    created = "2026-08-01T00:00:00Z"
+    prs = [
+        # 1. MEMBER issue comment with 80 chars -> True
+        pr_node(101, created, comments=[comment("maint1", assoc="MEMBER", body="m" * 80)]),
+        # 2.MEMBER issue comment with 79 chars -> False
+        pr_node(102, created, comments=[comment("maint2", assoc="MEMBER", body="n" * 79)]),
+        # 3. Merger (in maintainers via mergedBy on PR 101) with CONTRIBUTOR association and 85 chars -> True
+        {**pr_node(103, created, comments=[comment("merger_bob", assoc="CONTRIBUTOR", body="b" * 85)]),
+         "mergedBy": {"login": "merger_bob"}},
+        # 4. External bystander (NONE, not in maintainers) with 120 chars -> False
+        pr_node(104, created, comments=[comment("stranger", assoc="NONE", body="s" * 120)]),
+        # 5. Author self-comment even with MEMBER association -> False
+        pr_node(105, created, author_login="alice",
+                comments=[comment("alice", assoc="MEMBER", body="a" * 120)]),
+        # 6. Bot comment with MEMBER association -> False
+        pr_node(106, created, comments=[comment("codecov", typ="Bot", assoc="MEMBER", body="c" * 120)]),
+        # 7. CJK maintainer comment: 27 CJK chars = 81 effective chars >= 80 -> True
+        pr_node(107, created, comments=[comment("maint3", assoc="OWNER", body="請" * 27)]),
+        # 8. CJK maintainer comment: 26 CJK chars = 78 effective chars < 80 -> False
+        pr_node(108, created, comments=[comment("maint3", assoc="OWNER", body="請" * 26)]),
+        # 9. CJK review body: 27 CJK chars = 81 effective chars >= 80 -> True
+        pr_node(109, created, reviews=[review("rev1", assoc="MEMBER", body="審" * 27, inline=0)]),
+        # 10. CJK review body: 26 CJK chars = 78 effective chars < 80 -> False
+        pr_node(110, created, reviews=[review("rev1", assoc="MEMBER", body="審" * 26, inline=0)]),
+    ]
+    out = gql.derive_pr_window(prs)
+    assert [d["substantive_review"] for d in out] == [
+        True, False, True, False, False, False, True, False, True, False
+    ]
+
+
+def test_substantive_review_boilerplate_guard_excludes_repeated_templates():
+    """RFC-0018: normalized review bodies or maintainer comments appearing on
+    >= 3 distinct PRs (ignoring URLs, @mentions, #numbers, and digits) are
+    excluded as canned boilerplate, while unique feedback or inline comments
+    still count."""
+    created = "2026-08-01T00:00:00Z"
+    canned = (
+        "Thank you for your contribution to our project @user{i}! "
+        "Before we can review PR #{num}, please run the test suite and check "
+        "https://example.org/docs/pr-{num} — coverage is currently {pct}%."
+    )
+    prs = [
+        # PRs 201..203 receive only the canned maintainer comment (differing in @user, #num, URL, %) -> all False
+        pr_node(201, created, comments=[comment("maint", assoc="MEMBER", body=canned.format(i=1, num=201, pct=81))]),
+        pr_node(202, created, comments=[comment("maint", assoc="MEMBER", body=canned.format(i=2, num=202, pct=82))]),
+        pr_node(203, created, reviews=[review("maint", assoc="MEMBER", body=canned.format(i=3, num=203, pct=83), inline=0)]),
+        # PR 204 receives the canned comment PLUS a unique 85-char maintainer review comment -> True
+        pr_node(204, created, comments=[
+            comment("maint", assoc="MEMBER", body=canned.format(i=4, num=204, pct=84)),
+            comment("maint", assoc="MEMBER", body="The retry loop in transport.py drops the cursor when page_size=10; please preserve after_cursor."),
+        ]),
+        # PR 205 receives the canned review body WITH an inline diff comment (inline=1) -> True
+        pr_node(205, created, reviews=[
+            review("maint", assoc="MEMBER", body=canned.format(i=5, num=205, pct=85), inline=1),
+        ]),
+        # PRs 206..207 share a 2-PR comment (< 3 threshold) -> both True
+        pr_node(206, created, comments=[comment("maint", assoc="MEMBER", body="Two-PR shared architectural note on the memory allocator alignment requirements in core.")]),
+        pr_node(207, created, comments=[comment("maint", assoc="MEMBER", body="Two-PR shared architectural note on the memory allocator alignment requirements in core.")]),
+    ]
+    out = gql.derive_pr_window(prs)
+    assert [d["substantive_review"] for d in out] == [
+        False, False, False, True, True, True, True
+    ]
+
+
+def test_substantive_review_denominator_excludes_never_ready_drafts_and_early_self_closes():
+    """RFC-0018: decided external PRs that are never-ready drafts or unanswered
+    author self-closes within 14d have substantive_review=None and are excluded
+    from the decided_external denominator."""
+    created = "2026-08-01T00:00:00Z"
+    closed_early = "2026-08-03T00:00:00Z"   # 2d after creation (<= 14d)
+    closed_late = "2026-08-25T00:00:00Z"    # 24d after creation (> 14d)
+    resp_early = "2026-08-02T00:00:00Z"     # 1d after creation
+    prs = [
+        # 1. Never-ready draft, closed -> None (excluded from denominator)
+        {**pr_node(301, created, closed=closed_late), "isDraft": True, "timelineItems": {"nodes": []}},
+        # 2. Draft that became ready before closing, unreviewed -> False (in denominator)
+        {**pr_node(302, created, closed=closed_late), "isDraft": True,
+         "timelineItems": {"nodes": [{"__typename": "ReadyForReviewEvent", "createdAt": "2026-08-05T00:00:00Z"}]}},
+        # 3. Unanswered author self-close within 14d -> None (excluded from denominator)
+        {**pr_node(303, created, author_login="alice", closed=closed_early),
+         "timelineItems": {"nodes": [{"__typename": "ClosedEvent", "createdAt": closed_early,
+                                      "actor": {"__typename": "User", "login": "alice"}}]}},
+        # 4. Author self-close after 14d (24d) with no response -> False (stays in denominator)
+        {**pr_node(304, created, author_login="alice", closed=closed_late),
+         "timelineItems": {"nodes": [{"__typename": "ClosedEvent", "createdAt": closed_late,
+                                      "actor": {"__typename": "User", "login": "alice"}}]}},
+        # 5. Author self-close within 14d AFTER a substantive maintainer comment -> True (stays in denominator)
+        {**pr_node(305, created, author_login="alice", closed=closed_early,
+                   comments=[comment("maint", assoc="MEMBER", created=resp_early, body="x" * 90)]),
+         "timelineItems": {"nodes": [{"__typename": "ClosedEvent", "createdAt": closed_early,
+                                      "actor": {"__typename": "User", "login": "alice"}}]}},
+    ]
+    out = gql.derive_pr_window(prs)
+    assert [d["substantive_review"] for d in out] == [None, False, None, False, True]
+    fields = gql.derive_pr_window_fields({
+        "window_anchor": "2026-09-01T00:00:00Z",
+        "window_days": 180,
+        "count": len(prs),
+        "truncated": False,
+        "cost_points": 5,
+        "prs": prs,
+        "derived": out,
+    })
+    # Denominator has 3 PRs (302=False, 304=False, 305=True) -> rate = 1/3 = 0.3333
+    assert fields["pr_window_substantive_review_rate"] == (round(1 / 3, 4), "derived")
+
+
+
 # --- decided / merged / external flags -----------------------------------------
 
 def test_decided_and_merged_flags():

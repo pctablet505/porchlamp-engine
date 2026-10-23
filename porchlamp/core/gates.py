@@ -495,6 +495,112 @@ def first_substantive_response(pr: Mapping[str, Any], maintainers: frozenset[str
     return None if best is None else (best[1], best[2])
 
 
+def _parse_iso_opt(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return _parse_iso(value)
+    except ValueError:
+        return None
+
+
+def is_excluded_from_review_denominator(
+    pr: Mapping[str, Any], maintainers: frozenset[str]
+) -> bool:
+    """RFC-0018 (02 §4.3): whether a decided PR node is excluded from the 4.3
+    ``substantive_review_rate`` denominator as either (a) a draft PR closed
+    without ever becoming ready for review, or (b) an unanswered PR closed by
+    its own author within ``GATE5_RESPONSE_DEADLINE_DAYS`` (14 d) of clock
+    start. Shared by ``porchlamp.collect.github_graphql.derive_pr_window`` and
+    ``porchlamp.derive.bundle._resolve_substantive_review_rate`` so the rate
+    denominator and ``Measured.n`` agree on every record."""
+    author_login = _node_login(pr.get("author"))
+    is_draft = bool(pr.get("isDraft", False))
+    ready_for_review_at: str | None = (
+        pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None
+    )
+    closed_by_author = bool(pr.get("closedByAuthor", False))
+    closed_by_maint_at: str | None = (
+        pr.get("closedByMaintainerAt") if isinstance(pr.get("closedByMaintainerAt"), str) else None
+    )
+    if (
+        closed_by_maint_at is None
+        and pr.get("state") == "CLOSED"
+        and not pr.get("mergedAt")
+        and pr.get("closedByMaintainer") is True
+    ):
+        closed_by_maint_at = pr.get("closedAt") if isinstance(pr.get("closedAt"), str) else None
+
+    timeline_conn = pr.get("timelineItems")
+    timeline_nodes = timeline_conn.get("nodes") if isinstance(timeline_conn, Mapping) else None
+    if isinstance(timeline_nodes, list):
+        latest_ready_dt: datetime | None = None
+        latest_ready_at: str | None = None
+        latest_close_dt: datetime | None = None
+        latest_close_event: Mapping[str, Any] | None = None
+        for ev in timeline_nodes:
+            if not isinstance(ev, Mapping):
+                continue
+            ev_type = ev.get("__typename")
+            ev_ts = ev.get("createdAt")
+            ev_dt = _parse_iso_opt(ev_ts)
+            if ev_type == "ReadyForReviewEvent" and isinstance(ev_ts, str) and ev_dt is not None:
+                if latest_ready_dt is None or ev_dt >= latest_ready_dt:
+                    latest_ready_dt, latest_ready_at = ev_dt, ev_ts
+            elif ev_type == "ClosedEvent" and (
+                latest_close_event is None
+                or (ev_dt is not None and (latest_close_dt is None or ev_dt >= latest_close_dt))
+            ):
+                latest_close_dt, latest_close_event = ev_dt, ev
+        if ready_for_review_at is None and latest_ready_at is not None:
+            ready_for_review_at = latest_ready_at
+        if (
+            latest_close_event is not None
+            and not pr.get("mergedAt")
+            and not closed_by_author
+            and closed_by_maint_at is None
+        ):
+            actor = latest_close_event.get("actor")
+            actor_login = _node_login(actor)
+            if actor_login and actor_login == author_login:
+                closed_by_author = True
+            elif actor_login and not is_bot_actor_node(actor):
+                ev_created = latest_close_event.get("createdAt")
+                closed_by_maint_at = (
+                    ev_created
+                    if isinstance(ev_created, str) and _parse_iso_opt(ev_created) is not None
+                    else (pr.get("closedAt") if isinstance(pr.get("closedAt"), str) else None)
+                )
+
+    ready_dt = _parse_iso_opt(ready_for_review_at)
+    closed_dt = _parse_iso_opt(pr.get("closedAt"))
+    if is_draft and ready_dt is None and closed_dt is not None:
+        return True
+    merged_dt = _parse_iso_opt(pr.get("mergedAt"))
+    if not closed_by_author or merged_dt is not None or closed_dt is None:
+        return False
+    created_dt = _parse_iso_opt(pr.get("createdAt"))
+    clock_start = (
+        max(created_dt, ready_dt)
+        if (created_dt is not None and ready_dt is not None)
+        else (ready_dt or created_dt)
+    )
+    if clock_start is None:
+        return False
+    deadline = timedelta(days=constants.GATE5_RESPONSE_DEADLINE_DAYS)
+    if closed_dt > clock_start + deadline:
+        return False
+    response = first_substantive_response(pr, maintainers)
+    best_dt = _parse_iso_opt(response[0]) if response is not None else None
+    closed_m_dt = _parse_iso_opt(closed_by_maint_at)
+    answered_within_deadline = bool(
+        (best_dt is not None and best_dt <= clock_start + deadline)
+        or (closed_m_dt is not None and clock_start <= closed_m_dt <= clock_start + deadline)
+    )
+    had_prior_response = bool(best_dt is not None and best_dt <= closed_dt)
+    return not answered_within_deadline and not had_prior_response
+
+
 def pr_window_coverage(
     data: Mapping[str, Any], window_start: datetime | None, *, fetched_at: str | None = None,
 ) -> tuple[bool, str | None]:

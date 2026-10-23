@@ -26,6 +26,7 @@ import hashlib
 import heapq
 import json
 import random
+import re
 import statistics
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
@@ -83,8 +84,12 @@ PAGE_SIZE: int = 100
 #: #51: the light continuation's page size, whatever the heavy page size: a
 #: 100-PR light page costs 1 point and stays well inside the time budget.
 PR_LIGHT_PAGE_SIZE: int = 100
-#: 02 §4.3: a review counts as substantive at an 80-char body or 1 inline.
-SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
+#: 02 §4.3 (RFC-0018): a review or D-IN-2 maintainer comment counts as
+#: substantive at an 80-char effective body or 1 inline comment.
+SUBSTANTIVE_REVIEW_BODY_CHARS: int = constants.SUBSTANTIVE_REVIEW_BODY_CHARS
+#: 02 §4.3 (RFC-0018): normalized review/comment text repeated across at least
+#: this many distinct PRs in the window is excluded as canned boilerplate.
+SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS: int = constants.SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS
 
 #: D-IN-1: exact-match bot logins (case-insensitive), the one list
 #: :data:`porchlamp.core.constants.BOT_LOGINS`. Substring matching is removed
@@ -362,6 +367,62 @@ def _association(value: Any) -> str:
 # Per-PR derivation (D-IN-2, 02 §4.3) over recorded GraphQL nodes             #
 # --------------------------------------------------------------------------- #
 
+_REVIEW_BOILERPLATE_STRIP_RE = re.compile(r"https?://\S+|@[\w-]+|#\d+|\d+")
+_REVIEW_WS_RE = re.compile(r"\s+")
+
+
+def _normalize_review_text(text: str) -> str:
+    """Normalize review or comment prose for boilerplate deduplication (RFC-0018).
+
+    Lowercases, strips URLs, ``@mentions``, ``#123`` issue/PR references, and
+    digits, and collapses whitespace so templated greetings or coverage pastes
+    that differ only by PR number, contributor login, or percentage collapse to
+    one key.
+    """
+    cleaned = _REVIEW_BOILERPLATE_STRIP_RE.sub("", (text or "").lower())
+    return _REVIEW_WS_RE.sub(" ", cleaned).strip()
+
+
+def _substantive_review_boilerplate(
+    prs: Sequence[Mapping[str, Any]], maintainers: frozenset[str]
+) -> frozenset[str]:
+    """Normalized texts appearing on >= ``SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS``
+    distinct sampled PRs across non-bot, non-author reviews or D-IN-2 maintainer
+    comments meeting ``SUBSTANTIVE_REVIEW_BODY_CHARS`` (RFC-0018)."""
+    pr_counts: dict[str, int] = {}
+    for pr in prs:
+        author = pr.get("author") or {}
+        author_login = str(author.get("login") or "").lower()
+        seen_on_pr: set[str] = set()
+        for raw in (pr.get("reviews") or {}).get("nodes") or []:
+            rev_author = raw.get("author") or {}
+            rev_login = str(rev_author.get("login") or "").lower()
+            if is_bot_actor(rev_author.get("__typename"), rev_author.get("login")):
+                continue
+            if rev_login == author_login:
+                continue
+            body = str(raw.get("body") or "")
+            if gates.comment_length(body) >= SUBSTANTIVE_REVIEW_BODY_CHARS:
+                norm = _normalize_review_text(body)
+                if norm:
+                    seen_on_pr.add(norm)
+        for comment in (pr.get("comments") or {}).get("nodes") or []:
+            if not gates.is_maintainer_response(comment, author_login, maintainers):
+                continue
+            body_text = str(comment.get("bodyText") or "")
+            if gates.comment_length(body_text) >= SUBSTANTIVE_REVIEW_BODY_CHARS:
+                norm = _normalize_review_text(body_text)
+                if norm:
+                    seen_on_pr.add(norm)
+        for norm in seen_on_pr:
+            pr_counts[norm] = pr_counts.get(norm, 0) + 1
+    return frozenset(
+        norm
+        for norm, count in pr_counts.items()
+        if count >= SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS
+    )
+
+
 def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     """Derive the per-PR responsiveness inputs from recorded PR nodes.
 
@@ -373,9 +434,14 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     (:func:`porchlamp.core.gates.first_substantive_response` over the
     window's :func:`porchlamp.core.gates.maintainer_logins`); ``ttfhr_hours`` is the opening-to-
     response span in hours (None when there is no candidate or the recorded
-    response predates the opening). ``substantive_review`` (02 §4.3) is any
-    review with 1+ inline comments or an 80+ character body, by someone who
-    is neither a bot nor the PR's own author.
+    response predates the opening). ``substantive_review`` (02 §4.3, RFC-0018) is
+    True when the PR received either (a) a non-bot, non-author review with 1+
+    inline comments or a non-boilerplate body of >= 80 effective characters
+    (:func:`porchlamp.core.gates.comment_length`), or (b) a non-boilerplate
+    D-IN-2 maintainer issue comment of >= 80 effective characters; ``None`` when
+    the PR is outside the reply sample or excluded from the decided review
+    denominator as a never-ready draft or unanswered author self-close within
+    ``GATE5_RESPONSE_DEADLINE_DAYS``.
 
     When ``prs`` comes from a >2,000-PR light+sample window, ``maintainers`` is
     computed across all ``prs`` while reply-based fields (``first_substantive_response_at``,
@@ -383,35 +449,15 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     reply sample (:func:`reply_sampled_prs`), and set to ``None`` on unsampled PRs.
     """
     maintainers = gates.maintainer_logins(prs)
-    sampled_ids = {id(p) for p in reply_sampled_prs(prs)}
+    sampled_prs = reply_sampled_prs(prs)
+    sampled_ids = {id(p) for p in sampled_prs}
+    boilerplate = _substantive_review_boilerplate(sampled_prs, maintainers)
+    deadline = timedelta(days=constants.GATE5_RESPONSE_DEADLINE_DAYS)
     out: list[dict] = []
     for pr in prs:
         author = pr.get("author") or {}
         author_login = str(author.get("login") or "").lower()
-        if id(pr) in sampled_ids:
-            response = gates.first_substantive_response(pr, maintainers)
-            best_at, best_kind = response if response is not None else (None, None)
-            best_dt = _parse_iso(best_at)
-            ttfhr: Optional[float] = None
-            if best_dt is not None:
-                created_dt = _parse_iso(pr.get("createdAt"))
-                if created_dt is not None and best_dt >= created_dt:
-                    ttfhr = (best_dt - created_dt).total_seconds() / 3600.0
-            # A review by the PR's own author is not the project reviewing the PR.
-            # Self-review is common (contributors annotate their own diffs), and
-            # counting it credited the repository with scrutiny nobody outside
-            # the change ever applied.
-            substantive_review: Optional[bool] = any(
-                not is_bot_actor((raw.get("author") or {}).get("__typename"),
-                                 (raw.get("author") or {}).get("login"))
-                and str((raw.get("author") or {}).get("login") or "").lower() != author_login
-                and (int((raw.get("comments") or {}).get("totalCount") or 0) >= 1
-                     or len(str(raw.get("body") or "")) >= SUBSTANTIVE_REVIEW_BODY_CHARS)
-                for raw in ((pr.get("reviews") or {}).get("nodes") or []))
-        else:
-            best_at, best_kind = None, None
-            ttfhr = None
-            substantive_review = None
+        is_draft = bool(pr.get("isDraft", False))
         ready_for_review_at: Optional[str] = (
             pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None
         )
@@ -470,6 +516,79 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
                         else (pr.get("closedAt") if isinstance(pr.get("closedAt"), str) else None)
                     )
 
+        if id(pr) in sampled_ids:
+            response = gates.first_substantive_response(pr, maintainers)
+            best_at, best_kind = response if response is not None else (None, None)
+            best_dt = _parse_iso(best_at)
+            created_dt = _parse_iso(pr.get("createdAt"))
+            ttfhr: Optional[float] = None
+            if best_dt is not None and created_dt is not None and best_dt >= created_dt:
+                ttfhr = (best_dt - created_dt).total_seconds() / 3600.0
+
+            ready_dt = _parse_iso(ready_for_review_at)
+            clock_start = (
+                max(created_dt, ready_dt)
+                if (created_dt is not None and ready_dt is not None)
+                else (ready_dt or created_dt)
+            )
+            closed_dt = _parse_iso(pr.get("closedAt"))
+            merged_dt = _parse_iso(pr.get("mergedAt"))
+            closed_m_dt = _parse_iso(closed_by_maint_at)
+            never_ready_draft = is_draft and ready_dt is None and closed_dt is not None
+            answered_within_deadline = bool(
+                clock_start is not None
+                and (
+                    (best_dt is not None and best_dt <= clock_start + deadline)
+                    or (merged_dt is not None and clock_start <= merged_dt <= clock_start + deadline)
+                    or (closed_m_dt is not None and clock_start <= closed_m_dt <= clock_start + deadline)
+                )
+            )
+            had_prior_response = bool(
+                best_dt is not None and closed_dt is not None and best_dt <= closed_dt
+            )
+            unanswered_early_self_close = bool(
+                closed_by_author
+                and merged_dt is None
+                and closed_dt is not None
+                and clock_start is not None
+                and not answered_within_deadline
+                and not had_prior_response
+                and closed_dt <= clock_start + deadline
+            )
+            if never_ready_draft or unanswered_early_self_close:
+                substantive_review: Optional[bool] = None
+            else:
+                has_substantive_review = any(
+                    not is_bot_actor(
+                        (raw.get("author") or {}).get("__typename"),
+                        (raw.get("author") or {}).get("login"),
+                    )
+                    and str((raw.get("author") or {}).get("login") or "").lower() != author_login
+                    and (
+                        int((raw.get("comments") or {}).get("totalCount") or 0) >= 1
+                        or (
+                            gates.comment_length(str(raw.get("body") or ""))
+                            >= SUBSTANTIVE_REVIEW_BODY_CHARS
+                            and _normalize_review_text(str(raw.get("body") or ""))
+                            not in boilerplate
+                        )
+                    )
+                    for raw in ((pr.get("reviews") or {}).get("nodes") or [])
+                )
+                has_substantive_maint_comment = any(
+                    gates.is_maintainer_response(comment, author_login, maintainers)
+                    and gates.comment_length(str(comment.get("bodyText") or ""))
+                    >= SUBSTANTIVE_REVIEW_BODY_CHARS
+                    and _normalize_review_text(str(comment.get("bodyText") or ""))
+                    not in boilerplate
+                    for comment in ((pr.get("comments") or {}).get("nodes") or [])
+                )
+                substantive_review = has_substantive_review or has_substantive_maint_comment
+        else:
+            best_at, best_kind = None, None
+            ttfhr = None
+            substantive_review = None
+
         author_node = pr.get("author")
         author_created_at = (
             author_node.get("createdAt")
@@ -487,7 +606,7 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
             "first_substantive_response_kind": best_kind,
             "ttfhr_hours": ttfhr,
             "substantive_review": substantive_review,
-            "is_draft": bool(pr.get("isDraft", False)),
+            "is_draft": is_draft,
             "ready_for_review_at": ready_for_review_at,
             "closed_by_author": closed_by_author,
             "closed_by_maintainer_at": closed_by_maint_at,

@@ -179,13 +179,13 @@ default to DCO=100 (F7).
 | Id | Parameter | Definition | w | global | min n | Curve | Class |
 |---|---|---|---|---|---|---|---|
 | 4.1 | Pipeline defenses | when Scorecard exists: mean of checks {Code-Review, CI-Tests, Branch-Protection, Maintained, Dangerous-Workflow} × 10; when absent: proxy = 0.6·code-review rate (merged PRs in window with ≥ 1 approving review by a non-author) ×100 + 0.4·CI pass rate on the default branch ×100 (0 if no CI); `method` stored | .40 | 6.0 | 10 merged PRs (proxy) | linear | TP with proxy |
-| 4.2 | AI policy posture | REGULATED (policy file or `Assisted-by`/`AI-generated` trailer convention), PROSCRIBED (explicit ban sentence in a policy file), AD_HOC otherwise; persona-conditional scores as spec | .30 | 4.5 | – | REGULATED 95/95 · PROSCRIBED 25 (AI) / 85 (human) · AD_HOC 40 | RC |
-| 4.3 | Substantive review rate **(replaces the Gaussian)** | share of decided external PRs that received ≥ 1 review with inline comments or a review body ≥ 80 chars | .30 | 4.5 | 10 | `min(100, 125·r)` | N |
+| 4.2 | AI policy posture | PROSCRIBED (explicit code-contribution ban sentence in `CONTRIBUTING.md`, `README.md`, an AI rule document, or a PR template, without a conditional/disclosure qualifier or non-code target; evaluated first), REGULATED (AI rule document, `Assisted-by`/`Co-authored-by`/`AI-generated` trailer convention, AI policy heading, AI disclosure checkbox in a PR template, or explicit AI rule directive in `CONTRIBUTING.md` or a PR template), AD_HOC otherwise; persona-conditional scores as spec (RFC-0019) | .30 | 4.5 | – | REGULATED 95/95 · PROSCRIBED 25 (AI) / 85 (human) · AD_HOC 40 | RC |
+| 4.3 | Substantive review rate **(replaces the Gaussian)** | share of decided external PRs (excluding never-ready drafts and unanswered author self-closes within 14 d) that received ≥ 1 non-bot, non-author review with inline comments or a non-boilerplate body ≥ 80 effective chars (CJK weight 3), or a non-boilerplate D-IN-2 maintainer issue comment ≥ 80 effective chars (`SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS = 3`, RFC-0018) | .30 | 4.5 | 10 | `min(100, 125·r)` | N |
 
 Why the Gaussian goes: a curve that penalises "too much review" is not
 monotone, cannot be improved by doing the right thing past 3.5 comments, and
 was fed by issue-comment totals (F8). A monotone rate is Goodhart-safer and
-measurable from review threads.
+measurable from review threads and D-IN-2 maintainer feedback.
 
 ### Pillar 5 — Accessibility (15%)
 
@@ -194,7 +194,7 @@ measurable from review threads.
 | 5.1 | Newcomer-issue supply | open, unassigned issues carrying a newcomer label (canonical: `good first issue`, `help wanted`, plus per-repo aliases matching `/good.?first|beginner|easy|newcomer|first.?timers?|help.?wanted|starter/i` from the repo's label list), updated within 90 d; capped | .35 | 5.25 | – | `min(100, 10·count)` | RC |
 | 5.2 | Newcomer conversion **(new)** | share of newcomer-cohort authors (D-IN-4) whose first PR was merged within 180 d | .35 | 5.25 | 5 authors | `min(100, 200·r)` | N |
 | 5.3 | RR_90 return rate | of newcomer-cohort authors with a merged first PR, share with a second PR within 90 d | .15 | 2.25 | 5 authors | `min(100, 200·r)` | N |
-| 5.4 | DX | 0.5·runtime score (median CI wait over the newest 30 pull-request commits, D-IN-4 "CI runs": 100 if ≤ 20 min, −5/min after, floor 0; unmeasured when no commit has a wait) + 0.5·setup signals (devcontainer or Dockerfile or flake.nix; CONTRIBUTING.md with a setup/development section; README with install/build section: 0/1/2/3 → 0/40/70/100) | .15 | 2.25 | 5 commits | as stated | RC (signals), TP (runtime) |
+| 5.4 | DX | when ≥ 5 PR commits have a finished GitHub Actions run: 0.5·runtime score (median CI wait over the newest 30 PR commits, D-IN-4 "CI runs": 100 if ≤ 20 min, −5/min after, floor 0) + 0.5·setup signals (devcontainer or Dockerfile or flake.nix; CONTRIBUTING.md with a setup/development section; README with install/build section: 0/1/2/3 → 0/40/70/100); when < 5 PR commits have a finished GitHub Actions run and setup-signal sources exist: setup-signals score alone (`method = "proxy:setup_signals_only"`, `proxy_min_n = 0`, RFC-0020) | .15 | 2.25 | 5 commits (primary) / 0 (proxy) | as stated | RC (signals), TP with proxy (runtime) |
 
 Why conversion outranks return: a newcomer whose first PR is merged got the
 value; returning is a second-order effect and needs the most expensive
@@ -233,7 +233,7 @@ displayed next to every score. Why ceilings: a repo cannot be certified elite
 on partial evidence, and the ceiling gives the maintainer and the third parties
 a reason to close the gap.
 
-**D-MISS-4 Proxies.** A parameter may define one proxy method (4.1 does). The
+**D-MISS-4 Proxies.** A parameter may define one proxy method (2.2, 4.1, and 5.4 do). The
 `method` field records which was used; proxies never mark `Measured` as
 `verified` in provenance, they are `derived`.
 

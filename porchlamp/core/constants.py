@@ -129,6 +129,16 @@ SUBSTANTIVE_COMMENT_MIN_CHARS: int = 40
 #: this many times: those scripts say in one letter about what Latin text says in three, so
 #: 14 of them reach the minimum.
 SUBSTANTIVE_COMMENT_CJK_WEIGHT: int = 3
+#: 4.3 substantive review rate (RFC-0018): minimum effective length (via
+#: ``porchlamp.core.gates.comment_length``) for a top-level review body or
+#: D-IN-2 maintainer issue comment to count as substantive without inline
+#: diff comments.
+SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
+#: 4.3 substantive review rate (RFC-0018): a normalized top-level review body
+#: or maintainer issue comment repeated across at least this many distinct PRs
+#: in the repository's PR window is treated as canned boilerplate rather than
+#: PR-specific substantive review.
+SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS: int = 3
 #: D-GATE-6: horizon for a decided external PR.
 GATE6_DECISION_WINDOW_DAYS: int = 365
 #: D-GATE-6 review hand-off (RFC-0007): a repository whose own notices send
@@ -411,9 +421,13 @@ PARAM_MIN_N: Mapping[str, int | None] = MappingProxyType({
 })
 
 #: 4.1 pipeline_defenses' ``proxy_min_n`` (the minimum sample that applies
-#: only when the measured method is a proxy, D-MISS-4); the only parameter
-#: that defines one.
+#: only when the measured method is a proxy, D-MISS-4).
 PIPELINE_DEFENSES_PROXY_MIN_N: int = 10
+#: 5.4 dx's ``proxy_min_n`` (RFC-0020): when fewer than ``PARAM_MIN_N["dx"]``
+#: pull-request commits have a finished GitHub Actions run, 5.4 falls back to
+#: the setup-signals proxy (``METHOD_PROXY_DX_SETUP_SIGNALS``) with minimum
+#: CI-run sample 0.
+DX_PROXY_MIN_N: int = 0
 
 #: D-MISS-1 ``collector_failure`` threshold for row 1.2 (DR_90) and row 1.3
 #: (MR_first): above this fraction of a repo's author-history cohort being
@@ -565,6 +579,8 @@ GATED_PERSONAS: tuple[str, ...] = (
 #: Measured.method vocabulary: "primary" or "proxy:<name>" (04 section 3, D-MISS-4).
 METHOD_PRIMARY: str = "primary"
 PROXY_METHOD_PREFIX: str = "proxy:"
+#: 5.4 DX setup-signals-only proxy method string (RFC-0020).
+METHOD_PROXY_DX_SETUP_SIGNALS: str = PROXY_METHOD_PREFIX + "setup_signals_only"
 
 #: The 18 parameter input ids (02 section 4, one per parameter), in pillar order.
 PARAM_INPUT_IDS: tuple[str, ...] = (
@@ -640,6 +656,7 @@ def constants_dict() -> dict[str, object]:
         "CEILING_A_MIN_COVERAGE": CEILING_A_MIN_COVERAGE,
         "COHORT_RATE_SLOPE": COHORT_RATE_SLOPE,
         "COMPOSITE_DECIMALS": COMPOSITE_DECIMALS,
+        "DX_PROXY_MIN_N": DX_PROXY_MIN_N,
         "ELEPHANT_SLOPE": ELEPHANT_SLOPE,
         "EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE": EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE,
         "FIRST_TIMER_MIN_DECIDED_PRS": FIRST_TIMER_MIN_DECIDED_PRS,
@@ -665,6 +682,7 @@ def constants_dict() -> dict[str, object]:
         "LEGAL_IP_VALUES": LEGAL_IP_VALUES,
         "LEVERAGE_WEIGHTS": LEVERAGE_WEIGHTS,
         "METHOD_PRIMARY": METHOD_PRIMARY,
+        "METHOD_PROXY_DX_SETUP_SIGNALS": METHOD_PROXY_DX_SETUP_SIGNALS,
         "MIN_ACCOUNT_AGE_DAYS": MIN_ACCOUNT_AGE_DAYS,
         "MIN_POPULATION": MIN_POPULATION,
         "MIN_PUBLIC_EVENTS": MIN_PUBLIC_EVENTS,
@@ -704,6 +722,8 @@ def constants_dict() -> dict[str, object]:
         "STARS_SCOUT_WINDOW_DAYS": STARS_SCOUT_WINDOW_DAYS,
         "SUBSTANTIVE_COMMENT_CJK_WEIGHT": SUBSTANTIVE_COMMENT_CJK_WEIGHT,
         "SUBSTANTIVE_COMMENT_MIN_CHARS": SUBSTANTIVE_COMMENT_MIN_CHARS,
+        "SUBSTANTIVE_REVIEW_BODY_CHARS": SUBSTANTIVE_REVIEW_BODY_CHARS,
+        "SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS": SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS,
         "SUPPLY_SLOPE": SUPPLY_SLOPE,
         "TIER_CUTOFFS": TIER_CUTOFFS,
         "TIER_ORDER": TIER_ORDER,

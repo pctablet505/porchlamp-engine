@@ -28,22 +28,28 @@ and derives them with ``NONE`` / ``AD_HOC`` / ``AD_HOC`` defaults:
   (resolved across ``.github/``, root, and ``docs/`` with case and
   extension variants, plus ``<owner>/.github`` org-level defaults for
   CONTRIBUTING and SECURITY).
-* **4.2 AI policy posture** — presence of an AI-policy file (the
-  :data:`AI_POLICY_FILES` family) only. **PROSCRIBED is never detected**:
-  bare co-occurrence of a negation/ban token and the word "AI" cannot
-  distinguish "Do not submit AI-generated code" from "Do not worry if you
-  used AI", nor "AI is prohibited" from "undisclosed AI use is
-  prohibited"; both need the ban's *object*, which this module never
-  binds. ``classify_ai_posture`` returns REGULATED on AI-policy-file
-  presence, else AD_HOC, and never PROSCRIBED, so **the
-  ``ai_assisted`` persona's hard-ban gate cannot fire** -- no repository
-  can score the PROSCRIBED regime (25 for that persona) through this
-  collector. :data:`porchlamp.core.constants.AI_POSTURE_VALUES` keeps all
-  three spellings (REGULATED/PROSCRIBED/AD_HOC): only the producer here is
-  narrowed, not the vocabulary. The commit-trailer convention path of
-  ``02`` section 4 4.2 ("Assisted-by"/"AI-generated") needs commit message
-  text, which this collector never reads, so that path is not evaluated
-  here either.
+* **4.2 AI policy posture** (RFC-0019) — the :data:`AI_POLICY_FILES`
+  family, and the AI rules a contributing guide or a pull-request template
+  states (:data:`AI_RULE_DOCUMENT_NAMES`, wherever the collector recorded
+  them; :data:`PR_TEMPLATE_FILES` are fetched for it). **PROSCRIBED** needs
+  an explicit ban sentence that binds the ban to AI-made work, as its object
+  or its subject (:data:`AI_BAN_PATTERNS`: "We do not accept AI-generated
+  contributions", "AI-generated pull requests are not accepted", "Do not use
+  AI tools to write code"), with no condition that narrows it to some AI use
+  (:data:`AI_BAN_QUALIFIERS`: "undisclosed", "without review", "fully",
+  "low-quality") and not aimed only at issues, comments or reports. Bare
+  co-occurrence of a negation and the word "AI" is never a ban: "Do not
+  worry if you used AI" and "We do not ban AI-generated code" match no
+  pattern, because every pattern names what is banned. A ban narrowed by a
+  condition, or aimed only at issues or comments, still regulates AI use and
+  reads REGULATED, as do an AI-policy file, an AI-policy heading or an AI
+  checkbox in those documents, a sentence requiring that AI-made work be
+  disclosed or reviewed, and a named ``Assisted-by:`` trailer convention;
+  AD_HOC otherwise. :data:`porchlamp.core.constants.AI_POSTURE_VALUES` keeps
+  the three spellings (REGULATED/PROSCRIBED/AD_HOC). The commit-trailer
+  convention path of ``02`` section 4 4.2 ("Assisted-by"/"AI-generated")
+  needs commit message text, which this collector never reads, so that path
+  is not evaluated here either.
 
 Per ``03`` section 3, documents are not 3.1 evidence: the regime comes from
 check/status names and the sign-off share only. Classification constants
@@ -53,7 +59,7 @@ the value vocabularies (:data:`porchlamp.core.constants.LEGAL_IP_VALUES`,
 :data:`porchlamp.core.constants.FOUNDATION_ORGS` and
 :data:`porchlamp.core.constants.PROMOTION_MIN_OUTSIDE_DAYS`.
 
-Priority, highest first (``02`` §4 + ``03`` §3, RFC-0016, RFC-0017):
+Priority, highest first (``02`` §4 + ``03`` §3, RFC-0016, RFC-0017, RFC-0019):
 
 * 3.1: foundation-CLA check > generic CLA check on a
   :data:`FOUNDATION_ORGS` owner > corp-CLA check > DCO check > sign-off
@@ -66,8 +72,10 @@ Priority, highest first (``02`` §4 + ``03`` §3, RFC-0016, RFC-0017):
   merges) > DOCUMENTED (nomination text) > AD_HOC. CLOSED outranks
   DOCUMENTED so a closed repo cannot buy 75 by writing docs (``03`` §3:
   the cheapest fake for 3.3).
-* 4.2: REGULATED (policy file present) > AD_HOC. PROSCRIBED is never
-  emitted by this module (see above).
+* 4.2: PROSCRIBED (an explicit, unconditional ban sentence) > REGULATED
+  (a policy file, an AI-policy section, checkbox or rule) > AD_HOC. A ban
+  outranks a policy file: an AI-policy file that bans AI-made contributions
+  is a ban.
 """
 
 from __future__ import annotations
@@ -146,8 +154,17 @@ AI_POLICY_FILES: tuple[str, ...] = (
     "AI.md", "AI_POLICY.md", "AIPOLICY.md", "AI-POLICY.md",
     ".github/AI.md", ".github/copilot-instructions.md", "AGENTS.md",
     "CLAUDE.md")
+#: RFC-0019: the pull-request templates fetched for 4.2, GitHub's two spellings
+#: under ``.github/`` (an AI disclosure checkbox or an AI ban often sits there).
+PR_TEMPLATE_FILES: tuple[str, ...] = (
+    ".github/PULL_REQUEST_TEMPLATE.md", ".github/pull_request_template.md")
+#: RFC-0019: besides the :data:`AI_POLICY_FILES` family, 4.2 reads the AI rules
+#: of these documents, matched by lower-cased file name wherever the collector
+#: recorded them (the root, ``.github/`` or ``docs/`` copy alike).
+AI_RULE_DOCUMENT_NAMES: frozenset[str] = frozenset(
+    {"contributing.md", "pull_request_template.md"})
 #: All policy and governance files checked by collect_governance.
-POLICY_FILES: tuple[str, ...] = (*GOVERNANCE_FILES, *AI_POLICY_FILES)
+POLICY_FILES: tuple[str, ...] = (*GOVERNANCE_FILES, *AI_POLICY_FILES, *PR_TEMPLATE_FILES)
 
 #: A genuine CLA check/status name -- the shared "is this even a CLA check"
 #: test both branches below require (a bare
@@ -205,6 +222,132 @@ NOMINATION_PATTERN: re.Pattern = re.compile(
     r"path to (maintainer(ship)?|membership|core)|"
     r"how to (become|apply)",
     re.IGNORECASE)
+
+# 02 §4 4.2 (RFC-0019): the words of an AI rule. Every ban pattern below names
+# what is banned -- AI-made work, or the use of an AI tool to make it -- next to
+# the words that ban it; none fires on a negation and the word "AI" merely
+# sharing a sentence (the defect that retired the co-occurrence detectors of
+# W1-6 rounds 1-3).
+_AI = (r"(?:ai|llms?|large[\s-]+language[\s-]+models?|gen(?:erative)?[\s-]*ai"
+       r"|artificial[\s-]+intelligence|chat[\s-]?gpt|copilot)")
+_AI_TERM = rf"\b{_AI}\b"
+#: An AI tool, optionally with what kind of thing it is ("AI tools", "LLM output").
+_AI_TOOL = (rf"{_AI_TERM}(?:[\s-]+(?:based[\s-]+)?(?:coding[\s-]+|code[\s-]+|content[\s-]+|text[\s-]+)?"
+            r"(?:tools?|assistants?|agents?|models?|services?|chat[\s-]?bots?|generators?|outputs?)\b)?")
+_MADE = r"(?:generated|assisted|written|authored|created|produced|made)"
+#: The contributions a ban can name.
+_CODE_NOUN = (r"(?:contributions?|code|source\s+code|pull[\s-]+requests?|prs?|patch(?:es)?|changes"
+              r"|commits?|submissions?|merge\s+requests?)")
+_WORK = rf"(?:{_CODE_NOUN}|work|content|output)"
+#: Work an AI made: "AI-generated code", "code written by ChatGPT", "content created with the
+#: assistance of AI tools", "LLM output", "AI contributions".
+_AI_MADE = (rf"(?:{_AI_TERM}[\s-]+{_MADE}"
+            rf"|{_MADE}\s+(?:with\s+the\s+(?:help|assistance|aid)\s+of|by|with|using|via|through|from)\s+"
+            rf"(?:an?\s+|the\s+|any\s+)?(?:[\w-]+\s+){{0,3}}?{_AI_TOOL}"
+            rf"|(?:output|content|text|code)\s+(?:from|of)\s+(?:an?\s+|the\s+|any\s+)?{_AI_TOOL}"
+            rf"|{_AI_TERM}[\s-]+{_WORK}\b)")
+_BANNED = (r"(?:(?:strictly|explicitly|expressly|absolutely)\s+)?"
+           r"(?:(?:not|never)\s+(?:be\s+)?(?:accepted|allowed|permitted|welcomed?|tolerated|merged|considered)"
+           r"|prohibited|forbidden|banned|disallowed|rejected|refused|declined|closed)\b")
+_NOT = (r"(?:do\s+not|does\s+not|will\s+not|shall\s+not|cannot|can\s+not|don't|doesn't|won't|can't)")
+_MUST_NOT = (r"(?:must\s+not|mustn't|may\s+not|shall\s+not|should\s+not|shouldn't|cannot|can't"
+             r"|(?:are|is)\s+not\s+(?:allowed|permitted)\s+to)")
+_USE_FOR = (r"(?:to|for|when|while|in)\s+(?:(?:your|any|the|a|an)\s+)?"
+            rf"(?:(?:writ|generat|creat|produc|author|contribut|develop|cod|submit|prepar|mak|draft)\w*|{_WORK}\b)")
+
+#: RFC-0019 PROSCRIBED: an explicit ban sentence on AI-made contributions. Each
+#: pattern binds the ban to its object: AI-made work then the ban ("AI-generated
+#: code is not accepted"), the project refusing it ("We do not accept AI-generated
+#: PRs"), the reader told not to submit it or not to use AI to make it ("Do not use
+#: AI tools to write code"), the use itself banned ("The use of Copilot is
+#: forbidden"), or a heading-style ban ("No LLMs for pull requests").
+AI_BAN_PATTERNS: tuple[re.Pattern, ...] = tuple(re.compile(p, re.IGNORECASE) for p in (
+    rf"{_AI_MADE}(?:\s+\S+){{0,5}}?\s+(?:is|are|will\s+be|shall\s+be|would\s+be|gets?)\s+{_BANNED}",
+    rf"\b{_MUST_NOT}\s+(?:be\s+{_AI_MADE}|(?:include|contain)\s+(?:any\s+)?(?:[\w-]+\s+){{0,2}}?{_AI_MADE})",
+    rf"\b(?:we|i|this\s+project|the\s+project|maintainers?)\s+{_NOT}\s+"
+    rf"(?:accept|merge|take|allow|permit|tolerate|welcome|want|review)\s+(?:any\s+)?"
+    rf"(?:{_WORK}\s+(?:that\s+(?:is|are|was|were|has\s+been|have\s+been)\s+)?)?{_AI_MADE}",
+    rf"\b(?:do\s+not|don't|never)\s+(?:submit|send|open|contribute|propose|post|file|create|make)\s+(?:any\s+)?"
+    rf"(?:{_WORK}\s+(?:that\s+(?:is|are|was|were)\s+)?)?{_AI_MADE}",
+    rf"(?:\b(?:do\s+not|don't|never)|\b{_MUST_NOT})\s+use\s+(?:any\s+)?{_AI_TOOL}(?:\s+[\w-]+){{0,3}}?\s+{_USE_FOR}",
+    rf"{_AI_TOOL}\s+{_MUST_NOT}\s+be\s+used\b",
+    rf"\buse\s+of\s+(?:any\s+)?{_AI_TOOL}(?:\s+\S+){{0,6}}?\s+(?:is|are)\s+{_BANNED}",
+    rf"{_AI_TERM}[\s-]+(?:usage|use)\b(?:\s+\S+){{0,4}}?\s+(?:is|are)\s+{_BANNED}",
+    rf"(?:^|[^\w-]){_AI_TOOL}\s+(?:is|are)\s+(?:(?:strictly|explicitly|expressly)\s+)?"
+    r"(?:prohibited|forbidden|banned|not\s+(?:allowed|permitted))\b",
+    rf"\b(?:we|this\s+project|the\s+project)\s+(?:prohibit|forbid|ban|disallow)\s+(?:the\s+)?(?:use\s+of\s+)?"
+    rf"(?:any\s+)?(?:{_AI_MADE}|{_AI_TOOL})",
+    rf"\brefrain\s+from\s+(?:using|submitting)\s+(?:any\s+)?(?:{_AI_MADE}|{_AI_TOOL})",
+    rf"^\W*no\s+(?:{_AI_TERM}[\s-]+{_MADE}\s+{_WORK}|{_AI_TOOL}\s+for\s+(?:any\s+)?{_WORK})\b"
+    r"(?!\s+(?:has|have|had|was|were|is|are)\b)",
+    rf"\b(?:forbidden|prohibited|not\s+(?:allowed|permitted))\s+to\s+(?:contribute|submit)\b[^.;!?]{{0,80}}?{_AI_MADE}",
+    rf"{_AI_MADE}(?:\s+\S+){{0,10}}?\s+{_MUST_NOT}\s+be\s+(?:committed|submitted|merged|accepted|contributed|included)\b",
+))
+#: RFC-0019: a condition that narrows a ban to some AI use ("undisclosed",
+#: "without review", "fully generated", "low-quality", "unless", "only if
+#: reviewed", "code you do not understand"). A ban sentence carrying one bans that
+#: use only, so it regulates AI use (REGULATED) and does not proscribe it. A ban's
+#: consequence is not a condition: "will be closed without review" stays a ban.
+AI_BAN_QUALIFIERS: re.Pattern = re.compile(
+    r"\b(?:unless|undisclosed|unreviewed|unverified|untested|unattributed|unmarked|unlabell?ed|unedited"
+    r"|fully|entirely|purely|solely|wholly|completely|exclusively|mostly|primarily|largely"
+    r"|large(?![\s-]+language)|big|huge|massive|substantial"
+    r"|low[\s-]+(?:quality|effort)|slop|mass|bulk|spam\w*|blindly|copy[\s-]*(?:and[\s-]*)?past\w*"
+    r"|autonomous\w*|automated|automatically|directly|unsupervised|unattended|only|except"
+    r"|if\s+(?:\w+\s+){0,3}(?:disclos|review|test|verif|understand|mark|label|attribut|explain|check|edit|approv)\w*"
+    r"|if\s+you\s+(?:do\s+not|don't|can\s*not|can't|are\s+not|aren't)"
+    r"|you\s+(?:do\s+not|don't|can\s*not|can't|could\s*not|couldn't)\s+(?:fully\s+)?(?:understand|explain"
+    r"|maintain|debug|verify|review|test|vouch|justify|defend|support)"
+    r"|you\s+(?:have\s+not|haven't|did\s+not|didn't)\s+(?:\w+\s+)?(?:verif|review|test|understand|read|check)\w*"
+    r"|that\s+(?:\w+\s+){0,2}(?:not|never)|that\s+\w+n't|that\s+(?:may|might|could|would|can)"
+    r"|(?:writ|generat|creat|produc|draft|mak)\w*\s+(?:these|those|them|it|this|that)(?!\s+(?:code|pull|pr|patch))"
+    r"|(?<!closed\s)(?<!rejected\s)(?<!declined\s)(?<!deleted\s)(?<!removed\s)without)\b|100\s*%",
+    re.IGNORECASE)
+_NON_CODE_NOUN = (r"(?:issues?|bug\s+reports?|security\s+reports?|vulnerability\s+reports?|reports?|comments?"
+                  r"|discussions?|reviews?|responses?|answers?|descriptions?|messages?|communications?"
+                  r"|questions?|walls?\s+of\s+text|translations?|locali[sz]ations?|art(?:work)?|images?|assets?"
+                  r"|icons?|graphics?|logos?|sprites?|textures?|music|audio|voices?)")
+#: RFC-0019: a ban aimed only at these (and at no code contribution) is about
+#: issues, comments, answers, translations or art, not about AI-made code; it
+#: regulates. So does one whose AI-made object is one of them ("AI-generated
+#: walls of text in pull requests").
+_NON_CODE_OBJECT = re.compile(rf"\b{_NON_CODE_NOUN}\b", re.IGNORECASE)
+_AI_MADE_NON_CODE = re.compile(rf"{_AI_TERM}[\s-]+{_MADE}\s+{_NON_CODE_NOUN}\b", re.IGNORECASE)
+_CODE_OBJECT = re.compile(rf"\b{_CODE_NOUN}\b", re.IGNORECASE)
+#: RFC-0019 REGULATED: a sentence about AI-made work or the use of AI tools ...
+_AI_USE = re.compile(
+    rf"(?:{_AI_MADE}|\b(?:use|using|used|usage)\s+(?:of\s+)?(?:any\s+)?{_AI_TOOL}"
+    rf"|{_AI_TERM}[\s-]+(?:assistance|assisted|tools?|assistants?|usage|use|coding)\b"
+    rf"|{_AI_TERM}\s+(?:was|were|is|has\s+been|have\s+been)\s+used\b)",
+    re.IGNORECASE)
+#: ... that requires something of it: disclosure, attribution, review, testing,
+#: understanding or responsibility ("AI-generated code must be disclosed"). Not
+#: when a negation governs the requirement ("You don't need to disclose AI use").
+AI_RULE_DIRECTIVE: re.Pattern = re.compile(
+    r"\b(?:must|should|shall|need\s+to|needs\s+to|have\s+to|has\s+to|(?:is|are)\s+required\s+to"
+    r"|required\s+to|please|make\s+sure|be\s+sure|ensure|expected\s+to)\b[^.!?;\n]{0,80}?"
+    r"\b(?:disclos\w*|declar\w*|mention\w*|stat(?:e|ed|es|ing)\b|indicat\w*|label\w*|mark(?:ed|ing)?\b"
+    r"|flag\w*|tag(?:ged|ging)?\b|acknowledg\w*|attribut\w*|not(?:e|ed|ing)\b|review\w*|test(?:ed|ing)?\b"
+    r"|understand\w*|verif\w*|check(?:ed|ing)?\b|responsib\w*|explain\w*)",
+    re.IGNORECASE)
+_DIRECTIVE_IMPERATIVE = re.compile(
+    r"^(?:please\s+)?(?:disclose|declare|mention|state|indicate|label|mark|note|tag|flag)\b", re.IGNORECASE)
+_NEGATION_BEFORE = re.compile(r"(?:\b(?:not|no|never)\b|n't)\W+(?:\w+\W+){0,2}$", re.IGNORECASE)
+#: RFC-0019 REGULATED: a named commit-trailer convention ("Assisted-by: <tool>").
+AI_TRAILER_CONVENTION: re.Pattern = re.compile(r"\b(?:assisted|generated|ai[\s-]assisted)-by:", re.IGNORECASE)
+#: RFC-0019 REGULATED: a heading that opens an AI-policy section ("## AI policy",
+#: "## Use of AI tools", "## AI-assisted contributions").
+AI_POLICY_HEADING: re.Pattern = re.compile(
+    rf"^\s{{0,3}}#{{1,6}}\s+[^\n]*?(?:{_AI_TERM}[\s-]+(?:polic(?:y|ies)|usage|use|assistance|disclosure"
+    rf"|guidelines?|rules?|contributions?)\b|{_AI_MADE}|\b(?:use|usage)\s+of\s+{_AI_TOOL}|\bpolicy\s+on\s+{_AI_TOOL})",
+    re.IGNORECASE | re.MULTILINE)
+#: RFC-0019 REGULATED: a checklist item about AI use ("- [ ] I used AI tools ...").
+AI_CHECKBOX: re.Pattern = re.compile(rf"^\s*[-*+]\s+\[[ xX]\][^\n]*?{_AI_USE.pattern}",
+                                     re.IGNORECASE | re.MULTILINE)
+#: Sentence assembly for the patterns: abbreviations whose dot ends no sentence.
+_ABBREVIATIONS = re.compile(r"\b(e\.g|i\.e|etc|vs|cf)\.", re.IGNORECASE)
+_SENTENCE_END = re.compile(r"(?<=[.!?;])\s+")
+_BLOCK_START = re.compile(r"^(?:[-*+]\s|\d+[.)]\s|#{1,6}\s|\||>)")
 
 
 # --------------------------------------------------------------------------- #
@@ -1182,24 +1325,148 @@ def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
     return "AD_HOC", {**evidence, "rule": "no_evidence"}
 
 
+def _ai_rule_documents(files: Mapping[str, Optional[Mapping[str, Any]]]
+                       ) -> list[tuple[str, str, bool]]:
+    """RFC-0019: ``(path, plain text, is_policy_file)`` for every document 4.2
+    reads, in path order: each recorded :data:`AI_POLICY_FILES` entry, and each
+    recorded file whose lower-cased name is in :data:`AI_RULE_DOCUMENT_NAMES`
+    (wherever the collector found it). An entry with no text body is skipped:
+    it has no sentence to read."""
+    docs: list[tuple[str, str, bool]] = []
+    for path in sorted(files or {}):
+        entry = (files or {})[path]
+        body = entry.get("body") if isinstance(entry, Mapping) else None
+        if not isinstance(body, str) or not body.strip():
+            continue
+        if path in AI_POLICY_FILES:
+            docs.append((path, _plain_text(body), True))
+        elif path.rsplit("/", 1)[-1].lower() in AI_RULE_DOCUMENT_NAMES:
+            docs.append((path, _plain_text(body), False))
+    return docs
+
+
+def _plain_text(body: str) -> str:
+    """A markdown body without the markup that splits a sentence's words: HTML
+    comment fences (a pull-request template's instructions sit inside them),
+    link targets, emphasis and code markers; an abbreviation's dots dropped so
+    they end no sentence."""
+    text = body.replace("<!--", " ").replace("-->", " ")
+    text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"[*`]+", "", text)
+    text = re.sub(r"(?<!\w)_+|_+(?!\w)", "", text)
+    return _ABBREVIATIONS.sub(lambda m: m.group(1).replace(".", ""), text)
+
+
+def _sentences(text: str) -> list[str]:
+    """The sentences of a plain-text markdown body: a paragraph's hard-wrapped
+    lines joined again, a heading its own block, a list item, table row or
+    quote starting a new block; each block split after ``.``, ``!``, ``?`` or
+    ``;``, with its list, heading or checkbox marker removed."""
+    blocks: list[str] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or _BLOCK_START.match(stripped):
+            if current:
+                blocks.append(" ".join(current))
+            current = []
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            blocks.append(stripped)
+            continue
+        current.append(stripped)
+    if current:
+        blocks.append(" ".join(current))
+    sentences: list[str] = []
+    for block in blocks:
+        for piece in _SENTENCE_END.split(block):
+            sentence = re.sub(r"^(?:(?:[-*+>]|\d+[.)]|#{1,6}|\[[ xX]\])\s*)+", "", piece.strip())
+            if sentence:
+                sentences.append(sentence)
+    return sentences
+
+
+def _ban_verdict(sentence: str) -> Optional[str]:
+    """RFC-0019: ``"proscribed"`` for an explicit ban sentence on AI-made work
+    (an :data:`AI_BAN_PATTERNS` match) that no condition narrows
+    (:data:`AI_BAN_QUALIFIERS`) and that is not aimed only at issues, comments,
+    reports or art; ``"regulated"`` for a ban sentence that is narrowed or so
+    aimed (it regulates AI use); ``None`` for a sentence that bans nothing."""
+    if not any(pattern.search(sentence) for pattern in AI_BAN_PATTERNS):
+        return None
+    if AI_BAN_QUALIFIERS.search(sentence):
+        return "regulated"
+    if _NON_CODE_OBJECT.search(sentence) and not _CODE_OBJECT.search(sentence):
+        return "regulated"
+    if _AI_MADE_NON_CODE.search(sentence):
+        return "regulated"
+    return "proscribed"
+
+
+def _is_ai_rule_sentence(sentence: str) -> bool:
+    """RFC-0019 REGULATED: a sentence naming a commit-trailer convention
+    (:data:`AI_TRAILER_CONVENTION`), or a sentence about AI-made work or AI use
+    that requires something of it (:data:`AI_RULE_DIRECTIVE`, or an imperative
+    such as "Disclose any AI assistance") with no negation governing the
+    requirement ("We do not require disclosure of AI assistance" is no rule)."""
+    if AI_TRAILER_CONVENTION.search(sentence):
+        return True
+    if not _AI_USE.search(sentence):
+        return False
+    if _DIRECTIVE_IMPERATIVE.search(sentence):
+        return True
+    return any(not _NEGATION_BEFORE.search(sentence[:match.start()])
+               for match in AI_RULE_DIRECTIVE.finditer(sentence))
+
+
 def classify_ai_posture(files: Mapping[str, Optional[Mapping[str, Any]]]
                         ) -> tuple[str, dict[str, Any]]:
-    """02 §4 4.2: the AI policy posture.
+    """02 §4 4.2: the AI policy posture (RFC-0019).
 
-    ``files`` are the recorded governance/AI-policy file entries. Returns
-    ``(value, evidence)`` with ``value`` in
-    :data:`porchlamp.core.constants.AI_POSTURE_VALUES``; priority is REGULATED
-    (an :data:`AI_POLICY_FILES` entry is present) > AD_HOC. PROSCRIBED is
-    never returned here (module docstring: ban detection cannot bind the
-    ban's object). The commit-trailer REGULATED path
-    of ``02`` §4 4.2 is not evaluated either (module docstring: this
-    collector never reads commit message text).
+    ``files`` are the recorded governance/AI-policy file entries (path ->
+    ``{"present", "sha256", "body"}`` or ``None``). Returns ``(value,
+    evidence)`` with ``value`` in
+    :data:`porchlamp.core.constants.AI_POSTURE_VALUES`; priority, highest
+    first:
+
+    * PROSCRIBED -- a sentence of an :data:`AI_POLICY_FILES` entry, a
+      contributing guide or a pull-request template is an explicit,
+      unconditional ban on AI-made contributions (:func:`_ban_verdict`);
+      ``evidence["ban"]`` names the file and quotes the sentence, the first
+      one in path order;
+    * REGULATED -- an :data:`AI_POLICY_FILES` entry is present (rule
+      ``ai_policy_file``), or a contributing guide or pull-request template
+      has an AI-policy heading, an AI checklist item, a narrowed ban, an AI
+      rule sentence or a named trailer convention (rule ``ai_rule_text``,
+      ``evidence["rule_text"]`` quoting the first one in path order);
+    * AD_HOC otherwise (rule ``no_evidence``).
+
+    The commit-trailer REGULATED path of ``02`` §4 4.2 as observed in commits
+    is not evaluated (module docstring: this collector never reads commit
+    message text).
     """
     present = sorted(fname for fname, entry in (files or {}).items() if entry)
     ai_policy_present = [f for f in present if f in AI_POLICY_FILES]
     evidence: dict[str, Any] = {"ai_policy_files_present": ai_policy_present}
+    rule_text: Optional[dict[str, str]] = None
+    for path, text, is_policy_file in _ai_rule_documents(files):
+        if not is_policy_file and rule_text is None:
+            marker = AI_POLICY_HEADING.search(text) or AI_CHECKBOX.search(text)
+            if marker is not None:
+                rule_text = {"file": path, "text": marker.group(0).strip()[:300]}
+        for sentence in _sentences(text):
+            verdict = _ban_verdict(sentence)
+            if verdict == "proscribed":
+                return "PROSCRIBED", {**evidence, "rule": "explicit_ban",
+                                      "ban": {"file": path, "sentence": sentence[:300]}}
+            if rule_text is None and (verdict == "regulated"
+                                      or (not is_policy_file and _is_ai_rule_sentence(sentence))):
+                rule_text = {"file": path, "text": sentence[:300]}
     if ai_policy_present:
         return "REGULATED", {**evidence, "rule": "ai_policy_file"}
+    if rule_text is not None:
+        return "REGULATED", {**evidence, "rule": "ai_rule_text", "rule_text": rule_text}
     return "AD_HOC", {**evidence, "rule": "no_evidence"}
 
 

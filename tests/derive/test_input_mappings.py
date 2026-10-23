@@ -298,6 +298,28 @@ def test_substantive_review_rate_excludes_internal_reviews_from_n(tmp_path: Path
     )
 
 
+def test_substantive_review_rate_excludes_never_ready_drafts_and_early_self_closes_from_n(
+    tmp_path: Path,
+) -> None:
+    """RFC-0018: ``n`` in ``_resolve_substantive_review_rate`` excludes never-ready
+    drafts and unanswered author self-closes within 14 d of clock start, matching
+    ``derive_pr_window_fields``'s denominator."""
+    decided = {"createdAt": "2026-08-01T00:00:00+00:00", "closedAt": "2026-08-02T00:00:00+00:00"}
+    eligible = [_outside({"number": i, **decided}) for i in range(9)]
+    never_ready = _outside({"number": 100, **decided, "isDraft": True})
+    early_self_close = _outside({"number": 101, **decided, "closedByAuthor": True})
+    data = pr_window_data(prs=eligible + [never_ready, early_self_close])
+    write_envelope(tmp_path / "raw", "pr_window", "acme__sr-denom", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(
+        meta={"pr_window_substantive_review_rate": 0.5},
+        provenance={"pr_window_count": prov("pr_window", key="acme__sr-denom")},
+    )
+    bundle = load(tmp_path, doc, key="acme__sr-denom")
+    assert bundle.inputs["substantive_review_rate"] == Unmeasured(
+        reason="insufficient_n", detail="9 decided external PRs, need >= 10",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 2.1 dependents_deduped                                                      #
 # --------------------------------------------------------------------------- #
@@ -2267,6 +2289,28 @@ def test_dx_resolver_measured_insufficient_n_and_missing(tmp_path: Path) -> None
         reason="collector_failure",
         detail="v1 deriver recorded no dx value (no actions_runs envelope)",
     )
+
+    doc_proxy = base_document(
+        meta={"dx": 70.0, "dx_run_count": 0, "dx_method": "proxy:setup_signals_only"},
+        provenance={"dx": prov("actions_runs", key="acme__dx-ok")},
+        confidence={"dx": "derived", "dx_run_count": "derived", "dx_method": "derived"},
+    )
+    bundle_proxy = load(tmp_path, doc_proxy, key="acme__dx-proxy")
+    assert bundle_proxy.inputs["dx"] == Measured(
+        value=70.0,
+        n=0,
+        window_start=None,
+        window_end=None,
+        method="proxy:setup_signals_only",
+        source="raw/actions_runs/acme__dx-ok.json",
+        source_hash=expected_hash(runs_data),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+    from porchlamp.core.params import accessibility
+    scored_proxy = accessibility.dx(bundle_proxy.inputs["dx"])
+    assert scored_proxy.measured is True
+    assert scored_proxy.score == 70.0
+    assert scored_proxy.method == "proxy:setup_signals_only"
 
 
 def _cut_records(tmp_path: Path, key: str) -> None:

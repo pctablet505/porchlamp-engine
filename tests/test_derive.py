@@ -320,11 +320,12 @@ def test_derive_dx_54_blends_runtime_and_setup_signals(tmp_path):
     out = run(tmp_path)
     assert out["meta"]["dx"] == 87.5
     assert out["meta"]["dx_run_count"] == 5
+    assert out["meta"]["dx_method"] == "primary"
     assert out["meta"]["dx_ci_minutes"] == 25.0
     assert out["confidence"]["dx"] == "derived"
     assert out["confidence"]["dx_run_count"] == "derived"
 
-    # Empty runs list -> dx is None (confidence "missing"), dx_run_count is 0 ("derived")
+    # Empty runs list with no setup-signal envelopes -> dx is None (confidence "missing"), dx_run_count is 0 ("derived")
     empty_tmp = tmp_path / "empty_runs"
     write(empty_tmp, "actions_runs", k, [])
     out_empty = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, empty_tmp, fetch=False, now=NOW)
@@ -332,6 +333,36 @@ def test_derive_dx_54_blends_runtime_and_setup_signals(tmp_path):
     assert out_empty["confidence"]["dx"] == "missing"
     assert out_empty["meta"]["dx_run_count"] == 0
     assert out_empty["confidence"]["dx_run_count"] == "derived"
+
+
+def test_derive_dx_54_setup_signals_proxy_when_fewer_than_five_ci_runs(tmp_path):
+    """RFC-0020: when fewer than 5 PR commits have finished GitHub Actions runs
+    and setup-signal sources exist, 5.4 DX emits the setup-signals proxy score
+    with dx_method == 'proxy:setup_signals_only'."""
+    k = f"{OWNER}__{NAME}"
+    write(tmp_path, "actions_runs", k, [])
+    write(tmp_path, "tree", k, {"paths": ["Dockerfile", "README.md", "CONTRIBUTING.md"]})
+    body(tmp_path, "CONTRIBUTING.md", "## Local Development Setup\nRun `make test`.")
+    body(tmp_path, "README.md", "## Installation\nRun `pip install widget`.")
+    out_zero = run(tmp_path)
+    assert out_zero["meta"]["dx"] == 100.0
+    assert out_zero["meta"]["dx_run_count"] == 0
+    assert out_zero["meta"]["dx_method"] == "proxy:setup_signals_only"
+    assert out_zero["confidence"]["dx"] == "derived"
+
+    # 3 slow CI runs (< 5 minimum): runtime wait is not blended in; pure 2-signal setup score (70.0) is emitted
+    thin_tmp = tmp_path / "thin_runs"
+    write(thin_tmp, "actions_runs", k, [
+        {"head_sha": f"c{i}", "status": "completed", "conclusion": "success", "run_duration_seconds": 3600}
+        for i in range(3)
+    ])
+    write(thin_tmp, "tree", k, {"paths": ["Dockerfile", "README.md"]})
+    body(thin_tmp, "README.md", "## Building from source\nUse `cargo build`.")
+    out_thin = run(thin_tmp)
+    assert out_thin["meta"]["dx"] == 70.0
+    assert out_thin["meta"]["dx_run_count"] == 3
+    assert out_thin["meta"]["dx_method"] == "proxy:setup_signals_only"
+    assert out_thin["confidence"]["dx"] == "derived"
 
 
 

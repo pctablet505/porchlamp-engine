@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "a48306f15d2c9e7603ca00ae25f34e176fbb1421b270a072f9db645f1eb5e1a3"
+FROZEN_CONSTANTS_HASH = "93e44701a8a9862e242e0e1f93e7f082848fbc1f222d68bdcd221600192bac8c"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -236,6 +236,12 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
             "trinodb",
         ),
     ),
+    # RFC-0018: 4.3 substantive review effective character threshold and boilerplate repetition guard.
+    ("SUBSTANTIVE_REVIEW_BODY_CHARS", constants.SUBSTANTIVE_REVIEW_BODY_CHARS, 80),
+    ("SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS", constants.SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS, 3),
+    # RFC-0020: 5.4 DX setup-signals proxy method and minimum CI run count.
+    ("DX_PROXY_MIN_N", constants.DX_PROXY_MIN_N, 0),
+    ("METHOD_PROXY_DX_SETUP_SIGNALS", constants.METHOD_PROXY_DX_SETUP_SIGNALS, "proxy:setup_signals_only"),
 )
 
 
