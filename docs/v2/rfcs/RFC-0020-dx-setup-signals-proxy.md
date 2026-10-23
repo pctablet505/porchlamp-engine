@@ -66,3 +66,8 @@ Follow the D-MISS-4 proxy pattern established by `2.2 openssf_criticality`
   unmeasured).
 - Each converted repository is explicitly tagged `method = "proxy:setup_signals_only"` with its true
   GitHub Actions PR-commit count `n` (`0..4`) preserved on `Measured.n` and `ParamScore.n`.
+
+## Reviewer
+
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

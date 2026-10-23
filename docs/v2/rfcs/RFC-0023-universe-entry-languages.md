@@ -48,7 +48,7 @@ Packagist or NuGet do not exist.
      CocoaPods), Lua (LuaRocks), Clojure (Clojars, not Maven Central).
    Every language faces the one star floor (`effective_floor`) and the one
    `--max-total` cap; nothing about scoring changes.
-2. **A registry list's number is not a star count** (bug fix, commit `45dd60c`,
+2. **A registry list's number is not a star count** (bug fix, commit `3d58a2c`,
    listed here because it changes what the manifest records). `crates_top`
    reported the crate's all-time downloads as `stars`, and `build()` wrote them
    into `stars_at_selection`. A registry-only row now records
@@ -129,7 +129,7 @@ the cap is the owner's decision; this RFC does not change the default.
   neovim, llvm-project and JetBrains/kotlin enter a dry run as `maven`/`systems`
   with their `selected_by` criterion and per-language summary; a Kotlin repo
   competes with Java repos under the same floor and cap. The registry-row fix has
-  its own six tests (commit `45dd60c`).
+  its own six tests (commit `3d58a2c`).
 
 ## Owner decisions this RFC needs
 
@@ -145,4 +145,5 @@ the cap is the owner's decision; this RFC does not change the default.
 
 ## Reviewer
 
-pending: independent review in the #66 PR.
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

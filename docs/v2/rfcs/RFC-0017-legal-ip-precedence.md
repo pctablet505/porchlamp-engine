@@ -3,7 +3,7 @@
 ## Motivation
 
 Parameter 3.1 (`legal_ip`, `docs/v2/02-RANKING-DESIGN.md` section 4) classifies a repository's
-contributor IP regime into `NONE` (100), `DCO` (95), `FOUNDATION_CLA` (75), or `CORP_CLA` (35).
+contributor IP regime into `DCO` (100), `NONE` (85), `FOUNDATION_CLA` (75), or `CORP_CLA` (25).
 On the 2026-10-21 published dataset (5,448 repositories: `NONE = 4,038`, `CORP_CLA = 574`,
 `DCO = 152`, `FOUNDATION_CLA = 125`, `Unmeasured = 559`), three defects in the `FOUNDATION_CLA` vs
 `DCO` vs `CORP_CLA` classification were identified and measured:
@@ -11,7 +11,7 @@ On the 2026-10-21 published dataset (5,448 repositories: `NONE = 4,038`, `CORP_C
 1. **`foundation_owner` preceded measured `DCO` evidence even when no CLA check was present.** In
    `porchlamp.collect.governance.classify_legal_ip`, `if foundation_owner: return "FOUNDATION_CLA"`
    ran at step 2 before `dco_check` and `signoff_share`. A repository under a foundation org that
-   runs no CLA bot and uses DCO sign-off was forced to `FOUNDATION_CLA` (75) instead of `DCO` (95).
+   runs no CLA bot and uses DCO sign-off was forced to `FOUNDATION_CLA` (75) instead of `DCO` (100).
    Across all 75 repositories in the 2026-10-21 corpus that matched `foundation_owner` (63 `apache`,
    6 `kubernetes`, 6 `*-foundation`), a live 60-commit `Signed-off-by` sweep found 4 Apache
    repositories with `signoff_share >= 0.50` and no CLA check (`apache/hbase` 96.7%,
@@ -22,16 +22,16 @@ On the 2026-10-21 published dataset (5,448 repositories: `NONE = 4,038`, `CORP_C
    `AI4Finance-Foundation/FinRobot`, `Acode-Foundation/Acode`,
    `FULU-Foundation/OrcaSlicer-bambulab`). None of the six runs a CLA check or DCO check, and all
    six have `signoff_share <= 2/60` (`<= 3.3%`), yet all six were classified `FOUNDATION_CLA` (75)
-   instead of `NONE` (100).
+   instead of `NONE` (85).
 3. **Foundation projects using generic CLA check contexts (`license/cla`, `cla-signed`,
-   `cla-assistant`) were misclassified as `CORP_CLA` (35).** `FOUNDATION_ORGS` lived unhashed inside
+   `cla-assistant`) were misclassified as `CORP_CLA` (25).** `FOUNDATION_ORGS` lived unhashed inside
    `scripts/derive.py` (`apache`, `kubernetes`, `cncf`, `linuxfoundation`, `eclipse`,
    `openjs-foundation`, `fdiooss`, `openstack`, `llvm`, `chaoss`) and omitted verified multi-vendor
    501(c)(3)/501(c)(6) foundations whose GitHub orgs run generic CLA status contexts:
    - `SeleniumHQ/selenium` runs `license/cla` (Software Freedom Conservancy, verified in
-     `CONTRIBUTING.md`) and scored `CORP_CLA` (35).
+     `CONTRIBUTING.md`) and scored `CORP_CLA` (25).
    - `trinodb/trino` runs `cla-signed` (Trino Software Foundation, verified in CLA check details)
-     and scored `CORP_CLA` (35).
+     and scored `CORP_CLA` (25).
    - Eclipse Foundation's status context `eclipsefdn/eca` was not in `FOUNDATION_CHECK_PATTERNS`.
 
 ## Method
@@ -46,7 +46,7 @@ We probed live GitHub check runs, status contexts, and 60-commit `Signed-off-by`
     OWASP), `composer/composer` (`continuous-integration/cla`, Nils Adermann / Jordi Boggiano).
   - Why `python` is **not** added to `FOUNDATION_ORGS`: `python/typeshed` has no CLA (`NONE` today,
     0 CLA checks, 0/60 signoffs); adding `python` to `FOUNDATION_ORGS` would regress
-    `python/typeshed` from `NONE` (100) to `FOUNDATION_CLA` (75) under the `foundation_owner`
+    `python/typeshed` from `NONE` (85) to `FOUNDATION_CLA` (75) under the `foundation_owner`
     fallback.
   - Why `openssl` is **not** added: `openssl/openssl` runs `cla-check`, and raw repository files do
     not disambiguate the legal beneficiary without external legal metadata.
@@ -98,10 +98,16 @@ and `FOUNDATION_ORGS`).
   `27b0ef6f...` -> `72657255...` in `expected.json` and `tests/snapshot/test_store_cli.py`).
 - **Sensitivity (D-AGG-3):** not run; no pillar weight or continuous curve constant changed.
 - **Measured flips on the 2026-10-21 corpus + live check/DCO probes:**
-  - `FOUNDATION_CLA -> DCO` (4 repos): `apache/hbase` (58/60 signoff), `apache/beam` (34/60),
-    `apache/zeppelin` (33/60), `apache/arrow` (30/60).
-  - `FOUNDATION_CLA -> NONE` (6 repos): `x402-foundation/x402`, `Farama-Foundation/Gymnasium`,
-    `bitsandbytes-foundation/bitsandbytes`, `AI4Finance-Foundation/FinRobot`,
-    `Acode-Foundation/Acode`, `FULU-Foundation/OrcaSlicer-bambulab`.
-  - `CORP_CLA -> FOUNDATION_CLA` (2 repos): `SeleniumHQ/selenium` (`license/cla`),
-    `trinodb/trino` (`cla-signed`).
+  - `FOUNDATION_CLA (75) -> DCO (100)` (4 repos, `+25` on 3.1): `apache/hbase` (58/60 signoff),
+    `apache/beam` (34/60), `apache/zeppelin` (33/60), `apache/arrow` (30/60).
+  - `FOUNDATION_CLA (75) -> NONE (85)` (6 repos, `+10` on 3.1): `x402-foundation/x402`,
+    `Farama-Foundation/Gymnasium`, `bitsandbytes-foundation/bitsandbytes`,
+    `AI4Finance-Foundation/FinRobot`, `Acode-Foundation/Acode`,
+    `FULU-Foundation/OrcaSlicer-bambulab`.
+  - `CORP_CLA (25) -> FOUNDATION_CLA (75)` (2 repos, `+50` on 3.1): `SeleniumHQ/selenium`
+    (`license/cla`), `trinodb/trino` (`cla-signed`).
+
+## Reviewer
+
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

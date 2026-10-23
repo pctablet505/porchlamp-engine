@@ -113,18 +113,33 @@ Measured on live GitHub GraphQL before choosing:
   - In `collect_pr_window`, `sample_size` counts the PRs in the drawn sample
     (`pr.get(REPLIES_RECORDED_KEY) is not False`), unaffected by whether a sampled PR's thread stays
     cut past `PR_REPLY_NODE_CAP`.
-- **D-IN-4, readers (`porchlamp.core.gates`).**
+- **D-IN-4, readers (`porchlamp.core.gates`, `porchlamp.collect.github_graphql`, `porchlamp.collect.pike_signals`, `porchlamp.derive.bundle`).**
   - `reply_connection_cut(connection)` and `replies_cut(pr)` report whether a PR node's recorded
     `reviews` or `comments` connection has `pageInfo.hasNextPage is True`. Connections recorded
     before RFC-0022 carry no `pageInfo` and read as whole.
   - `reply_sampled_prs(prs)` computes `maintainer_logins(nodes)` over all PR nodes in the window
     and excludes any PR whose replies remain cut (`replies_cut(pr)`) and whose recorded prefix holds
     no D-IN-2 substantive response (`first_substantive_response(pr, maintainers) is None`). A cut
-    PR whose recorded prefix already contains a D-IN-2 response stays in the reply set because that
-    response is observed; a cut PR with no recorded response is withheld from every reply measure
-    (1.1, 1.4, D-GATE-5, 4.3, the 4.1 review proxy, D-GATE-6 hand-off notices, `closed_unread`) so
-    a thread longer than `PR_REPLY_NODE_CAP` is never counted as unanswered or unreviewed from an
-    incomplete prefix.
+    PR with no recorded response is withheld from every reply measure (1.1, 1.4, D-GATE-5, 4.3, the
+    4.1 review proxy, D-GATE-6 hand-off notices, `closed_unread`) so a thread longer than
+    `PR_REPLY_NODE_CAP` is never counted as unanswered or unreviewed from an incomplete prefix.
+  - When a cut PR remains in `reply_sampled_prs` because its recorded prefix holds a D-IN-2
+    response, each downstream measure withholds the PR if the unrecorded suffix could reverse that
+    measure's outcome:
+    - **1.1 TTFHR** (`derive_pr_window`): withheld (`ttfhr_hours = None`) when `best_kind == "comment"`
+      and `reviews` is cut, or `best_kind == "review"` and `comments` is cut, since the other cut
+      connection could hold an earlier response.
+    - **1.4 GR_14 and D-GATE-5** (`GhostRatePR.replies_cut`, `evaluate_gate5_window`): withheld from
+      `counted_prs` / `population_n` when `not answered_within_14d and pr.replies_cut`, since the
+      unrecorded part of the thread may contain a response within the 14 d deadline.
+    - **4.1 `code_review_rate` and `_resolve_pipeline_defenses` (`proxy:review_ci`)**: a merged PR
+      whose `reviews` connection is cut and has no recorded non-author approval is withheld from the
+      denominator and `Measured.n` rather than counted as unapproved.
+    - **4.3 `substantive_review_rate`** (`derive_pr_window`, `is_excluded_from_review_denominator`,
+      `_resolve_substantive_review_rate`): a decided PR whose replies are cut and whose recorded
+      nodes hold no substantive review or D-IN-2 maintainer comment (`>= 80` effective chars or `1+`
+      inline review comments) has `substantive_review = None` and is excluded from the denominator
+      and `Measured.n`.
 
 | Constant | Before | After |
 |---|---|---|
@@ -175,4 +190,5 @@ pre-release convention).
 
 ## Reviewer
 
-pending: independent review in the #66 PR.
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

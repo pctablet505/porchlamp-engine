@@ -90,7 +90,7 @@ from porchlamp.collect import commits as commit_domains
 from porchlamp.collect import ghcli, validate
 from porchlamp.collect.envelope import raw_envelope_path, relative_envelope_path, write_envelope
 from porchlamp.collect.github_graphql import is_bot_actor, pr_window_cut_short, reply_sampled_prs
-from porchlamp.core import constants, landing
+from porchlamp.core import constants, gates, landing
 from porchlamp.models import OpenSSFSignals
 
 # --------------------------------------------------------------------------- #
@@ -768,10 +768,17 @@ def code_review_rate(prs: Sequence[Mapping[str, Any]]) -> float:
     1,000-PR reply sample when ``prs`` is a >2,000-PR light+sample window);
     a recorded window with no merged PRs is a measured 0.0 (repo-controlled
     absence). RFC-0015: a PR landed outside GitHub's merge is merged here
-    (:func:`porchlamp.core.landing.merged_or_landed_at`).
+    (:func:`porchlamp.core.landing.merged_or_landed_at`). RFC-0022: a merged PR
+    whose recorded ``reviews`` list remains cut with no recorded approval is
+    withheld rather than counted as unapproved.
     """
     sampled = reply_sampled_prs(prs)
-    merged = [pr for pr in sampled if landing.merged_or_landed_at(pr) is not None]
+    merged = [
+        pr
+        for pr in sampled
+        if landing.merged_or_landed_at(pr) is not None
+        and (has_non_author_approval(pr) or not gates.reply_connection_cut(pr.get("reviews")))
+    ]
     if not merged:
         return 0.0
     approved = sum(1 for pr in merged if has_non_author_approval(pr))

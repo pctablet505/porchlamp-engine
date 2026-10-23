@@ -514,16 +514,133 @@ def _parse_iso_opt(value: object) -> datetime | None:
         return None
 
 
-def is_excluded_from_review_denominator(
-    pr: Mapping[str, Any], maintainers: frozenset[str]
+_REVIEW_BOILERPLATE_STRIP_RE = re.compile(r"https?://\S+|@[\w-]+|#\d+|\d+")
+_REVIEW_WS_RE = re.compile(r"\s+")
+
+
+def normalize_review_text(text: str) -> str:
+    """Normalize review or comment prose for boilerplate deduplication (RFC-0018).
+
+    Lowercases, strips URLs, ``@mentions``, ``#123`` issue/PR references, and
+    digits, and collapses whitespace so templated greetings or coverage pastes
+    that differ only by PR number, contributor login, or percentage collapse to
+    one key.
+    """
+    cleaned = _REVIEW_BOILERPLATE_STRIP_RE.sub("", (text or "").lower())
+    return _REVIEW_WS_RE.sub(" ", cleaned).strip()
+
+
+def substantive_review_boilerplate(
+    prs: Sequence[Mapping[str, Any]], maintainers: frozenset[str]
+) -> frozenset[str]:
+    """Normalized texts appearing on >= ``SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS``
+    distinct sampled PRs across non-bot, non-author reviews or D-IN-2 maintainer
+    comments meeting ``SUBSTANTIVE_REVIEW_BODY_CHARS`` (RFC-0018)."""
+    pr_counts: dict[str, int] = {}
+    for pr in prs:
+        author_login = _node_login(pr.get("author"))
+        seen_on_pr: set[str] = set()
+        for raw in (pr.get("reviews") or {}).get("nodes") or []:
+            if not isinstance(raw, Mapping):
+                continue
+            rev_author = raw.get("author")
+            rev_login = _node_login(rev_author)
+            if is_bot_actor_node(rev_author) or rev_login == author_login:
+                continue
+            body = str(raw.get("body") or "")
+            if comment_length(body) >= constants.SUBSTANTIVE_REVIEW_BODY_CHARS:
+                norm = normalize_review_text(body)
+                if norm:
+                    seen_on_pr.add(norm)
+        for comment in (pr.get("comments") or {}).get("nodes") or []:
+            if not is_maintainer_response(comment, author_login, maintainers):
+                continue
+            body_text = str(comment.get("bodyText") or "")
+            if comment_length(body_text) >= constants.SUBSTANTIVE_REVIEW_BODY_CHARS:
+                norm = normalize_review_text(body_text)
+                if norm:
+                    seen_on_pr.add(norm)
+        for norm in seen_on_pr:
+            pr_counts[norm] = pr_counts.get(norm, 0) + 1
+    return frozenset(
+        norm
+        for norm, count in pr_counts.items()
+        if count >= constants.SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS
+    )
+
+
+def has_substantive_review_or_comment(
+    pr: Mapping[str, Any],
+    maintainers: frozenset[str],
+    boilerplate: frozenset[str] = frozenset(),
 ) -> bool:
-    """RFC-0018 (02 §4.3): whether a decided PR node is excluded from the 4.3
-    ``substantive_review_rate`` denominator as either (a) a draft PR closed
-    without ever becoming ready for review, or (b) an unanswered PR closed by
-    its own author within ``GATE5_RESPONSE_DEADLINE_DAYS`` (14 d) of clock
-    start. Shared by ``porchlamp.collect.github_graphql.derive_pr_window`` and
+    """RFC-0018 (02 §4.3): whether a recorded PR node has either (a) a non-bot,
+    non-author review with 1+ inline comments or a non-boilerplate body of >=
+    ``SUBSTANTIVE_REVIEW_BODY_CHARS`` effective characters, or (b) a
+    non-boilerplate D-IN-2 maintainer issue comment of >=
+    ``SUBSTANTIVE_REVIEW_BODY_CHARS`` effective characters."""
+    author_login = _node_login(pr.get("author"))
+    for raw in (pr.get("reviews") or {}).get("nodes") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        rev_author = raw.get("author")
+        rev_login = _node_login(rev_author)
+        if is_bot_actor_node(rev_author) or rev_login == author_login:
+            continue
+        inline_count = int((raw.get("comments") or {}).get("totalCount") or 0)
+        body = str(raw.get("body") or "")
+        if inline_count >= 1 or (
+            comment_length(body) >= constants.SUBSTANTIVE_REVIEW_BODY_CHARS
+            and normalize_review_text(body) not in boilerplate
+        ):
+            return True
+    for comment in (pr.get("comments") or {}).get("nodes") or []:
+        if not is_maintainer_response(comment, author_login, maintainers):
+            continue
+        body_text = str(comment.get("bodyText") or "")
+        if (
+            comment_length(body_text) >= constants.SUBSTANTIVE_REVIEW_BODY_CHARS
+            and normalize_review_text(body_text) not in boilerplate
+        ):
+            return True
+    return False
+
+
+def has_non_author_approval(pr: Mapping[str, Any]) -> bool:
+    """True when a recorded PR node has an APPROVED review by a non-author,
+    non-bot account (02 §4 4.1, D-IN-1)."""
+    author_login = _node_login(pr.get("author"))
+    for raw in (pr.get("reviews") or {}).get("nodes") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        if str(raw.get("state") or "").upper() != "APPROVED":
+            continue
+        reviewer = raw.get("author")
+        login = _node_login(reviewer)
+        if not login or login == author_login:
+            continue
+        if is_bot_actor_node(reviewer):
+            continue
+        return True
+    return False
+
+
+def is_excluded_from_review_denominator(
+    pr: Mapping[str, Any],
+    maintainers: frozenset[str],
+    boilerplate: frozenset[str] = frozenset(),
+) -> bool:
+    """RFC-0018, RFC-0022 (02 §4.3): whether a decided PR node is excluded from
+    the 4.3 ``substantive_review_rate`` denominator as (a) a draft PR closed
+    without ever becoming ready for review, (b) an unanswered PR closed by its
+    own author within ``GATE5_RESPONSE_DEADLINE_DAYS`` (14 d) of clock start, or
+    (c) a PR whose recorded replies remain cut (:func:`replies_cut`) with no
+    recorded substantive review or comment (:func:`has_substantive_review_or_comment`).
+    Shared by ``porchlamp.collect.github_graphql.derive_pr_window`` and
     ``porchlamp.derive.bundle._resolve_substantive_review_rate`` so the rate
     denominator and ``Measured.n`` agree on every record."""
+    if replies_cut(pr) and not has_substantive_review_or_comment(pr, maintainers, boilerplate):
+        return True
     author_login = _node_login(pr.get("author"))
     is_draft = bool(pr.get("isDraft", False))
     ready_for_review_at: str | None = (
@@ -715,8 +832,11 @@ def reply_sampled_prs(prs: Iterable[object]) -> list[Mapping[str, Any]]:
     (:func:`first_substantive_response` over the :func:`maintainer_logins` of
     every node in ``prs``): the record cannot show whether the project answered
     that PR, so no reply measure reads it as unanswered, or as unreviewed. A cut
-    node whose recorded part holds a response stays, since that response is
-    real. Nodes recorded before RFC-0022 carry no ``pageInfo`` and are never cut.
+    node whose recorded part holds a response stays for measures that response
+    settles, while each measure's own reader withholds a cut PR when its
+    specific positive evidence is absent or could be preceded on the other cut
+    connection. Nodes recorded before RFC-0022 carry no ``pageInfo`` and are
+    never cut.
     """
     nodes = [pr for pr in prs if isinstance(pr, Mapping)]
     recorded = [pr for pr in nodes if pr.get(REPLIES_RECORDED_KEY) is not False]
@@ -821,6 +941,7 @@ class GhostRatePR:
     closed_by_maintainer_at: str | None = None
     author_created_at: str | None = None
     number: int | None = None
+    replies_cut: bool = False
 
 
 def wilson_lower_bound_from_share(
@@ -989,6 +1110,13 @@ def evaluate_gate5_window(
             if closed_dt <= clock_start + deadline and not had_prior_response:
                 excluded_self_closed += 1
                 continue
+
+        # RFC-0022: a PR whose recorded replies stop short of its thread and
+        # show no response within 14 d is withheld rather than counted as
+        # unanswered, since the cut part of the thread may hold an answer
+        # within the 14 d window.
+        if not answered_within_14d and pr.replies_cut:
+            continue
 
         counted_prs.append(
             Gate5CountedPR(

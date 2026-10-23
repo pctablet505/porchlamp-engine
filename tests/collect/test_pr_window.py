@@ -3437,3 +3437,91 @@ def test_the_sample_size_counts_the_drawn_sample_whatever_its_cut_prs(tmp_path, 
     silent = [pr for pr in data["prs"] if pr.get(gql.REPLIES_RECORDED_KEY) is not False and not pr["reviews"]["nodes"]]
     assert all(gates.replies_cut(pr) for pr in silent) and silent
     assert len(gql.reply_sampled_prs(data["prs"])) == gql.PR_SAMPLE_CAP - len(silent)
+
+
+def test_cut_pr_per_measure_guards_withhold_unsettled_4_3_4_1_gr14_and_ttfhr():
+    """RFC-0022: when a cut PR stays in reply_sampled_prs because its recorded
+    prefix holds a non-substantive (<80 char) review or a post-14d comment,
+    downstream measures withhold it when the unrecorded suffix could reverse the
+    outcome (4.3 substantive_review, 4.1 code_review_rate, 1.4 GR_14, 1.1 TTFHR)."""
+    from porchlamp.collect import pike_signals
+    from porchlamp.derive import gate_evidence
+
+    short_rev = {
+        "author": {"__typename": "User", "login": "maint"},
+        "authorAssociation": "MEMBER",
+        "state": "COMMENTED",
+        "body": "Ack.",
+        "comments": {"totalCount": 0},
+        "createdAt": (NOW - timedelta(days=20)).isoformat(),
+    }
+    approved_long_rev = {
+        "author": {"__typename": "User", "login": "maint"},
+        "authorAssociation": "MEMBER",
+        "state": "APPROVED",
+        "body": (
+            "This implementation handles the cursor pagination boundary cleanly "
+            "and preserves backwards compatibility with legacy envelopes."
+        ),
+        "comments": {"totalCount": 1},
+        "createdAt": (NOW - timedelta(days=39)).isoformat(),
+    }
+    pr_cut_unsettled = {
+        **pr_node(
+            1,
+            (NOW - timedelta(days=40)).isoformat(),
+            closed=(NOW - timedelta(days=10)).isoformat(),
+            merged=(NOW - timedelta(days=10)).isoformat(),
+        ),
+        "reviews": {
+            "nodes": [short_rev],
+            "totalCount": 305,
+            "pageInfo": {"hasNextPage": True, "endCursor": "c300"},
+        },
+        "comments": {
+            "nodes": [],
+            "totalCount": 305,
+            "pageInfo": {"hasNextPage": True, "endCursor": "m300"},
+        },
+    }
+    pr_cut_settled = {
+        **pr_node(
+            2,
+            (NOW - timedelta(days=40)).isoformat(),
+            closed=(NOW - timedelta(days=35)).isoformat(),
+            merged=(NOW - timedelta(days=35)).isoformat(),
+        ),
+        "reviews": {
+            "nodes": [approved_long_rev],
+            "totalCount": 305,
+            "pageInfo": {"hasNextPage": True, "endCursor": "c300"},
+        },
+        "comments": {
+            "nodes": [],
+            "totalCount": 0,
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+        },
+    }
+    prs = [pr_cut_unsettled, pr_cut_settled]
+    assert [p["number"] for p in gql.reply_sampled_prs(prs)] == [1, 2]
+
+    derived = {d["number"]: d for d in gql.derive_pr_window(prs)}
+    # PR 1: best_kind == "review" while comments is cut -> ttfhr_hours is None;
+    # no recorded substantive review while replies are cut -> substantive_review is None.
+    assert derived[1]["ttfhr_hours"] is None
+    assert derived[1]["substantive_review"] is None
+    # PR 2: comments is whole -> ttfhr_hours is measured; substantive review is True.
+    assert derived[2]["ttfhr_hours"] == 24.0
+    assert derived[2]["substantive_review"] is True
+
+    # 4.1 code_review_rate: PR 1 (merged, cut reviews, no approval) is withheld;
+    # PR 2 (merged, cut reviews, recorded approval) counts -> rate is 1.0 (1/1), not 0.5 (1/2).
+    assert pike_signals.code_review_rate(prs) == 1.0
+
+    # 1.4 GR_14 / D-GATE-5: PR 1's only response is at day 20 (>14d) and its replies are cut
+    # -> withheld from population_n; PR 2 was answered at day 1 -> (0, 1).
+    gr_records = gql.ghost_rate_prs_from_window(prs)
+    assert [r.replies_cut for r in gr_records] == [True, True]
+    assert gates.zero_response_counts(gr_records, NOW) == (0, 1)
+    assert gates.zero_response_counts(gate_evidence._ghost_rate_prs_from_nodes(prs), NOW) == (0, 1)
+

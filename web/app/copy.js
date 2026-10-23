@@ -1478,15 +1478,15 @@ export const LEGAL_IP_LABELS = Object.freeze({
 
 /** ai_posture, classified by porchlamp/collect/governance.py classify_ai_posture. */
 export const AI_POSTURE_LABELS = Object.freeze({
-  REGULATED: "Written AI policy", // governance.py:911-912 a policy file of AI_POLICY_FILES (:116) is present
-  PROSCRIBED: "AI ban stated in a written policy", // docs/v2/02-RANKING-DESIGN.md:165 an explicit ban sentence in a policy file; governance.py:24-31 the collector never returns it
-  AD_HOC: "No written AI policy", // governance.py:913 no policy file found
+  REGULATED: "Written AI policy", // governance.py classify_ai_posture (RFC-0019): AI rule file, trailer convention, policy heading, PR template disclosure checkbox, or explicit AI rule directive
+  PROSCRIBED: "AI ban stated in a written policy", // governance.py classify_ai_posture (RFC-0019): explicit code-contribution ban sentence in a policy file or PR template
+  AD_HOC: "No written AI policy", // governance.py classify_ai_posture: no AI ban or regulation found
 });
 
 /** promotion_ladder, classified by porchlamp/collect/governance.py classify_promotion_ladder. */
 export const PROMOTION_LADDER_LABELS = Object.freeze({
-  VERIFIED: "An outside contributor became a member or collaborator", // governance.py:865 a promotion seen in the pull request window (PROMOTION_TARGET_ASSOCIATIONS, :166)
-  DOCUMENTED: "A written path to becoming a maintainer", // governance.py:891 a governance file names a nomination process (NOMINATION_PATTERN, :169)
-  AD_HOC: "No written path to becoming a maintainer", // governance.py:892 no promotion seen and no nomination text found
-  CLOSED: "Merged pull requests all came from one organisation", // governance.py:887 no outside merge, and every merged author belongs to one email-domain organisation
+  VERIFIED: "An outside contributor became a member or collaborator", // governance.py observed_promotions (RFC-0016): age-eligible account with outside merges >= PROMOTION_MIN_OUTSIDE_DAYS before a maintainer action
+  DOCUMENTED: "A written path to becoming a maintainer", // governance.py classify_promotion_ladder: a governance file names a nomination process (NOMINATION_PATTERN)
+  AD_HOC: "No written path to becoming a maintainer", // governance.py classify_promotion_ladder: no promotion seen and no nomination text found
+  CLOSED: "Merged pull requests all came from one organisation", // governance.py classify_promotion_ladder: no outside merge, and every merged author belongs to one email-domain organisation
 });

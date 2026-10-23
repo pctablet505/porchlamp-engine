@@ -1098,6 +1098,7 @@ def is_confirmed_black_hole_in_raw(
                 )
             ),
             "number": pr.get("number"),
+            "replies_cut": gates.replies_cut(pr),
         }
         filtered_kwargs = {k: v for k, v in kwargs.items() if k in field_names}
         records.append(gates.GhostRatePR(**filtered_kwargs))

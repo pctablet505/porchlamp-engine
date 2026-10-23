@@ -180,4 +180,5 @@ pre-release convention).
 
 ## Reviewer
 
-Pending: independent review in the #66 PR.
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

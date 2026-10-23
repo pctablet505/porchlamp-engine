@@ -1772,11 +1772,13 @@ def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     prs = data.get("prs")
     nodes = [pr for pr in prs if isinstance(pr, Mapping)] if isinstance(prs, list) else []
     maintainers = gates.maintainer_logins(nodes)
+    sampled = _reply_sampled_prs(nodes)
+    boilerplate = gates.substantive_review_boilerplate(sampled, maintainers)
     decided_outside = [
-        pr for pr in _reply_sampled_prs(nodes)
+        pr for pr in sampled
         if _is_outside_pr(pr)
         and pr.get("closedAt") is not None
-        and not gates.is_excluded_from_review_denominator(pr, maintainers)
+        and not gates.is_excluded_from_review_denominator(pr, maintainers, boilerplate)
     ]
     n = len(decided_outside)
     min_n = constants.PARAM_MIN_N["substantive_review_rate"]
@@ -2114,7 +2116,12 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
                 return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
             prs = data.get("prs") if isinstance(data, Mapping) else None
             sampled_prs = _reply_sampled_prs(prs or [])
-            n = sum(1 for pr in sampled_prs if landing.merged_or_landed_at(pr) is not None)
+            n = sum(
+                1
+                for pr in sampled_prs
+                if landing.merged_or_landed_at(pr) is not None
+                and (gates.has_non_author_approval(pr) or not gates.reply_connection_cut(pr.get("reviews")))
+            )
         return Measured(value=float(value), n=n, window_start=None, window_end=None, method=method,
                          source=_relative_source(paths[0], ctx.raw_root),
                          source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)

@@ -609,6 +609,7 @@ def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.G
                 closed_by_maintainer_at=closed_by_maint_at if isinstance(closed_by_maint_at, str) else None,
                 author_created_at=author_created_at,
                 number=num if isinstance(num, int) and not isinstance(num, bool) else None,
+                replies_cut=gates.replies_cut(pr),
             )
         )
     return out

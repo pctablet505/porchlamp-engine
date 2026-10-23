@@ -151,3 +151,8 @@ requests with `mergedAt == null` per repository across 27 repositories):
   recovery for 1.3, 5.2 and 5.3 takes effect as `author_history` envelopes are refreshed with the
   updated query; `pr_window` envelopes collected since #63 already carry `PR_LANDING_FIELDS` and
   immediately credit landed external PRs in 1.5 `TTM_p90` and the 4.1 review proxy upon re-derivation.
+
+## Reviewer
+
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

@@ -1658,3 +1658,86 @@ def test_a_cut_prs_reply_counts_by_the_windows_d_in_2_maintainers() -> None:
                         "mergedBy": {"login": "committer"}, gates.REPLIES_RECORDED_KEY: False}
     assert [pr["number"] for pr in gates.reply_sampled_prs([cut, merged_elsewhere])] == [1]
     assert gates.reply_sampled_prs([cut]) == []
+
+
+def test_evaluate_gate5_window_withholds_cut_pr_answered_only_after_14d() -> None:
+    """RFC-0022: a cut PR whose recorded replies show only a response after 14 d
+    is withheld from D-GATE-5 / 1.4 GR_14 (the unrecorded part of the thread may
+    hold an answer within 14 d), whereas a cut PR answered within 14 d counts as
+    answered and a whole PR answered after 14 d counts as unanswered."""
+    from porchlamp.core import gates
+
+    cut_late = gates.GhostRatePR(
+        created_at=_iso(_ago(40)),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=_iso(_ago(20)),
+        number=1,
+        replies_cut=True,
+    )
+    cut_on_time = gates.GhostRatePR(
+        created_at=_iso(_ago(40)),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=_iso(_ago(35)),
+        number=2,
+        replies_cut=True,
+    )
+    whole_late = gates.GhostRatePR(
+        created_at=_iso(_ago(40)),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=_iso(_ago(20)),
+        number=3,
+        replies_cut=False,
+    )
+    assert gates.zero_response_counts([cut_late], NOW) == (0, 0)
+    assert gates.zero_response_counts([cut_late, cut_on_time], NOW) == (0, 1)
+    assert gates.zero_response_counts([cut_late, cut_on_time, whole_late], NOW) == (1, 2)
+
+
+def test_is_excluded_from_review_denominator_withholds_cut_pr_without_substantive_review() -> None:
+    """RFC-0022: a decided cut PR that stays in reply_sampled_prs via a short
+    (<80 char, 0 inline comments) review is excluded from the 4.3 denominator when
+    no substantive review or comment is recorded; a cut PR with a recorded
+    substantive review stays."""
+    from porchlamp.core import gates
+
+    short_review = {
+        "author": {"__typename": "User", "login": "maint"},
+        "authorAssociation": "MEMBER",
+        "state": "COMMENTED",
+        "body": "Looking into this.",
+        "comments": {"totalCount": 0},
+        "createdAt": _iso(_ago(40)),
+    }
+    long_review = {
+        **short_review,
+        "body": (
+            "The retry loop needs a bounded backoff and an explicit timeout guard "
+            "before we can merge this change into the main branch."
+        ),
+    }
+    cut_short = _outside_pr(
+        1,
+        _reply_list([], more=False),
+        closedAt=_iso(_ago(30)),
+        reviews=_reply_list([short_review], more=True),
+    )
+    cut_long = _outside_pr(
+        2,
+        _reply_list([], more=False),
+        closedAt=_iso(_ago(30)),
+        reviews=_reply_list([long_review], more=True),
+    )
+    whole_short = _outside_pr(
+        3,
+        _reply_list([], more=False),
+        closedAt=_iso(_ago(30)),
+        reviews=_reply_list([short_review], more=False),
+    )
+    maintainers = gates.maintainer_logins([cut_short, cut_long, whole_short])
+    assert gates.is_excluded_from_review_denominator(cut_short, maintainers) is True
+    assert gates.is_excluded_from_review_denominator(cut_long, maintainers) is False
+    assert gates.is_excluded_from_review_denominator(whole_short, maintainers) is False
+

@@ -112,3 +112,8 @@ plus 360-day history validation on every candidate):
       180–360 d) and `gri-ffin` (12 outside merges over 136 d; 0 prior actions in 180–360 d).
     - `django/django`: `tim-schilling` (3 outside merges over 93 d; 2 prior actions in 180–360 d,
       residual dormant-maintainer edge case).
+
+## Reviewer
+
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

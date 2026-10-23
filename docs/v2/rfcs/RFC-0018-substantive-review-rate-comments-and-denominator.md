@@ -101,3 +101,8 @@ and `102` unanswered within-14d author self-closes):
 | Baseline reviews + D1 denominator | `19.6%` | `22.7%` | `24.5` | `28.4` |
 | Unguarded comments (`N=80`, D0, no boilerplate guard) | `30.8%` | `39.7%` | `38.5` | `49.6` |
 | **RFC-0018 (`G80_D1`: `N=80`, CJK weight 3, `K=3` boilerplate guard, D1 denominator)** | **`31.8%`** | **`33.1%`** | **`39.7`** | **`41.4`** |
+
+## Reviewer
+
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

@@ -66,4 +66,5 @@ Two related properties of the evidence-sufficiency gate (`D-EVID-1`, `docs/v2/02
 
 ## Reviewer
 
-Reviewed by independent verification agent (WS3, 2026-10-23).
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

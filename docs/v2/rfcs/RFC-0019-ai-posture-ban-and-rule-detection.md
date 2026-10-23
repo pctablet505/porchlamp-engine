@@ -97,3 +97,8 @@ unchanged by RFC-0019 (`3bc4aac040af2937e438e39e3e18ffbbfad6ddf7aeea7a1911f6e601
     masked as `REGULATED`).
   - `20` of the `256` repositories depend on the newly added `PR_TEMPLATE_FILES` paths for their
     `PROSCRIBED` or `REGULATED` classification.
+
+## Reviewer
+
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

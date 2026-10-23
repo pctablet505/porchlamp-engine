@@ -165,5 +165,5 @@ pre-release convention).
 
 ## Reviewer
 
-Pending independent review per `docs/REVIEW_GUIDELINES.md` and `docs/v2/03-ANTI-MANIPULATION.md`
-section 7.
+Reviewed by independent adversarial reviewer (#66 PR, 2026-10-23).
+

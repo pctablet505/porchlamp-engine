@@ -550,8 +550,17 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
             best_at, best_kind = response if response is not None else (None, None)
             best_dt = _parse_iso(best_at)
             created_dt = _parse_iso(pr.get("createdAt"))
+            other_reply_cut = (
+                (best_kind == "comment" and gates.reply_connection_cut(pr.get("reviews")))
+                or (best_kind == "review" and gates.reply_connection_cut(pr.get("comments")))
+            )
             ttfhr: Optional[float] = None
-            if best_dt is not None and created_dt is not None and best_dt >= created_dt:
+            if (
+                best_dt is not None
+                and created_dt is not None
+                and best_dt >= created_dt
+                and not other_reply_cut
+            ):
                 ttfhr = (best_dt - created_dt).total_seconds() / 3600.0
 
             ready_dt = _parse_iso(ready_for_review_at)
@@ -612,7 +621,12 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
                     not in boilerplate
                     for comment in ((pr.get("comments") or {}).get("nodes") or [])
                 )
-                substantive_review = has_substantive_review or has_substantive_maint_comment
+                has_substantive = has_substantive_review or has_substantive_maint_comment
+                substantive_review = (
+                    None
+                    if not has_substantive and gates.replies_cut(pr)
+                    else has_substantive
+                )
         else:
             best_at, best_kind = None, None
             ttfhr = None
@@ -675,6 +689,7 @@ def ghost_rate_prs_from_window(
                 closed_by_maintainer_at=d.get("closed_by_maintainer_at"),
                 author_created_at=d.get("author_created_at"),
                 number=d.get("number"),
+                replies_cut=gates.replies_cut(pr),
             )
         )
     return out
