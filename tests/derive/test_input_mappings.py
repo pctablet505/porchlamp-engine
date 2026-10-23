@@ -49,6 +49,26 @@ PR_WINDOW_UNRESOLVABLE_DETAIL = (
 )
 
 
+def _outside(pr: dict[str, Any]) -> dict[str, Any]:
+    """A recorded PR node by an outside author. #57: every pr_window reader
+    classifies the node itself (an external association and a non-bot author,
+    ``porchlamp.core.gates.is_outside_pr``), never the envelope's stored
+    ``derived`` list, so the fixtures record what GitHub records."""
+    author = {"login": f"u{pr['number']}", **(pr.get("author") or {}), "__typename": "User"}
+    return {**pr, "authorAssociation": "NONE", "author": author}
+
+
+def _member(pr: dict[str, Any]) -> dict[str, Any]:
+    """A recorded PR node by one of the repository's own people."""
+    return {**pr, "authorAssociation": "MEMBER", "author": {"login": f"m{pr['number']}", "__typename": "User"}}
+
+
+def _bot(pr: dict[str, Any]) -> dict[str, Any]:
+    """A recorded PR node a bot opened (D-IN-1: GitHub types it ``Bot``); GitHub
+    gives Dependabot's PRs an external association."""
+    return {**pr, "authorAssociation": "CONTRIBUTOR", "author": {"login": "dependabot", "__typename": "Bot"}}
+
+
 def test_input_mappings_cover_every_v2_input_id() -> None:
     assert set(INPUT_MAPPINGS) == set(constants.PARAM_INPUT_IDS)
     assert len(INPUT_MAPPINGS) == 18
@@ -129,13 +149,13 @@ _TTM_PRS = [
     {"number": 4, "createdAt": "2026-08-04T00:00:00+00:00", "mergedAt": "2026-08-05T16:00:00+00:00"},
     {"number": 5, "createdAt": "2026-08-05T00:00:00+00:00", "mergedAt": "2026-08-07T02:00:00+00:00"},
 ]
-_TTM_DERIVED = [{"number": n, "is_external": True, "merged": True} for n in (1, 2, 3, 4, 5)]
+_TTM_PRS = [_outside(pr) for pr in _TTM_PRS]
 
 
 def test_ttm_p90_hours(tmp_path: Path) -> None:
     # Latencies 10/20/30/40/50h; nearest-rank p90 of 5 values (ceil(0.9*5)=5th
     # smallest, 1-indexed) is the max: 50.0.
-    data = pr_window_data(prs=_TTM_PRS, derived=_TTM_DERIVED)
+    data = pr_window_data(prs=_TTM_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__widget", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window")})
     bundle = load(tmp_path, doc)
@@ -147,7 +167,7 @@ def test_ttm_p90_hours(tmp_path: Path) -> None:
     )
 
     # Negative 1: only 4 merged-external latencies, below min n 5.
-    low_data = pr_window_data(prs=_TTM_PRS[:4], derived=_TTM_DERIVED[:4])
+    low_data = pr_window_data(prs=_TTM_PRS[:4])
     write_envelope(tmp_path / "raw", "pr_window", "acme__low-n", low_data, "2026-09-01T00:05:00+00:00")
     low_doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__low-n")})
     low_bundle = load(tmp_path, low_doc, key="acme__low-n")
@@ -166,12 +186,10 @@ _TTM_MIXED_PRS = [
     # 201: internal (is_external False), merged, a very long latency -- must
     # be excluded by the is_external filter, not counted toward n or p90.
     {"number": 201, "createdAt": "2026-07-01T00:00:00+00:00", "mergedAt": "2026-08-10T00:00:00+00:00"},
-    # 202: external, derived.merged False, but its raw record still carries
-    # a parseable mergedAt (isolates the "merged" flag guard from the
-    # separate "raw mergedAt is null" guard the resolver also has -- a null
-    # mergedAt would be excluded either way and could not kill a mutant that
-    # only drops the "merged" flag check). Its ~524h latency would corrupt
-    # the p90 below if wrongly counted.
+    # 202: merged, but opened by a bot (Dependabot, which GitHub gives an
+    # external association): D-IN-1 keeps a bot's own PRs out of every
+    # external-PR measure (#57). Its ~524h latency would corrupt the p90
+    # below if wrongly counted.
     {"number": 202, "createdAt": "2026-08-06T00:00:00+00:00", "mergedAt": "2026-08-27T20:00:00+00:00"},
     # 203: external, merged, but mergedAt < createdAt (clock skew / bad
     # data) -- excluded by the merged-before-created guard, not the two
@@ -186,25 +204,20 @@ _TTM_MIXED_PRS = [
     {"number": 207, "createdAt": "2026-08-04T00:00:00+00:00", "mergedAt": "2026-08-05T00:00:00+00:00"},
     {"number": 208, "createdAt": "2026-08-05T00:00:00+00:00", "mergedAt": "2026-08-06T06:00:00+00:00"},
 ]
-_TTM_MIXED_DERIVED = [
-    {"number": 201, "is_external": False, "merged": True},
-    {"number": 202, "is_external": True, "merged": False},
-    {"number": 203, "is_external": True, "merged": True},
-    {"number": 204, "is_external": True, "merged": True},
-    {"number": 205, "is_external": True, "merged": True},
-    {"number": 206, "is_external": True, "merged": True},
-    {"number": 207, "is_external": True, "merged": True},
-    {"number": 208, "is_external": True, "merged": True},
+_TTM_MIXED_PRS = [
+    _member(pr) if pr["number"] == 201 else _bot(pr) if pr["number"] == 202 else _outside(pr)
+    for pr in _TTM_MIXED_PRS
 ]
 
 
 def test_ttm_p90_hours_excludes_internal_unmerged_and_backwards_time_prs(tmp_path: Path) -> None:
-    """: 1.5 TTM_p90 must count only PRs that are external AND merged
-    AND have mergedAt >= createdAt. The fixture carries one PR failing each
-    of the three guards (201 internal, 202 unmerged, 203 backwards-time)
+    """: 1.5 TTM_p90 must count only PRs that are outside PRs (external,
+    non-bot author) AND merged AND have mergedAt >= createdAt. The fixture
+    carries one PR failing each of the three guards (201 internal, 202
+    bot-authored, 203 backwards-time)
     alongside 5 clean external-merged PRs (204-208, latencies 6/12/18/24/30h)
     -- proving n and the p90 come from the 5 clean PRs alone, not 8."""
-    data = pr_window_data(prs=_TTM_MIXED_PRS, derived=_TTM_MIXED_DERIVED)
+    data = pr_window_data(prs=_TTM_MIXED_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__mixed-ttm", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__mixed-ttm")})
     bundle = load(tmp_path, doc, key="acme__mixed-ttm")
@@ -224,8 +237,11 @@ def test_ttm_p90_hours_excludes_internal_unmerged_and_backwards_time_prs(tmp_pat
 # --------------------------------------------------------------------------- #
 
 def test_substantive_review_rate(tmp_path: Path) -> None:
-    decided_external = [{"is_external": True, "decided": True} for _ in range(10)]
-    data = pr_window_data(derived=decided_external)
+    decided_external = [
+        _outside({"number": i, "createdAt": "2026-08-01T00:00:00+00:00", "closedAt": "2026-08-02T00:00:00+00:00"})
+        for i in range(10)
+    ]
+    data = pr_window_data(prs=decided_external)
     write_envelope(tmp_path / "raw", "pr_window", "acme__widget", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(
         meta={"pr_window_substantive_review_rate": 0.4},
@@ -240,7 +256,7 @@ def test_substantive_review_rate(tmp_path: Path) -> None:
     )
 
     # Negative 1: only 9 decided-external PRs, below min n 10.
-    low_data = pr_window_data(derived=decided_external[:9])
+    low_data = pr_window_data(prs=decided_external[:9])
     write_envelope(tmp_path / "raw", "pr_window", "acme__low-n", low_data, "2026-09-01T00:05:00+00:00")
     low_doc = base_document(
         meta={"pr_window_substantive_review_rate": 0.4},
@@ -267,9 +283,10 @@ def test_substantive_review_rate_excludes_internal_reviews_from_n(tmp_path: Path
     review's mutant) would count all 16 and wrongly yield
     Measured(value=0.5, n=12) on a related 6/6 fixture; this one pins the
     correct n so that mutant cannot survive."""
-    internal_decided = [{"is_external": False, "decided": True} for _ in range(12)]
-    external_decided = [{"is_external": True, "decided": True} for _ in range(4)]
-    data = pr_window_data(derived=internal_decided + external_decided)
+    decided = {"createdAt": "2026-08-01T00:00:00+00:00", "closedAt": "2026-08-02T00:00:00+00:00"}
+    internal_decided = [_member({"number": i, **decided}) for i in range(12)]
+    external_decided = [_outside({"number": 100 + i, **decided}) for i in range(4)]
+    data = pr_window_data(prs=internal_decided + external_decided)
     write_envelope(tmp_path / "raw", "pr_window", "acme__mixed", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(
         meta={"pr_window_substantive_review_rate": 0.5},
@@ -1538,11 +1555,11 @@ _DR90_PRS = [
     {"number": 108, "createdAt": "2026-05-16T00:00:00+00:00", "mergedAt": "2026-12-02T00:00:00+00:00"},
     {"number": 109, "createdAt": "2026-05-15T00:00:00+00:00"},
 ]
-_DR90_DERIVED = [{"number": n, "is_external": True} for n in range(100, 110)]
+_DR90_PRS = [_outside(pr) for pr in _DR90_PRS]
 
 
 def test_dr90_decision_rate(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_PRS, derived=_DR90_DERIVED)
+    data = pr_window_data(prs=_DR90_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__widget", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window")})
     bundle = load(tmp_path, doc)
@@ -1579,16 +1596,7 @@ _DR90_BOUNDARY_PRS = [
     {"number": 150, "createdAt": "2026-04-04T00:00:00+00:00"},  # internal, in-range date
     {"number": 250, "createdAt": "2025-12-25T00:00:00+00:00"},  # external, far outside
 ]
-_DR90_BOUNDARY_DERIVED = [
-    {"number": 89, "is_external": True},
-    {"number": 90, "is_external": True},
-    {"number": 91, "is_external": True},
-    {"number": 179, "is_external": True},
-    {"number": 180, "is_external": True},
-    {"number": 181, "is_external": True},
-    {"number": 150, "is_external": False},
-    {"number": 250, "is_external": True},
-]
+_DR90_BOUNDARY_PRS = [_member(pr) if pr["number"] == 150 else _outside(pr) for pr in _DR90_BOUNDARY_PRS]
 
 
 def test_dr90_decision_rate_cohort_window_boundaries(tmp_path: Path) -> None:
@@ -1598,7 +1606,7 @@ def test_dr90_decision_rate_cohort_window_boundaries(tmp_path: Path) -> None:
     PARAM_MIN_N=10 -- an off-by-one on either edge, or a dropped
     is_external check (which would additionally admit the internal #150),
     changes the exact count named in this Unmeasured detail."""
-    data = pr_window_data(prs=_DR90_BOUNDARY_PRS, derived=_DR90_BOUNDARY_DERIVED)
+    data = pr_window_data(prs=_DR90_BOUNDARY_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__boundary", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__boundary")})
     bundle = load(tmp_path, doc, key="acme__boundary")
@@ -1625,11 +1633,11 @@ _DR90_MALFORMED_PRS = [
     {"number": 900, "createdAt": None},
     {"number": 901, "createdAt": "not-a-timestamp"},
 ]
-_DR90_MALFORMED_DERIVED = [{"number": n, "is_external": True} for n in (100, 101, 102, 103, 104, 105, 106, 107, 900, 901)]
+_DR90_MALFORMED_PRS = [_outside(pr) for pr in _DR90_MALFORMED_PRS]
 
 
 def test_dr90_decision_rate_malformed_created_at_excluded_and_named(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_MALFORMED_PRS, derived=_DR90_MALFORMED_DERIVED)
+    data = pr_window_data(prs=_DR90_MALFORMED_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__malformed", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__malformed")})
     bundle = load(tmp_path, doc, key="acme__malformed")
@@ -1699,11 +1707,11 @@ _DR90_SOCK_PRS = [
     {"number": 518, "createdAt": "2026-04-25T00:00:00+00:00", "author": {"login": "honest-g"}},
     {"number": 519, "createdAt": "2026-04-29T00:00:00+00:00", "author": {"login": "honest-h"}},
 ]
-_DR90_SOCK_DERIVED = [{"number": n, "is_external": True} for n in range(500, 520)]
+_DR90_SOCK_PRS = [_outside(pr) for pr in _DR90_SOCK_PRS]
 
 
 def test_dr90_decision_rate_author_cap_sock_puppet(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_SOCK_PRS, derived=_DR90_SOCK_DERIVED)
+    data = pr_window_data(prs=_DR90_SOCK_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__sock", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__sock")})
     bundle = load(tmp_path, doc, key="acme__sock")
@@ -1756,7 +1764,7 @@ _DR90_CAP_BOUNDARY_PRS = [
     {"number": 538, "createdAt": "2026-04-27T00:00:00+00:00", "author": {"login": "honest-14"}},
     {"number": 539, "createdAt": "2026-04-29T00:00:00+00:00", "author": {"login": "honest-15"}},
 ]
-_DR90_CAP_BOUNDARY_DERIVED = [{"number": n, "is_external": True} for n in range(520, 540)]
+_DR90_CAP_BOUNDARY_PRS = [_outside(pr) for pr in _DR90_CAP_BOUNDARY_PRS]
 
 
 def test_dr90_decision_rate_author_cap_boundary(tmp_path: Path) -> None:
@@ -1766,7 +1774,7 @@ def test_dr90_decision_rate_author_cap_boundary(tmp_path: Path) -> None:
     kept PRs is decided (the dominant author's oldest): r = 1/19 = 0.0526.
     A cap that kept all 5 would report n=20, r=2/20=0.1 (the dropped PR
     #524 is decided); a cap that dropped all 5 would report n=15, r=0/15=0.0."""
-    data = pr_window_data(prs=_DR90_CAP_BOUNDARY_PRS, derived=_DR90_CAP_BOUNDARY_DERIVED)
+    data = pr_window_data(prs=_DR90_CAP_BOUNDARY_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__cap-boundary", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__cap-boundary")})
     bundle = load(tmp_path, doc, key="acme__cap-boundary")
@@ -1796,11 +1804,11 @@ _DR90_CAP_INSUFFICIENT_PRS = [
     {"number": 550, "createdAt": "2026-04-05T00:00:00+00:00", "author": {"login": "honest-2"}},
     {"number": 551, "createdAt": "2026-04-09T00:00:00+00:00", "author": {"login": "honest-3"}},
 ]
-_DR90_CAP_INSUFFICIENT_DERIVED = [{"number": n, "is_external": True} for n in range(540, 552)]
+_DR90_CAP_INSUFFICIENT_PRS = [_outside(pr) for pr in _DR90_CAP_INSUFFICIENT_PRS]
 
 
 def test_dr90_decision_rate_cap_reduces_below_min_n(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_CAP_INSUFFICIENT_PRS, derived=_DR90_CAP_INSUFFICIENT_DERIVED)
+    data = pr_window_data(prs=_DR90_CAP_INSUFFICIENT_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__cap-insufficient", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__cap-insufficient")})
     bundle = load(tmp_path, doc, key="acme__cap-insufficient")
@@ -1851,7 +1859,7 @@ _DR90_GATE_PRS = [
     {"number": 313, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
      "author": {"login": "few-events-2"}},
 ]
-_DR90_GATE_DERIVED = [{"number": n, "is_external": True} for n in range(300, 314)]
+_DR90_GATE_PRS = [_outside(pr) for pr in _DR90_GATE_PRS]
 
 _DR90_GATE_AUTHOR_RECORDS = [
     *[{"login": f"eligible-{i}", "account_created_at": "2025-12-01T00:00:00+00:00",
@@ -1874,7 +1882,7 @@ def test_dr90_decision_rate_eligibility_gate_applied_with_author_history(tmp_pat
     (the cap is a no-op -- one PR per surviving author). 4 of the 10 kept
     are decided: r = 4/10 = 0.4. ``method`` is "primary": both the cap AND
     the gate applied."""
-    data = pr_window_data(prs=_DR90_GATE_PRS, derived=_DR90_GATE_DERIVED)
+    data = pr_window_data(prs=_DR90_GATE_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__gated", data, "2026-09-01T00:05:00+00:00")
     ah_data = author_history_data(author_records=_DR90_GATE_AUTHOR_RECORDS)
     write_envelope(tmp_path / "raw", "author_history", "acme__gated", ah_data, "2026-09-01T00:06:00+00:00")
@@ -1903,7 +1911,7 @@ def test_dr90_decision_rate_eligibility_gate_unapplied_without_author_history(tm
     both DIFFERENT from the gated test above, proving the gate (not just
     the cap) changes the reported rate. ``method`` is
     "proxy:din3_unapplied"."""
-    data = pr_window_data(prs=_DR90_GATE_PRS, derived=_DR90_GATE_DERIVED)
+    data = pr_window_data(prs=_DR90_GATE_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__ungated", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__ungated")})
     bundle = load(tmp_path, doc, key="acme__ungated")
@@ -1938,7 +1946,7 @@ _DR90_UNMEASURED_PRS = [
     {"number": 410, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
      "author": {"login": "flaky-fetch"}},
 ]
-_DR90_UNMEASURED_DERIVED = [{"number": n, "is_external": True} for n in range(400, 411)]
+_DR90_UNMEASURED_PRS = [_outside(pr) for pr in _DR90_UNMEASURED_PRS]
 
 _DR90_UNMEASURED_AUTHOR_RECORDS = [
     *[{"login": f"clean-{i}", "account_created_at": "2025-12-01T00:00:00+00:00",
@@ -1955,7 +1963,7 @@ def test_dr90_decision_rate_eligibility_unmeasured_author_excluded(tmp_path: Pat
     Measured, not Unmeasured(insufficient_n), pinning that the exclusion
     is counted BEFORE the min_n check, not after. 5 of the 10 kept are
     decided: r = 5/10 = 0.5."""
-    data = pr_window_data(prs=_DR90_UNMEASURED_PRS, derived=_DR90_UNMEASURED_DERIVED)
+    data = pr_window_data(prs=_DR90_UNMEASURED_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__unmeasured-author", data, "2026-09-01T00:05:00+00:00")
     ah_data = author_history_data(author_records=_DR90_UNMEASURED_AUTHOR_RECORDS)
     write_envelope(tmp_path / "raw", "author_history", "acme__unmeasured-author", ah_data,
@@ -1987,7 +1995,7 @@ _DR90_HISTORY_ONLY_PRS = [
        "mergedAt": "2026-04-06T00:00:00+00:00" if i < 4 else None,
        "author": {"login": f"clean-{i}"}} for i in range(10)],
 ]
-_DR90_HISTORY_ONLY_DERIVED = [{"number": n, "is_external": True} for n in range(600, 610)]
+_DR90_HISTORY_ONLY_PRS = [_outside(pr) for pr in _DR90_HISTORY_ONLY_PRS]
 
 _DR90_HISTORY_ONLY_AUTHOR_RECORDS = [
     *[{"login": f"clean-{i}", "account_created_at": "2025-12-01T00:00:00+00:00",
@@ -2000,7 +2008,7 @@ _DR90_HISTORY_ONLY_AUTHOR_RECORDS = [
 
 
 def test_dr90_decision_rate_ignores_history_unmeasured_when_eligibility_is_measured(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_HISTORY_ONLY_PRS, derived=_DR90_HISTORY_ONLY_DERIVED)
+    data = pr_window_data(prs=_DR90_HISTORY_ONLY_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__history-only", data, "2026-09-01T00:05:00+00:00")
     ah_data = author_history_data(author_records=_DR90_HISTORY_ONLY_AUTHOR_RECORDS)
     write_envelope(tmp_path / "raw", "author_history", "acme__history-only", ah_data, "2026-09-01T00:06:00+00:00")
@@ -2043,7 +2051,7 @@ def _cut_author_history(window_anchor: str, oldest_created: str,
 
 
 def _load_dr90_with_history(tmp_path: Path, key: str, ah_data: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
-    data = pr_window_data(prs=_DR90_GATE_PRS, derived=_DR90_GATE_DERIVED)
+    data = pr_window_data(prs=_DR90_GATE_PRS)
     write_envelope(tmp_path / "raw", "pr_window", key, data, "2026-09-01T00:05:00+00:00")
     write_envelope(tmp_path / "raw", "author_history", key, ah_data, "2026-09-01T00:06:00+00:00")
     doc = base_document(
@@ -2096,6 +2104,75 @@ def test_dr90_reads_a_cut_history_that_still_reaches_the_cohort_start(tmp_path: 
         method=_DR90_METHOD_GATED, source="raw/pr_window/acme__ah-older.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
+
+
+# --------------------------------------------------------------------------- #
+# #57: every pr_window reader classifies the recorded PR nodes under the      #
+# current rules. A stored ``derived`` list that disagrees with the nodes (an  #
+# older run's rules) is not read, and a bot's own PRs are not outside PRs.    #
+# --------------------------------------------------------------------------- #
+
+def _stale_derived(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A stored ``derived`` list from an older run that calls every PR internal,
+    unmerged and undecided."""
+    return [{"number": pr["number"], "is_external": False, "is_bot_author": False, "merged": False,
+             "decided": False, "substantive_review": None} for pr in prs]
+
+
+def _load_window(tmp_path: Path, key: str, data: dict[str, Any], meta: dict[str, Any] | None = None) -> Any:
+    write_envelope(tmp_path / "raw", "pr_window", key, data, "2026-09-01T00:05:00+00:00")
+    return load(tmp_path, base_document(meta=meta, provenance={"pr_window_count": prov("pr_window", key=key)}),
+                key=key).inputs
+
+
+_DECIDED_OUTSIDE = [
+    _outside({"number": 800 + i, "createdAt": "2026-08-01T00:00:00+00:00", "closedAt": "2026-08-02T00:00:00+00:00"})
+    for i in range(10)
+]
+
+
+def test_window_readers_ignore_a_stored_derived_list_that_disagrees_with_the_nodes(tmp_path: Path) -> None:
+    """1.5, 1.2 and 4.3's n read the PR nodes: with a stored list that calls every PR
+    internal, unmerged and undecided, each still measures the same values as above (a
+    reader of the stored list measures nothing)."""
+    ttm = pr_window_data(prs=_TTM_PRS, derived=_stale_derived(_TTM_PRS))
+    assert _load_window(tmp_path, "acme__stale-ttm", ttm)["ttm_p90_hours"] == Measured(
+        value=50.0, n=5, window_start="2026-03-05T00:00:00+00:00", window_end="2026-09-01T00:00:00+00:00",
+        method="primary", source="raw/pr_window/acme__stale-ttm.json", source_hash=expected_hash(ttm),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+    dr = pr_window_data(prs=_DR90_PRS, derived=_stale_derived(_DR90_PRS))
+    assert _load_window(tmp_path, "acme__stale-dr90", dr)["dr90_decision_rate"] == Measured(
+        value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END, method=_DR90_METHOD,
+        source="raw/pr_window/acme__stale-dr90.json", source_hash=expected_hash(dr),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+    sr = pr_window_data(prs=_DECIDED_OUTSIDE, derived=_stale_derived(_DECIDED_OUTSIDE))
+    inputs = _load_window(tmp_path, "acme__stale-sr", sr, meta={"pr_window_substantive_review_rate": 0.4})
+    assert inputs["substantive_review_rate"] == Measured(
+        value=0.4, n=10, window_start="2026-03-05T00:00:00+00:00", window_end="2026-09-01T00:00:00+00:00",
+        method="primary", source="raw/pr_window/acme__stale-sr.json", source_hash=expected_hash(sr),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+def test_window_readers_leave_out_pull_requests_a_bot_opened(tmp_path: Path) -> None:
+    """D-IN-1 keeps a bot's own PRs out of 1.2 and 4.3, as D-GATE-5 already does: twelve
+    Dependabot PRs (external association, typed Bot), opened in the cohort and decided
+    within the hour, beside the ten outside PRs of each fixture above. Counted, they would
+    read DR_90 0.5714 over 14 (the per-author cap keeps 4 of Dependabot's 12) and 4.3 n=22."""
+    bots = [_bot({"number": 900 + i, "createdAt": "2026-05-01T00:00:00+00:00",
+                  "mergedAt": "2026-05-01T01:00:00+00:00", "closedAt": "2026-05-01T01:00:00+00:00"})
+            for i in range(12)]
+    dr = pr_window_data(prs=_DR90_PRS + bots)
+    assert _load_window(tmp_path, "acme__bot-dr90", dr)["dr90_decision_rate"] == Measured(
+        value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END, method=_DR90_METHOD,
+        source="raw/pr_window/acme__bot-dr90.json", source_hash=expected_hash(dr),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+    sr = pr_window_data(prs=_DECIDED_OUTSIDE + bots)
+    inputs = _load_window(tmp_path, "acme__bot-sr", sr, meta={"pr_window_substantive_review_rate": 0.4})
+    assert inputs["substantive_review_rate"].n == 10
 
 
 @pytest.mark.parametrize("v1_legal_ip", ["CORP_CLA_RECIPROCAL", "CORP_CLA_UNILATERAL"])

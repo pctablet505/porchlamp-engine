@@ -345,6 +345,11 @@ GHOST_RATE_INPUT_ID: str = "gr14_ghost_rate"
 
 #: D-IN-2: the author associations GitHub gives a repository's own people.
 MAINTAINER_ASSOCIATIONS: frozenset[str] = frozenset({"MEMBER", "OWNER", "COLLABORATOR"})
+#: 02 section 4: the author associations of an outside PR's author, the
+#: "external PRs" every responsiveness measure, 4.3, D-GATE-5 and
+#: ``closed_unread`` count (:func:`is_outside_pr`). A fixed GitHub
+#: vocabulary, not a tunable, so not hashed.
+EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset({"NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "CONTRIBUTOR"})
 
 #: The Chinese, Japanese and Korean letters a comment's length counts
 #: ``constants.SUBSTANTIVE_COMMENT_CJK_WEIGHT`` times: Han ideographs (the
@@ -398,6 +403,21 @@ def is_bot_actor_node(actor: object) -> bool:
     return is_bot(CommitActor(
         login=str(actor.get("login") or ""), email="", actor_type=str(actor.get("__typename") or ""),
     ))
+
+
+def is_outside_pr(pr: object) -> bool:
+    """Whether a recorded PR node is an outside PR, the population of every
+    external-PR measure (1.1 TTFHR, 1.2 DR_90, 1.4 GR_14 and D-GATE-5, 1.5
+    TTM_p90, 4.3, ``closed_unread``, D-GATE-6's hand-off notices): its
+    ``authorAssociation`` is external (:data:`EXTERNAL_ASSOCIATIONS`) and its
+    author is not a bot (D-IN-1, :func:`is_bot_actor_node`). Read from the
+    node itself, so a change to D-IN-1 reaches every stored record at derive
+    time (#57). ``False`` for no node."""
+    if not isinstance(pr, Mapping):
+        return False
+    if str(pr.get("authorAssociation") or "").upper() not in EXTERNAL_ASSOCIATIONS:
+        return False
+    return not is_bot_actor_node(pr.get("author"))
 
 
 def maintainer_logins(prs: Iterable[object]) -> frozenset[str]:

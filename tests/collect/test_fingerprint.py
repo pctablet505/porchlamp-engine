@@ -864,3 +864,44 @@ def test_is_confirmed_black_hole_in_raw_graphql_comments_and_timeline_items(tmp_
     assert is_confirmed_black_hole_in_raw(raw_dir, "active", "maint-closed", now=NOW) is False
 
 
+
+
+def _write_window_with_stale_derived(raw_dir: Path, owner: str, name: str, prs: list[dict]) -> None:
+    """A ``pr_window`` envelope whose stored ``derived`` list, from an older run, calls
+    every author a bot and no PR external: #57, no reader may trust it over the nodes."""
+    prw_dir = raw_dir / "pr_window"
+    prw_dir.mkdir(parents=True, exist_ok=True)
+    write_envelope(
+        prw_dir / f"{owner}__{name}.json", source="test-pr-window",
+        data={"window_anchor": NOW.isoformat(), "window_days": 180, "truncated": False, "prs": prs,
+              "derived": [{"number": pr["number"], "is_external": False, "is_bot_author": True} for pr in prs]},
+        fetched_at=NOW.isoformat(),
+    )
+
+
+def test_review_handoff_reads_the_pr_nodes_not_the_stored_derived_list(tmp_path: Path):
+    """Ten outside PRs (external, human authors), each carrying a GitGitGadget welcome:
+    a hand-off judged from the nodes. A reader of the stale stored list finds no outside
+    PR and answers False."""
+    from porchlamp.collect.fingerprint import _review_handoff
+
+    prs = [{"number": i, "createdAt": (NOW - timedelta(days=30 + i)).isoformat(), "authorAssociation": "NONE",
+            "author": {"login": f"user{i}", "__typename": "User"},
+            "comments": {"nodes": [{"author": {"login": "gitgitgadget", "__typename": "User"},
+                                    "bodyText": "Welcome to GitGitGadget"}]},
+            "reviews": {"nodes": []}} for i in range(1, 11)]
+    _write_window_with_stale_derived(tmp_path / "raw", "git", "git", prs)
+    assert _review_handoff(tmp_path / "raw", "git__git") is True
+
+
+def test_decided_external_pr_reads_the_pr_nodes_not_the_stored_derived_list(tmp_path: Path):
+    """One outside PR merged ten days ago: a decided external PR, judged from the node.
+    A reader of the stale stored list skips it as a bot's and finds none."""
+    from porchlamp.collect.fingerprint import _has_decided_external_pr_in_raw
+
+    prs = [{"number": 1, "createdAt": (NOW - timedelta(days=20)).isoformat(),
+            "mergedAt": (NOW - timedelta(days=10)).isoformat(), "closedAt": (NOW - timedelta(days=10)).isoformat(),
+            "authorAssociation": "CONTRIBUTOR", "author": {"login": "alice", "__typename": "User"},
+            "comments": {"nodes": []}, "reviews": {"nodes": []}}]
+    _write_window_with_stale_derived(tmp_path / "raw", "acme", "widget", prs)
+    assert _has_decided_external_pr_in_raw(tmp_path / "raw", "acme", "widget", NOW) is True

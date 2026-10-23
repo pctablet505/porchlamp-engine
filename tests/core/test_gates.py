@@ -1492,3 +1492,24 @@ def test_record_cut_short_at_judges_a_truncated_record_against_an_instant() -> N
     # A truncated record with no readable createdAt cannot show it reaches the instant.
     assert gates.record_cut_short_at({"truncated": True, "prs": [{"number": 1}]},
                                      datetime.datetime(2026, 3, 5, tzinfo=utc)) is True
+
+
+@pytest.mark.parametrize("node, outside", [
+    ({"authorAssociation": "NONE", "author": {"__typename": "User", "login": "alice"}}, True),
+    ({"authorAssociation": "first_time_contributor", "author": {"__typename": "User", "login": "bob"}}, True),
+    ({"authorAssociation": "CONTRIBUTOR", "author": None}, True),  # a deleted account is not a bot
+    ({"authorAssociation": "MEMBER", "author": {"__typename": "User", "login": "carol"}}, False),
+    ({"authorAssociation": "MANNEQUIN", "author": {"__typename": "Mannequin", "login": "old"}}, False),
+    ({"author": {"__typename": "User", "login": "dave"}}, False),
+    ({"authorAssociation": "CONTRIBUTOR", "author": {"__typename": "Bot", "login": "dependabot"}}, False),
+    ({"authorAssociation": "NONE", "author": {"__typename": "User", "login": "acme-ci[bot]"}}, False),
+    ({"authorAssociation": "NONE", "author": {"__typename": "User", "login": "K8s-Ci-Robot"}}, False),
+    (None, False),
+])
+def test_is_outside_pr_is_external_association_and_non_bot_author(node: Any, outside: bool) -> None:
+    """#57: the one definition of an outside PR, read from the recorded node: an
+    external association (case-insensitive) and an author D-IN-1 does not call a
+    bot (``__typename`` Bot, a ``[bot]`` suffix, or a ``BOT_LOGINS`` login)."""
+    from porchlamp.core import gates
+
+    assert gates.is_outside_pr(node) is outside

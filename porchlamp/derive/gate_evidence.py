@@ -333,9 +333,10 @@ def _decided_external_pr_in(
 
 def outside_pr_authors(prs: Sequence[Any], *, start: datetime, end: datetime) -> list[str]:
     """One entry per outside PR opened in ``[start, end]``: an external
-    author association and a non-bot author (D-IN-1), the PRs D-GATE-5
-    starts from. The entry is the author's lowercased login, ``""`` for a
-    deleted account."""
+    author association and a non-bot author (D-IN-1,
+    :func:`porchlamp.core.gates.is_outside_pr`), the PRs D-GATE-5 starts
+    from. The entry is the author's lowercased login, ``""`` for a deleted
+    account."""
     out: list[str] = []
     for pr in prs:
         if not isinstance(pr, Mapping) or not isinstance(pr.get("createdAt"), str):
@@ -346,9 +347,9 @@ def outside_pr_authors(prs: Sequence[Any], *, start: datetime, end: datetime) ->
             continue
         if not start <= created <= end:
             continue
-        author = pr.get("author") if isinstance(pr.get("author"), Mapping) else {}
-        if str(pr.get("authorAssociation") or "").upper() not in _EXTERNAL_ASSOCIATIONS or _is_bot_node(author):
+        if not gates.is_outside_pr(pr):
             continue
+        author = pr.get("author") if isinstance(pr.get("author"), Mapping) else {}
         out.append(str(author.get("login") or "").lower())
     return out
 
@@ -393,30 +394,24 @@ def _review_handoff(raw_root: Path, basename: str) -> bool | None:
 def _review_handoff_in(data: Mapping[str, Any] | None) -> bool | None:
     """D-GATE-6 review hand-off from a ``pr_window`` envelope's ``data``.
 
-    The outside PRs are those the collector's own ``derived`` rows (joined to
-    ``prs`` by PR number) classify as external and not bot-authored, so there
-    is one definition of "external" and "bot" (``derive_pr_window``); no age or
-    date filter. #51: only PRs whose comments the record holds are read
-    (:func:`_reply_sampled_prs`: the whole window up to the PR cap, else its
-    sample). The repository hands review off when
-    ``constants.GATE6_HANDOFF_MIN_PRS`` or more of them, and at least
+    The outside PRs are the recorded PR nodes with an external author
+    association and a non-bot author (:func:`porchlamp.core.gates.is_outside_pr`,
+    the one definition of "external" and "bot" the collector's per-PR rows
+    also apply); no age or date filter. #57: read from the nodes under the
+    current rules, never from the envelope's stored ``derived`` list, which
+    records the rules of the run that collected it. #51: only PRs whose
+    comments the record holds are read (:func:`_reply_sampled_prs`: the whole
+    window up to the PR cap, else its sample). The repository hands review off
+    when ``constants.GATE6_HANDOFF_MIN_PRS`` or more of them, and at least
     ``constants.GATE6_HANDOFF_MIN_SHARE`` of them, carry a notice
     (:func:`_pr_has_review_handoff_notice`). ``None`` (no opinion) when the
-    envelope is absent, unreadable, or holds no ``prs`` / ``derived`` lists."""
+    envelope is absent, unreadable, or holds no ``prs`` list."""
     if data is None:
         return None
     prs = data.get("prs")
-    derived = data.get("derived")
-    if not isinstance(prs, list) or not isinstance(derived, list):
+    if not isinstance(prs, list):
         return None
-    classified = {
-        row.get("number"): row for row in derived if isinstance(row, Mapping) and row.get("number") is not None
-    }
-    outside = [
-        pr for pr in _reply_sampled_prs(prs)
-        if (row := classified.get(pr.get("number"))) is not None
-        and row.get("is_external") and not row.get("is_bot_author")
-    ]
+    outside = [pr for pr in _reply_sampled_prs(prs) if gates.is_outside_pr(pr)]
     notices = sum(_pr_has_review_handoff_notice(pr) for pr in outside)
     return bool(
         notices >= constants.GATE6_HANDOFF_MIN_PRS
@@ -482,9 +477,8 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
     )
 
 
-_EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
-    {"NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "CONTRIBUTOR"}
-)
+#: 02 section 4's external author associations (the core's one definition).
+_EXTERNAL_ASSOCIATIONS: frozenset[str] = gates.EXTERNAL_ASSOCIATIONS
 
 #: D-IN-1 over a GraphQL actor node (the core's one definition).
 _is_bot_node = gates.is_bot_actor_node

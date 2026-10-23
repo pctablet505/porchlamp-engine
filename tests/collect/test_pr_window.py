@@ -715,6 +715,69 @@ def test_derive_repo_records_the_closed_unread_counts(tmp_path):
     assert bundle["provenance"]["pr_window_closed_unread_count"]["source"] == "raw/pr_window/acme__widget.json"
 
 
+# --- #57: the window statistics come from the recorded PR nodes -------------
+#
+# derive_pr_window_fields recomputes every per-PR fact from the stored nodes
+# under the current rules; the stored ``derived`` list (the rules of the run
+# that collected the envelope) is never read, and a bot's own PRs are not
+# outside PRs, whoever answers them.
+
+_PLUS_2H, _PLUS_10S = "2026-08-01T02:00:00Z", "2026-08-01T00:00:10Z"
+
+
+def _window_fields(prs, derived=None) -> dict:
+    record = {"count": len(prs), "truncated": False, "cost_points": 1, "prs": prs}
+    if derived is not None:
+        record["derived"] = derived
+    return gql.derive_pr_window_fields(record)
+
+
+def test_window_statistics_come_from_the_pr_nodes_not_the_stored_derived_list():
+    """PR 1 got a maintainer's substantive review 2 h after opening; PR 2's only
+    reply came from ``k8s-ci-robot`` (in BOT_LOGINS since RFC-0012) 10 s after
+    opening. An older run stored a list that counted the bot's reply on both and
+    no substantive review: read, it gives a median of 10 s over 2 and a rate of 0."""
+    prs = [_closed_unmerged(1, reviews=[review(body="r" * 80, created=_PLUS_2H)]),
+           _closed_unmerged(2, author_login="bob",
+                            comments=[comment("k8s-ci-robot", assoc="MEMBER", body="k" * 40, created=_PLUS_10S)])]
+    stale = [{**row, "ttfhr_hours": 10 / 3600, "substantive_review": False} for row in gql.derive_pr_window(prs)]
+    for derived in (None, stale):
+        fields = _window_fields(prs, derived)
+        assert fields["pr_window_external_measured_latency_count"] == (1, "derived")
+        assert fields["pr_window_ttfhr_median_hours"] == (2.0, "derived")
+        assert fields["pr_window_substantive_review_rate"] == (0.5, "derived")
+
+
+def test_window_statistics_leave_out_pull_requests_a_bot_opened():
+    """D-IN-1 keeps a bot's own PRs out of 1.1 and 4.3, as D-GATE-5 and
+    closed_unread already do: three Dependabot PRs (external association, typed
+    Bot), each approved by a maintainer 10 s after opening, beside one outside PR
+    reviewed after 2 h. Counted, they read a median of 10 s over 4 and 4.3 at 0.25."""
+    bot_prs = [_closed_unmerged(10 + i, assoc="CONTRIBUTOR", author_login="dependabot", author_typ="Bot",
+                                reviews=[review(state="APPROVED", created=_PLUS_10S)]) for i in range(3)]
+    prs = [_closed_unmerged(1, reviews=[review(body="r" * 80, created=_PLUS_2H)]), *bot_prs]
+    fields = _window_fields(prs)
+    assert fields["pr_window_external_measured_latency_count"] == (1, "derived")
+    assert fields["pr_window_ttfhr_median_hours"] == (2.0, "derived")
+    assert fields["pr_window_substantive_review_rate"] == (1.0, "derived")
+    assert fields["pr_window_outside_pr_count"] == (1, "derived")
+
+
+def test_the_per_pr_rows_and_the_core_agree_on_who_is_outside():
+    """One definition of an outside PR: derive_pr_window's ``is_external`` and
+    ``is_bot_author`` agree with porchlamp.core.gates.is_outside_pr on every node,
+    so the measures read from the rows and the readers of the nodes cannot part."""
+    from porchlamp.core import gates
+
+    prs = [pr_node(1, _OPENED), pr_node(2, _OPENED, assoc="MEMBER"), pr_node(3, _OPENED, assoc="FIRST_TIMER"),
+           pr_node(4, _OPENED, assoc="CONTRIBUTOR", author_login="dependabot", author_typ="Bot"),
+           pr_node(5, _OPENED, author_login="acme-ci[bot]"), pr_node(6, _OPENED, author_login="tekton-robot"),
+           pr_node(7, _OPENED, assoc="MANNEQUIN"), {**pr_node(8, _OPENED), "author": None}]
+    rows = gql.derive_pr_window(prs)
+    assert [gates.is_outside_pr(pr) for pr in prs] == [r["is_external"] and not r["is_bot_author"] for r in rows]
+    assert [gates.is_outside_pr(pr) for pr in prs] == [True, False, True, False, False, False, False, True]
+
+
 # =============================================================================
 # Author history and newcomer cohorts
 # =============================================================================

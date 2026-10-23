@@ -78,7 +78,12 @@ frozen constants (`porchlamp.core.constants.BOT_LOGINS`): the generic bot accoun
 `semantic-release`, `imgbot`, `netlify`, `vercel`, `sonarcloud`, `snyk-bot`,
 `greenkeeper`, `copilot`, `claude`), and the service accounts GitHub types as
 users that the recorded data shows answering pull requests as bots (RFC-0012
-gives the method and the evidence for each). Substring matching is removed (F12).
+and RFC-0014 give the method and the evidence for each). Substring matching is
+removed (F12). An outside pull request (the "external PRs" of 1.1, 1.2, 1.4,
+1.5, 4.3, D-GATE-5, D-GATE-6's hand-off notices and `closed_unread`) has an
+external `authorAssociation` and a non-bot author, read from the recorded PR
+nodes at derive time so a change to D-IN-1 reaches every stored record (#57,
+#66).
 
 **D-IN-2 Substantive human response.** A PR received a substantive response
 when a non-author, non-bot account whose `authorAssociation` is `MEMBER`,

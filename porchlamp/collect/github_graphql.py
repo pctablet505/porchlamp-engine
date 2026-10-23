@@ -92,9 +92,9 @@ SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
 BOT_LOGINS: frozenset[str] = constants.BOT_LOGINS
 
 #: External (non-maintainer) associations, matching the v1 ``EXTERNAL_ASSOC``
-#: set used by ``scripts/derive.py`` for the same fact.
-EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
-    {"NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "CONTRIBUTOR"})
+#: set used by ``scripts/derive.py`` for the same fact: the core's one
+#: definition, :data:`porchlamp.core.gates.EXTERNAL_ASSOCIATIONS`.
+EXTERNAL_ASSOCIATIONS: frozenset[str] = gates.EXTERNAL_ASSOCIATIONS
 
 #: The windowed-PR query: PRs in all three states, newest first, with the
 #: typed actors (``__typename``), who merged each PR (``mergedBy``, the
@@ -855,6 +855,12 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
     the GraphQL ``first`` per page; drop it for very active repositories
     whose full page exceeds the server-side query time budget.
 
+    #57: the stored per-PR derivation (``derived``) records the rules of this
+    collection run only; no measure reads it. Every reader recomputes the
+    per-PR facts from the recorded nodes under the rules of the derive run
+    (:func:`derive_pr_window_fields`, :func:`ghost_rate_prs_from_window`,
+    :func:`closed_unread_counts`), so a rule change reaches every record.
+
     With ``incremental_ledger`` the existing envelope's settled PRs are
     reused only when it was fetched by the current query
     (:func:`pr_window_query_is_current`); an envelope from an older query is
@@ -966,11 +972,22 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
     Returns ``{field: (value, confidence)}`` for
     :data:`PR_WINDOW_BUNDLE_FIELDS`. The envelope-recorded facts (count,
     truncation, point cost) are ``verified``; the statistics computed here
-    are ``derived``: the count of external PRs with a measured TTFHR, the
-    TTFHR median over them (02 §4 1.1), the share of decided external PRs
+    are ``derived``: the count of outside PRs with a measured TTFHR, the
+    TTFHR median over them (02 §4 1.1), the share of decided outside PRs
     with a substantive review (02 §4 4.3), and the outside PRs and the
     closed-unread ones among them (:func:`closed_unread_counts`; absent when
     the envelope records no PR list). Empty dict when ``prw`` is None.
+
+    #57: every per-PR fact is recomputed here from the recorded PR nodes
+    (``prs``) by :func:`derive_pr_window` under the current rules, as
+    D-GATE-5 and ``closed_unread`` recompute them. The envelope's stored
+    ``derived`` list records the rules of the run that collected it (the bot
+    list, D-IN-2's maintainers) and is never read: a rule change reaches
+    every stored record at the next derive. An outside PR has an external
+    author association and a non-bot author (D-IN-1,
+    :func:`porchlamp.core.gates.is_outside_pr`): a bot's own pull requests
+    (Dependabot, Renovate, a release bot) are not outside contributions,
+    whoever answers them.
 
     #51: the statistics read the PRs whose replies the record holds (rows
     whose ``substantive_review`` is ``None`` were not sampled). A record that
@@ -992,15 +1009,12 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
             fields["pr_window_outside_pr_count"] = (None, "missing")
             fields["pr_window_closed_unread_count"] = (None, "missing")
         return fields
-    derived = prw.get("derived") or []
-    external = [d for d in derived if d.get("is_external")]
-    with_latency = [d["ttfhr_hours"] for d in external
-                    if d.get("ttfhr_hours") is not None]
-    decided_external = [
-        d for d in external
-        if d.get("decided") and ("substantive_review" not in d or d.get("substantive_review") is not None)
-    ]
-    substantive = [d for d in decided_external if d.get("substantive_review")]
+    prs = prw.get("prs")
+    nodes = [pr for pr in prs if isinstance(pr, Mapping)] if isinstance(prs, list) else []
+    outside = [d for d in derive_pr_window(nodes) if d["is_external"] and not d["is_bot_author"]]
+    with_latency = [d["ttfhr_hours"] for d in outside if d["ttfhr_hours"] is not None]
+    decided_outside = [d for d in outside if d["decided"] and d["substantive_review"] is not None]
+    substantive = [d for d in decided_outside if d["substantive_review"]]
     fields = {
         "pr_window_count": (int(prw.get("count") or 0), "verified"),
         "pr_window_truncated": (bool(prw.get("truncated")), "verified"),
@@ -1010,13 +1024,12 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
             round(statistics.median(with_latency), 4), "derived") if with_latency
         else (None, "derived"),
         "pr_window_substantive_review_rate": (
-            round(len(substantive) / len(decided_external), 4), "derived")
-        if decided_external else (None, "derived"),
+            round(len(substantive) / len(decided_outside), 4), "derived")
+        if decided_outside else (None, "derived"),
     }
-    prs = prw.get("prs")
     if isinstance(prs, list):
-        closed_unread, outside = closed_unread_counts(prs)
-        fields["pr_window_outside_pr_count"] = (outside, "derived")
+        closed_unread, outside_count = closed_unread_counts(prs)
+        fields["pr_window_outside_pr_count"] = (outside_count, "derived")
         fields["pr_window_closed_unread_count"] = (closed_unread, "derived")
     return fields
 

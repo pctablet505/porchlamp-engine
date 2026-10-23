@@ -414,6 +414,10 @@ AUTHOR_UNMEASURED_MAX_FRACTION: float = 0.20
 #: service accounts GitHub types as users: each login says it is a bot and was found
 #: answering outside pull requests in the recorded data with templated text, or within
 #: minutes of nearly every opening (RFC-0012 gives the method and each account's evidence).
+#: The third are the service accounts added by RFC-0014 (#57, #66): accounts with a bot
+#: login whose fast responses were on bot-authored PRs, and project-run CI, CLA, build and
+#: approval accounts with no ``bot`` token in the login, each verified by profile, text
+#: and commit history.
 BOT_LOGINS: frozenset[str] = frozenset({
     # generic bot accounts
     "allcontributors", "cla-bot", "claude", "codecov", "copilot", "dependabot", "easycla",
@@ -435,6 +439,11 @@ BOT_LOGINS: frozenset[str] = frozenset({
     "rust-rfcbot", "rustbot", "shaka-bot", "shiftbot", "sre-ci-robot", "stdlib-bot",
     "tekton-robot", "tempoxyz-bot", "theguild-bot", "ti-chi-bot", "volcano-sh-bot",
     "voxel51-bot", "workweave-bot", "ydbot", "zerxlabbot", "zulipbot",
+    # service accounts GitHub types as users (RFC-0014; #57, #66)
+    "autheliabot", "backstage-service", "ciliumbot", "crate-jenkins",
+    "elasticsearchmachine", "hlsjs-ci", "istio-testing", "mattermost-build", "servo-bot",
+    "sqla-tester", "tencent-adm", "ultralyticsassistant", "webkit-early-warning-system",
+    "yoshi-approver",
 })
 
 #: D-IN-3: for rate parameters (merge, decision, conversion, return) a PR

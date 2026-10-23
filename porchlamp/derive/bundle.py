@@ -1337,6 +1337,10 @@ _author_history_cut_short = gates.record_cut_short
 #: another envelope fixes (1.2 DR_90's cohort start, from the ``pr_window``
 #: record's own anchor).
 _author_history_cut_short_at = gates.record_cut_short_at
+#: #57: an outside PR (external association, non-bot author), read from the
+#: recorded PR node under the current rules, never from the envelope's stored
+#: ``derived`` list; the same predicate the collector's per-PR rows apply.
+_is_outside_pr = gates.is_outside_pr
 
 
 def _pr_window_bounds(data: Optional[Mapping[str, Any]]) -> tuple[Optional[str], Optional[str]]:
@@ -1355,24 +1359,19 @@ def _pr_window_bounds(data: Optional[Mapping[str, Any]]) -> tuple[Optional[str],
 
 
 def _merged_external_latency_hours(data: Mapping[str, Any]) -> list[float]:
-    """Merge latency in hours for merged, external PRs (1.5 TTM_p90).
+    """Merge latency in hours for merged outside PRs (1.5 TTM_p90).
 
-    Joins the raw pr_window envelope's ``derived`` classifications
-    (``is_external``, ``merged``) with its ``prs`` raw nodes (``createdAt``,
-    ``mergedAt``) by PR ``number``: the collector records them in two
-    separate lists, neither alone carries both facts.
+    #57: read from the raw pr_window envelope's ``prs`` nodes alone: an
+    outside PR (:func:`porchlamp.core.gates.is_outside_pr`: an external
+    author association and a non-bot author, D-IN-1) whose ``mergedAt`` is no
+    earlier than its ``createdAt``. The envelope's stored ``derived`` list,
+    the collection run's own classification, is not read, so a rule change
+    since collection reaches this measure, and a bot's own merged PRs
+    (Dependabot, Renovate) do not set the p90.
     """
-    classified = {
-        entry.get("number"): entry
-        for entry in (data.get("derived") or [])
-        if isinstance(entry, Mapping) and entry.get("number") is not None
-    }
     out: list[float] = []
     for pr in data.get("prs") or []:
-        if not isinstance(pr, Mapping):
-            continue
-        info = classified.get(pr.get("number"))
-        if not info or not info.get("is_external") or not info.get("merged"):
+        if not _is_outside_pr(pr):
             continue
         created = _parse_iso_or_none(pr.get("createdAt"))
         merged = _parse_iso_or_none(pr.get("mergedAt"))
@@ -1415,7 +1414,11 @@ def _dr90_author_eligible(
     population) when the login has no author_history record at all (the
     two envelopes' decision-cohort windows do not perfectly coincide -- the
     365 d window's cohort is a superset of pr_window's narrower 1.2
-    band, so a genuine miss should be rare but is not impossible) or when
+    band, so a genuine miss should be rare but is not impossible; #66: the
+    superset holds only for two records sharing an anchor, so a history
+    anchored N days before the pr_window has no record for an author whose
+    only cohort PR opened in the band's last N days, and a history cut short
+    of the band's start is refused by :func:`_resolve_dr90_decision_rate`) or when
     its eligibility fetch failed (``eligibility_unmeasured``); otherwise
     ``porchlamp.core.hygiene.is_eligible_account`` on the record's own
     ``account_created_at``/``public_event_count`` against THIS PR's
@@ -1459,10 +1462,13 @@ def _dr90_decision_cohort(
     """1.2 DR_90's cohort and decision count over the raw pr_window envelope,
     D-IN-3-adjusted.
 
-    Joins ``derived[].is_external`` with ``prs[].{createdAt,mergedAt,closedAt,
-    author}`` by PR ``number`` -- the same by-number join
-    :func:`_merged_external_latency_hours` uses for 1.5. The cohort is every
-    external PR whose ``createdAt`` falls in the half-open interval
+    Reads the ``prs[]`` nodes alone (``createdAt``, ``mergedAt``,
+    ``closedAt``, ``author``): #57, a PR belongs to the cohort when it is an
+    outside PR (:func:`porchlamp.core.gates.is_outside_pr`: an external
+    author association and a non-bot author, D-IN-1), judged from the node
+    under the current rules as for 1.5 (:func:`_merged_external_latency_hours`),
+    never from the envelope's stored ``derived`` list. The cohort is every
+    outside PR whose ``createdAt`` falls in the half-open interval
     ``[anchor - 180d, anchor - 90d)``: the lower bound is inclusive (a PR
     opened exactly 180 d ago is still inside the collector's trailing
     window), the upper bound is exclusive (a PR opened exactly 90 d ago has
@@ -1514,21 +1520,13 @@ def _dr90_decision_cohort(
     capped rate below the floor is often a small population made smaller
     by a real cap bind, and the two numbers together say which.
     """
-    classified = {
-        entry.get("number"): entry
-        for entry in (data.get("derived") or [])
-        if isinstance(entry, Mapping) and entry.get("number") is not None
-    }
     cohort_start = anchor - timedelta(days=_DR90_COHORT_START_DAYS)
     cohort_end = anchor - timedelta(days=_DR90_COHORT_END_DAYS)
     decision_window = timedelta(days=_DR90_DECISION_WINDOW_DAYS)
     entries: list[tuple[str, datetime.datetime, Mapping[str, Any]]] = []
     malformed = 0
     for pr in data.get("prs") or []:
-        if not isinstance(pr, Mapping):
-            continue
-        info = classified.get(pr.get("number"))
-        if not info or not info.get("is_external"):
+        if not _is_outside_pr(pr):
             continue
         created = _parse_iso_or_none(pr.get("createdAt"))
         if created is None:
@@ -1709,21 +1707,23 @@ def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
 def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     """4.3 Substantive review rate. The rate itself is the
     ``pr_window_substantive_review_rate`` summary field; ``n`` (decided
-    external PRs in the reply sample) has no summary field and is counted
-    from the raw envelope's ``derived`` classifications."""
+    outside PRs in the reply sample) has no summary field and is counted
+    from the raw envelope's PR nodes: #57, a decided (``closedAt``) outside PR
+    (:func:`porchlamp.core.gates.is_outside_pr`) whose replies the record
+    holds (:func:`porchlamp.core.gates.reply_sampled_prs`), the population
+    ``porchlamp.collect.github_graphql.derive_pr_window_fields`` computes the
+    rate over. The envelope's stored ``derived`` list is not read."""
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
     if _pr_window_cut_short(data):
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
-    decided_external = [
-        entry for entry in (data.get("derived") or [])
-        if isinstance(entry, Mapping)
-        and entry.get("is_external")
-        and entry.get("decided")
-        and ("substantive_review" not in entry or entry.get("substantive_review") is not None)
+    prs = data.get("prs")
+    decided_outside = [
+        pr for pr in _reply_sampled_prs(prs if isinstance(prs, list) else [])
+        if _is_outside_pr(pr) and pr.get("closedAt") is not None
     ]
-    n = len(decided_external)
+    n = len(decided_outside)
     min_n = constants.PARAM_MIN_N["substantive_review_rate"]
     if n < min_n:
         return Unmeasured(reason="insufficient_n",
@@ -2240,11 +2240,11 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
 #:
 #: | Input id | Reads | When absent |
 #: |---|---|---|
-#: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
-#: | dr90_decision_rate | raw pr_window envelope: derived[].is_external joined with prs[].{createdAt,mergedAt,closedAt} by number, cohort [anchor-180d,anchor-90d) (D-IN-4 amendment); D-IN-3 eligibility joined from the author_history envelope's author_records | no envelope -> collector_failure; author_history truncated before the cohort start instant (pr_window anchor-180d, not the history's own anchor) -> collector_failure; no author_history envelope -> Measured with method proxy:din3_unapplied; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
+#: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count, computed by derive from the pr_window PR nodes under the current rules (outside PRs: external association, non-bot author; never the envelope's stored derived list, #57) | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
+#: | dr90_decision_rate | raw pr_window envelope: prs[] nodes of outside PRs (gates.is_outside_pr: external association, non-bot author; #57) with their createdAt/mergedAt/closedAt, cohort [anchor-180d,anchor-90d) (D-IN-4 amendment); D-IN-3 eligibility joined from the author_history envelope's author_records | no envelope -> collector_failure; author_history truncated before the cohort start instant (pr_window anchor-180d, not the history's own anchor) -> collector_failure; no author_history envelope -> Measured with method proxy:din3_unapplied; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
 #: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
 #: | gr14_ghost_rate | meta.gr14_ghost_rate + .gr14_population_n + .gr14_window_start/_end, computed by derive with porchlamp.core.gates.zero_response_counts (also D-GATE-5's input) | no pr_window envelope -> collector_failure; not derived by this tree -> collector_failure; n=0 -> insufficient_n; n<10 -> insufficient_n at scoring with the true n |
-#: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number | no envelope -> collector_failure; n<5 -> insufficient_n |
+#: | ttm_p90_hours | raw pr_window envelope: prs[] nodes of merged outside PRs (gates.is_outside_pr; #57), createdAt to mergedAt | no envelope -> collector_failure; n<5 -> insufficient_n |
 #: | dependents_deduped | meta.dependents_count when confidence=="derived" (dependents hook); meta.ecosystem gates it | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it |
 #: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
 #: | downloads_monthly | meta.monthly_downloads; meta.downloads_status refines the Unmeasured detail | go/maven/systems -> not_applicable (D-MISS-5); otherwise third_party_gap, detail per downloads_status |
@@ -2253,7 +2253,7 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
 #: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
 #: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method: "primary" (scorecard) or "proxy:review_ci" (n = merged PRs) | confidence absent or missing -> third_party_gap (TP with proxy) |
 #: | ai_posture | meta.ai_posture, vocab-validated against constants.AI_POSTURE_VALUES (identity map) | collector_failure; an out-of-set value is collector_failure too, never Measured |
-#: | substantive_review_rate | meta.pr_window_substantive_review_rate; n from the raw envelope | no envelope -> collector_failure; n<10 -> insufficient_n |
+#: | substantive_review_rate | meta.pr_window_substantive_review_rate (derive, from the PR nodes, #57); n = decided outside PRs in the reply sample, from the raw envelope's prs[] nodes | no envelope -> collector_failure; n<10 -> insufficient_n |
 #: | newcomer_issue_supply | meta.active_unclaimed_gfis | collector_failure |
 #: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
 #: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
