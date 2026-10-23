@@ -395,7 +395,16 @@ failed criterion is published as such and drives v2.1 weights.
 language (current), top-N by monthly downloads per registry, top-N by
 dependents per registry, plus anchors; every candidate records its
 `selected_by` criteria. Selection bias is documented on the methodology page:
-percentiles are relative to this universe.
+percentiles are relative to this universe. (Amended 2026-10-22, RFC-0023: a
+language's star criterion runs only when its projects have an ecosystem the
+benchmark models, the registry they publish to or none at all: Python → pypi;
+JavaScript, TypeScript → npm; Rust → crates; Go → go; Java, Kotlin, Scala,
+Groovy → maven; C, C++, Zig, Vim Script, LLVM → systems. A language whose
+registry is not modeled yet (C#, Ruby, PHP, Dart, Swift, Lua, Clojure) is left
+out rather than filed under an ecosystem it does not have. Every language faces
+one star floor. A registry list's figure is recorded as its own number
+(`downloads_at_selection`), never as stars, and a repo it selected is not cut for
+its star count.)
 
 ## 14. What changed versus the spec, and why
 

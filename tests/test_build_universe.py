@@ -368,7 +368,8 @@ class FakeGH:
         self.count_calls = []
 
     def _match(self, q):
-        lang = re.search(r"language:(\S+)", q).group(1)
+        found = re.search(r'language:(?:"([^"]+)"|(\S+))', q)
+        lang = found.group(1) or found.group(2)          # language:"Vim Script" or language:Go
         m = re.search(r"stars:>=(\d+)", q)
         lo, hi = (int(m.group(1)), 10**9) if m else map(int, re.search(r"stars:(\d+)\.\.(\d+)", q).groups())
         return sorted((r for r in self.repos if r[0] == lang and lo <= r[3] <= hi), key=lambda r: -r[3])
@@ -561,3 +562,54 @@ def test_dry_run_writes_only_out_with_summary_and_carries(sandbox, monkeypatch):
     assert summ["total"] == 31 and summ["existing_carried_total"] == 1 and summ["new_repos"] == 30
     assert summ["per_language"] == {"Go": 30} and summ["min_stars_reached"] == 1000
     assert not (sandbox / "candidates.jsonl").is_file()
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0023: languages by modeled ecosystem, one star floor (issue #66, C4).  #
+# --------------------------------------------------------------------------- #
+
+
+def test_search_criteria_admit_languages_only_with_a_modeled_ecosystem():
+    """Kotlin, Scala and Groovy publish to Maven Central (maven); Zig, Vim Script
+    and LLVM have no package registry (systems, D-MISS-5). Languages whose
+    registry is not modeled (C#, Ruby, PHP, Dart, Swift, Lua, Clojure) stay out."""
+    assert bu.SEARCH_CRITERIA == {
+        "pypi": ["language:Python"],
+        "npm": ["language:JavaScript", "language:TypeScript"],
+        "crates": ["language:Rust"],
+        "go": ["language:Go"],
+        "maven": ["language:Java", "language:Kotlin", "language:Scala", "language:Groovy"],
+        "systems": ["language:C", "language:C++", "language:Zig", 'language:"Vim Script"', "language:LLVM"],
+    }
+
+
+def test_added_languages_enter_with_their_ecosystem_and_criterion(sandbox, monkeypatch):
+    """The four repos the published 2026-10-21 universe lacked for their
+    language (stars as of 2026-10-22) enter under the ecosystem their language
+    maps to, each recording the criterion that selected it (D-UNI-2)."""
+    gh = FakeGH([("Scala", "apache", "spark", 44270), ("Vim Script", "neovim", "neovim", 103113),
+                 ("LLVM", "llvm", "llvm-project", 41159), ("Kotlin", "JetBrains", "kotlin", 53498)])
+    _install(monkeypatch, gh)
+    out = sandbox / "dry.jsonl"
+    assert bu.build(max_total=100, sleep_s=0, min_stars=1000, dry_run=True, out=out) == 4
+    by = {f"{r['owner']}/{r['name']}": r for r in _rows(out)}
+    assert {k: (r["ecosystem"], r["selected_by"]) for k, r in by.items()} == {
+        "neovim/neovim": ("systems", ['github-stars:language:"Vim Script"']),
+        "JetBrains/kotlin": ("maven", ["github-stars:language:Kotlin"]),
+        "apache/spark": ("maven", ["github-stars:language:Scala"]),
+        "llvm/llvm-project": ("systems", ["github-stars:language:LLVM"]),
+    }
+    summ = json.loads((sandbox / "dry.jsonl.summary.json").read_text())
+    assert summ["per_language"] == {"Vim Script": 1, "Kotlin": 1, "Scala": 1, "LLVM": 1}
+    assert summ["per_ecosystem"] == {"systems": 2, "maven": 2}
+
+
+def test_added_languages_face_the_same_star_floor_and_cap(sandbox, monkeypatch):
+    """One floor and one cap for every language: a Kotlin repo competes with a
+    Java repo on stars alone."""
+    gh = FakeGH([("Java", "j", "low", 1500), ("Java", "j", "high", 9000), ("Kotlin", "k", "mid", 5000),
+                 ("Zig", "z", "below", 999)])
+    _install(monkeypatch, gh)
+    _build(max_total=2, sleep_s=0, min_stars=1000, now=NOW)
+    assert [(r["name"], r["ecosystem"]) for r in _rows(sandbox / "candidates.jsonl")] == [
+        ("high", "maven"), ("mid", "maven")]

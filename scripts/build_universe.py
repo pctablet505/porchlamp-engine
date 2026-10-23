@@ -66,13 +66,25 @@ CANDIDATES = DATA / "candidates.jsonl"
 STAR_HISTORY_TRANSPORT: Transport = default_star_history_transport
 
 # ecosystem -> GitHub search language queries (each is sliced by star range)
+#
+# A language is searched only when its projects have an ecosystem this
+# benchmark models (``porchlamp.models.Ecosystem``; D-UNI-2 as amended by
+# RFC-0023, 2026-10-22): the registry it publishes to (Kotlin, Scala and Groovy
+# publish to Maven Central like Java, so they are ``maven``), or no package
+# registry at all, which D-MISS-5 scores as ``systems`` (Zig, Vim Script and
+# LLVM, like C and C++). A language whose registry is not modeled yet (C#
+# NuGet, Ruby RubyGems, PHP Packagist, Dart pub.dev, Swift, Lua LuaRocks,
+# Clojure Clojars) is left out rather than given an ecosystem it does not have:
+# ``systems`` would mark its dependents and downloads not_applicable, which is
+# false for those registries. Every language faces the one star floor.
 SEARCH_CRITERIA: dict[str, list[str]] = {
     "pypi": ["language:Python"],
     "npm": ["language:JavaScript", "language:TypeScript"],
     "crates": ["language:Rust"],
     "go": ["language:Go"],
-    "maven": ["language:Java"],
-    "systems": ["language:C", "language:C++"],
+    "maven": ["language:Java", "language:Kotlin", "language:Scala", "language:Groovy"],
+    "systems": ["language:C", "language:C++", "language:Zig", 'language:"Vim Script"',
+                "language:LLVM"],
 }
 
 #: GitHub search returns at most this many results per query; a slice whose
@@ -258,7 +270,7 @@ def _summary(rows: list[dict[str, Any]], *, min_stars: int, floor: int, carried:
         by_eco[r["ecosystem"]] = by_eco.get(r["ecosystem"], 0) + 1
         for c in r["selected_by"]:
             if c.startswith("github-stars:language:"):
-                lang = c.removeprefix("github-stars:language:")
+                lang = c.removeprefix("github-stars:language:").strip('"')
                 by_lang[lang] = by_lang.get(lang, 0) + 1
     new_rows = [r for r in rows if not any(c.startswith("carried:") for c in r["selected_by"])]
     return {"total": len(rows), "per_ecosystem": by_eco, "per_language": by_lang,
