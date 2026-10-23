@@ -1060,3 +1060,35 @@ def test_graphql_issue_counts_incomplete_answer_is_a_failure_not_a_zero(tmp_path
     with pytest.raises(RuntimeError, match="incomplete"):
         pike.collect_issue_counts_graphql(tmp_path, OWNER, NAME, now=NOW, transport=_NoSearch())
     assert not (tmp_path / "issues_counts").exists()
+
+
+def test_code_review_rate_and_pipeline_defenses_proxy_count_landed_prs():
+    """RFC-0015 (#60): ``code_review_rate`` counts PRs landed outside GitHub's merge (by closing
+    commit or ``LANDING_LABELS``) in its denominator alongside GitHub-merged PRs, and in its
+    numerator when approved by a non-author human reviewer; plain-closed unmerged PRs do not count."""
+    def _landed_pr(number: int, author: str, reviews: list, *, label: str | None = None,
+                   closer: str | None = None) -> dict:
+        base = _pr(number, False, author, reviews)
+        base["labels"] = {"nodes": [{"name": label}] if label else []}
+        base["timelineItems"] = {"nodes": [{
+            "__typename": "ClosedEvent",
+            "createdAt": base["closedAt"],
+            "actor": {"__typename": "User", "login": "bob"},
+            "closer": {"__typename": "Commit", "oid": "abc123"} if closer == "Commit" else None,
+        }]}
+        return base
+
+    prs = [
+        _pr(1, True, "alice", [_review("bob", "APPROVED")]),                        # GitHub-merged, approved
+        _landed_pr(2, "carol", [_review("dave", "APPROVED")], closer="Commit"),     # landed by commit, approved
+        _landed_pr(3, "erin", [], label="Merged"),                                  # landed by label, unapproved
+        _landed_pr(4, "frank", [_review("grace", "APPROVED")], label="integrated"),  # landed by label, approved
+        _landed_pr(5, "henry", [_review("ivan", "APPROVED")]),                      # plain close: not in denominator
+    ]
+    # 4 merged-or-landed PRs (#1..#4), 3 approved (#1, #2, #4) -> 3/4 = 0.75
+    assert pike.code_review_rate(prs) == 0.75
+    value, method = pike.pipeline_defenses(None, prs, RUNS_DATA["runs"])
+    assert method == pike.METHOD_PROXY
+    # 0.6 * 0.75 * 100 + 0.4 * 0.7 * 100 = 45 + 28 = 73.0
+    assert value == pytest.approx(73.0, abs=1e-9)
+

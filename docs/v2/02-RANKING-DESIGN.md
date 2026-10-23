@@ -123,15 +123,25 @@ once at universe entry (stars-based criteria) and sets `stars_audited`; the UI
 class (`TP` third-party gap → unmeasured; `RC` repo-controlled → measured zero;
 `N` needs minimum sample).
 
+**Pull requests landed outside GitHub's merge (RFC-0015, #60).** A closed,
+unmerged pull request (`mergedAt` null, `closedAt` present) whose latest
+`ClosedEvent` names a commit as its `closer` or that carries a label in
+`porchlamp.core.constants.LANDING_LABELS` (`{"integrated", "merged"}`, whole
+name compared lower-cased) was landed outside GitHub's merge (`porchlamp.core.landing.is_landed`):
+the merge-based measures — 1.3 `MR_first` (and its no-prior-merge predicate),
+1.5 `TTM_p90`, 5.2 `newcomer_conversion`, 5.3 `RR_90` and the 4.1 review proxy —
+count it as merged at its `closedAt` (`porchlamp.core.landing.merged_or_landed_at`).
+The decision measures (1.2 `DR_90`, 1.4 `GR_14` and D-GATE-5) are unchanged.
+
 ### Pillar 1 — Responsiveness (25%)
 
 | Id | Parameter | Definition | w | global | min n | Curve | Class |
 |---|---|---|---|---|---|---|---|
 | 1.1 | TTFHR | median hours from opening to first substantive human response (D-IN-2), external PRs in window | .30 | 7.5 | 10 | 100 if ≤ 12 h; else `max(0, 100 − 25·log2(t/12))` | N |
 | 1.2 | DR_90 decision rate **(new)** | share of external PRs in the decision cohort that were merged or closed within 90 d | .25 | 6.25 | 10 | `min(100, 125·r)` | N |
-| 1.3 | MR_first | merged / decided among external PRs whose author had no prior merged PR in the repo (author history from W1-4) | .20 | 5.0 | 5 | `min(100, 125·r)` | N |
+| 1.3 | MR_first | merged / decided among external PRs whose author had no prior merged PR in the repo (author history from W1-4; includes PRs landed outside GitHub's merge, RFC-0015) | .20 | 5.0 | 5 | `min(100, 125·r)` | N |
 | 1.4 | GR_14 ghost rate | share of external PRs in window, ≥ 14 d old, with no substantive human response within 14 d | .15 | 3.75 | 10 | `max(0, 100 − 200·g)` | N |
-| 1.5 | TTM_p90 | nearest-rank p90 of merge latency (h) over merged external PRs in window; ecosystem ECDF | .10 | 2.5 | 5 | `100 − ECDF_mid(p90)` | N |
+| 1.5 | TTM_p90 | nearest-rank p90 of merge latency (h) over merged external PRs in window (including PRs landed outside GitHub's merge at `closedAt`, RFC-0015); ecosystem ECDF | .10 | 2.5 | 5 | `100 − ECDF_mid(p90)` | N |
 
 Why DR_90 is new and above MR_first: a decision (even a rejection with
 feedback) is the outcome the contributor is owed; merge rate alone rewards

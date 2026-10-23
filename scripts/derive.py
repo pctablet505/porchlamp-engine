@@ -755,6 +755,10 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     prw, prw_at = _load(data_dir, "pr_window", key)
     for field, (value, conf) in prw_mod.derive_pr_window_fields(prw).items():
         b.set(field, value, src("pr_window", key) if prw is not None else None, prw_at, conf)
+    # --- RFC-0015: PRs landed outside GitHub's merge, as the record shows them
+    # (whether it carries the landing fields; how many outside PRs landed). ---
+    for field, (value, conf) in prw_mod.derive_pr_window_landing_fields(prw).items():
+        b.set(field, value, src("pr_window", key), prw_at, conf)
 
     # --- 1.4 GR_14 = D-GATE-5's zero-response share (owner ruling
     # 2026-10-06: one measurement, per the spec): porchlamp.core.gates.

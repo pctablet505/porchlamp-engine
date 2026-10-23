@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from porchlamp.core.landing import PR_LANDING_FIELDS
+
 #: D-GATE-5 / W6-3: A merged or closed PR is considered settled once it has
 #: matured past this number of days after its creation and decision.
 SETTLED_MATURITY_DAYS: int = 14
@@ -286,6 +288,9 @@ def merge_runs_delta(
 
 #: RFC-0009 / W6-5: Light PR history GraphQL query fetching only scalar fields.
 #: Excludes nested reviews, comments, and reviewThreads.
+#: RFC-0015 (#60): plus each PR's labels and latest close event with its closer
+#: (:data:`porchlamp.core.landing.PR_LANDING_FIELDS`), so an author's earlier PR
+#: that the project landed outside GitHub's merge counts as a merge.
 LIGHT_PR_HISTORY_QUERY: str = (
     "query LightPrHistory($owner: String!, $name: String!, $first: Int = 100, $after: String) {"
     " rateLimit { cost }"
@@ -296,6 +301,7 @@ LIGHT_PR_HISTORY_QUERY: str = (
     " nodes {"
     " number createdAt mergedAt closedAt state authorAssociation"
     " author { __typename login ... on User { createdAt } }"
+    + PR_LANDING_FIELDS +
     " }"
     " } } }"
 )

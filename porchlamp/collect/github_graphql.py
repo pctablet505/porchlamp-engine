@@ -37,7 +37,7 @@ from typing import Any, Optional, Protocol
 from porchlamp.collect import ghcli, ledger
 from porchlamp.collect.envelope import read_envelope, sha256_hex, write_envelope
 from porchlamp.collect.user_cache import UserCache
-from porchlamp.core import constants, gates
+from porchlamp.core import constants, gates, landing
 from porchlamp.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
 from porchlamp.core.hygiene import (
     account_eligibility as _hygiene_account_eligibility,
@@ -1034,6 +1034,39 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
     return fields
 
 
+def derive_pr_window_landing_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
+    """RFC-0015 (#60): what a recorded ``pr_window`` envelope ``data`` shows of
+    pull requests landed outside GitHub's merge (:mod:`porchlamp.core.landing`).
+
+    Returns ``{field: (value, confidence)}`` for two bundle fields:
+
+    * ``pr_window_landing_recorded`` (``verified``): whether every recorded PR
+      node carries the fields landing reads
+      (:func:`porchlamp.core.landing.landing_recorded`). A record fetched before
+      #63 does not; its 1.5 TTM_p90 and 4.1 review proxy then read GitHub's
+      merges alone, as they did before.
+    * ``pr_window_landed_external_count`` (``derived``): the outside PRs (an
+      external author association and a non-bot author, D-IN-1) the record shows
+      landed, which 1.5 TTM_p90 counts as merged at their close. ``(None,
+      "missing")`` on a record cut short of its window, whose statistics are all
+      refused (:func:`derive_pr_window_fields`).
+
+    Empty dict when ``prw`` is None or records no PR list.
+    """
+    if not prw or not isinstance(prw.get("prs"), list):
+        return {}
+    prs = [pr for pr in prw["prs"] if isinstance(pr, Mapping)]
+    fields: dict[str, tuple[Any, str]] = {
+        "pr_window_landing_recorded": (bool(prs) and all(landing.landing_recorded(pr) for pr in prs), "verified"),
+    }
+    if pr_window_cut_short(prw):
+        fields["pr_window_landed_external_count"] = (None, "missing")
+    else:
+        fields["pr_window_landed_external_count"] = (
+            sum(1 for pr in prs if _is_external_nonbot(pr) and landing.is_landed(pr)), "derived")
+    return fields
+
+
 
 # --------------------------------------------------------------------------- #
 # Author history and newcomer cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3)
@@ -1069,6 +1102,13 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
 #   recorded history rather than failing the whole repo's collection — and
 #   excludes that author from MR_first's population entirely
 #   (:func:`_no_prior_merged` returns ``None``), never assumed a first-timer;
+# * RFC-0015 (#60): each window PR records its labels and its latest close
+#   event with that event's closer (:data:`porchlamp.core.landing.PR_LANDING_FIELDS`),
+#   so a PR the project landed outside GitHub's merge counts as merged, at its
+#   close, wherever the cohorts read a merge (:mod:`porchlamp.core.landing`).
+#   The per-author search records neither: a 25-alias search batch asking for
+#   them failed with HTTP 502 when measured on ``pytorch/pytorch`` (2026-10-22).
+#   The light history (RFC-0009, :func:`fetch_light_pr_history`) records both;
 # * derivation (``derive_cohort_fields``, pure over the recorded envelope):
 #   for each of DR_90 (1.2), MR_first (1.3), newcomer conversion (5.2) and
 #   RR_90 (5.3) both a raw rate (over the identified cohort, no D-IN-3
@@ -1078,9 +1118,11 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
 # Documented approximations: "no previously merged PR" (MR_first — the
 # predicate is merge time, not creation time) is a statement about recorded
 # history only — the 365-d window plus the sampled per-author newest-30 search;
-# a truncated newcomer band excludes candidates whose oldest recorded PR sits
-# within ``TRUNCATION_MARGIN_DAYS`` of the truncation floor, since an even older,
-# unrecorded PR would misclassify them as a newcomer.
+# a PR older than the window that the project landed outside GitHub's merge is
+# known only from that search, which records no landing, so it does not count
+# as a prior merge; a truncated newcomer band excludes candidates whose oldest
+# recorded PR sits within ``TRUNCATION_MARGIN_DAYS`` of the truncation floor,
+# since an even older, unrecorded PR would misclassify them as a newcomer.
 
 #: D-IN-4: the author-history window — 365 d of PRs.
 AUTHOR_WINDOW_DAYS: int = 365
@@ -1108,9 +1150,11 @@ DECISION_COHORT_START_DAYS: int = 270
 DECISION_WINDOW_DAYS: int = 90
 #: D-IN-3: MIN_ACCOUNT_AGE_DAYS, MIN_PUBLIC_EVENTS and AUTHOR_CAP_FRACTION
 #: are imported from porchlamp.core.constants.
-#: 5.2: the first PR converted when merged within 180 d of opening.
+#: 5.2: the first PR converted when merged within 180 d of opening (merged on
+#: GitHub or landed outside its merge, RFC-0015).
 NEWCOMER_CONVERT_WINDOW_DAYS: int = 180
-#: 5.3: a return needs a second PR within 90 d after the first PR's merge.
+#: 5.3: a return needs a second PR within 90 d after the first PR's merge (or
+#: landing, RFC-0015).
 RETURN_WINDOW_DAYS: int = 90
 #: At most this many per-author ``search`` calls per repo,
 #: deterministically sampled (:func:`_seeded_sample`) from the union of the
@@ -1138,6 +1182,11 @@ AUTHOR_SEARCH_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 #: The 365-d window query: PRs in all three states, newest first, light
 #: fields (no reviews/comments — the author section does not derive
 #: D-IN-2). ``rateLimit`` carries ``cost`` and ``remaining``.
+#: RFC-0015 (#60): each PR's labels and latest close event with its closer
+#: (:data:`porchlamp.core.landing.PR_LANDING_FIELDS`), so the cohorts count a PR
+#: landed outside GitHub's merge as merged. A 100-PR page costs 2 points where it
+#: cost 1 (``pytorch/pytorch``'s newest page, measured 2026-10-22). Envelopes
+#: recorded before lack both keys and their cohorts read GitHub's merges alone.
 AUTHOR_WINDOW_QUERY: str = (
     "query AuthorWindow($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost remaining }"
@@ -1146,7 +1195,8 @@ AUTHOR_WINDOW_QUERY: str = (
     " orderBy: {field: CREATED_AT, direction: DESC}) {"
     " pageInfo { hasNextPage endCursor }"
     " nodes { number createdAt closedAt mergedAt state"
-    " author { __typename login ... on User { createdAt } } authorAssociation }"
+    " author { __typename login ... on User { createdAt } } authorAssociation"
+    + landing.PR_LANDING_FIELDS + " }"
     " } } }"
 )
 
@@ -1588,6 +1638,11 @@ def fetch_light_pr_history(
     Pages newest-first at 1 GraphQL point per page (no ``search(type: ISSUE)`` calls)
     and groups up to :data:`AUTHOR_SEARCH_FIRST` PRs per author login.
     Returns ``(by_author, cost_points, remaining, ok)``.
+
+    RFC-0015: each grouped PR keeps the ``labels`` and ``timelineItems`` its page
+    recorded (:data:`porchlamp.core.landing.PR_LANDING_FIELDS`), so the cohorts
+    count an earlier PR landed outside GitHub's merge as a merge; a page without
+    them adds neither key.
     """
     by_author: dict[str, list[dict]] = {}
     total_seen = 0
@@ -1622,13 +1677,15 @@ def fetch_light_pr_history(
             if login:
                 bucket = by_author.setdefault(login, [])
                 if len(bucket) < AUTHOR_SEARCH_FIRST:
-                    bucket.append({
+                    entry = {
                         "number": raw.get("number"),
                         "createdAt": raw.get("createdAt"),
                         "closedAt": raw.get("closedAt"),
                         "mergedAt": raw.get("mergedAt"),
                         "state": raw.get("state"),
-                    })
+                    }
+                    entry.update({key: raw[key] for key in ("labels", "timelineItems") if key in raw})
+                    bucket.append(entry)
             if total_seen >= cap:
                 break
         page_info = connection.get("pageInfo") or {}
@@ -1824,13 +1881,19 @@ def _decided_within_days(pr: dict, days: int) -> bool:
 def _author_pr_history(window_prs: Sequence[dict],
                        record: Optional[dict], login: str) -> list[dict]:
     """The author's recorded PR history: the window PRs union the record's
-    search PRs, deduplicated by PR number (search entries win)."""
+    search PRs, deduplicated by PR number (search entries win).
+
+    RFC-0015: a search entry wins only the fields it records; a window node's
+    other fields -- its labels and latest close event, which the per-author
+    search does not record -- are kept, so a PR landed outside GitHub's merge
+    stays landed when the search found it too."""
     seen: dict[Any, dict] = {}
     for pr in window_prs:
         if _login_of(pr) == login:
             seen[pr.get("number")] = pr
     for pr in (record or {}).get("prs") or []:
-        seen[pr.get("number")] = pr
+        number = pr.get("number")
+        seen[number] = {**seen[number], **pr} if number in seen else pr
     return list(seen.values())
 
 
@@ -1881,7 +1944,9 @@ def _no_prior_merged(pr: dict, window_prs: Sequence[dict],
                      records: dict[str, dict]) -> Optional[bool]:
     """1.3 MR_first: the author had no other recorded PR merged strictly
     before this one's ``createdAt``, in the union of the window and the
-    author's search history.
+    author's search history. A PR landed outside GitHub's merge counts as
+    merged at its close (:func:`porchlamp.core.landing.merged_or_landed_at`,
+    RFC-0015).
 
     Returns ``None`` (unknown) when the author's prior-merge history was not
     measured for this repo: the search failed (``history_unmeasured``) or
@@ -1897,7 +1962,7 @@ def _no_prior_merged(pr: dict, window_prs: Sequence[dict],
         return False
     history = _author_pr_history(window_prs, record, login)
     return not any(
-        (other_merged := _parse_iso(other.get("mergedAt"))) is not None
+        (other_merged := _parse_iso(landing.merged_or_landed_at(other))) is not None
         and other_merged < created
         for other in history
         if other.get("number") != pr.get("number")
@@ -1926,7 +1991,12 @@ def _newcomer_cohort_authors(window_prs: Sequence[dict], records: dict[str, dict
                              sampled: Sequence[str], anchor: datetime) -> list[dict]:
     """The sampled newcomer-cohort roster (5.2/5.3), each entry carrying the
     public ``login``/``first_pr``/``followups`` fields plus the private
-    (``_``-prefixed) facts :func:`derive_cohort_fields` reduces to rates."""
+    (``_``-prefixed) facts :func:`derive_cohort_fields` reduces to rates.
+
+    RFC-0015: a PR landed outside GitHub's merge counts as merged at its close
+    (:func:`porchlamp.core.landing.merged_or_landed_at`), for the conversion, the
+    return clock and each roster entry's ``merged_at``; ``_first_landed`` marks a
+    first PR merged that way rather than by GitHub."""
     band_start = anchor - timedelta(days=NEWCOMER_BAND_START_DAYS)
     band_end = anchor - timedelta(days=NEWCOMER_BAND_END_DAYS)
     oldest: dict[str, datetime] = {}
@@ -1958,7 +2028,8 @@ def _newcomer_cohort_authors(window_prs: Sequence[dict], records: dict[str, dict
             continue  # recorded evidence of an even-older PR: not a genuine newcomer
         followups = [pr for _c, _n, pr in history[1:]]
         record = records.get(login) or {}
-        first_merged = _parse_iso(first_pr.get("mergedAt"))
+        first_merged_at = landing.merged_or_landed_at(first_pr)
+        first_merged = _parse_iso(first_merged_at)
         converted = (first_merged is not None
                      and first_merged - first_created <= timedelta(days=NEWCOMER_CONVERT_WINDOW_DAYS))
         returned = first_merged is not None and any(
@@ -1973,13 +2044,14 @@ def _newcomer_cohort_authors(window_prs: Sequence[dict], records: dict[str, dict
             "account_created_at": record.get("account_created_at"),
             "first_pr": {"number": first_pr.get("number"),
                          "created_at": first_pr.get("createdAt"),
-                         "merged_at": first_pr.get("mergedAt")},
+                         "merged_at": first_merged_at},
             "followups": [{"number": pr.get("number"),
                            "created_at": pr.get("createdAt"),
-                           "merged_at": pr.get("mergedAt")} for pr in followups],
+                           "merged_at": landing.merged_or_landed_at(pr)} for pr in followups],
             "_eligible": _account_eligibility(record, first_pr.get("createdAt")),
             "_first_created": first_created,
             "_first_merged": first_merged,
+            "_first_landed": landing.is_landed(first_pr),
             "_converted": converted,
             "_returned": returned,
         })
@@ -1995,6 +2067,7 @@ def _author_public(author: dict) -> dict:
 AUTHOR_HISTORY_BUNDLE_FIELDS: tuple[str, ...] = (
     "author_history_cost_points", "author_history_truncated",
     "author_history_rate_limit_remaining", "newcomer_sampled_author_count",
+    "author_history_landing_recorded",
     "decision_cohort_coverage_gap_days", "cohort_decision_pr_numbers",
     "authors_total", "authors_excluded_unsampled",
     "authors_excluded_unmeasured", "authors_excluded_ineligible",
@@ -2002,12 +2075,13 @@ AUTHOR_HISTORY_BUNDLE_FIELDS: tuple[str, ...] = (
     "dr90_decision_rate_raw", "dr90_decision_pr_count_raw",
     "dr90_decision_rate_author_history_cohort", "dr90_decision_pr_count_author_history_cohort",
     "mr_first_rate_raw", "mr_first_pr_count_raw",
-    "mr_first_rate", "mr_first_pr_count",
+    "mr_first_rate", "mr_first_pr_count", "mr_first_landed_pr_count",
     "newcomer_cohort_author_count", "cohort_newcomer_authors",
     "newcomer_conversion_raw", "newcomer_conversion_raw_author_count",
     "newcomer_conversion", "newcomer_conversion_author_count",
+    "newcomer_conversion_landed_author_count",
     "rr90_return_rate_raw", "rr90_return_raw_author_count",
-    "rr90_return_rate", "rr90_return_author_count",
+    "rr90_return_rate", "rr90_return_author_count", "rr90_return_landed_author_count",
     "newcomer_unmeasured_detail",
 )
 
@@ -2030,6 +2104,17 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     When more than :data:`AUTHOR_UNMEASURED_MAX_FRACTION` of cohort authors are
     unmeasured, adjusted rates and counts are reported as ``(None, "missing")``
     with detail recorded in ``cohort_unmeasured_detail`` and ``newcomer_unmeasured_detail``.
+
+    RFC-0015 (#60): MR_first, its no-prior-merge predicate, newcomer conversion and
+    RR_90 count a PR landed outside GitHub's merge as merged at its close
+    (:func:`porchlamp.core.landing.merged_or_landed_at`); DR_90 is unchanged (a close
+    was always a decision). How many of each adjusted rate's PRs or authors that
+    makes is recorded beside the rate's own count -- ``mr_first_landed_pr_count``,
+    ``newcomer_conversion_landed_author_count`` (converted by a landing) and
+    ``rr90_return_landed_author_count`` (first PR landed) -- and
+    ``author_history_landing_recorded`` says whether the record's window PRs carry
+    the landing fields at all: an envelope recorded before them does not, and its
+    rates count GitHub's merges alone.
     """
     if not ah:
         return {}
@@ -2045,6 +2130,8 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         return out
     window_prs: Sequence[dict] = ah.get("prs") or []
     records = {str(r.get("login") or "").lower(): r for r in ah.get("author_records") or []}
+    out["author_history_landing_recorded"] = (
+        bool(window_prs) and all(landing.landing_recorded(pr) for pr in window_prs), "verified")
 
     covered_since = _covered_since(ah, anchor)
     requested_start = anchor - timedelta(days=DECISION_COHORT_START_DAYS)
@@ -2086,7 +2173,7 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     mr_candidates = [pr for pr in cohort_prs
                      if _no_prior_merged(pr, window_prs, records) is True]
     raw_mr_decided = [pr for pr in mr_candidates if pr.get("closedAt") is not None]
-    raw_mr_merged = sum(1 for pr in raw_mr_decided if pr.get("mergedAt") is not None)
+    raw_mr_merged = sum(1 for pr in raw_mr_decided if landing.merged_or_landed_at(pr) is not None)
     out["mr_first_rate_raw"] = (_ratio(raw_mr_merged, len(raw_mr_decided)), "derived")
     out["mr_first_pr_count_raw"] = (len(raw_mr_decided), "derived")
 
@@ -2101,6 +2188,7 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         out["dr90_decision_pr_count_author_history_cohort"] = (None, "missing")
         out["mr_first_rate"] = (None, "missing")
         out["mr_first_pr_count"] = (None, "missing")
+        out["mr_first_landed_pr_count"] = (None, "missing")
         out["cohort_unmeasured_detail"] = (detail, "verified")
     else:
         dr90_kept = _cap_prs([pr for pr in cohort_prs if _eligible(pr, records) is True])
@@ -2110,9 +2198,10 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
 
         mr_kept = _cap_prs([pr for pr in mr_candidates if _eligible(pr, records) is True])
         mr_decided = [pr for pr in mr_kept if pr.get("closedAt") is not None]
-        mr_merged = sum(1 for pr in mr_decided if pr.get("mergedAt") is not None)
+        mr_merged = sum(1 for pr in mr_decided if landing.merged_or_landed_at(pr) is not None)
         out["mr_first_rate"] = (_ratio(mr_merged, len(mr_decided)), "derived")
         out["mr_first_pr_count"] = (len(mr_decided), "derived")
+        out["mr_first_landed_pr_count"] = (sum(1 for pr in mr_decided if landing.is_landed(pr)), "derived")
 
     # --- 5.2 / 5.3: the sampled newcomer cohort -----------------------------
     authors = _newcomer_cohort_authors(window_prs, records, sampled, anchor)
@@ -2138,20 +2227,25 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
             detail = f"{newcomer_unmeasured} of {newcomer_total} newcomer authors unmeasured"
         out["newcomer_conversion"] = (None, "missing")
         out["newcomer_conversion_author_count"] = (None, "missing")
+        out["newcomer_conversion_landed_author_count"] = (None, "missing")
         out["rr90_return_rate"] = (None, "missing")
         out["rr90_return_author_count"] = (None, "missing")
+        out["rr90_return_landed_author_count"] = (None, "missing")
         out["newcomer_unmeasured_detail"] = (detail, "verified")
     else:
         conv_kept = _cap_authors(eligible_authors, "_first_created")
         out["newcomer_conversion"] = (
             _ratio(sum(1 for a in conv_kept if a["_converted"]), len(conv_kept)), "derived")
         out["newcomer_conversion_author_count"] = (len(conv_kept), "derived")
+        out["newcomer_conversion_landed_author_count"] = (
+            sum(1 for a in conv_kept if a["_converted"] and a["_first_landed"]), "derived")
 
         merged_first_eligible = [a for a in eligible_authors if a["_first_merged"] is not None]
         rr_kept = _cap_authors(merged_first_eligible, "_first_merged")
         out["rr90_return_rate"] = (
             _ratio(sum(1 for a in rr_kept if a["_returned"]), len(rr_kept)), "derived")
         out["rr90_return_author_count"] = (len(rr_kept), "derived")
+        out["rr90_return_landed_author_count"] = (sum(1 for a in rr_kept if a["_first_landed"]), "derived")
 
     merged_first_all = [a for a in authors if a["_first_merged"] is not None]
     out["rr90_return_rate_raw"] = (

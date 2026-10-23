@@ -2411,3 +2411,201 @@ def test_author_history_required_days_match_the_collector() -> None:
         "rr90_return_rate": github_graphql.NEWCOMER_BAND_START_DAYS,
     }
 
+
+# --------------------------------------------------------------------------- #
+# RFC-0015 (#60): pull requests landed outside GitHub's merge                 #
+# --------------------------------------------------------------------------- #
+
+
+def _landed_node(
+    number: int,
+    created: str,
+    closed: str,
+    *,
+    label: str | None = None,
+    closer: str | None = "Commit",
+    author_association: str = "CONTRIBUTOR",
+) -> dict[str, Any]:
+    return {
+        "number": number,
+        "authorAssociation": author_association,
+        "createdAt": created,
+        "closedAt": closed,
+        "mergedAt": None,
+        "state": "CLOSED",
+        "labels": {"nodes": [{"name": label}] if label else []},
+        "timelineItems": {
+            "nodes": [
+                {
+                    "__typename": "ClosedEvent",
+                    "createdAt": closed,
+                    "actor": {"__typename": "User", "login": "bob"},
+                    "closer": {"__typename": "Commit", "oid": "abc123"} if closer == "Commit" else None,
+                }
+            ]
+        },
+    }
+
+
+def test_ttm_p90_hours_counts_landed_external_prs_and_notes_landing_on_insufficient_n(tmp_path: Path) -> None:
+    """RFC-0015: ``ttm_p90_hours`` includes external PRs landed outside GitHub's merge (whose
+    ``derived.merged`` is ``False``, timed at ``closedAt - createdAt``) while still excluding
+    internal landed PRs and plain-closed PRs; when ``n < 5``, its detail names how many outside
+    PRs landed or notes that the record pre-dates RFC-0015's fields."""
+    prs = [
+        # 1-2: GitHub-merged external PRs (10h, 20h)
+        {"number": 1, "authorAssociation": "CONTRIBUTOR", "createdAt": "2026-08-01T00:00:00+00:00", "mergedAt": "2026-08-01T10:00:00+00:00"},
+        {"number": 2, "authorAssociation": "CONTRIBUTOR", "createdAt": "2026-08-02T00:00:00+00:00", "mergedAt": "2026-08-02T20:00:00+00:00"},
+        # 3-5: external PRs landed outside GitHub's merge (30h by commit, 40h by "Merged", 50h by "integrated")
+        _landed_node(3, "2026-08-03T00:00:00+00:00", "2026-08-04T06:00:00+00:00", closer="Commit"),
+        _landed_node(4, "2026-08-04T00:00:00+00:00", "2026-08-05T16:00:00+00:00", label="Merged", closer=None),
+        _landed_node(5, "2026-08-05T00:00:00+00:00", "2026-08-07T02:00:00+00:00", label="integrated", closer=None),
+        # 6: internal PR landed by commit (900h) -> excluded by is_outside_pr
+        _landed_node(6, "2026-07-01T00:00:00+00:00", "2026-08-07T12:00:00+00:00", closer="Commit", author_association="MEMBER"),
+        # 7: external plain close (no commit, no landing label, 800h) -> excluded
+        _landed_node(7, "2026-07-01T00:00:00+00:00", "2026-08-03T08:00:00+00:00", closer=None),
+    ]
+    derived = [
+        {"number": 1, "is_external": True, "merged": True},
+        {"number": 2, "is_external": True, "merged": True},
+        {"number": 3, "is_external": True, "merged": False},
+        {"number": 4, "is_external": True, "merged": False},
+        {"number": 5, "is_external": True, "merged": False},
+        {"number": 6, "is_external": False, "merged": False},
+        {"number": 7, "is_external": True, "merged": False},
+    ]
+    data = pr_window_data(prs=prs, derived=derived)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__landed-ttm", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__landed-ttm")})
+    bundle = load(tmp_path, doc, key="acme__landed-ttm")
+    assert bundle.inputs["ttm_p90_hours"] == Measured(
+        value=50.0, n=5, window_start="2026-03-05T00:00:00+00:00",
+        window_end="2026-09-01T00:00:00+00:00", method="primary",
+        source="raw/pr_window/acme__landed-ttm.json",
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+    # Insufficient n with landing fields recorded: names the landed count
+    low_data = pr_window_data(prs=prs[:4], derived=derived[:4])
+    write_envelope(tmp_path / "raw", "pr_window", "acme__landed-low", low_data, "2026-09-01T00:05:00+00:00")
+    low_doc = base_document(
+        meta={"pr_window_landing_recorded": True, "pr_window_landed_external_count": 2},
+        provenance={"pr_window_count": prov("pr_window", key="acme__landed-low")},
+    )
+    assert load(tmp_path, low_doc, key="acme__landed-low").inputs["ttm_p90_hours"] == Unmeasured(
+        reason="insufficient_n",
+        detail="4 merged external PRs with recorded latency, need >= 5; 2 outside PRs in the record "
+               "were landed outside GitHub's merge and count as merged",
+    )
+
+    # Insufficient n on a record fetched before RFC-0015's fields
+    pre_doc = base_document(
+        meta={"pr_window_landing_recorded": False, "pr_window_landed_external_count": 0},
+        provenance={"pr_window_count": prov("pr_window", key="acme__landed-low")},
+    )
+    assert load(tmp_path, pre_doc, key="acme__landed-pre").inputs["ttm_p90_hours"] == Unmeasured(
+        reason="insufficient_n",
+        detail="4 merged external PRs with recorded latency, need >= 5; the record shows no landing "
+               "outside GitHub's merge (fetched before RFC-0015's fields)",
+    )
+
+
+def test_pipeline_defenses_proxy_counts_landed_prs_toward_min_n_floor(tmp_path: Path) -> None:
+    """RFC-0015: ``_resolve_pipeline_defenses`` counts landed PRs alongside GitHub-merged PRs in
+    ``Measured.n`` for ``proxy:review_ci``, so 7 GitHub-merged + 3 landed PRs clear the 10-PR floor
+    while 7 GitHub-merged + 2 landed + 1 plain-closed PR stay at ``n=9`` (``insufficient_n``)."""
+    from porchlamp.core.params.rigor import pipeline_defenses as rigor_pipeline_defenses
+
+    def _make(n_landed: int, key: str) -> Any:
+        prs: list[dict[str, Any]] = [
+            {"number": i, "mergedAt": "2026-08-01T00:00:00+00:00"} for i in range(1, 8)
+        ]
+        for j in range(n_landed):
+            prs.append(_landed_node(100 + j, "2026-08-02T00:00:00+00:00", "2026-08-03T00:00:00+00:00"))
+        # Plain close without landing signal: never counted
+        prs.append(_landed_node(999, "2026-08-02T00:00:00+00:00", "2026-08-03T00:00:00+00:00", closer=None))
+        pr_window_env = pr_window_data(prs=prs)
+        write_envelope(tmp_path / "raw", "pr_window", key, pr_window_env, "2026-09-01T00:05:00+00:00")
+        write_envelope(tmp_path / "raw", "runs", key, {"runs": []}, "2026-09-01T00:03:00+00:00")
+        doc = base_document(
+            meta={"pipeline_defenses": 64.0, "pipeline_defenses_method": "proxy:review_ci"},
+            provenance={"pipeline_defenses": {
+                "source": [f"/original-data-dir/raw/pr_window/{key}.json",
+                           f"/original-data-dir/raw/runs/{key}.json"],
+                "fetched_at": "2026-09-01T00:05:00+00:00",
+            }},
+            confidence={"pipeline_defenses": "derived"},
+        )
+        return load(tmp_path, doc, key=key).inputs["pipeline_defenses"]
+
+    below = _make(2, "acme__pd-landed-9")
+    at_floor = _make(3, "acme__pd-landed-10")
+    assert (below.n, at_floor.n) == (9, 10)
+    assert rigor_pipeline_defenses(below).measured is False
+    assert rigor_pipeline_defenses(at_floor).measured is True
+
+
+def test_author_history_rate_resolvers_append_landing_note_on_insufficient_n(tmp_path: Path) -> None:
+    """RFC-0015: when ``mr_first_rate``, ``newcomer_conversion`` or ``rr90_return_rate`` is
+    ``insufficient_n``, its detail names how many PRs/authors were landed outside GitHub's merge
+    when ``author_history_landing_recorded`` is ``True``, and notes their absence when ``False``."""
+    recorded_doc = base_document(
+        meta={
+            "author_history_landing_recorded": True,
+            "mr_first_rate": 0.5, "mr_first_pr_count": 4, "mr_first_landed_pr_count": 2,
+            "newcomer_conversion": 0.5, "newcomer_conversion_author_count": 4,
+            "newcomer_conversion_landed_author_count": 1,
+            "rr90_return_rate": 0.5, "rr90_return_author_count": 3,
+            "rr90_return_landed_author_count": 3,
+        },
+        confidence={
+            "mr_first_rate": "derived",
+            "newcomer_conversion": "derived",
+            "rr90_return_rate": "derived",
+        },
+    )
+    recorded_bundle = load(tmp_path, recorded_doc, key="acme__ah-landed-note")
+    assert recorded_bundle.inputs["mr_first_rate"] == Unmeasured(
+        reason="insufficient_n",
+        detail="4 PRs in the D-IN-3-adjusted cohort, need >= 5; 2 of them were landed outside "
+               "GitHub's merge and count as merged",
+    )
+    assert recorded_bundle.inputs["newcomer_conversion"] == Unmeasured(
+        reason="insufficient_n",
+        detail="4 authors in the D-IN-3-adjusted cohort, need >= 5; 1 of them converted by a "
+               "first PR landed outside GitHub's merge",
+    )
+    assert recorded_bundle.inputs["rr90_return_rate"] == Unmeasured(
+        reason="insufficient_n",
+        detail="3 authors in the D-IN-3-adjusted cohort, need >= 5; 3 of them had a first PR "
+               "landed outside GitHub's merge",
+    )
+
+    unrecorded_doc = base_document(
+        meta={
+            "author_history_landing_recorded": False,
+            "mr_first_rate": 0.5, "mr_first_pr_count": 4, "mr_first_landed_pr_count": 0,
+            "newcomer_conversion": 0.5, "newcomer_conversion_author_count": 4,
+            "newcomer_conversion_landed_author_count": 0,
+            "rr90_return_rate": 0.5, "rr90_return_author_count": 3,
+            "rr90_return_landed_author_count": 0,
+        },
+        confidence={
+            "mr_first_rate": "derived",
+            "newcomer_conversion": "derived",
+            "rr90_return_rate": "derived",
+        },
+    )
+    unrecorded_bundle = load(tmp_path, unrecorded_doc, key="acme__ah-unrecorded-note")
+    suffix = "; the record shows no landing outside GitHub's merge (fetched before RFC-0015's fields)"
+    assert unrecorded_bundle.inputs["mr_first_rate"] == Unmeasured(
+        reason="insufficient_n", detail=f"4 PRs in the D-IN-3-adjusted cohort, need >= 5{suffix}",
+    )
+    assert unrecorded_bundle.inputs["newcomer_conversion"] == Unmeasured(
+        reason="insufficient_n", detail=f"4 authors in the D-IN-3-adjusted cohort, need >= 5{suffix}",
+    )
+    assert unrecorded_bundle.inputs["rr90_return_rate"] == Unmeasured(
+        reason="insufficient_n", detail=f"3 authors in the D-IN-3-adjusted cohort, need >= 5{suffix}",
+    )
+
+

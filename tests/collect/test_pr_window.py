@@ -2818,3 +2818,231 @@ def test_an_author_history_cut_short_of_a_cohort_start_yields_no_rate_for_that_c
     assert short["cohort_unmeasured_detail"][0].startswith(
         "author_history window truncated before reaching the 270d decision-cohort start")
 
+
+# =============================================================================
+# RFC-0015 (#60): pull requests landed outside GitHub's merge
+# =============================================================================
+
+
+def _with_landing(node: dict, *, labels: tuple[str, ...] = (), closer: str | None = None) -> dict:
+    """Attach the RFC-0015 ``labels`` and ``timelineItems`` fields to a PR node."""
+    closed_at = node.get("closedAt")
+    events = []
+    if closed_at is not None:
+        events.append({
+            "__typename": "ClosedEvent",
+            "createdAt": closed_at,
+            "actor": {"__typename": "User", "login": "bob"},
+            "closer": None if closer is None else (
+                {"__typename": "Commit", "oid": "deadbeef"} if closer == "Commit"
+                else {"__typename": closer, "number": 99}),
+        })
+    return {
+        **node,
+        "labels": {"nodes": [{"name": name} for name in labels]},
+        "timelineItems": {"nodes": events},
+    }
+
+
+def test_author_window_and_light_history_queries_record_landing_fields():
+    """RFC-0015: both author-history window queries include ``PR_LANDING_FIELDS`` and balance braces."""
+    from porchlamp.collect.ledger import LIGHT_PR_HISTORY_QUERY
+    from porchlamp.core import landing
+
+    for query in (gql.AUTHOR_WINDOW_QUERY, LIGHT_PR_HISTORY_QUERY):
+        assert landing.PR_LANDING_FIELDS in query
+        assert query.count("{") == query.count("}")
+
+
+def test_fetch_light_pr_history_preserves_landing_fields_when_present():
+    """RFC-0015: ``fetch_light_pr_history`` keeps ``labels`` and ``timelineItems`` from a page that
+    records them and omits them on a page that does not."""
+    landed_raw = _with_landing(
+        w4_pr(10, "2026-05-01T00:00:00Z", "alice", closed="2026-05-02T00:00:00Z"),
+        labels=("Merged",),
+        closer="Commit",
+    )
+    plain_raw = w4_pr(11, "2026-04-01T00:00:00Z", "bob", closed="2026-04-02T00:00:00Z")
+
+    class _LightTransport:
+        def execute(self, query: str, variables: dict) -> dict:
+            return {
+                "data": {
+                    "rateLimit": {"cost": 2, "remaining": 4998},
+                    "repository": {
+                        "pullRequests": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [landed_raw, plain_raw],
+                        }
+                    },
+                }
+            }
+
+    by_author, cost, remaining, ok = gql.fetch_light_pr_history("acme", "widget", _LightTransport())
+    assert (cost, remaining, ok) == (2, 4998, True)
+    assert by_author["alice"][0]["labels"] == landed_raw["labels"]
+    assert by_author["alice"][0]["timelineItems"] == landed_raw["timelineItems"]
+    assert "labels" not in by_author["bob"][0]
+    assert "timelineItems" not in by_author["bob"][0]
+
+
+def test_derive_pr_window_landing_fields_and_derive_repo_hook(tmp_path):
+    """RFC-0015: ``derive_pr_window_landing_fields`` records whether every PR node has the landing
+    fields and counts only external non-bot landed PRs; refuses the count on a cut window; and
+    ``scripts/derive.py`` writes both fields with ``raw/pr_window/<key>.json`` provenance."""
+    assert gql.derive_pr_window_landing_fields(None) == {}
+    assert gql.derive_pr_window_landing_fields({"count": 0}) == {}
+    assert gql.derive_pr_window_landing_fields({"prs": []}) == {
+        "pr_window_landing_recorded": (False, "verified"),
+        "pr_window_landed_external_count": (0, "derived"),
+    }
+
+    prs = [
+        # 1: external, landed by commit closer -> counted
+        _with_landing(pr_node(1, "2026-08-01T00:00:00Z", closed="2026-08-02T00:00:00Z"), closer="Commit"),
+        # 2: external, landed by "integrated" label -> counted
+        _with_landing(pr_node(2, "2026-08-03T00:00:00Z", closed="2026-08-04T00:00:00Z"), labels=("integrated",)),
+        # 3: external, GitHub-merged -> not landed outside GitHub's merge
+        _with_landing(
+            pr_node(3, "2026-08-05T00:00:00Z", closed="2026-08-06T00:00:00Z", merged="2026-08-06T00:00:00Z"),
+            labels=("Merged",),
+            closer="Commit",
+        ),
+        # 4: external, plain close -> not landed
+        _with_landing(pr_node(4, "2026-08-07T00:00:00Z", closed="2026-08-08T00:00:00Z")),
+        # 5: internal (MEMBER), landed by commit closer -> not external
+        _with_landing(
+            pr_node(5, "2026-08-09T00:00:00Z", closed="2026-08-10T00:00:00Z", assoc="MEMBER", author_login="bob"),
+            closer="Commit",
+        ),
+        # 6: bot author, landed by commit closer -> not human external
+        _with_landing(
+            pr_node(6, "2026-08-11T00:00:00Z", closed="2026-08-12T00:00:00Z",
+                    author_login="dependabot[bot]", author_typ="Bot"),
+            closer="Commit",
+        ),
+    ]
+    whole = {
+        "window_anchor": NOW.isoformat(), "window_days": 180, "cap": 2000,
+        "count": len(prs), "truncated": False, "cost_points": 1,
+        "prs": prs, "derived": gql.derive_pr_window(prs),
+    }
+    assert gql.derive_pr_window_landing_fields(whole) == {
+        "pr_window_landing_recorded": (True, "verified"),
+        "pr_window_landed_external_count": (2, "derived"),
+    }
+
+    # One node missing the landing fields -> pr_window_landing_recorded is False
+    partial = {**whole, "prs": [*prs[:-1], pr_node(7, "2026-08-13T00:00:00Z", closed="2026-08-14T00:00:00Z")]}
+    assert gql.derive_pr_window_landing_fields(partial)["pr_window_landing_recorded"] == (False, "verified")
+
+    # Cut-short window -> count is (None, "missing"), recorded flag stays (True, "verified")
+    cut = {**whole, "truncated": True}
+    assert gql.derive_pr_window_landing_fields(cut) == {
+        "pr_window_landing_recorded": (True, "verified"),
+        "pr_window_landed_external_count": (None, "missing"),
+    }
+
+    # End-to-end through scripts/derive.py
+    write_env(tmp_path / "raw", "pr_window", KEY, whole)
+    bundle = derive.derive_repo("acme", "widget", derive.Ecosystem.PYPI, tmp_path, fetch=False, now=NOW)
+    assert bundle["meta"]["pr_window_landing_recorded"] is True
+    assert bundle["meta"]["pr_window_landed_external_count"] == 2
+    assert bundle["confidence"]["pr_window_landing_recorded"] == "verified"
+    assert bundle["confidence"]["pr_window_landed_external_count"] == "derived"
+    assert bundle["provenance"]["pr_window_landed_external_count"]["source"] == "raw/pr_window/acme__widget.json"
+
+
+def test_author_pr_history_and_no_prior_merged_preserve_window_landing_across_search():
+    """RFC-0015: a per-author search entry carries neither ``labels`` nor ``timelineItems``; when the
+    same PR is also in the 365-day window with a landing signal, ``_author_pr_history`` keeps those
+    fields so ``_no_prior_merged`` disqualifies an author whose earlier PR was landed before the
+    cohort PR opened (and keeps one whose earlier PR was landed after)."""
+    earlier_landed = _with_landing(
+        w4_pr(10, "2026-01-10T00:00:00Z", "alice", closed="2026-01-20T00:00:00Z"),
+        labels=("Merged",),
+    )
+    later_pr = _with_landing(w4_pr(20, "2026-04-01T00:00:00Z", "alice", closed="2026-04-05T00:00:00Z"))
+    # Search entry for PR 10 has no labels/timelineItems
+    records = {"alice": w4_rec("alice", prs=[w4_spr(10, "2026-01-10T00:00:00Z", closed="2026-01-20T00:00:00Z")])}
+    merged_hist = {p["number"]: p for p in gql._author_pr_history([earlier_landed, later_pr], records["alice"], "alice")}
+    assert merged_hist[10]["labels"] == earlier_landed["labels"]
+    assert gql._no_prior_merged(later_pr, [earlier_landed, later_pr], records) is False
+
+    # Closed after later_pr opened -> still a first-timer at later_pr's creation
+    landed_after = _with_landing(
+        w4_pr(10, "2026-01-10T00:00:00Z", "alice", closed="2026-04-10T00:00:00Z"),
+        closer="Commit",
+    )
+    records_after = {"alice": w4_rec("alice", prs=[w4_spr(10, "2026-01-10T00:00:00Z", closed="2026-04-10T00:00:00Z")])}
+    assert gql._no_prior_merged(later_pr, [landed_after, later_pr], records_after) is True
+
+
+def test_derive_cohort_fields_counts_landed_prs_in_mr_first_conversion_and_rr90():
+    """RFC-0015: ``derive_cohort_fields`` counts landed PRs as merged at their ``closedAt`` across
+    1.3 MR_first, 5.2 newcomer conversion and 5.3 RR_90, records the landed counts and
+    ``author_history_landing_recorded``, and leaves 1.2 DR_90 unchanged."""
+    # Decision cohort [90d, 270d]:
+    # - d1: first-timer, landed by commit closer -> merged for MR_first (landed)
+    # - d2: first-timer, landed by "Merged" label -> merged for MR_first (landed)
+    # - d3: first-timer, GitHub-merged -> merged for MR_first (not landed)
+    # - d4: first-timer, plain close -> decided, not merged
+    # - d5: had an earlier landed PR (300d ago, closed 295d ago) -> excluded from MR_first
+    d1 = _with_landing(w4_days(101, 150, "d1", closed_after=5), closer="Commit")
+    d2 = _with_landing(w4_days(102, 150, "d2", closed_after=5), labels=("Merged",))
+    d3 = _with_landing(w4_days(103, 150, "d3", merged_after=5))
+    d4 = _with_landing(w4_days(104, 150, "d4", closed_after=5))
+    d5_prior = _with_landing(w4_days(99, 300, "d5", closed_after=5), closer="Commit")
+    d5_cohort = _with_landing(w4_days(105, 150, "d5", closed_after=5), closer="Commit")
+
+    # Newcomer cohort [180d, 365d] (placed at 300d/280d ago, outside the 270d decision band):
+    # - n1: first PR 300d ago, landed after 10d (converts), followup 20d after landing (returns)
+    # - n2: first PR 300d ago, landed after 181d (> 180d: does NOT convert, but IS in RR_90 denominator, no followup)
+    # - n3: first PR 300d ago, GitHub-merged after 10d (converts, not landed), followup 10d after merge (returns)
+    # - n4: first PR 300d ago, plain close after 10d (neither converts nor enters RR_90)
+    n1_first = _with_landing(w4_days(201, 300, "n1", closed_after=10), closer="Commit")
+    n1_follow = _with_landing(w4_days(202, 280, "n1", closed_after=5), labels=("integrated",))
+    n2_first = _with_landing(w4_days(203, 300, "n2", closed_after=181), labels=("Merged",))
+    n3_first = _with_landing(w4_days(204, 300, "n3", merged_after=10))
+    n3_follow = _with_landing(w4_days(205, 280, "n3"))
+    n4_first = _with_landing(w4_days(206, 300, "n4", closed_after=10))
+
+    prs = [d1, d2, d3, d4, d5_prior, d5_cohort, n1_first, n1_follow, n2_first, n3_first, n3_follow, n4_first]
+    logins = ["d1", "d2", "d3", "d4", "d5", "n1", "n2", "n3", "n4"]
+    records = [w4_rec(login) for login in logins]
+    sampled = ["n1", "n2", "n3", "n4"]
+    fields = gql.derive_cohort_fields(_w4_ah_data(prs, records, sampled=sampled))
+
+    assert fields["author_history_landing_recorded"] == (True, "verified")
+    # 1.2 DR_90: all 5 decision-band PRs (d1..d5_cohort) closed within 5d
+    assert fields["dr90_decision_rate_author_history_cohort"] == (1.0, "derived")
+    assert fields["dr90_decision_pr_count_author_history_cohort"] == (5, "derived")
+    # 1.3 MR_first: d5 excluded by prior landed PR; of {d1, d2, d3, d4}, 3 merged (2 landed + 1 GitHub)
+    assert fields["mr_first_rate_raw"] == (0.75, "derived")
+    assert fields["mr_first_pr_count_raw"] == (4, "derived")
+    assert fields["mr_first_rate"] == (0.75, "derived")
+    assert fields["mr_first_pr_count"] == (4, "derived")
+    assert fields["mr_first_landed_pr_count"] == (2, "derived")
+    # 5.2 newcomer_conversion: n1 (landed at 10d) and n3 (GitHub-merged at 10d) convert; n2 (landed at 181d) and n4 do not
+    assert fields["newcomer_conversion"] == (0.5, "derived")
+    assert fields["newcomer_conversion_author_count"] == (4, "derived")
+    assert fields["newcomer_conversion_landed_author_count"] == (1, "derived")
+    # 5.3 RR_90: n1, n2, n3 have a merged/landed first PR (2 of them landed: n1 and n2); n1 and n3 return within 90d
+    assert fields["rr90_return_rate"] == (round(2 / 3, 4), "derived")
+    assert fields["rr90_return_author_count"] == (3, "derived")
+    assert fields["rr90_return_landed_author_count"] == (2, "derived")
+
+    roster = {a["login"]: a for a in fields["cohort_newcomer_authors"][0]}
+    assert roster["n1"]["first_pr"]["merged_at"] == n1_first["closedAt"]
+    assert roster["n1"]["followups"][0]["merged_at"] == n1_follow["closedAt"]
+    assert roster["n4"]["first_pr"]["merged_at"] is None
+
+    # Cut-short window sets the three landed counts to (None, "missing")
+    cut_fields = gql.derive_cohort_fields(
+        _w4_ah_data([_with_landing(w4_days(1, 100, "u1", closed_after=5))], [w4_rec("u1")], sampled=["u1"], truncated=True)
+    )
+    assert cut_fields["mr_first_landed_pr_count"] == (None, "missing")
+    assert cut_fields["newcomer_conversion_landed_author_count"] == (None, "missing")
+    assert cut_fields["rr90_return_landed_author_count"] == (None, "missing")
+
+

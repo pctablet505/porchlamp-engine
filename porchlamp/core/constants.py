@@ -408,6 +408,17 @@ PIPELINE_DEFENSES_PROXY_MIN_N: int = 10
 #: Consumed by ``porchlamp.collect.github_graphql.derive_cohort_fields``.
 AUTHOR_UNMEASURED_MAX_FRACTION: float = 0.20
 
+#: 02 section 4 (RFC-0015, #60): a closed, unmerged pull request that carries one of
+#: these labels (its whole name, compared lower-cased) was landed outside GitHub's
+#: merge: the project committed its change itself and closed it. The labels the
+#: landing projects measured use: ``Merged`` (``pytorch/pytorch``'s merge bot and
+#: Meta's export bot), ``merged`` (``freebsd/freebsd-src``'s committers) and
+#: ``integrated`` (``openjdk/jdk``'s bot). A pull request whose close event names a
+#: commit as its closer is landed whatever its labels; ``porchlamp.core.landing`` is
+#: the one definition, and the merge-based measures (1.3, 1.5, 5.2, 5.3, the 4.1
+#: review proxy) count a landed pull request as merged at its close.
+LANDING_LABELS: frozenset[str] = frozenset({"integrated", "merged"})
+
 #: D-IN-1 (02 section 3): the exact-match bot logins, compared lower-cased. An actor is
 #: also a bot when GitHub types it ``Bot`` or its login ends in ``[bot]``; there is no
 #: substring matching (F12). The first group are generic bot accounts. The second are
@@ -630,6 +641,7 @@ def constants_dict() -> dict[str, object]:
         "GATE6_HANDOFF_RELAY_LOGIN_PREFIXES": GATE6_HANDOFF_RELAY_LOGIN_PREFIXES,
         "GATED_PERSONAS": GATED_PERSONAS,
         "GHOST_RATE_SLOPE": GHOST_RATE_SLOPE,
+        "LANDING_LABELS": tuple(sorted(LANDING_LABELS)),
         "LEGAL_IP_SCORES": LEGAL_IP_SCORES,
         "LEGAL_IP_VALUES": LEGAL_IP_VALUES,
         "LEVERAGE_WEIGHTS": LEVERAGE_WEIGHTS,

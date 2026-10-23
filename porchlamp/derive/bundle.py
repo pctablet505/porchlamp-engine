@@ -28,7 +28,7 @@ from datetime import timezone as _utc_timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
-from porchlamp.core import commit_domains, constants, gates, hygiene, models, openssf
+from porchlamp.core import commit_domains, constants, gates, hygiene, landing, models, openssf
 from porchlamp.core.models import (
     BundleValidationError,
     Cohorts,
@@ -1363,18 +1363,20 @@ def _merged_external_latency_hours(data: Mapping[str, Any]) -> list[float]:
 
     #57: read from the raw pr_window envelope's ``prs`` nodes alone: an
     outside PR (:func:`porchlamp.core.gates.is_outside_pr`: an external
-    author association and a non-bot author, D-IN-1) whose ``mergedAt`` is no
+    author association and a non-bot author, D-IN-1) whose merge timestamp is no
     earlier than its ``createdAt``. The envelope's stored ``derived`` list,
     the collection run's own classification, is not read, so a rule change
     since collection reaches this measure, and a bot's own merged PRs
-    (Dependabot, Renovate) do not set the p90.
+    (Dependabot, Renovate) do not set the p90. RFC-0015: a node landed
+    outside GitHub's merge (:func:`porchlamp.core.landing.is_landed`) counts as
+    merged, at its close (:func:`porchlamp.core.landing.merged_or_landed_at`).
     """
     out: list[float] = []
     for pr in data.get("prs") or []:
         if not _is_outside_pr(pr):
             continue
         created = _parse_iso_or_none(pr.get("createdAt"))
-        merged = _parse_iso_or_none(pr.get("mergedAt"))
+        merged = _parse_iso_or_none(landing.merged_or_landed_at(pr))
         if created is None or merged is None or merged < created:
             continue
         out.append((merged - created).total_seconds() / 3600.0)
@@ -1740,11 +1742,32 @@ def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
                      method="primary", source=relative, source_hash=source_hash, fetched_at=fetched_at)
 
 
+def _landing_note(ctx: _V1Ctx, recorded_field: str, landed_field: str, counted: str) -> str:
+    """RFC-0015: the clause a merge-based measure's ``insufficient_n`` detail adds
+    about pull requests landed outside GitHub's merge, read from the derive-time
+    fields ``recorded_field`` (whether the record carries the landing fields) and
+    ``landed_field`` (how many landed PRs or authors the measure counted).
+
+    ``counted`` is the clause for a record that shows landings, with a
+    ``{landed}`` placeholder for the count; a record fetched before the landing
+    fields says it shows none; a bundle derived by a tree that recorded neither
+    field adds nothing."""
+    recorded = ctx.meta.get(recorded_field)
+    landed = ctx.meta.get(landed_field)
+    if recorded is False:
+        return "; the record shows no landing outside GitHub's merge (fetched before RFC-0015's fields)"
+    if recorded is True and _is_count(landed):
+        return "; " + counted.format(landed=landed)
+    return ""
+
+
 def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
     """1.5 TTM_p90. No v1 summary field exists at all (unlike TTFHR and the
     review rate): both the value and ``n`` are computed here from the raw
     pr_window envelope's merged-external-PR latencies
-    (:func:`_merged_external_latency_hours`)."""
+    (:func:`_merged_external_latency_hours`). RFC-0015: a PR landed outside
+    GitHub's merge is merged at its close; an ``insufficient_n`` detail names how
+    many outside PRs the record shows landed (:func:`_landing_note`)."""
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
@@ -1754,8 +1777,11 @@ def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
     n = len(latencies)
     min_n = constants.PARAM_MIN_N["ttm_p90_hours"]
     if n < min_n:
+        note = _landing_note(
+            ctx, "pr_window_landing_recorded", "pr_window_landed_external_count",
+            "{landed} outside PRs in the record were landed outside GitHub's merge and count as merged")
         return Unmeasured(reason="insufficient_n",
-                           detail=f"{n} merged external PRs with recorded latency, need >= {min_n}")
+                           detail=f"{n} merged external PRs with recorded latency, need >= {min_n}{note}")
     window_start, window_end = _pr_window_bounds(data)
     source_hash = _envelope_hash(path)
     relative = _relative_source(path, ctx.raw_root)
@@ -1996,7 +2022,9 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
     backing the review-rate denominator (``porchlamp.collect.pike_signals.
     code_review_rate``), read from the pr_window envelope's own ``prs`` list
     -- 10-merged-PR minimum sample applies to the proxy method only
-    (``porchlamp.core.params.rigor._PIPELINE.proxy_min_n``).
+    (``porchlamp.core.params.rigor._PIPELINE.proxy_min_n``). RFC-0015: a PR
+    landed outside GitHub's merge is merged there and here
+    (:func:`porchlamp.core.landing.merged_or_landed_at`).
 
     When 4.1 is unmeasurable by either method, its confidence key is simply
     absent from the v1 document (not the string ``"missing"``) -- both are
@@ -2024,7 +2052,7 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
                 return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
             prs = data.get("prs") if isinstance(data, Mapping) else None
             sampled_prs = _reply_sampled_prs(prs or [])
-            n = sum(1 for pr in sampled_prs if pr.get("mergedAt") is not None)
+            n = sum(1 for pr in sampled_prs if landing.merged_or_landed_at(pr) is not None)
         return Measured(value=float(value), n=n, window_start=None, window_end=None, method=method,
                          source=_relative_source(paths[0], ctx.raw_root),
                          source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
@@ -2060,6 +2088,7 @@ _AUTHOR_HISTORY_REQUIRED_DAYS: dict[str, int] = {
 
 def _author_history_rate_resolver(
     rate_field: str, count_field: str, detail_field: str, *, unset_detail: str, count_unit: str = "authors",
+    landed_field: str, landed_clause: str,
 ) -> InputResolver:
     """Read-through resolver for the three D-IN-3-adjusted cohort rates
     ``porchlamp.collect.github_graphql.derive_cohort_fields`` computes straight from
@@ -2095,6 +2124,12 @@ def _author_history_rate_resolver(
     and retention rate, but ``mr_first_rate``'s ``mr_first_pr_count`` counts
     PRs, not authors, so that row passes ``count_unit="PRs"``.
 
+    RFC-0015: ``landed_field`` is the field ``derive_cohort_fields`` records
+    beside ``count_field``, how many of those PRs or authors count as merged by
+    a landing outside GitHub's merge; an ``insufficient_n`` detail names it in
+    ``landed_clause`` (a ``{landed}`` placeholder for the count), or says the
+    record shows no landing (:func:`_landing_note`).
+
     #51 rule 5: a ``"derived"`` rate whose ``author_history`` record stopped
     short of the days its cohort needs (:data:`_AUTHOR_HISTORY_REQUIRED_DAYS`)
     is ``Unmeasured(collector_failure)``, whatever the deriver recorded.
@@ -2120,9 +2155,10 @@ def _author_history_rate_resolver(
             count_ok = isinstance(count, int) and not isinstance(count, bool)
             min_n = constants.PARAM_MIN_N.get(rate_field)
             if count_ok and min_n is not None and count < min_n:
+                note = _landing_note(ctx, "author_history_landing_recorded", landed_field, landed_clause)
                 return Unmeasured(
                     reason="insufficient_n",
-                    detail=f"{count} {count_unit} in the D-IN-3-adjusted cohort, need >= {min_n}",
+                    detail=f"{count} {count_unit} in the D-IN-3-adjusted cohort, need >= {min_n}{note}",
                 )
             value_ok = isinstance(value, (int, float)) and not isinstance(value, bool)
             if value_ok and count_ok:
@@ -2242,21 +2278,21 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
 #: |---|---|---|
 #: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count, computed by derive from the pr_window PR nodes under the current rules (outside PRs: external association, non-bot author; never the envelope's stored derived list, #57) | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
 #: | dr90_decision_rate | raw pr_window envelope: prs[] nodes of outside PRs (gates.is_outside_pr: external association, non-bot author; #57) with their createdAt/mergedAt/closedAt, cohort [anchor-180d,anchor-90d) (D-IN-4 amendment); D-IN-3 eligibility joined from the author_history envelope's author_records | no envelope -> collector_failure; author_history truncated before the cohort start instant (pr_window anchor-180d, not the history's own anchor) -> collector_failure; no author_history envelope -> Measured with method proxy:din3_unapplied; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
-#: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
+#: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted; merged includes landed outside GitHub's merge, RFC-0015: .mr_first_landed_pr_count) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n, detail names the landed count |
 #: | gr14_ghost_rate | meta.gr14_ghost_rate + .gr14_population_n + .gr14_window_start/_end, computed by derive with porchlamp.core.gates.zero_response_counts (also D-GATE-5's input) | no pr_window envelope -> collector_failure; not derived by this tree -> collector_failure; n=0 -> insufficient_n; n<10 -> insufficient_n at scoring with the true n |
-#: | ttm_p90_hours | raw pr_window envelope: prs[] nodes of merged outside PRs (gates.is_outside_pr; #57), createdAt to mergedAt | no envelope -> collector_failure; n<5 -> insufficient_n |
+#: | ttm_p90_hours | raw pr_window envelope: prs[] nodes of merged outside PRs (gates.is_outside_pr; #57), merge time porchlamp.core.landing.merged_or_landed_at (RFC-0015) | no envelope -> collector_failure; n<5 -> insufficient_n, detail names meta.pr_window_landed_external_count |
 #: | dependents_deduped | meta.dependents_count when confidence=="derived" (dependents hook); meta.ecosystem gates it | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it |
 #: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
 #: | downloads_monthly | meta.monthly_downloads; meta.downloads_status refines the Unmeasured detail | go/maven/systems -> not_applicable (D-MISS-5); otherwise third_party_gap, detail per downloads_status |
 #: | legal_ip | meta.legal_ip, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
 #: | elephant_factor | meta.elephant_factor; n = meta.elephant_factor_commit_count (non-bot org-attributed commits in the 365 d window; 0 when absent, e.g. the contributors-only fallback) | collector_failure; n<30 -> insufficient_n at scoring, with the true n |
 #: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
-#: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method: "primary" (scorecard) or "proxy:review_ci" (n = merged PRs) | confidence absent or missing -> third_party_gap (TP with proxy) |
+#: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method: "primary" (scorecard) or "proxy:review_ci" (n = merged or landed PRs, RFC-0015) | confidence absent or missing -> third_party_gap (TP with proxy) |
 #: | ai_posture | meta.ai_posture, vocab-validated against constants.AI_POSTURE_VALUES (identity map) | collector_failure; an out-of-set value is collector_failure too, never Measured |
 #: | substantive_review_rate | meta.pr_window_substantive_review_rate (derive, from the PR nodes, #57); n = decided outside PRs in the reply sample, from the raw envelope's prs[] nodes | no envelope -> collector_failure; n<10 -> insufficient_n |
 #: | newcomer_issue_supply | meta.active_unclaimed_gfis | collector_failure |
-#: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
-#: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
+#: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted; a first PR landed outside GitHub's merge converts, RFC-0015: .newcomer_conversion_landed_author_count) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n, detail names the landed count |
+#: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted; a first PR landed outside GitHub's merge starts the clock, RFC-0015: .rr90_return_landed_author_count) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n, detail names the landed count |
 #: | dx | meta.dx + .dx_run_count (0.5 CI runtime + 0.5 setup signals) | no actions_runs envelope -> collector_failure; n<5 -> insufficient_n |
 INPUT_MAPPINGS: dict[str, InputResolver] = {
     "ttfhr_hours": _resolve_ttfhr_hours,
@@ -2265,6 +2301,8 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
         "mr_first_rate", "mr_first_pr_count", "cohort_unmeasured_detail",
         unset_detail="needs W1-4 author history; the v1 pipeline collected none",
         count_unit="PRs",
+        landed_field="mr_first_landed_pr_count",
+        landed_clause="{landed} of them were landed outside GitHub's merge and count as merged",
     ),
     "gr14_ghost_rate": _resolve_gr14_ghost_rate,
     "ttm_p90_hours": _resolve_ttm_p90_hours,
@@ -2290,10 +2328,14 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     "newcomer_conversion": _author_history_rate_resolver(
         "newcomer_conversion", "newcomer_conversion_author_count", "newcomer_unmeasured_detail",
         unset_detail="needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+        landed_field="newcomer_conversion_landed_author_count",
+        landed_clause="{landed} of them converted by a first PR landed outside GitHub's merge",
     ),
     "rr90_return_rate": _author_history_rate_resolver(
         "rr90_return_rate", "rr90_return_author_count", "newcomer_unmeasured_detail",
         unset_detail="v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+        landed_field="rr90_return_landed_author_count",
+        landed_clause="{landed} of them had a first PR landed outside GitHub's merge",
     ),
     "dx": _resolve_dx,
 }
