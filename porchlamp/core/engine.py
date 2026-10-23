@@ -303,8 +303,9 @@ def score(
     gate's reason, no params, no pillars, ``coverage=0.0``, no composite and
     no tier: the parameter functions are never called (see the module
     docstring). Otherwise every parameter is scored (stage 2), pillars are
-    aggregated and the composite coverage computed (stages 3, 5); below the
-    D-EVID-1 threshold the repo is ``rated=False``,
+    aggregated and the composite coverage computed (stages 3, 5); when
+    D-EVID-1 fails (coverage below its threshold, or no measured
+    responsiveness parameter, RFC-0024) the repo is ``rated=False``,
     ``unrated_reason="unrated: insufficient_evidence"`` with its
     params/pillars/coverage populated but no composite or tier. A rated
     repo gets its D-AGG-2 composite, D-MAT-2 tier (capped by the D-MISS-3
@@ -359,7 +360,7 @@ def score(
     param_scores = _score_params(bundle, populations)
     pillars = aggregate.aggregate_pillars(param_scores)
     coverage = aggregate.composite_coverage(pillars)
-    rated, ceiling = aggregate.coverage_status(coverage)
+    rated, ceiling = aggregate.coverage_status(coverage, pillars)
     if gate.routed == ROUTED_OFF_PLATFORM:
         # D-GATE-6 routed this repo off-platform: its review workflow is real
         # but lives somewhere GitHub cannot see (a mailing list, Gerrit), so
@@ -370,9 +371,12 @@ def score(
         # Eligibility alone is not enough to stop that: the non-PR parameters
         # (criticality, governance, and the non-PR halves of rigor and
         # accessibility) carry 0.63 of the composite weight, comfortably over
-        # the 0.60 evidence floor, so a well-instrumented off-platform repo
-        # would clear D-EVID-1 on non-PR evidence alone and be ranked with an
-        # empty responsiveness pillar. Scoring still runs so the drawer can
+        # the 0.60 evidence floor. D-EVID-1's required responsiveness pillar
+        # (RFC-0024) refuses a repo whose responsiveness pillar is empty, but
+        # a routed repo can still have measured responsiveness parameters
+        # (git/git and facebook/buck2: 4 of 5 measured on the 2026-10-21 data),
+        # read from GitHub pull requests whose review happens elsewhere.
+        # Scoring still runs so the drawer can
         # show what IS known; only the rating is withheld.
         return _bare_record(
             snapshot, bundle, gate, params=param_scores, pillars=pillars, coverage=coverage,

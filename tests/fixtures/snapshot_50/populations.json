@@ -1,6 +1,6 @@
 {
   "benchmark_version": "2.0.0-rc1",
-  "constants_hash": "4a6529ef5ca3c97c443442774440b4947ebc849265132fc16a61e3a60f231a2a",
+  "constants_hash": "d8c067b9e928b138beb68c9909d605b5737a1885275c786e0fbe8d9050b8a1c2",
   "document": "porchlamp-populations",
   "min_population": 30,
   "populations": [],

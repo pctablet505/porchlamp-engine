@@ -348,15 +348,16 @@ def test_gated_records_state_the_balanced_gate_reason_on_every_persona() -> None
 def test_unrated_record_reports_insufficient_evidence_coverage_per_persona() -> None:
     """R-1: unlike the gated case, a balanced-unrated record is *not*
     universally hidden -- ``UNRATED_EMPTY`` has zero measured inputs, so
-    every persona's own re-weighted coverage is also 0.0 (clearly below
-    0.60), and every persona reports the *coverage-level*
-    ``insufficient_evidence:coverage`` reason (not the old, now-wrong,
-    ``record.unrated_reason`` string) for the right cause: its own
-    coverage gate, not a copy of the balanced record's."""
+    every persona's own composite is unrated too, and every persona reports
+    a lens-level ``insufficient_evidence:<gap>`` reason (not the old,
+    now-wrong, ``record.unrated_reason`` string) for the right cause. With no
+    measured responsiveness parameter the gap named is the D-EVID-1 required
+    pillar (RFC-0024), which no weight vector can supply, ahead of its
+    coverage (0.0 under every persona's weights)."""
     by_key = _by_key(_Fixture12.score())
     unrated = by_key[_Fixture12.UNRATED_EMPTY]
     for name in persona.GATED_PERSONAS:
-        assert unrated.persona_gates[name] == f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}coverage"
+        assert unrated.persona_gates[name] == f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}responsiveness"
     # unrated (unlike gated) has a full 5-name pillar dict, so
     # persona_composite can run for every preset without raising.
     assert set(unrated.persona_composites) == set(persona.PERSONA_PRESETS)
@@ -373,23 +374,28 @@ def _hand_built_bundle_for_persona_divergence() -> FeatureBundle:
     return _bundle(_repo("persona-divergence", "repo"), inputs)
 
 
-def _hand_built_unrated_divergent_record(bundle: FeatureBundle) -> ScoreRecord:
-    """A record unrated under the *balanced* weights (coverage 0.495) but
-    rated under ``senior_systems``'s weights (coverage 0.66) -- criticality
-    and governance fully measured, rigor 30% measured, responsiveness and
-    accessibility wholly unmeasured. Hand-built directly (not derived
-    through ``engine.score``) so the coverage numbers are exact literals,
-    not exposed to real-curve floating-point boundary risk near 0.60.
+def _hand_built_unrated_divergent_record(bundle: FeatureBundle, *, responsiveness: bool = True) -> ScoreRecord:
+    """A record unrated under the *balanced* weights (coverage 0.545) but
+    rated under ``senior_systems``'s weights (coverage 0.69) -- criticality
+    and governance fully measured, rigor 30% measured, responsiveness 20%
+    measured (D-EVID-1 rates nothing without a measured responsiveness
+    parameter, RFC-0024) and accessibility wholly unmeasured. Hand-built
+    directly (not derived through ``engine.score``) so the coverage numbers
+    are exact literals, not exposed to real-curve floating-point boundary
+    risk near 0.60.
 
     Per-persona coverage (``Sum(w_p * c_p)`` over the five pillars):
-      balanced       .25*1 + .20*1 + .15*0.3                    = 0.495  (< 0.60)
-      senior_systems .35*1 + .25*1 + .20*0.3                    = 0.66   (>= 0.60)
-      career_capital .35*1 + .15*1 + .10*0.3                    = 0.53   (< 0.60)
-      ai_assisted    .20*1 + .15*1 + .35*0.3                    = 0.455  (< 0.60)
-      first_timer    .10*1 + .15*1 + .10*0.3                    = 0.28   (< 0.60)
-    """
+      balanced       .25*0.2 + .25*1 + .20*1 + .15*0.3          = 0.545  (< 0.60)
+      senior_systems .15*0.2 + .35*1 + .25*1 + .20*0.3          = 0.69   (>= 0.60)
+      career_capital .20*0.2 + .35*1 + .15*1 + .10*0.3          = 0.57   (< 0.60)
+      ai_assisted    .20*0.2 + .20*1 + .15*1 + .35*0.3          = 0.495  (< 0.60)
+      first_timer    .35*0.2 + .10*1 + .15*1 + .10*0.3          = 0.35   (< 0.60)
+
+    ``responsiveness=False`` empties the responsiveness pillar (coverage 0.0)
+    and nothing else: senior_systems' coverage is then 0.66, still over the
+    floor, which is exactly the case RFC-0024's required pillar refuses."""
     pillars = {
-        "responsiveness": PillarScore(None, 0.0),
+        "responsiveness": PillarScore(70.0, 0.2) if responsiveness else PillarScore(None, 0.0),
         "criticality": PillarScore(70.0, 1.0),
         "governance": PillarScore(70.0, 1.0),
         "rigor": PillarScore(70.0, 0.3),
@@ -399,9 +405,9 @@ def _hand_built_unrated_divergent_record(bundle: FeatureBundle) -> ScoreRecord:
     return ScoreRecord(
         repo=bundle.repo, snapshot_id=_SNAPSHOT_ID, benchmark_version=constants.BENCHMARK_VERSION,
         constants_hash=constants.CONSTANTS_HASH, raw_hash=_HASH64, gate=gate, params={},
-        pillars=pillars, composite=None, coverage=0.495, tier=None, leverage=None, friction=None,
-        quadrant=None, persona_gates={}, persona_composites={}, tie_key=(), tie_group=None, rank=None,
-        suspicion=[], rated=False, unrated_reason="unrated: insufficient_evidence",
+        pillars=pillars, composite=None, coverage=0.545 if responsiveness else 0.495, tier=None, leverage=None,
+        friction=None, quadrant=None, persona_gates={}, persona_composites={}, tie_key=(), tie_group=None,
+        rank=None, suspicion=[], rated=False, unrated_reason="unrated: insufficient_evidence",
     )
 
 
@@ -409,7 +415,7 @@ def test_unrated_record_can_be_rated_under_one_persona_and_not_another() -> None
     """R-1's whole point, the case the packet dispatch's literal wording
     (universal override) got wrong: a record unrated at balanced weights
     can be genuinely *rated* under a persona whose weights favour the
-    pillars it did measure (``senior_systems`` here, coverage 0.66 >=
+    pillars it did measure (``senior_systems`` here, coverage 0.69 >=
     0.60) -- that persona must be open (or gated by its own D-PERS-2 rule,
     not by a copied balanced reason), while a persona whose own coverage
     stays below 0.60 (``career_capital``, ``ai_assisted``, ``first_timer``)
@@ -421,10 +427,11 @@ def test_unrated_record_can_be_rated_under_one_persona_and_not_another() -> None
 
     result = score_bundle_stage_8_persona(record, bundle)
 
-    # senior_systems: own coverage 0.66 >= 0.60 -> rated under this persona;
+    # senior_systems: own coverage 0.69 >= 0.60 -> rated under this persona;
     # its own D-PERS-2 evidence gate (elephant_factor >= 3, Measured) does
     # not fire either, so it is simply absent from persona_gates -- open.
     assert result.persona_composites[persona.PERSONA_SENIOR_SYSTEMS].rated is True
+    assert result.persona_composites[persona.PERSONA_SENIOR_SYSTEMS].coverage == pytest.approx(0.69)
     assert persona.PERSONA_SENIOR_SYSTEMS not in result.persona_gates
 
     for name in (persona.PERSONA_CAREER_CAPITAL, persona.PERSONA_AI_ASSISTED, persona.PERSONA_FIRST_TIMER):
@@ -433,6 +440,26 @@ def test_unrated_record_can_be_rated_under_one_persona_and_not_another() -> None
 
     # balanced itself is never a gate target and carries no entry either way.
     assert persona.PERSONA_BALANCED not in result.persona_gates
+
+
+def test_record_without_a_measured_responsiveness_pillar_is_rated_under_no_persona() -> None:
+    """RFC-0024 (D-EVID-1): the same record with its responsiveness pillar
+    emptied keeps senior_systems' coverage over the floor (0.66), yet no lens
+    rates it -- D-DEF-2's first factor was never observed, and no weight
+    vector can supply it -- and every gated persona names the missing pillar,
+    ``insufficient_evidence:responsiveness``, not its coverage."""
+    bundle = _hand_built_bundle_for_persona_divergence()
+    record = _hand_built_unrated_divergent_record(bundle, responsiveness=False)
+
+    result = score_bundle_stage_8_persona(record, bundle)
+
+    assert result.persona_composites[persona.PERSONA_SENIOR_SYSTEMS].coverage == pytest.approx(0.66)
+    for name in persona.PERSONA_PRESETS:
+        assert result.persona_composites[name].rated is False, name
+        assert result.persona_composites[name].porchlamp is None, name
+        assert result.persona_composites[name].tier is None, name
+    for name in persona.GATED_PERSONAS:
+        assert result.persona_gates[name] == f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}responsiveness", name
 
 
 def test_mutant_reverting_to_universal_unrated_override_is_red() -> None:
@@ -450,7 +477,7 @@ def test_mutant_reverting_to_universal_unrated_override_is_red() -> None:
     old_gates = {p: record.unrated_reason for p in persona.GATED_PERSONAS}
     assert old_gates[persona.PERSONA_SENIOR_SYSTEMS] == "unrated: insufficient_evidence"
     # A persona whose own coverage actually clears 0.60 (senior_systems,
-    # 0.66) would be wrongly hidden by the literal override -- exactly the
+    # 0.69) would be wrongly hidden by the literal override -- exactly the
     # defect R-1 corrects.
     composites = {p: persona.persona_composite(record, p) for p in persona.PERSONA_PRESETS}
     assert composites[persona.PERSONA_SENIOR_SYSTEMS].rated is True
@@ -695,13 +722,16 @@ def test_build_snapshot_counts_matches_hand_count() -> None:
 # --------------------------------------------------------------------------- #
 # A repository D-GATE-6 routes off-platform is ranked under no lens.
 # --------------------------------------------------------------------------- #
-#: Inputs for a routed repository and its unrouted twin. Responsiveness is
-#: unmeasured (a routed repository's review is invisible to GitHub);
-#: criticality, governance and rigor are fully measured and accessibility
-#: only 0.35, so balanced coverage is 0.6525 and, per persona: first_timer
-#: 0.455 (below 0.60, so it is gated), career_capital 0.67, senior_systems
-#: 0.8175 and ai_assisted 0.735 (all clear it).
+#: Inputs for a routed repository and its unrouted twin. Responsiveness has
+#: one measured parameter, the ghost rate (.15 of its pillar): D-EVID-1 rates
+#: no repository without one (RFC-0024), and a routed repository's GitHub pull
+#: requests can still be measured (git/git and facebook/buck2 on the
+#: 2026-10-21 data). Criticality, governance and rigor are fully measured and
+#: accessibility only 0.35, so balanced coverage is 0.69 and, per persona:
+#: first_timer 0.5075 (below 0.60, so it is gated), career_capital 0.70,
+#: senior_systems 0.84 and ai_assisted 0.765 (all clear it).
 _ROUTED_PAIR_MEASURED: dict[str, Measured] = {
+    "gr14_ghost_rate": _m(0.0, n=10),
     "dependents_deduped": _m(999999.0), "openssf_criticality": _m(1.0), "downloads_monthly": _m(999999999.0),
     "legal_ip": _m("DCO"), "elephant_factor": _m(5.0, n=30), "promotion_ladder": _m("VERIFIED"),
     "pipeline_defenses": _m(100.0), "ai_posture": _m("AD_HOC"), "substantive_review_rate": _m(0.8, n=10),

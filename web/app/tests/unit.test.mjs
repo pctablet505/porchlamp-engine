@@ -428,9 +428,9 @@ test("copy.js: gate and unrated reason text covers every code the fixtures use",
   }
 });
 
-test("copy.js: coverage band boundaries match D-MISS-3 exactly (>=0.95 full, [0.80,0.95) A, [0.60,0.80) B)", () => {
-  assert.equal(copy.coverageBandForValue(0.95), "full");
-  assert.equal(copy.coverageBandForValue(0.9499), "A");
+test("copy.js: coverage band boundaries match D-MISS-3 exactly (>=0.90 full, [0.80,0.90) A, [0.60,0.80) B)", () => {
+  assert.equal(copy.coverageBandForValue(0.9), "full");
+  assert.equal(copy.coverageBandForValue(0.8999), "A");
   assert.equal(copy.coverageBandForValue(0.8), "A");
   assert.equal(copy.coverageBandForValue(0.7999), "B");
   assert.equal(copy.coverageBandForValue(0.6), "B");
@@ -1508,7 +1508,8 @@ test("drawer: classifyKindForLens and projectRowForLens project a persona-rated 
 });
 
 test("drawer: deriveTierCeiling matches backend _no_ceiling_or_band coverage thresholds", () => {
-  assert.equal(deriveTierCeiling(0.96), null);
+  assert.equal(deriveTierCeiling(0.9), null);
+  assert.equal(deriveTierCeiling(0.8999), "A");
   assert.equal(deriveTierCeiling(0.85), "A");
   assert.equal(deriveTierCeiling(0.68), "B");
   assert.equal(deriveTierCeiling(0.45), null);
@@ -1605,8 +1606,8 @@ const BADGES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..",
 // The public site's address is read from index.html's og:url, never written here (this file is scanned for URLs).
 const SITE_BASE = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "index.html"), "utf8")
   .match(/<meta property="og:url" content="([^"]*)"/)[1];
-const COVERAGE_FULL = "coverage 95\u2013100%";
-const COVERAGE_CEILING_A = "coverage 80\u201395%";
+const COVERAGE_FULL = "coverage 90\u2013100%";
+const COVERAGE_CEILING_A = "coverage 80\u201390%";
 
 /** A balanced record; FLAT_RATED_DETAIL is tier S, full coverage, in the Sweet Spot. */
 function badgeRow(overrides) {
@@ -3014,10 +3015,10 @@ test("black-hole stat: the 'no response' sentence claims only what was counted",
 });
 
 test("matrix hover card: the tier shows '(capped)' like the table and the drawer, from the coverage ceiling", () => {
-  const point = { owner: "a", name: "b", porchlamp: 80.8, coverage: 0.9, tier: "A", friction: 10, leverage: 70, quadrant: "Sweet Spot" };
-  assert.ok(renderHoverCard(point).includes("A (capped)"), "coverage 0.9 puts the ceiling at A");
+  const point = { owner: "a", name: "b", porchlamp: 80.8, coverage: 0.85, tier: "A", friction: 10, leverage: 70, quadrant: "Sweet Spot" };
+  assert.ok(renderHoverCard(point).includes("A (capped)"), "coverage 0.85 puts the ceiling at A");
   assert.ok(!renderHoverCard({ ...point, tier: "B" }).includes("capped"), "a tier below the ceiling is not capped");
-  assert.ok(!renderHoverCard({ ...point, coverage: 0.99 }).includes("capped"), "full coverage has no ceiling");
+  assert.ok(!renderHoverCard({ ...point, coverage: 0.9 }).includes("capped"), "full coverage (>= 0.90) has no ceiling");
   assert.ok(renderHoverCard({ ...point, coverage: 0.7, tier: "B" }).includes("B (capped)"), "coverage 0.7 puts the ceiling at B");
   assert.ok(!renderHoverCard({ ...point, tier_ceiling: null }).includes("capped"), "an explicit ceiling of none wins");
   // The card is rebuilt on every hover or focus move and ignores the pointer: it must hold no tab stop.
@@ -3025,7 +3026,7 @@ test("matrix hover card: the tier shows '(capped)' like the table and the drawer
   assert.doesNotMatch(renderHoverCard({ ...point, tier: undefined }), /tabindex/, "a missing tier in the card is not a tab stop");
   assert.ok(renderHoverCard({ ...point, tier: undefined }).includes(copy.MISSING_VALUE), "a missing tier still shows the missing-value mark");
   // the card agrees with the table row for the same project
-  const tableTier = rowCells({ ...E3_ROW, coverage: 0.9, tier: "A", tier_ceiling: "A" }, {}).cells.find((c) => c.key === "tier").html;
+  const tableTier = rowCells({ ...E3_ROW, coverage: 0.85, tier: "A", tier_ceiling: "A" }, {}).cells.find((c) => c.key === "tier").html;
   assert.ok(tableTier.includes("A (capped)"));
 });
 
@@ -4631,7 +4632,7 @@ const LIST_COPY = [
   "NOT_RANKED_LISTS_ITEM",
 ];
 /** copy.js's own strings that no view reads (its functions fill them): read from its source, as the verifier reads them. */
-const LIST_COPY_INTERNAL = ["UNRATED_COVERAGE_BELOW_FLOOR"];
+const LIST_COPY_INTERNAL = ["UNRATED_COVERAGE_BELOW_FLOOR", "UNRATED_NO_RESPONSIVENESS"];
 const COPY_SOURCE = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "copy.js"), "utf8");
 function copySourceString(name) {
   const found = COPY_SOURCE.match(new RegExp(`(?:export )?const ${name} =\\s*"((?:[^"\\\\]|\\\\.)*)";`));
@@ -5259,6 +5260,11 @@ test("not-ranked: the insufficient-evidence reason names the methodology's cover
   assert.equal(copy.unratedReasonText("unrated: insufficient_evidence", 0.42, 0.6), "Not enough measured evidence to rank (coverage 42%, below the 60% floor).");
   assert.equal(copy.unratedReasonText("insufficient_evidence", 0.42, 0.55), "Not enough measured evidence to rank (coverage 42%, below the 55% floor).", "a whole percent of the floor given");
   assert.equal(copy.unratedReasonText("insufficient_evidence", 0.42), "Not enough measured evidence to rank.", "no floor: the reason alone, never a typed floor");
+  // RFC-0024: unrated with coverage at or above the floor means no measured responsiveness parameter
+  assert.equal(copySourceString("UNRATED_NO_RESPONSIVENESS"), "(coverage {coverage}, but nothing measured on how it answers outside pull requests).");
+  assert.equal(copy.unratedReasonText("insufficient_evidence", 0.72, 0.6), "Not enough measured evidence to rank (coverage 72%, but nothing measured on how it answers outside pull requests).");
+  assert.equal(copy.unratedReasonText("unrated: insufficient_evidence", 0.6, 0.6), "Not enough measured evidence to rank (coverage 60%, but nothing measured on how it answers outside pull requests).", "the floor itself is reached");
+  assert.equal(copy.unratedReasonText("insufficient_evidence", 0.5999, 0.6), "Not enough measured evidence to rank (coverage 60%, below the 60% floor).", "just under the floor keeps the floor clause");
   assert.equal(copy.unratedReasonText("off_platform_routed", 0.42, 0.6), copy.unratedReasonText("off_platform_routed", 0.42), "other reasons have no floor");
   // a planted floor of 0.5 is what every caller prints
   const planted = { ...METHODOLOGY_DOC, missingness: { ...METHODOLOGY_DOC.missingness, coverage_thresholds: { ...METHODOLOGY_DOC.missingness.coverage_thresholds, unrated_below: 0.5 } } };

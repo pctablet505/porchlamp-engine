@@ -1860,7 +1860,7 @@ def _expected_project_hooks(
         if detail["porchlamp"] is not None:
             hooks["detail.porchlamp"] = _js_fixed(detail["porchlamp"], 2)
         cov = detail["coverage"]
-        band = "full" if cov >= 0.95 else "A" if cov >= 0.8 else "B" if cov >= 0.6 else "below"
+        band = "full" if cov >= 0.9 else "A" if cov >= 0.8 else "B" if cov >= 0.6 else "below"
         hooks["detail.coverage"] = f"{math.floor(cov * 100 + 0.5)}% · {words['bands'].get(band, 'Below floor')}"
         for key in ("leverage", "friction"):
             if detail[key] is not None:
@@ -2533,10 +2533,11 @@ def not_ranked_sentence(project: dict, *, report: Optional[dict], numbers: dict[
     """A project's sentence on its reason list, built here from copy.js's words and the values worked out here:
     ``owner/name (Ecosystem): <its reason in words>``, a black hole with its own two numbers and the report's deadline
     when both are known (DESIGN, PR 2, R5 a), a project short of evidence with its coverage and ``floor`` (the
-    methodology's ``unrated_below``) when that is known. Nothing else stands beside the name."""
+    methodology's ``unrated_below``) when that is known -- or, when its coverage reached the floor, the responsiveness
+    evidence D-EVID-1 also needs (RFC-0024). Nothing else stands beside the name."""
     from porchlamp.serve import report_pages as rp
 
-    gate, unrated, row, black_hole_row, below_floor, list_reasons = _not_ranked_words()
+    gate, unrated, row, black_hole_row, below_floor, no_responsiveness, list_reasons = _not_ranked_words()
     reason, key = project["reason"], (project["owner"], project["name"])
 
     def whole(share: float) -> str:
@@ -2544,8 +2545,9 @@ def not_ranked_sentence(project: dict, *, report: Optional[dict], numbers: dict[
 
     if reason == "insufficient_evidence":
         coverage = project["coverage"]
+        clause = no_responsiveness if coverage is not None and floor is not None and coverage >= floor else below_floor
         sentence = list_reasons[reason] if floor is None else (
-            f"{unrated[reason]} {_fill(below_floor, coverage='unknown' if coverage is None else whole(coverage), floor=whole(floor))}")
+            f"{unrated[reason]} {_fill(clause, coverage='unknown' if coverage is None else whole(coverage), floor=whole(floor))}")
     elif reason == "black_hole" and report is not None and key in numbers:
         unanswered, counted = numbers[key]
         sentence = _fill(black_hole_row, unanswered=rp.fmt_int(unanswered),
@@ -2556,14 +2558,15 @@ def not_ranked_sentence(project: dict, *, report: Optional[dict], numbers: dict[
 
 
 @functools.lru_cache(maxsize=1)
-def _not_ranked_words() -> tuple[dict[str, str], dict[str, str], str, str, str, dict[str, str]]:
+def _not_ranked_words() -> tuple[dict[str, str], dict[str, str], str, str, str, str, dict[str, str]]:
     """copy.js's reason sentences (gated, unrated), its row ("{repo} ({ecosystem}): {sentence}"), its sentence for a
-    black hole's row with its numbers, its coverage clause with the floor, and its lists' own reason sentences."""
+    black hole's row with its numbers, its coverage clause with the floor, its clause for a project unrated with its
+    coverage at the floor or above, and its lists' own reason sentences."""
     from porchlamp.serve import report_pages as rp
 
     return (rp.copy_js_map("GATE_REASON_COPY"), rp.copy_js_map("UNRATED_REASON_COPY"), rp.copy_js_string("NOT_RANKED_LIST_ROW"),
             rp.copy_js_string("NOT_RANKED_LIST_ROW_BLACK_HOLE"), rp.copy_js_string("UNRATED_COVERAGE_BELOW_FLOOR"),
-            rp.copy_js_map("NOT_RANKED_LIST_REASONS"))
+            rp.copy_js_string("UNRATED_NO_RESPONSIVENESS"), rp.copy_js_map("NOT_RANKED_LIST_REASONS"))
 _REASON_LIST = re.compile(r'<ol class="reason-list"[^>]*?start="(\d+)"[^>]*>(.*?)</ol>', re.S)
 _REASON_ROW = re.compile(r"<li\b[^>]*>(.*?)</li>", re.S)
 

@@ -18,10 +18,14 @@ routed off-platform and D-GATE-5 is left UNDECIDED for it: GitHub cannot see
 its review, so the ghost rate says nothing about whether it answers.
 
 ``evidence_sufficiency`` is the D-EVID-1 stage-3 gate on the composite
-coverage C (D-MISS-3): C >= 0.60 is rated, below is
-``unrated: insufficient_evidence`` (listed, not ranked).
+coverage C (D-MISS-3) and the measured pillars: C >= 0.60 with every pillar
+of ``EVIDENCE_GATE_REQUIRED_PILLARS`` (responsiveness) measured is rated,
+anything else is ``unrated: insufficient_evidence`` (listed, not ranked;
+RFC-0024 added the pillar condition). ``unmeasured_required_pillars`` names
+the required pillars a repo lacks.
 
-The seven numeric gate thresholds below and ``OSI_APPROVED_LICENSES`` live
+The seven numeric gate thresholds below, D-EVID-1's
+``EVIDENCE_GATE_REQUIRED_PILLARS`` and ``OSI_APPROVED_LICENSES`` live
 in ``porchlamp.core.constants`` and are imported back here under their original
 names. The licence list belongs there because D-GATE-3 *interprets* it as a
 predicate deciding eligible vs ``REASON_UNLICENSED``, so an upstream-list
@@ -41,7 +45,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from porchlamp.core import constants
 from porchlamp.core.commit_domains import CommitActor, is_bot
-from porchlamp.core.models import FeatureBundle, GateResult, Measured, PRWindowEvent
+from porchlamp.core.models import FeatureBundle, GateResult, Measured, PillarScore, PRWindowEvent
 
 #: Decision ids recorded in ``GateResult.undecided`` (02 section 2).
 GATE_1 = "D-GATE-1"  # software project
@@ -111,6 +115,12 @@ GATE5_MAX_ZERO_RESPONSE_SHARE: float = constants.GATE5_MAX_ZERO_RESPONSE_SHARE
 GATE6_DECISION_WINDOW_DAYS: int = constants.GATE6_DECISION_WINDOW_DAYS
 #: D-EVID-1: composite coverage threshold (D-MISS-3).
 EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
+#: D-EVID-1 (RFC-0024): pillars that must each have a measured parameter.
+EVIDENCE_GATE_REQUIRED_PILLARS: tuple[str, ...] = constants.EVIDENCE_GATE_REQUIRED_PILLARS
+if not set(EVIDENCE_GATE_REQUIRED_PILLARS) <= set(constants.PILLAR_NAMES):
+    raise ValueError(
+        f"EVIDENCE_GATE_REQUIRED_PILLARS {EVIDENCE_GATE_REQUIRED_PILLARS!r} names a pillar outside {constants.PILLAR_NAMES!r}"
+    )
 
 #: D-GATE-3: SPDX states that mean "no usable licence recorded" (the gate then
 #: looks for a ``LICENSE*`` file before failing). Mirrors the collector's
@@ -1204,16 +1214,42 @@ def evaluate_gates(
     return GateResult(eligible=True, reason=None, routed=routed, undecided=tuple(undecided))
 
 
-def evidence_sufficiency(coverage: float) -> GateResult:
-    """D-EVID-1 (02 section 2, stage 3): rated iff composite coverage C >= 0.60.
+def unmeasured_required_pillars(pillars: Mapping[str, PillarScore]) -> tuple[str, ...]:
+    """D-EVID-1 (RFC-0024): the pillars of ``EVIDENCE_GATE_REQUIRED_PILLARS``
+    that have no measured parameter in ``pillars``, in that constant's order;
+    ``()`` when every one of them is measured.
+
+    A pillar is measured when it has a D-MISS-2 score
+    (``PillarScore.score is not None``: at least one of its parameters was
+    measured, :func:`porchlamp.core.aggregate.aggregate_pillars`). A required
+    pillar missing from ``pillars`` raises ``ValueError``: the caller never
+    aggregated it, and reading that absence as either answer would invent
+    one."""
+    absent = [name for name in EVIDENCE_GATE_REQUIRED_PILLARS if name not in pillars]
+    if absent:
+        raise ValueError(f"pillars has no entry for required pillar(s) {absent}")
+    return tuple(name for name in EVIDENCE_GATE_REQUIRED_PILLARS if pillars[name].score is None)
+
+
+def evidence_sufficiency(coverage: float, pillars: Mapping[str, PillarScore]) -> GateResult:
+    """D-EVID-1 (02 section 2, stage 3): rated iff composite coverage C >= 0.60
+    AND every pillar of ``EVIDENCE_GATE_REQUIRED_PILLARS`` is measured
+    (:func:`unmeasured_required_pillars` returns ``()``; RFC-0024).
 
     ``coverage`` is the composite coverage C of D-MISS-3 (stage-6 output),
-    within [0, 1]. Below the threshold the repo is listed but not
-    ranked (``unrated: insufficient_evidence``)."""
+    within [0, 1], under whichever weights the caller ranks with; ``pillars``
+    are the repo's D-MISS-2 pillar scores, which no weight vector changes.
+    Failing either condition lists the repo but does not rank it
+    (``unrated: insufficient_evidence``). The pillar condition holds under a
+    persona's or a custom weight vector too: D-DEF-2 makes P(decision) the
+    first factor of a contribution's value, and a composite renormalised over
+    the other pillars (D-MISS-2) would otherwise rank a repo whose answers to
+    outside pull requests were never observed."""
     if isinstance(coverage, bool) or not isinstance(coverage, (int, float)):
         raise ValueError(f"coverage must be a real number, got {coverage!r}")
     if not 0.0 <= coverage <= 1.0:
         raise ValueError(f"coverage must be within [0, 1], got {coverage!r}")
-    if coverage >= EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE:
+    unmeasured = unmeasured_required_pillars(pillars)
+    if coverage >= EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE and not unmeasured:
         return GateResult(eligible=True, reason=None, routed=None, undecided=())
     return GateResult(eligible=False, reason=REASON_INSUFFICIENT_EVIDENCE, routed=None, undecided=())

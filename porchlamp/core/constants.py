@@ -126,12 +126,25 @@ COMPOSITE_DECIMALS: int = 2
 MIN_POPULATION: int = 30
 
 #: D-MISS-3 ceiling bands, above the D-EVID-1 rated threshold.
+#: ``NO_CEILING_MIN_COVERAGE = 0.90`` (amended by RFC-0024 from 0.95): permits
+#: at most one missing parameter in any pillar (single-parameter global weights
+#: span 0.025..0.100, leaving C in 0.9000..0.9750) while capping two missing
+#: parameters.
 CEILING_A_MIN_COVERAGE: float = 0.80
-NO_CEILING_MIN_COVERAGE: float = 0.95
+NO_CEILING_MIN_COVERAGE: float = 0.90
 
 #: D-EVID-1: composite coverage threshold (D-MISS-3) below which a repo is
 #: unrated.
 EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = 0.60
+
+#: D-EVID-1 (RFC-0024): pillars that must each have at least one measured
+#: parameter for a repo to be rated, whatever its composite coverage.
+#: Responsiveness measures P(decision), the factor D-DEF-2 evaluates first; the
+#: composite renormalises over measured pillars (D-MISS-2), so without this rule
+#: a repo whose answers to outside pull requests were never observed is ranked
+#: on its other pillars alone (275 rated repos on the 2026-10-21 data, 64 of
+#: them with every recorded outside PR unanswered within 14 days).
+EVIDENCE_GATE_REQUIRED_PILLARS: tuple[str, ...] = ("responsiveness",)
 
 #: D-GATE-4: trailing window for non-bot User commits on the default branch.
 GATE4_VITALITY_WINDOW_DAYS: int = 180
@@ -683,6 +696,7 @@ def constants_dict() -> dict[str, object]:
         "DX_PROXY_MIN_N": DX_PROXY_MIN_N,
         "ELEPHANT_SLOPE": ELEPHANT_SLOPE,
         "EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE": EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE,
+        "EVIDENCE_GATE_REQUIRED_PILLARS": EVIDENCE_GATE_REQUIRED_PILLARS,
         "FIRST_TIMER_MIN_DECIDED_PRS": FIRST_TIMER_MIN_DECIDED_PRS,
         "FIRST_TIMER_MIN_MR_FIRST": FIRST_TIMER_MIN_MR_FIRST,
         "FIRST_TIMER_MIN_NEWCOMER_ISSUES": FIRST_TIMER_MIN_NEWCOMER_ISSUES,

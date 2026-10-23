@@ -131,6 +131,7 @@ _TIER_CUTOFFS: Tuple[Tuple[float, str], ...] = constants.TIER_CUTOFFS
 _CEILING_A_MIN_COVERAGE: float = constants.CEILING_A_MIN_COVERAGE
 _NO_CEILING_MIN_COVERAGE: float = constants.NO_CEILING_MIN_COVERAGE
 _RATED_MIN_COVERAGE: float = constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
+_RATED_REQUIRED_PILLARS: Tuple[str, ...] = constants.EVIDENCE_GATE_REQUIRED_PILLARS
 _WEIGHT_SUM_TOLERANCE: float = constants.WEIGHT_SUM_TOLERANCE
 _PERSONA_PRESETS: Dict[str, Dict[str, float]] = constants.PERSONA_PRESETS
 
@@ -968,8 +969,8 @@ def _tier_by_score_case_sql(score_expr: str) -> str:
 
 def _ceiling_index_case_sql(coverage_expr: str) -> str:
     """`02` D-MISS-3 ceiling bands as a :data:`_TIER_ORDER` position: ``>=
-    0.95`` -> no cap (the best position, so ``MIN`` with the score-tier
-    index never lowers it); ``[0.80, 0.95)`` -> ceiling A; below that (this
+    0.90`` -> no cap (the best position, so ``MIN`` with the score-tier
+    index never lowers it); ``[0.80, 0.90)`` -> ceiling A; below that (this
     expression is only ever evaluated on a row already known to have
     ``coverage_expr >= 0.60``, the rated threshold) -> ceiling B."""
     no_ceiling_index = _TIER_ORDER.index("S+")
@@ -1009,7 +1010,9 @@ def reproject(
     - coverage: ``Sum(w_p * c_p)`` over ALL 5 pillars (D-MISS-3's ``C``,
       generalised to ``weights`` -- an unmeasured pillar's own coverage is
       already 0.0, so it needs no special case here, unlike the composite).
-    - rated iff coverage >= 0.60 (``EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE``).
+    - rated iff coverage >= 0.60 (``EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE``)
+      and every pillar of ``EVIDENCE_GATE_REQUIRED_PILLARS`` is measured
+      (D-EVID-1, RFC-0024: under any weights, a custom vector included).
     - tier: ``MIN(score-tier, ceiling)`` by :data:`_TIER_ORDER` position
       (`02` D-MAT-2), the score-tier from the composite rounded to
       ``RATIO_DECIMALS`` (`_tier_by_score_case_sql`, matching the core's
@@ -1077,12 +1080,17 @@ def reproject(
     coverage_sql = f"MIN(1.0, (({' + '.join(cov_terms)}) / ?))"
     cov_params.append(total_weight)
     proj_params = [*num_params, *den_params, *cov_params]
+    # D-EVID-1's required pillars (RFC-0024), "measured" exactly as the composite terms above read it.
+    required_measured_sql = " AND ".join(
+        f"c_{pillar} > 0 AND p_{pillar} IS NOT NULL" for pillar in _RATED_REQUIRED_PILLARS
+    ) or "1 = 1"
 
     proj_sql = f"""
         SELECT r.id, r.owner, r.name,
             r.p_responsiveness, r.friction, r.leverage, r.ttfhr_p75, r.last_human_commit_at,
             {composite_raw_sql} AS composite_raw,
-            {coverage_sql} AS coverage_custom
+            {coverage_sql} AS coverage_custom,
+            (CASE WHEN {required_measured_sql} THEN 1 ELSE 0 END) AS required_pillars_measured
         FROM repositories r
         WHERE r.snapshot_id = ? AND {REPROJECT_CANDIDATE_SQL}
     """
@@ -1094,6 +1102,7 @@ def reproject(
             {_ceiling_index_case_sql("coverage_custom")} AS ceiling_index
         FROM ({proj_sql})
         WHERE composite_raw IS NOT NULL AND coverage_custom >= {_RATED_MIN_COVERAGE}
+            AND required_pillars_measured = 1
     """
 
     total = conn.execute(f"SELECT COUNT(*) FROM ({visible_sql})", proj_full_params).fetchone()[0]

@@ -5,8 +5,9 @@ aggregation and the composite. ``aggregate_pillars`` is D-MISS-2: pillar
 score renormalised over measured parameters, pillar coverage as the
 measured share of the pillar's within-pillar weight. ``composite_coverage``
 and ``coverage_status`` are D-MISS-3: the composite coverage ``C`` and the
-rated/ceiling outcome it drives (unrated below 0.60, delegated to
-:func:`porchlamp.core.gates.evidence_sufficiency` -- D-EVID-1's threshold has one
+rated/ceiling outcome it drives (unrated below 0.60 or without a measured
+responsiveness pillar, RFC-0024, delegated to
+:func:`porchlamp.core.gates.evidence_sufficiency` -- D-EVID-1 has one
 definition, in that module). ``composite_score`` is D-AGG-2: the
 balanced composite, renormalised over measured pillars, rounded once at the
 end (04 section 8). ``tier_from_score`` and ``apply_ceiling`` are D-MAT-2:
@@ -19,7 +20,7 @@ lets ``porchlamp.core.persona.persona_composite`` and ``porchlamp.audit.sensitiv
 call these two functions directly with a persona/perturbed weight vector
 instead of each keeping its own copy of the same reduction.
 
-The 0.80/0.95 ceiling bands, the 90/80/70/55/40 tier cutoffs and their
+The 0.80/0.90 ceiling bands, the 90/80/70/55/40 tier cutoffs and their
 ordering live in ``porchlamp.core.constants`` and are re-bound here under their
 original names. ``TIER_FLOOR`` is defined in this module: it is a bare
 label with no accompanying threshold, unlike ``TIER_CUTOFFS``'s
@@ -41,7 +42,7 @@ CEILING_A_MIN_COVERAGE: float = constants.CEILING_A_MIN_COVERAGE
 NO_CEILING_MIN_COVERAGE: float = constants.NO_CEILING_MIN_COVERAGE
 
 #: D-MISS-3 ceiling labels (bare letters: the design text writes "ceiling B" /
-#: "ceiling A", never "Tier B"). ``None`` means no cap (coverage >= 0.95).
+#: "ceiling A", never "Tier B"). ``None`` means no cap (coverage >= 0.90).
 CEILING_B: str = "B"
 CEILING_A: str = "A"
 
@@ -68,7 +69,7 @@ TIER_ORDER: tuple[str, ...] = constants.TIER_ORDER
 #: ``0.25*0.6 + 0.25*0.6 + 0.15*1 + 0.15*1`` to ``0.59999999999999998``, not
 #: ``0.60``. Every consumer of these ratios compares them against a sharp
 #: cutoff -- the D-EVID-1 ``0.60`` coverage floor, the D-MISS-3 ``0.80`` /
-#: ``0.95`` ceiling bands, the D-MAT-2 tier cutoffs, the D-PERS-2 persona
+#: ``0.90`` ceiling bands, the D-MAT-2 tier cutoffs, the D-PERS-2 persona
 #: minimums -- so that ULP is the difference between tier ``S+`` and ``S``,
 #: or between rated and ``unrated: insufficient_evidence``, for a repo whose
 #: every measured input landed exactly on the cutoff.
@@ -244,17 +245,18 @@ def composite_score(pillars: Mapping[str, PillarScore]) -> float | None:
     return None if raw is None else round(raw, 2)
 
 
-def coverage_status(coverage: float) -> tuple[bool, str | None]:
+def coverage_status(coverage: float, pillars: Mapping[str, PillarScore]) -> tuple[bool, str | None]:
     """D-EVID-1 + D-MISS-3 combined: ``(rated, ceiling)`` from the composite
-    coverage ``C``.
+    coverage ``C`` and the repo's pillar scores.
 
-    The rated/unrated boundary is delegated to
+    The rated/unrated decision is delegated to
     :func:`porchlamp.core.gates.evidence_sufficiency` (single definition of the
-    0.60 threshold), never recomputed here. ``ceiling`` is ``None``
+    0.60 threshold and of RFC-0024's required responsiveness pillar), never
+    recomputed here. ``ceiling`` is ``None``
     when unrated (no tier is assigned at all -- the caller must not consult
-    it) or when ``C >= 0.95`` (no cap); otherwise ``"B"`` for
-    ``0.60 <= C < 0.80`` or ``"A"`` for ``0.80 <= C < 0.95``."""
-    rated = evidence_sufficiency(coverage).eligible
+    it) or when ``C >= 0.90`` (no cap); otherwise ``"B"`` for
+    ``0.60 <= C < 0.80`` or ``"A"`` for ``0.80 <= C < 0.90``."""
+    rated = evidence_sufficiency(coverage, pillars).eligible
     if not rated:
         return False, None
     if coverage < CEILING_A_MIN_COVERAGE:

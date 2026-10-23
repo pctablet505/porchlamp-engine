@@ -553,7 +553,7 @@ _HAND_RECORD = _record(_HAND_PILLARS)
 
 #: persona -> (expected composite, expected coverage, expected tier), all
 #: pillars measured at coverage 1.0 so persona coverage is always 1.0
-#: (>= 0.95 -> no ceiling) and the composite is the plain weighted sum
+#: (>= 0.90 -> no ceiling) and the composite is the plain weighted sum
 #: (denominator 1.0). Arithmetic:
 #:   balanced:        .25*80+.25*60+.20*70+.15*52+.15*90 = 70.3   -> "A"
 #:   first_timer:     .35*80+.10*60+.15*70+.10*52+.30*90 = 76.7   -> "A"
@@ -598,7 +598,7 @@ def test_persona_composite_equals_aggregate_functions_when_balanced() -> None:
     ):
         record = _record(pillars)
         expected_coverage = aggregate.composite_coverage(pillars)
-        rated, ceiling = aggregate.coverage_status(expected_coverage)
+        rated, ceiling = aggregate.coverage_status(expected_coverage, pillars)
         expected_raw = aggregate.composite_score_raw(pillars)
         # Mirrors porchlamp.core.engine.score's own "not rated -> no composite, no
         # tier" branch (_bare_record): aggregate.composite_score itself has
@@ -664,7 +664,7 @@ def test_persona_composite_matches_the_inline_formula_bit_for_bit() -> None:
                 if old_total_weight > 0.0
                 else None
             )
-            old_rated, old_ceiling = aggregate.coverage_status(old_coverage)
+            old_rated, old_ceiling = aggregate.coverage_status(old_coverage, pillars)
             if not old_rated or old_composite_raw is None:
                 expected = PersonaComposite(porchlamp=None, coverage=old_coverage, tier=None, rated=False)
             else:

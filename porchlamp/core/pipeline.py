@@ -77,13 +77,17 @@ that is not scored at all:
   balanced weights left unrated can still be rated under a persona whose weights
   happen to favour the pillars this repo *did* measure. So for each of the four
   :data:`~porchlamp.core.persona.GATED_PERSONAS`: if that persona's own
-  ``PersonaComposite.rated`` is ``False`` (its own weighted coverage is
-  below 0.60), the reason is
+  ``PersonaComposite.rated`` is ``False``, the reason is
+  ``f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}<pillar>"`` naming a
+  D-EVID-1 required pillar the repo has no measured parameter for
+  (``"insufficient_evidence:responsiveness"``, RFC-0024: no weight vector
+  can supply it), else
   ``f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}coverage"``
-  (``"insufficient_evidence:coverage"`` -- a coverage-level sibling of
+  (``"insufficient_evidence:coverage"``: its own weighted coverage is
+  below 0.60) -- coverage-level siblings of
   D-PERS-3's per-input ``insufficient_evidence:<input id>`` reasons,
-  naming the persona-weighted coverage gate itself rather than one
-  parameter); otherwise the persona is gated (or not) exactly as
+  naming the persona's evidence gate itself rather than one
+  parameter; otherwise the persona is gated (or not) exactly as
   ``persona.persona_gates`` already computes it from raw evidence -- same
   as a rated record. A persona clearing both bars is simply absent from
   ``persona_gates``, which is what makes the repo visible under that lens,
@@ -114,6 +118,7 @@ from porchlamp.core.gates import (
     DISPLAY_UNRATED_GATE_REASONS as _DISPLAY_UNRATED_GATE_REASONS,
     ROUTED_OFF_PLATFORM,
     GateEvidence,
+    unmeasured_required_pillars,
 )
 from porchlamp.core.models import (
     FeatureBundle,
@@ -198,12 +203,16 @@ def score_bundle_stage_8_persona(record: ScoreRecord, bundle: FeatureBundle) -> 
        would not open the lens. Reporting the coverage gap instead would
        tell a reader to wait for evidence that cannot change the outcome,
        and would hide a hard ban behind a soft-sounding reason.
-    2. ``insufficient_evidence:coverage``, when the persona's own composite
-       did not clear the coverage floor. This is recomputed per persona
+    2. ``insufficient_evidence:<pillar>`` when the repo has no measured
+       parameter in a D-EVID-1 required pillar (RFC-0024: responsiveness),
+       else ``insufficient_evidence:coverage``, when the persona's own
+       composite is unrated. Rated-ness is recomputed per persona
        rather than inherited from ``record.rated`` because the preset weight
        vectors differ: a repo can be unrated overall yet have enough
        evidence under one persona's weights, and a repo rated overall can
-       still be under-covered for a persona that leans on a thin pillar.
+       still be under-covered for a persona that leans on a thin pillar. A
+       missing required pillar is named first because no weight vector can
+       supply it.
        It outranks the input-level evidence reason below because the whole
        lens is unreadable, not just one of its inputs.
     3. An ``insufficient_evidence:<input>`` D-PERS-2 gate, when the persona
@@ -220,6 +229,7 @@ def score_bundle_stage_8_persona(record: ScoreRecord, bundle: FeatureBundle) -> 
     else:
         composites = {p: persona.persona_composite(record, p) for p in persona.PERSONA_PRESETS}
         own_gates = persona.persona_gates(record, bundle.inputs)
+        lens_evidence_gap = (unmeasured_required_pillars(record.pillars) or ("coverage",))[0]
         gates = {}
         for name in persona.GATED_PERSONAS:
             own = own_gates.get(name)
@@ -227,7 +237,7 @@ def score_bundle_stage_8_persona(record: ScoreRecord, bundle: FeatureBundle) -> 
             if substantive:
                 gates[name] = own
             elif not composites[name].rated:
-                gates[name] = f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}coverage"
+                gates[name] = f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}{lens_evidence_gap}"
             elif own is not None:
                 gates[name] = own
     return replace(record, persona_gates=gates, persona_composites=composites)

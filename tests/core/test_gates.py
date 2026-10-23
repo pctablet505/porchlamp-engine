@@ -943,10 +943,21 @@ def test_gate_evidence_rejects_invalid_fields() -> None:
         )
 
 
+def _evidence_pillars(*, responsiveness: float | None = 80.0) -> dict[str, Any]:
+    """The five pillars, every one measured at 80.0 except responsiveness,
+    whose score is ``responsiveness`` (``None``: no measured parameter, the
+    D-MISS-2 shape ``aggregate_pillars`` gives a wholly unmeasured pillar)."""
+    from porchlamp.core.models import PillarScore
+
+    pillars: dict[str, Any] = {name: PillarScore(score=80.0, coverage=1.0) for name in constants.PILLAR_NAMES}
+    pillars["responsiveness"] = PillarScore(score=responsiveness, coverage=0.0 if responsiveness is None else 1.0)
+    return pillars
+
+
 def test_evidence_gate_rates_at_the_threshold() -> None:
     from porchlamp.core import gates
 
-    result = gates.evidence_sufficiency(0.60)
+    result = gates.evidence_sufficiency(0.60, _evidence_pillars())
     assert result.eligible is True
     assert result.reason is None
     assert result.routed is None
@@ -956,7 +967,7 @@ def test_evidence_gate_rates_at_the_threshold() -> None:
 def test_evidence_gate_unrates_below_the_threshold() -> None:
     from porchlamp.core import gates
 
-    result = gates.evidence_sufficiency(0.599)
+    result = gates.evidence_sufficiency(0.599, _evidence_pillars())
     assert result.eligible is False
     assert result.reason == "unrated: insufficient_evidence"
     assert result.routed is None
@@ -967,11 +978,69 @@ def test_evidence_gate_rejects_out_of_range_coverage() -> None:
     from porchlamp.core import gates
 
     with pytest.raises(ValueError):
-        gates.evidence_sufficiency(-0.1)
+        gates.evidence_sufficiency(-0.1, _evidence_pillars())
     with pytest.raises(ValueError):
-        gates.evidence_sufficiency(1.2)
+        gates.evidence_sufficiency(1.2, _evidence_pillars())
     with pytest.raises(ValueError):
-        gates.evidence_sufficiency(True)  # type: ignore[arg-type]
+        gates.evidence_sufficiency(True, _evidence_pillars())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("coverage", "responsiveness", "rated"),
+    [
+        (0.60, 80.0, True),
+        (1.00, 0.0, True),  # a measured score of 0 is evidence: the pillar is measured
+        (0.599, 80.0, False),
+        (0.60, None, False),
+        (1.00, None, False),
+        (0.599, None, False),
+    ],
+)
+def test_evidence_gate_needs_the_floor_and_a_measured_responsiveness_pillar(
+    coverage: float, responsiveness: float | None, rated: bool
+) -> None:
+    """RFC-0024 (D-EVID-1): rated only when C >= 0.60 AND the responsiveness
+    pillar has a measured parameter -- full coverage elsewhere does not
+    stand in for it (D-DEF-2: P(decision) first)."""
+    from porchlamp.core import gates
+
+    result = gates.evidence_sufficiency(coverage, _evidence_pillars(responsiveness=responsiveness))
+    assert result.eligible is rated
+    assert result.reason == (None if rated else "unrated: insufficient_evidence")
+
+
+def test_required_pillars_are_responsiveness_read_from_the_constants() -> None:
+    from porchlamp.core import gates
+
+    assert constants.EVIDENCE_GATE_REQUIRED_PILLARS == ("responsiveness",)
+    assert gates.EVIDENCE_GATE_REQUIRED_PILLARS is constants.EVIDENCE_GATE_REQUIRED_PILLARS
+
+
+def test_unmeasured_required_pillars_names_the_missing_pillar() -> None:
+    from porchlamp.core import gates
+
+    assert gates.unmeasured_required_pillars(_evidence_pillars()) == ()
+    assert gates.unmeasured_required_pillars(_evidence_pillars(responsiveness=0.0)) == ()
+    assert gates.unmeasured_required_pillars(_evidence_pillars(responsiveness=None)) == ("responsiveness",)
+    # only the required pillars are read: an unmeasured accessibility pillar is not one
+    pillars = _evidence_pillars()
+    from porchlamp.core.models import PillarScore
+
+    pillars["accessibility"] = PillarScore(score=None, coverage=0.0)
+    assert gates.unmeasured_required_pillars(pillars) == ()
+
+
+def test_unmeasured_required_pillars_refuses_a_mapping_without_the_pillar() -> None:
+    """An absent required pillar is neither measured nor unmeasured: the
+    caller never aggregated it, so the gate refuses to guess."""
+    from porchlamp.core import gates
+
+    pillars = _evidence_pillars()
+    del pillars["responsiveness"]
+    with pytest.raises(ValueError, match="responsiveness"):
+        gates.unmeasured_required_pillars(pillars)
+    with pytest.raises(ValueError, match="responsiveness"):
+        gates.evidence_sufficiency(0.90, pillars)
 
 
 def test_spdx_compound_expression_boolean_precedence_and_parentheses() -> None:

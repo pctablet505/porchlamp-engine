@@ -1045,6 +1045,26 @@ def test_reproject_rated_boundary_is_inclusive_at_exactly_0_60(tmp_path) -> None
     assert total == 1 and rows[0]["rated"] is True
 
 
+def test_reproject_never_rates_a_row_without_a_measured_responsiveness_pillar(tmp_path) -> None:
+    """D-EVID-1 (RFC-0024) under a custom weight vector: a stored row whose
+    responsiveness pillar is empty stays unrated whatever its custom coverage
+    -- 0.80 here, and 1.0 when the vector gives responsiveness no weight at
+    all -- while its twin with responsiveness measured (coverage 0.10) is
+    rated by the same vectors."""
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    empty = dict(_uniform_pillars(95.0, 1.0), responsiveness=PillarScore(score=None, coverage=0.0))
+    thin = dict(_uniform_pillars(95.0, 1.0), responsiveness=PillarScore(score=40.0, coverage=0.10))
+    write_records(conn, "snap-1", [
+        make_repo_write(dc_replace(make_rated_record("snap-1", owner="a", name="empty", raw_hash="1" * 64), pillars=empty)),
+        make_repo_write(dc_replace(make_rated_record("snap-1", owner="a", name="thin", raw_hash="2" * 64), pillars=thin)),
+    ])
+    no_responsiveness_weight = {"responsiveness": 0.0, "criticality": 0.25, "governance": 0.25, "rigor": 0.25, "accessibility": 0.25}
+    for weights in ({p: 0.2 for p in PILLARS}, no_responsiveness_weight):
+        rows, total = queries.reproject(conn, "snap-1", weights)
+        assert total == 1, weights
+        assert [row["name"] for row in rows] == ["thin"], weights
+
+
 def test_list_ranked_persona_rated_boundary_is_inclusive_at_exactly_0_60(tmp_path) -> None:
     """Same D-EVID-1 boundary, exercised through the persona projection's
     stored ``coverage_p`` (`04` section 6's ``coverage_p >= 0.60`` filter)."""
@@ -1149,7 +1169,9 @@ def _reproject_oracle(
 ) -> Tuple[Any, float, Any, bool]:
     """Reference implementation for reprojecting composites and tiers.
     Returns ``(composite_2dp, coverage, tier, rated)``;
-    ``composite``/``tier`` are ``None`` when not rated."""
+    ``composite``/``tier`` are ``None`` when not rated. Rated needs the
+    coverage floor and, under any weights, a measured responsiveness pillar
+    (D-EVID-1, RFC-0024)."""
     numerator = 0.0
     denominator = 0.0
     coverage = 0.0
@@ -1160,7 +1182,9 @@ def _reproject_oracle(
             numerator += weight * score
             denominator += weight
     composite_raw = numerator / denominator if denominator > 0 else None
-    if composite_raw is None or coverage < 0.60:
+    responsiveness_score, responsiveness_cov = pillar_data["responsiveness"]
+    responsiveness_measured = responsiveness_cov > 0 and responsiveness_score is not None
+    if composite_raw is None or coverage < 0.60 or not responsiveness_measured:
         return None, coverage, None, False
 
     tier_cutoffs = ((90.0, "S+"), (80.0, "S"), (70.0, "A"), (55.0, "B"), (40.0, "C"))
@@ -1169,7 +1193,7 @@ def _reproject_oracle(
         if composite_raw >= cutoff:
             tier_by_score = label
             break
-    if coverage >= 0.95:
+    if coverage >= 0.90:
         ceiling = None
     elif coverage >= 0.80:
         ceiling = "A"

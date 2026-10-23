@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "4a6529ef5ca3c97c443442774440b4947ebc849265132fc16a61e3a60f231a2a"
+FROZEN_CONSTANTS_HASH = "d8c067b9e928b138beb68c9909d605b5737a1885275c786e0fbe8d9050b8a1c2"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -51,8 +51,9 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     ("PILLAR_WEIGHTS.rigor", constants.PILLAR_WEIGHTS["rigor"], 0.15),
     ("PILLAR_WEIGHTS.accessibility", constants.PILLAR_WEIGHTS["accessibility"], 0.15),
     ("EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE", constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE, 0.60),
+    ("EVIDENCE_GATE_REQUIRED_PILLARS", constants.EVIDENCE_GATE_REQUIRED_PILLARS, ("responsiveness",)),
     ("CEILING_A_MIN_COVERAGE", constants.CEILING_A_MIN_COVERAGE, 0.80),
-    ("NO_CEILING_MIN_COVERAGE", constants.NO_CEILING_MIN_COVERAGE, 0.95),
+    ("NO_CEILING_MIN_COVERAGE", constants.NO_CEILING_MIN_COVERAGE, 0.90),
     ("MIN_POPULATION", constants.MIN_POPULATION, 30),
     ("COMPOSITE_DECIMALS", constants.COMPOSITE_DECIMALS, 2),
     ("PERSONA_PRESETS.balanced", constants.PERSONA_PRESETS["balanced"], dict(constants.PILLAR_WEIGHTS)),

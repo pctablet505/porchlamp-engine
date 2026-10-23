@@ -63,7 +63,7 @@ repo but is recorded.
 | **D-GATE-4** | Vitality | ≥ 1 commit by a non-bot `User` on the default branch in the trailing 180 d | Fail → gated `stale` | Spec gate 1, with bot typing from D-IN-1 |
 | **D-GATE-5** | Not a black hole | Over external PRs *opened* in the trailing 180 d that are ≥ 14 d old (`n ≥ 10` required, else `UNDECIDED`): share with zero substantive human response within 14 d of opening ≤ 0.50 | Fail → gated `black_hole` | Spec gate 2 with a window denominator and a minimum n; fixes F4/F6 |
 | **D-GATE-6** | PR workflow | ≥ 1 external PR decided in the trailing 365 d, OR off-platform markers present (`Documentation/process/submitting-patches*`, `MAINTAINERS` with `L:` mailing-list lines, README says patches go to a list/Gerrit/Phabricator), OR the repository **hands review off** (RFC-0007): among its outside PRs in the recorded `pr_window` (external, non-bot authors, no age filter) at least `GATE6_HANDOFF_MIN_PRS` = 5 and at least `GATE6_HANDOFF_MIN_SHARE` = 50 % carry a notice, i.e. a comment by an account other than the PR's author that contains (any letter case) one of `has been imported to Gerrit for code review`, `welcome to GitGitGadget`, `import it to our internal repository for further review`, or is written by an account whose login starts with `gitgitgadget` | Off-platform → **routed**, scored with responsiveness *unmeasured* and ranked under no lens (not on the balanced board, under any persona, or under custom weights); a repository that hands review off is routed whatever its decided PRs, and D-GATE-5 is then `UNDECIDED` for it, never failed (D-GATE-1..4 still decide; it gets no `black_hole` flag); neither → `unrated: no_external_workflow` | Spec gate 3 made detectable; `golang/go`, `git/git` and `mapbox/mapbox-gl-js` review outside PRs in Gerrit, on the mailing list and in an internal repository, where D-GATE-5 cannot see them |
-| **D-EVID-1** | Evidence sufficiency | Composite coverage `C ≥ 0.60` (see D-MISS-3) | Fail → `unrated: insufficient_evidence` (listed, not ranked) | A rank built on 40% of the weight is noise presented as order |
+| **D-EVID-1** | Evidence sufficiency | Composite coverage `C ≥ 0.60` (see D-MISS-3) AND every pillar in `EVIDENCE_GATE_REQUIRED_PILLARS` (`responsiveness`, RFC-0024) has at least one measured parameter | Fail → `unrated: insufficient_evidence` (listed, not ranked) | A rank built on 40% of the weight is noise presented as order; responsiveness measures `P(decision)` (D-DEF-2), so a repo whose answers to outside PRs were never observed cannot be ranked on its other pillars alone |
 
 Gated and unrated repos are stored and shown with their reason; they have no
 rank and no tier.
@@ -228,10 +228,12 @@ unmeasured and drops out of the composite the same way.
 
 **D-MISS-3 Coverage and ceilings.** Composite coverage `C = Σ_p W_p·c_p` under
 the active weights. `C < 0.60` → unrated. `0.60 ≤ C < 0.80` → tier ceiling B.
-`0.80 ≤ C < 0.95` → ceiling A. `C ≥ 0.95` → no ceiling. Coverage is stored and
-displayed next to every score. Why ceilings: a repo cannot be certified elite
-on partial evidence, and the ceiling gives the maintainer and the third parties
-a reason to close the gap.
+`0.80 ≤ C < 0.90` → ceiling A. `C ≥ 0.90` → no ceiling (amended 2026-10-23,
+RFC-0024: was `0.95`, so at most one missing parameter in any pillar does not
+cap a repository at Tier A while two missing parameters do). Coverage is stored
+and displayed next to every score. Why ceilings: a repo cannot be certified
+elite on partial evidence, and the ceiling gives the maintainer and the third
+parties a reason to close the gap.
 
 **D-MISS-4 Proxies.** A parameter may define one proxy method (2.2, 4.1, and 5.4 do). The
 `method` field records which was used; proxies never mark `Measured` as

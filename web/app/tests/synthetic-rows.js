@@ -50,7 +50,7 @@ export function synthesizeRows(n = 10000) {
         100
     ) / 100;
     const quadrant = QUADRANTS[(leverage >= 50 ? 0 : 2) + (friction >= 50 ? 1 : 0)];
-    const tierCeiling = coverage >= 0.95 ? null : coverage >= 0.8 ? "A" : "B";
+    const tierCeiling = coverage >= 0.9 ? null : coverage >= 0.8 ? "A" : "B";
     const tierByScore = porchlamp >= 90 ? "S" : porchlamp >= 80 ? "A" : porchlamp >= 70 ? "B" : porchlamp >= 55 ? "C" : porchlamp >= 40 ? "D" : "F";
     const tierOrder = { S: 0, A: 1, B: 2, C: 3, D: 4, F: 5 };
     const tier = tierCeiling && tierOrder[tierCeiling] > tierOrder[tierByScore] ? tierCeiling : tierByScore;

@@ -181,7 +181,7 @@ def test_missingness_reasons_match_unmeasured_reasons_in_order() -> None:
     }
     assert thresholds["unrated_below"] == 0.60
     assert thresholds["ceiling_b_below"] == 0.80
-    assert thresholds["ceiling_a_below"] == 0.95
+    assert thresholds["ceiling_a_below"] == 0.90
     assert doc["missingness"]["openssf_proxy_min_signals"] == constants.OPENSSF_PROXY_MIN_SIGNALS
     assert len(doc["missingness"]["not_applicable_rules"]) == len(constants.NOT_APPLICABLE_RULES)
 

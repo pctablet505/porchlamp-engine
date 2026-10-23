@@ -234,6 +234,16 @@ def test_composite_coverage_all_pillars_not_applicable_is_zero() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _all_pillars_measured(*, responsiveness_measured: bool = True) -> dict[str, PillarScore]:
+    """Five measured pillars (score 50.0); ``responsiveness_measured=False``
+    gives responsiveness the shape ``aggregate_pillars`` gives a pillar with no
+    measured parameter (score ``None``, coverage 0.0)."""
+    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants.PILLAR_NAMES}
+    if not responsiveness_measured:
+        pillars["responsiveness"] = PillarScore(score=None, coverage=0.0)
+    return pillars
+
+
 @pytest.mark.parametrize(
     ("coverage", "expected"),
     [
@@ -241,13 +251,23 @@ def test_composite_coverage_all_pillars_not_applicable_is_zero() -> None:
         (0.60, (True, CEILING_B)),
         (0.79, (True, CEILING_B)),
         (0.80, (True, CEILING_A)),
-        (0.94, (True, CEILING_A)),
+        (0.89, (True, CEILING_A)),
+        (0.90, (True, None)),
+        (0.9375, (True, None)),
         (0.95, (True, None)),
         (1.00, (True, None)),
     ],
 )
 def test_coverage_status_boundaries(coverage: float, expected: tuple[bool, str | None]) -> None:
-    assert coverage_status(coverage) == expected
+    assert coverage_status(coverage, _all_pillars_measured()) == expected
+
+
+@pytest.mark.parametrize("coverage", [0.59, 0.60, 0.79, 0.80, 0.89, 0.90, 0.95, 1.00])
+def test_coverage_status_without_a_measured_responsiveness_pillar_is_unrated_at_every_band(coverage: float) -> None:
+    """RFC-0024 (D-EVID-1): no measured responsiveness parameter -> unrated,
+    and so no ceiling (the caller must not consult one), whatever C is --
+    the ceiling bands themselves are unchanged (the case above)."""
+    assert coverage_status(coverage, _all_pillars_measured(responsiveness_measured=False)) == (False, None)
 
 
 # --------------------------------------------------------------------------- #
@@ -324,10 +344,10 @@ def test_tier_from_score_cutoffs(composite: float, expected: str) -> None:
 
 def test_score_92_with_coverage_085_yields_tier_a() -> None:
     """Combined oracle: raw tier for 92 is S+ (>=90); coverage 0.85
-    gives ceiling A (0.80 <= C < 0.95); the worse of the two is A."""
+    gives ceiling A (0.80 <= C < 0.90); the worse of the two is A."""
     tier = tier_from_score(92.0)
     assert tier == "S+"
-    rated, ceiling = coverage_status(0.85)
+    rated, ceiling = coverage_status(0.85, _all_pillars_measured())
     assert (rated, ceiling) == (True, "A")
     assert apply_ceiling(tier, ceiling) == "A"
 

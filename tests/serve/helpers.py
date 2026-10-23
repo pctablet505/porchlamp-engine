@@ -77,13 +77,17 @@ def finalize(conn: sqlite3.Connection, db_path: Path, *, snapshot_id: str = SNAP
 #: The owner of the repositories :func:`routed_pair_records` builds.
 ROUTED_PAIR_OWNER = "lens-org"
 
-#: Measured inputs of a routed repository and its twin. Responsiveness is
-#: left unmeasured (a routed repository's review is invisible to GitHub);
-#: criticality, governance and rigor are fully measured and accessibility
-#: only 0.35. Balanced coverage is then 0.6525 (>= 0.60), and per persona:
-#: first_timer 0.455 (below the floor, so gated by ``insufficient_evidence:coverage``),
-#: career_capital 0.67, senior_systems 0.8175, ai_assisted 0.735 (all clear it).
+#: Measured inputs of a routed repository and its twin. Responsiveness has one
+#: measured parameter, the ghost rate (weight .15 of its pillar): D-EVID-1
+#: rates no repository without one (RFC-0024), and a routed repository's
+#: GitHub pull requests can still be measured (git/git and facebook/buck2 on
+#: the 2026-10-21 data); criticality, governance and rigor are fully measured
+#: and accessibility only 0.35. Balanced coverage is then 0.69 (>= 0.60), and
+#: per persona: first_timer 0.5075 (below the floor, so gated by
+#: ``insufficient_evidence:coverage``), career_capital 0.70, senior_systems
+#: 0.84, ai_assisted 0.765 (all clear it).
 _PAIR_MEASURED = {
+    "gr14_ghost_rate": 0.0,
     "dependents_deduped": 999999.0, "openssf_criticality": 1.0, "downloads_monthly": 999999999.0,
     "legal_ip": "DCO", "elephant_factor": 5.0, "promotion_ladder": "VERIFIED",
     "pipeline_defenses": 100.0, "ai_posture": "AD_HOC", "substantive_review_rate": 0.8,
