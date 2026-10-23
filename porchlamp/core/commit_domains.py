@@ -238,9 +238,10 @@ def envelope_rows(data: Any) -> Optional[list[Mapping[str, Any]]]:
     as the row list either raised ``AttributeError`` on the first
     ``row.get`` (``scripts/derive.py``, failing the whole bundle) or
     treated the envelope as absent -- for every repo whose commits had been
-    re-collected. ``truncated`` is not consulted: a capped window's rows
-    are read exactly as the list-shaped envelopes' always were (the v1
-    collectors kept the same newest-1000 cap without recording it)."""
+    re-collected. ``truncated`` is not consulted here: this returns the rows
+    only. Whether they are the whole window, an evenly spaced sample of it or
+    a record cut at the old newest-1,000 cap is :func:`commit_window`'s
+    answer (RFC-0021), which every windowed commit measure reads."""
     if isinstance(data, list):
         return data
     if isinstance(data, Mapping):
@@ -248,6 +249,77 @@ def envelope_rows(data: Any) -> Optional[list[Mapping[str, Any]]]:
         if isinstance(rows, list):
             return rows
     return None
+
+
+#: The ``Unmeasured(collector_failure)`` detail every windowed commit measure
+#: (3.2 EF, 3.1's ``Signed-off-by`` share, 2.2's commit signals, 03 section
+#: 6's top email-domain share) gives for a cut record (:func:`commit_window`).
+COMMIT_WINDOW_CUT_DETAIL: str = (
+    f"commits_365d record stops at the newest {constants.LEGACY_COMMIT_CAP:,} commits "
+    "before the 365-day window start and holds no sample or 365-day total (RFC-0021)"
+)
+
+
+@dataclass(frozen=True)
+class CommitWindow:
+    """What one ``commits_365d`` record holds (D-IN-4 Commits, RFC-0021).
+
+    ``rows`` are the recorded commit rows. ``total`` is the number of
+    default-branch commits in the 365-day window: the row count when the
+    record is the whole window, GitHub's own count (``data["total"]``) when
+    it is a sample, ``None`` when the record is cut. ``sampled`` is true when
+    the rows are whole REST pages of 100 spread evenly over the window
+    (``porchlamp.collect.commits.collect_commits_365d`` above
+    ``constants.COMMIT_CAP``): every page stands for the same number of
+    pages, so shares (3.2 EF, the bus factor, 3.1's ``Signed-off-by`` share)
+    read the rows unweighted, and a count of the window is ``total`` times
+    the rows' share. ``cut`` is true when the rows stop short of the window
+    and are no sample -- the newest ``constants.LEGACY_COMMIT_CAP`` commits
+    every collector kept before RFC-0021 -- so no windowed measure reads
+    them (RFC-0013's rule for a cut record).
+    """
+
+    rows: list[Mapping[str, Any]]
+    total: Optional[int]
+    sampled: bool
+    cut: bool
+
+
+def _is_count(value: Any) -> bool:
+    """A non-negative ``int`` that is not a ``bool``."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def commit_window(data: Any) -> Optional[CommitWindow]:
+    """Read a ``commits_365d`` envelope's ``data`` as a :class:`CommitWindow`.
+
+    ``None`` for anything :func:`envelope_rows` reads as no envelope. Then:
+
+    * a bare row list (the v1 collectors, which recorded no ``truncated``)
+      is cut when it holds ``constants.LEGACY_COMMIT_CAP`` rows or more --
+      those collectors stopped there -- and whole below it;
+    * a window dict marked ``sampled`` is a sample when it records a
+      ``total`` at least its row count; a sample without one cannot be
+      scaled to the window and counts as cut;
+    * a window dict marked ``truncated`` (and not sampled) is cut;
+    * any other window dict is the whole window, its ``total`` the row
+      count (the rows are the window; a recorded ``total`` read moments
+      earlier can differ by the commits pushed in between).
+    """
+    rows = envelope_rows(data)
+    if rows is None:
+        return None
+    if not isinstance(data, Mapping):
+        cut = len(rows) >= constants.LEGACY_COMMIT_CAP
+        return CommitWindow(rows=rows, total=None if cut else len(rows), sampled=False, cut=cut)
+    total = data.get("total")
+    if data.get("sampled") is True:
+        if _is_count(total) and total >= len(rows):
+            return CommitWindow(rows=rows, total=total, sampled=True, cut=False)
+        return CommitWindow(rows=rows, total=None, sampled=False, cut=True)
+    if data.get("truncated") is True:
+        return CommitWindow(rows=rows, total=None, sampled=False, cut=True)
+    return CommitWindow(rows=rows, total=len(rows), sampled=False, cut=False)
 
 
 def records_from_rows(rows: Sequence[Mapping[str, Any]]) -> list[CommitRecord]:
@@ -298,38 +370,61 @@ class TopDomainShare:
     ``porchlamp.derive.bundle``'s job, not this module's.
 
     ``n`` is the non-bot commit count (0 when there are none); ``top_
-    domain`` is the winning :func:`org_key` value ("" when ``n`` is 0, or
-    when no non-bot commit resolves to an org at all -- e.g. every row's
-    author has no recorded email; ``porchlamp.derive.bundle`` distinguishes
-    these two zero cases from each other); ``share`` is ``top_domain``'s
-    commit count divided by ``n`` (0.0 in either zero case)."""
+    domain`` is the winning commit email domain (:func:`_email_domain`; ""
+    when ``n`` is 0, or when no non-bot commit records an email domain at
+    all -- e.g. every row's author has no recorded email;
+    ``porchlamp.derive.bundle`` distinguishes these two zero cases from each
+    other); ``share`` is ``top_domain``'s commit count divided by ``n`` (0.0
+    in either zero case)."""
 
     share: float
     n: int
     top_domain: str
 
 
+def _email_domain(actor: CommitActor) -> Optional[str]:
+    """The commit-author email's domain, lower-cased, as recorded; ``None``
+    when no ``@``-bearing email with a non-empty domain is recorded.
+
+    The ``ef_domain_mismatch`` grouping (03 section 6: "top email domain
+    share"). Unlike :func:`org_key` it does not split a personal provider
+    or ``users.noreply.github.com`` into one bucket per author: those
+    addresses are exactly the ones 3.2 counts as one org per author, and the
+    detector exists to show when an elephant factor rests on them (03
+    section 3, 3.2: "an org using personal emails inflates EF").
+    """
+    email = actor.email.strip().lower()
+    if "@" not in email:
+        return None
+    return email.rsplit("@", 1)[1] or None
+
+
 def top_domain_share(records: Sequence[CommitRecord]) -> TopDomainShare:
     """The ``ef_domain_mismatch`` detector's raw input: the single
-    largest :func:`org_key` group's share of the non-bot commits.
+    largest commit email domain's (:func:`_email_domain`) share of the
+    non-bot commits.
 
-    Ties broken by ascending ``org_key`` string -- the exact tie rule
-    :func:`porchlamp.collect.commits.elephant_factor` already uses
-    (``sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))``), pinned
-    here again so the two facts can never disagree about which entity wins
-    a tie. A commit whose author resolves to no org (:func:`org_key`
-    returns ``None`` -- no ``@`` in the recorded email, or no email at
-    all) still counts in ``n`` but never in any org's numerator, mirroring
-    ``elephant_factor``'s own denominator rule."""
+    Grouped by the raw domain, not by :func:`org_key`. Grouped by the 3.2
+    org key -- the elephant factor's own buckets -- one bucket holding half
+    the commits makes EF 1, so "top share >= 0.5 while EF >= 4" could not
+    occur (0 of the 3,746 rated repositories of the 2026-10-21 snapshot).
+    A corporate domain holding half the commits still makes EF 1; the
+    detector fires only where EF splits that domain per author (a personal
+    provider or the GitHub no-reply domain).
+
+    Ties broken by ascending domain string (the tie rule
+    :func:`porchlamp.collect.commits.elephant_factor` uses for its org
+    keys). A commit with no recorded email domain still counts in ``n`` but
+    never in any domain's numerator."""
     non_bot = [record for record in records if not is_bot(record.actor)]
     n = len(non_bot)
     if n == 0:
         return TopDomainShare(share=0.0, n=0, top_domain="")
     counts: Counter[str] = Counter()
     for record in non_bot:
-        org = org_key(record.actor)
-        if org is not None:
-            counts[org] += 1
+        domain = _email_domain(record.actor)
+        if domain is not None:
+            counts[domain] += 1
     if not counts:
         return TopDomainShare(share=0.0, n=n, top_domain="")
     top_domain, top_count = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]

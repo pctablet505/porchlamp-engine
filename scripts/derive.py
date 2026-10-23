@@ -52,6 +52,8 @@ from porchlamp.collect.depsdev import package_key, package_name_for_repo
 from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
 from porchlamp.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
 from porchlamp.constants import BOT_LOGIN_MARKERS
+from porchlamp.core import constants as core_constants
+v2_constants = core_constants
 from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
@@ -68,10 +70,9 @@ GFI_WINDOW_DAYS = 30
 RR_WINDOW_DAYS = 90
 COMMITS_WINDOW_DAYS = 180
 SCORECARD_MISMATCH = 0.5
-FOUNDATION_ORGS = {
-    "apache", "kubernetes", "cncf", "linuxfoundation", "eclipse",
-    "openjs-foundation", "fdiooss", "openstack", "llvm", "chaoss",
-}
+#: 02 section 4 3.1's foundation list: one definition, hashed, in the core
+#: constants (RFC-0017).
+FOUNDATION_ORGS = core_constants.FOUNDATION_ORGS
 # GitHub's real author_association enum; model enum collapses FIRST_TIMER /
 # FIRST_TIME_CONTRIBUTOR -> FIRST_TIME and CONTRIBUTOR -> NONE (external, not
 # first-time; is_external is carried separately).
@@ -396,14 +397,18 @@ def _derive_dx_54(
     readme_body: Optional[str],
     gov: Optional[dict] = None,
 ) -> tuple[Optional[float], int]:
-    """02 §4 5.4 DX: 0.5 * runtime_score + 0.5 * setup_signals_score.
+    """02 §4 5.4 DX (RFC-0020): ``0.5 * runtime_score + 0.5 * setup_signals_score``
+    when >= ``PARAM_MIN_N["dx"]`` pull-request commits have a finished CI run, or
+    ``setup_signals_score`` alone (``proxy:setup_signals_only``) when fewer than
+    ``PARAM_MIN_N["dx"]`` commits have a finished CI run and at least one
+    setup-signal source (``tree``, ``CONTRIBUTING.md``, ``README.md``, or
+    ``governance``) was collected.
 
     Runtime score: the median CI wait over the newest 30 pull-request commits
     with a usable wait (``porchlamp.collect.ci_runs.commit_waits`` over the
     ``actions_runs`` envelope: a commit's wait is its slowest workflow run):
     100 if <= 20 min, -5/min after, floor 0; ``None`` (unmeasured) if ``runs``
-    is None or no commit has a usable wait. The count returned is the number
-    of commits the median is taken over.
+    is None or neither sufficient CI runs nor setup-signal sources are present.
     Setup signals (0/1/2/3 -> 0/40/70/100):
       1. devcontainer or Dockerfile or flake.nix in tree paths,
       2. CONTRIBUTING.md with a setup/development section,
@@ -412,13 +417,13 @@ def _derive_dx_54(
     if runs is None:
         return None, 0
     waits = _dx_commit_waits(runs)
-    if not waits:
-        return None, 0
-    median_minutes = statistics.median(waits) / 60.0
-    if median_minutes <= 20.0:
-        runtime_score = 100.0
-    else:
-        runtime_score = max(0.0, 100.0 - 5.0 * (median_minutes - 20.0))
+    n = len(waits)
+    has_setup_evidence = (
+        (isinstance(tree, dict) and "paths" in tree)
+        or bool(contrib_body)
+        or bool(readme_body)
+        or isinstance(gov, dict)
+    )
 
     tree_paths = (tree or {}).get("paths") or [] if isinstance(tree, dict) else []
     sig_env = _has_dx_env_file(tree_paths)
@@ -435,7 +440,18 @@ def _derive_dx_54(
 
     signal_count = int(sig_env) + int(sig_contrib) + int(sig_readme)
     setup_score = _DX_SETUP_SCORE_MAP[signal_count]
-    return round(0.5 * runtime_score + 0.5 * setup_score, 4), len(waits)
+
+    min_n = v2_constants.PARAM_MIN_N["dx"] or 5
+    if n >= min_n:
+        median_minutes = statistics.median(waits) / 60.0
+        if median_minutes <= 20.0:
+            runtime_score = 100.0
+        else:
+            runtime_score = max(0.0, 100.0 - 5.0 * (median_minutes - 20.0))
+        return round(0.5 * runtime_score + 0.5 * setup_score, 4), n
+    if has_setup_evidence:
+        return round(setup_score, 4), n
+    return None, n
 
 
 def _jsonable(v: Any) -> Any:
@@ -714,28 +730,37 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # commit_domains.envelope_rows unwraps the collector's window dict.
     c365_data, c365_at = _load(data_dir, "commits_365d", key)
     c365 = commit_domains.envelope_rows(c365_data)
+    # RFC-0021: whether those rows are the whole year, an evenly spaced
+    # sample of it, or the newest commits a pre-RFC-0021 collector stopped at.
+    c365_window = commit_domains.commit_window(c365_data)
     if c365 is None:
         c365_at = None
     if c365 is not None:
         recs = commit_domains.records_from_rows(c365)
-        # Both factors are None when under half the window's commits could be
-        # attributed to an org/author at all: the 50% threshold is then
-        # unreachable, so the measure is missing rather than large (D-MISS-1).
-        ef = commit_domains.elephant_factor(recs, now)
-        if ef is not None:
-            b.set("elephant_factor", ef, src("commits_365d", key), c365_at, "derived")
-            # The sample EF was computed from (D-PARAM 3.2 min n = 30
-            # commits): the bundle loader passes it as Measured.n, so a
-            # thin window scores insufficient_n with its true n.
-            b.set("elephant_factor_commit_count", elephant_factor_sample_n(recs, now),
-                  src("commits_365d", key), c365_at, "derived")
-        else:
+        if c365_window is not None and c365_window.cut:
+            # A cut record holds the newest days of a busier year: the
+            # shares EF and the bus factor read are not the year's.
             b.missing("elephant_factor", 1)
-        bf = commit_domains.bus_factor(recs, now)
-        if bf is not None:
-            b.set("bus_factor", bf, src("commits_365d", key), c365_at, "derived")
-        else:
             b.missing("bus_factor", 1)
+        else:
+            # Both factors are None when under half the window's commits could be
+            # attributed to an org/author at all: the 50% threshold is then
+            # unreachable, so the measure is missing rather than large (D-MISS-1).
+            ef = commit_domains.elephant_factor(recs, now)
+            if ef is not None:
+                b.set("elephant_factor", ef, src("commits_365d", key), c365_at, "derived")
+                # The sample EF was computed from (D-PARAM 3.2 min n = 30
+                # commits): the bundle loader passes it as Measured.n, so a
+                # thin window scores insufficient_n with its true n.
+                b.set("elephant_factor_commit_count", elephant_factor_sample_n(recs, now),
+                      src("commits_365d", key), c365_at, "derived")
+            else:
+                b.missing("elephant_factor", 1)
+            bf = commit_domains.bus_factor(recs, now)
+            if bf is not None:
+                b.set("bus_factor", bf, src("commits_365d", key), c365_at, "derived")
+            else:
+                b.missing("bus_factor", 1)
         b.set("vitality", commit_domains.is_vital(recs, now),
               src("commits_365d", key), c365_at, "derived")
     else:
@@ -755,6 +780,10 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     prw, prw_at = _load(data_dir, "pr_window", key)
     for field, (value, conf) in prw_mod.derive_pr_window_fields(prw).items():
         b.set(field, value, src("pr_window", key) if prw is not None else None, prw_at, conf)
+    # --- RFC-0015: PRs landed outside GitHub's merge, as the record shows them
+    # (whether it carries the landing fields; how many outside PRs landed). ---
+    for field, (value, conf) in prw_mod.derive_pr_window_landing_fields(prw).items():
+        b.set(field, value, src("pr_window", key), prw_at, conf)
 
     # --- 1.4 GR_14 = D-GATE-5's zero-response share (owner ruling
     # 2026-10-06: one measurement, per the spec): porchlamp.core.gates.
@@ -805,9 +834,13 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     rel, rel_at = _load(data_dir, "releases", key)
     iss, iss_at = _load(data_dir, "issues_counts", key)
     rns, rns_at = _load(data_dir, "runs", key)
+    # RFC-0021: the hooks below read the commits_365d envelope data itself
+    # (rows plus whether they are the whole year, a sample or a cut record);
+    # None whenever the rows are None, exactly as `c365` above.
+    c365_env = c365_data if c365 is not None else None
     try:
         w17_fields = pike_mod.derive_w17_fields(
-            data_dir, key, now, gh, gh_at, c365, c365_at, dep, dep_at,
+            data_dir, key, now, gh, gh_at, c365_env, c365_at, dep, dep_at,
             rel, rel_at, iss, iss_at, rns, rns_at, sc, sc_at, prw, prw_at,
         )
     except Exception as e:  # review-ok: gate-crash — one repo's
@@ -839,9 +872,11 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # commits_365d, so a value derived from c365 alone (no governance
     # envelope) still carries real provenance instead of None; a
     # "missing"-confidence field carries no source (matches every other
-    # b.missing() field in this module). (Foundation-owner fact mirrors the
-    # expression above; the list stays in FOUNDATION_ORGS, one definition per
-    # fact.) Field names match porchlamp.core.constants.PARAM_INPUT_IDS exactly:
+    # b.missing() field in this module). (Foundation-owner fact: membership
+    # of FOUNDATION_ORGS, the hashed 3.1 list, and nothing else -- the
+    # "-foundation" name suffix the v1 heuristic above also accepts is no
+    # list, and none of the six eligible repos it matched shows a CLA
+    # check, RFC-0017.) Field names match porchlamp.core.constants.PARAM_INPUT_IDS exactly:
     # promotion_ladder / ai_posture supersede the regex heuristic set above
     # with the evidence-based ones (02 §4 3.3/4.2). ---
     from porchlamp.collect import governance as gov_mod
@@ -853,8 +888,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     else:
         gov_src, gov_prov_at = None, None
     for field, (value, conf) in gov_mod.derive_governance_fields(
-            gov, prw, c365, owner.lower() in FOUNDATION_ORGS
-            or owner.lower().endswith("-foundation")).items():
+            gov, prw, c365_env, owner.lower() in FOUNDATION_ORGS).items():
         if conf == "missing":
             b.set(field, value, None, None, conf)
         else:
@@ -868,13 +902,21 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     )
     b.set("hard_ai_ban", is_proscribed, "derived from ai_posture", None, "derived")
 
-    # --- 5.4 DX (02 §4 5.4): 0.5 CI runtime + 0.5 setup signals ---
+    # --- 5.4 DX (02 §4 5.4, RFC-0020): 0.5 CI runtime + 0.5 setup signals,
+    # or setup-signals proxy when < PARAM_MIN_N["dx"] CI runs ---
     dx_val, dx_n = _derive_dx_54(runs, tree, contrib_body, readme_body, gov)
+    dx_min_n = v2_constants.PARAM_MIN_N["dx"] or 5
     if runs is not None and dx_val is not None:
+        dx_method = (
+            v2_constants.METHOD_PRIMARY
+            if dx_n >= dx_min_n
+            else v2_constants.METHOD_PROXY_DX_SETUP_SIGNALS
+        )
         b.set("dx", dx_val, src("actions_runs", key), runs_at, "derived")
         b.set("dx_run_count", dx_n, src("actions_runs", key), runs_at, "derived")
+        b.set("dx_method", dx_method, src("actions_runs", key), runs_at, "derived")
     elif runs is not None:
-        b.set("dx_run_count", 0, src("actions_runs", key), runs_at, "derived")
+        b.set("dx_run_count", dx_n, src("actions_runs", key), runs_at, "derived")
         b.missing("dx", None)
     else:
         b.missing("dx_run_count", 0)

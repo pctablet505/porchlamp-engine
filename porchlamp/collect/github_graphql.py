@@ -26,9 +26,10 @@ import hashlib
 import heapq
 import json
 import random
+import re
 import statistics
 import subprocess
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,7 +38,7 @@ from typing import Any, Optional, Protocol
 from porchlamp.collect import ghcli, ledger
 from porchlamp.collect.envelope import read_envelope, sha256_hex, write_envelope
 from porchlamp.collect.user_cache import UserCache
-from porchlamp.core import constants, gates
+from porchlamp.core import constants, gates, landing
 from porchlamp.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
 from porchlamp.core.hygiene import (
     account_eligibility as _hygiene_account_eligibility,
@@ -83,8 +84,27 @@ PAGE_SIZE: int = 100
 #: #51: the light continuation's page size, whatever the heavy page size: a
 #: 100-PR light page costs 1 point and stays well inside the time budget.
 PR_LIGHT_PAGE_SIZE: int = 100
-#: 02 §4.3: a review counts as substantive at an 80-char body or 1 inline.
-SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
+#: 02 §4.3 (RFC-0018): a review or D-IN-2 maintainer comment counts as
+#: substantive at an 80-char effective body or 1 inline comment.
+SUBSTANTIVE_REVIEW_BODY_CHARS: int = constants.SUBSTANTIVE_REVIEW_BODY_CHARS
+#: 02 §4.3 (RFC-0018): normalized review/comment text repeated across at least
+#: this many distinct PRs in the window is excluded as canned boilerplate.
+SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS: int = constants.SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS
+#: RFC-0022: the reviews and the comments a PR's first read carries (the
+#: :data:`PR_WINDOW_QUERY` page and the ``PrRepliesBatch`` lookups), oldest
+#: first. They were all the record kept; a longer list is now read on by PR
+#: number (:func:`_fetch_reply_followups`), so these sizes set what one page
+#: carries, not what the record holds.
+PR_REVIEWS_FIRST: int = 10
+PR_COMMENTS_FIRST: int = 20
+#: RFC-0022: GitHub's largest page. A follow-up read asks a cut reply list for
+#: at most this many more nodes, and the timeline holds this many of a PR's
+#: ready-for-review and close events, the newest (it held 5; the point cost of
+#: a page does not change with it).
+PR_REPLY_PAGE_SIZE: int = 100
+#: RFC-0022 (D-IN-4): a PR's reviews and comments are read on until whole or
+#: this many of each (:data:`porchlamp.core.constants.PR_REPLY_NODE_CAP`).
+PR_REPLY_NODE_CAP: int = constants.PR_REPLY_NODE_CAP
 
 #: D-IN-1: exact-match bot logins (case-insensitive), the one list
 #: :data:`porchlamp.core.constants.BOT_LOGINS`. Substring matching is removed
@@ -92,9 +112,17 @@ SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
 BOT_LOGINS: frozenset[str] = constants.BOT_LOGINS
 
 #: External (non-maintainer) associations, matching the v1 ``EXTERNAL_ASSOC``
-#: set used by ``scripts/derive.py`` for the same fact.
-EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
-    {"NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "CONTRIBUTOR"})
+#: set used by ``scripts/derive.py`` for the same fact: the core's one
+#: definition, :data:`porchlamp.core.gates.EXTERNAL_ASSOCIATIONS`.
+EXTERNAL_ASSOCIATIONS: frozenset[str] = gates.EXTERNAL_ASSOCIATIONS
+
+#: RFC-0022: the fields of one review node and of one comment node, and of a
+#: page of either, the same in every query that reads replies (the window page,
+#: the reply batch and the follow-up reads), so a follow-up node is recorded in
+#: the shape of the first page's. ``pageInfo`` says whether GitHub holds more.
+_REVIEW_NODE_FIELDS: str = "author { __typename login } state body createdAt authorAssociation comments { totalCount }"
+_COMMENT_NODE_FIELDS: str = "author { __typename login } authorAssociation bodyText createdAt"
+_REPLY_PAGE_FIELDS: str = "totalCount pageInfo { hasNextPage endCursor }"
 
 #: The windowed-PR query: PRs in all three states, newest first, with the
 #: typed actors (``__typename``), who merged each PR (``mergedBy``, the
@@ -106,6 +134,10 @@ EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
 #: closed it) are recorded for landing detection, a PR a project lands outside
 #: GitHub's merge (a "Merged" label, a closing commit); no measure reads them
 #: yet. Envelopes recorded before they were requested lack both keys.
+#: RFC-0022: each reply list records its ``totalCount`` and ``pageInfo`` (a
+#: longer list is read on by number), and the timeline its newest
+#: :data:`PR_REPLY_PAGE_SIZE` ready-for-review and close events. Envelopes
+#: recorded before carry neither; their lists read as whole, as they did.
 PR_WINDOW_QUERY: str = (
     "query PrWindow($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost }"
@@ -116,14 +148,12 @@ PR_WINDOW_QUERY: str = (
     " nodes { number createdAt closedAt mergedAt state isDraft mergedBy { login }"
     " author { __typename login ... on User { createdAt } } authorAssociation"
     " labels(first: 10) { nodes { name } }"
-    " timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 5) {"
+    f" timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: {PR_REPLY_PAGE_SIZE}) {{"
     " nodes { __typename ... on ReadyForReviewEvent { createdAt }"
     " ... on ClosedEvent { createdAt actor { __typename login }"
     " closer { __typename ... on Commit { oid } ... on PullRequest { number } } } } }"
-    " reviews(first: 10) { nodes { author { __typename login } state body createdAt"
-    " authorAssociation comments { totalCount } } }"
-    " comments(first: 20) { nodes { author { __typename login } authorAssociation"
-    " bodyText createdAt } }"
+    f" reviews(first: {PR_REVIEWS_FIRST}) {{ {_REPLY_PAGE_FIELDS} nodes {{ {_REVIEW_NODE_FIELDS} }} }}"
+    f" comments(first: {PR_COMMENTS_FIRST}) {{ {_REPLY_PAGE_FIELDS} nodes {{ {_COMMENT_NODE_FIELDS} }} }}"
     " reviewThreads { totalCount } }"
     " } } }"
 )
@@ -132,7 +162,9 @@ PR_WINDOW_QUERY: str = (
 #: Carries all PR-level and timeline fields (2 pts/page at 100 PRs/page, measured
 #: 2026-10-18 with #60's labels and closer; 1 pt without them), omitting
 #: ``reviews``, ``comments``, and ``reviewThreads`` which are fetched for the
-#: seeded 1,000-PR sample via :func:`_pr_replies_batch_query`.
+#: seeded 1,000-PR sample via :func:`_pr_replies_batch_query`. RFC-0022: its
+#: timeline is :data:`PR_WINDOW_QUERY`'s, the newest :data:`PR_REPLY_PAGE_SIZE`
+#: events (still 2 points a page, measured 2026-10-22).
 PR_WINDOW_LIGHT_QUERY: str = (
     "query PrWindowLight($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost }"
@@ -143,7 +175,7 @@ PR_WINDOW_LIGHT_QUERY: str = (
     " nodes { number createdAt closedAt mergedAt state isDraft mergedBy { login }"
     " author { __typename login ... on User { createdAt } } authorAssociation"
     " labels(first: 10) { nodes { name } }"
-    " timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 5) {"
+    f" timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: {PR_REPLY_PAGE_SIZE}) {{"
     " nodes { __typename ... on ReadyForReviewEvent { createdAt }"
     " ... on ClosedEvent { createdAt actor { __typename login }"
     " closer { __typename ... on Commit { oid } ... on PullRequest { number } } } } } }"
@@ -158,15 +190,17 @@ PR_WINDOW_QUERY_SHA256: str = sha256_hex(PR_WINDOW_QUERY)
 
 
 def _pr_replies_batch_query(n: int) -> str:
-    """Aliased ``pullRequest(number:)`` batch query for ``n`` sampled PRs."""
+    """Aliased ``pullRequest(number:)`` batch query for ``n`` sampled PRs.
+
+    RFC-0022: the reply lists are :data:`PR_WINDOW_QUERY`'s, with their
+    ``totalCount`` and ``pageInfo``, so a sampled PR's longer list is read on
+    by :func:`_fetch_reply_followups` like one from a window page."""
     var_decls = ", ".join(f"$n{i}: Int!" for i in range(n))
     aliases = " ".join(
         f"p{i}: pullRequest(number: $n{i}) {{"
         " number"
-        " reviews(first: 10) { nodes { author { __typename login } state body createdAt"
-        " authorAssociation comments { totalCount } } }"
-        " comments(first: 20) { nodes { author { __typename login } authorAssociation"
-        " bodyText createdAt } }"
+        f" reviews(first: {PR_REVIEWS_FIRST}) {{ {_REPLY_PAGE_FIELDS} nodes {{ {_REVIEW_NODE_FIELDS} }} }}"
+        f" comments(first: {PR_COMMENTS_FIRST}) {{ {_REPLY_PAGE_FIELDS} nodes {{ {_COMMENT_NODE_FIELDS} }} }}"
         " reviewThreads { totalCount } }"
         for i in range(n)
     )
@@ -362,6 +396,62 @@ def _association(value: Any) -> str:
 # Per-PR derivation (D-IN-2, 02 §4.3) over recorded GraphQL nodes             #
 # --------------------------------------------------------------------------- #
 
+_REVIEW_BOILERPLATE_STRIP_RE = re.compile(r"https?://\S+|@[\w-]+|#\d+|\d+")
+_REVIEW_WS_RE = re.compile(r"\s+")
+
+
+def _normalize_review_text(text: str) -> str:
+    """Normalize review or comment prose for boilerplate deduplication (RFC-0018).
+
+    Lowercases, strips URLs, ``@mentions``, ``#123`` issue/PR references, and
+    digits, and collapses whitespace so templated greetings or coverage pastes
+    that differ only by PR number, contributor login, or percentage collapse to
+    one key.
+    """
+    cleaned = _REVIEW_BOILERPLATE_STRIP_RE.sub("", (text or "").lower())
+    return _REVIEW_WS_RE.sub(" ", cleaned).strip()
+
+
+def _substantive_review_boilerplate(
+    prs: Sequence[Mapping[str, Any]], maintainers: frozenset[str]
+) -> frozenset[str]:
+    """Normalized texts appearing on >= ``SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS``
+    distinct sampled PRs across non-bot, non-author reviews or D-IN-2 maintainer
+    comments meeting ``SUBSTANTIVE_REVIEW_BODY_CHARS`` (RFC-0018)."""
+    pr_counts: dict[str, int] = {}
+    for pr in prs:
+        author = pr.get("author") or {}
+        author_login = str(author.get("login") or "").lower()
+        seen_on_pr: set[str] = set()
+        for raw in (pr.get("reviews") or {}).get("nodes") or []:
+            rev_author = raw.get("author") or {}
+            rev_login = str(rev_author.get("login") or "").lower()
+            if is_bot_actor(rev_author.get("__typename"), rev_author.get("login")):
+                continue
+            if rev_login == author_login:
+                continue
+            body = str(raw.get("body") or "")
+            if gates.comment_length(body) >= SUBSTANTIVE_REVIEW_BODY_CHARS:
+                norm = _normalize_review_text(body)
+                if norm:
+                    seen_on_pr.add(norm)
+        for comment in (pr.get("comments") or {}).get("nodes") or []:
+            if not gates.is_maintainer_response(comment, author_login, maintainers):
+                continue
+            body_text = str(comment.get("bodyText") or "")
+            if gates.comment_length(body_text) >= SUBSTANTIVE_REVIEW_BODY_CHARS:
+                norm = _normalize_review_text(body_text)
+                if norm:
+                    seen_on_pr.add(norm)
+        for norm in seen_on_pr:
+            pr_counts[norm] = pr_counts.get(norm, 0) + 1
+    return frozenset(
+        norm
+        for norm, count in pr_counts.items()
+        if count >= SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS
+    )
+
+
 def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     """Derive the per-PR responsiveness inputs from recorded PR nodes.
 
@@ -373,9 +463,14 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     (:func:`porchlamp.core.gates.first_substantive_response` over the
     window's :func:`porchlamp.core.gates.maintainer_logins`); ``ttfhr_hours`` is the opening-to-
     response span in hours (None when there is no candidate or the recorded
-    response predates the opening). ``substantive_review`` (02 §4.3) is any
-    review with 1+ inline comments or an 80+ character body, by someone who
-    is neither a bot nor the PR's own author.
+    response predates the opening). ``substantive_review`` (02 §4.3, RFC-0018) is
+    True when the PR received either (a) a non-bot, non-author review with 1+
+    inline comments or a non-boilerplate body of >= 80 effective characters
+    (:func:`porchlamp.core.gates.comment_length`), or (b) a non-boilerplate
+    D-IN-2 maintainer issue comment of >= 80 effective characters; ``None`` when
+    the PR is outside the reply sample or excluded from the decided review
+    denominator as a never-ready draft or unanswered author self-close within
+    ``GATE5_RESPONSE_DEADLINE_DAYS``.
 
     When ``prs`` comes from a >2,000-PR light+sample window, ``maintainers`` is
     computed across all ``prs`` while reply-based fields (``first_substantive_response_at``,
@@ -383,35 +478,15 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     reply sample (:func:`reply_sampled_prs`), and set to ``None`` on unsampled PRs.
     """
     maintainers = gates.maintainer_logins(prs)
-    sampled_ids = {id(p) for p in reply_sampled_prs(prs)}
+    sampled_prs = reply_sampled_prs(prs)
+    sampled_ids = {id(p) for p in sampled_prs}
+    boilerplate = _substantive_review_boilerplate(sampled_prs, maintainers)
+    deadline = timedelta(days=constants.GATE5_RESPONSE_DEADLINE_DAYS)
     out: list[dict] = []
     for pr in prs:
         author = pr.get("author") or {}
         author_login = str(author.get("login") or "").lower()
-        if id(pr) in sampled_ids:
-            response = gates.first_substantive_response(pr, maintainers)
-            best_at, best_kind = response if response is not None else (None, None)
-            best_dt = _parse_iso(best_at)
-            ttfhr: Optional[float] = None
-            if best_dt is not None:
-                created_dt = _parse_iso(pr.get("createdAt"))
-                if created_dt is not None and best_dt >= created_dt:
-                    ttfhr = (best_dt - created_dt).total_seconds() / 3600.0
-            # A review by the PR's own author is not the project reviewing the PR.
-            # Self-review is common (contributors annotate their own diffs), and
-            # counting it credited the repository with scrutiny nobody outside
-            # the change ever applied.
-            substantive_review: Optional[bool] = any(
-                not is_bot_actor((raw.get("author") or {}).get("__typename"),
-                                 (raw.get("author") or {}).get("login"))
-                and str((raw.get("author") or {}).get("login") or "").lower() != author_login
-                and (int((raw.get("comments") or {}).get("totalCount") or 0) >= 1
-                     or len(str(raw.get("body") or "")) >= SUBSTANTIVE_REVIEW_BODY_CHARS)
-                for raw in ((pr.get("reviews") or {}).get("nodes") or []))
-        else:
-            best_at, best_kind = None, None
-            ttfhr = None
-            substantive_review = None
+        is_draft = bool(pr.get("isDraft", False))
         ready_for_review_at: Optional[str] = (
             pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None
         )
@@ -470,6 +545,93 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
                         else (pr.get("closedAt") if isinstance(pr.get("closedAt"), str) else None)
                     )
 
+        if id(pr) in sampled_ids:
+            response = gates.first_substantive_response(pr, maintainers)
+            best_at, best_kind = response if response is not None else (None, None)
+            best_dt = _parse_iso(best_at)
+            created_dt = _parse_iso(pr.get("createdAt"))
+            other_reply_cut = (
+                (best_kind == "comment" and gates.reply_connection_cut(pr.get("reviews")))
+                or (best_kind == "review" and gates.reply_connection_cut(pr.get("comments")))
+            )
+            ttfhr: Optional[float] = None
+            if (
+                best_dt is not None
+                and created_dt is not None
+                and best_dt >= created_dt
+                and not other_reply_cut
+            ):
+                ttfhr = (best_dt - created_dt).total_seconds() / 3600.0
+
+            ready_dt = _parse_iso(ready_for_review_at)
+            clock_start = (
+                max(created_dt, ready_dt)
+                if (created_dt is not None and ready_dt is not None)
+                else (ready_dt or created_dt)
+            )
+            closed_dt = _parse_iso(pr.get("closedAt"))
+            merged_dt = _parse_iso(pr.get("mergedAt"))
+            closed_m_dt = _parse_iso(closed_by_maint_at)
+            never_ready_draft = is_draft and ready_dt is None and closed_dt is not None
+            answered_within_deadline = bool(
+                clock_start is not None
+                and (
+                    (best_dt is not None and best_dt <= clock_start + deadline)
+                    or (merged_dt is not None and clock_start <= merged_dt <= clock_start + deadline)
+                    or (closed_m_dt is not None and clock_start <= closed_m_dt <= clock_start + deadline)
+                )
+            )
+            had_prior_response = bool(
+                best_dt is not None and closed_dt is not None and best_dt <= closed_dt
+            )
+            unanswered_early_self_close = bool(
+                closed_by_author
+                and merged_dt is None
+                and closed_dt is not None
+                and clock_start is not None
+                and not answered_within_deadline
+                and not had_prior_response
+                and closed_dt <= clock_start + deadline
+            )
+            if never_ready_draft or unanswered_early_self_close:
+                substantive_review: Optional[bool] = None
+            else:
+                has_substantive_review = any(
+                    not is_bot_actor(
+                        (raw.get("author") or {}).get("__typename"),
+                        (raw.get("author") or {}).get("login"),
+                    )
+                    and str((raw.get("author") or {}).get("login") or "").lower() != author_login
+                    and (
+                        int((raw.get("comments") or {}).get("totalCount") or 0) >= 1
+                        or (
+                            gates.comment_length(str(raw.get("body") or ""))
+                            >= SUBSTANTIVE_REVIEW_BODY_CHARS
+                            and _normalize_review_text(str(raw.get("body") or ""))
+                            not in boilerplate
+                        )
+                    )
+                    for raw in ((pr.get("reviews") or {}).get("nodes") or [])
+                )
+                has_substantive_maint_comment = any(
+                    gates.is_maintainer_response(comment, author_login, maintainers)
+                    and gates.comment_length(str(comment.get("bodyText") or ""))
+                    >= SUBSTANTIVE_REVIEW_BODY_CHARS
+                    and _normalize_review_text(str(comment.get("bodyText") or ""))
+                    not in boilerplate
+                    for comment in ((pr.get("comments") or {}).get("nodes") or [])
+                )
+                has_substantive = has_substantive_review or has_substantive_maint_comment
+                substantive_review = (
+                    None
+                    if not has_substantive and gates.replies_cut(pr)
+                    else has_substantive
+                )
+        else:
+            best_at, best_kind = None, None
+            ttfhr = None
+            substantive_review = None
+
         author_node = pr.get("author")
         author_created_at = (
             author_node.get("createdAt")
@@ -487,7 +649,7 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
             "first_substantive_response_kind": best_kind,
             "ttfhr_hours": ttfhr,
             "substantive_review": substantive_review,
-            "is_draft": bool(pr.get("isDraft", False)),
+            "is_draft": is_draft,
             "ready_for_review_at": ready_for_review_at,
             "closed_by_author": closed_by_author,
             "closed_by_maintainer_at": closed_by_maint_at,
@@ -527,26 +689,26 @@ def ghost_rate_prs_from_window(
                 closed_by_maintainer_at=d.get("closed_by_maintainer_at"),
                 author_created_at=d.get("author_created_at"),
                 number=d.get("number"),
+                replies_cut=gates.replies_cut(pr),
             )
         )
     return out
 
 
-def _run_pr_replies_batch_query(
-    owner: str,
-    name: str,
-    numbers: Sequence[int],
+def _run_aliased_pr_query(
     transport: GraphqlTransport,
-) -> tuple[dict[int, dict[str, Any]], list[int], int]:
-    """One ``PrRepliesBatch`` call over ``numbers``: ``(replies by number,
-    unresolved numbers, point cost)``. A heavy-query failure leaves every number
-    unresolved, for :func:`_fetch_pr_replies_batch` to retry narrower; any other
-    transport failure propagates."""
-    variables: dict[str, Any] = {"owner": owner, "name": name}
-    for i, num in enumerate(numbers):
-        variables[f"n{i}"] = int(num)
+    query: str,
+    variables: dict[str, Any],
+    numbers: Sequence[int],
+) -> tuple[dict[int, Mapping[str, Any]], list[int], int]:
+    """One aliased ``pullRequest(number:)`` call, alias ``p<i>`` naming
+    ``numbers[i]``: ``(alias node by number, unresolved numbers, point cost)``.
+    A heavy-query failure leaves every number unresolved, for the caller to
+    retry narrower (:func:`_in_aliased_batches`); any other transport failure
+    propagates. An alias with no node, or named by a GraphQL error, is
+    unresolved; an error naming no alias leaves every number unresolved."""
     try:
-        doc = transport.execute(_pr_replies_batch_query(len(numbers)), variables)
+        doc = transport.execute(query, variables)
     except (RuntimeError, subprocess.TimeoutExpired) as exc:
         if _is_heavy_query_error(str(exc)):
             return {}, list(numbers), 0
@@ -564,7 +726,7 @@ def _run_pr_replies_batch_query(
     repo = data.get("r")
     if not isinstance(repo, Mapping):
         return {}, list(numbers), cost
-    resolved: dict[int, dict[str, Any]] = {}
+    resolved: dict[int, Mapping[str, Any]] = {}
     unresolved: list[int] = []
     for i, num in enumerate(numbers):
         alias = f"p{i}"
@@ -572,30 +734,27 @@ def _run_pr_replies_batch_query(
         if not isinstance(node, Mapping) or alias in errored:
             unresolved.append(int(num))
             continue
-        resolved[int(num)] = {
-            "reviews": node.get("reviews") or {"nodes": []},
-            "comments": node.get("comments") or {"nodes": []},
-            "reviewThreads": node.get("reviewThreads") or {"totalCount": 0},
-        }
+        resolved[int(num)] = node
     return resolved, unresolved, cost
 
 
-def _fetch_pr_replies_batch(
-    owner: str,
-    name: str,
+def _in_aliased_batches(
     numbers: Sequence[int],
-    transport: GraphqlTransport,
-    batch_size: int = PR_REPLIES_BATCH_SIZE,
-) -> tuple[dict[int, dict[str, Any]], int]:
-    """Fetch ``reviews``, ``comments``, and ``reviewThreads`` for sampled PRs
-    in aliased batches of :data:`PR_REPLIES_BATCH_SIZE`, retrying unresolved
-    aliases at :data:`PR_REPLIES_RETRY_WIDTHS`."""
-    out: dict[int, dict[str, Any]] = {}
+    run: Callable[[Sequence[int]], tuple[dict[int, Mapping[str, Any]], list[int], int]],
+    batch_size: int,
+    failure: str,
+) -> tuple[dict[int, Mapping[str, Any]], int]:
+    """Run ``run`` (one aliased call, :func:`_run_aliased_pr_query`) over
+    ``numbers`` in batches of ``batch_size``, retrying the numbers a batch left
+    unresolved at :data:`PR_REPLIES_RETRY_WIDTHS`: ``(node by number, point
+    cost)``. A number no width resolves raises ``RuntimeError(f"{failure}:
+    <numbers>")``, failing the fetch."""
+    out: dict[int, Mapping[str, Any]] = {}
     cost = 0
 
     def _run(pool: Sequence[int]) -> list[int]:
         nonlocal cost
-        resolved, unresolved, c = _run_pr_replies_batch_query(owner, name, pool, transport)
+        resolved, unresolved, c = run(pool)
         out.update(resolved)
         cost += c
         return unresolved
@@ -612,10 +771,179 @@ def _fetch_pr_replies_batch(
                 next_pool.extend(_run(pool[start : start + width]))
             pool = next_pool
         if pool:
-            raise RuntimeError(
-                f"pr replies batch failed for {owner}/{name} PRs: {pool[:10]}"
-            )
+            raise RuntimeError(f"{failure}: {pool[:10]}")
     return out, cost
+
+
+def _run_pr_replies_batch_query(
+    owner: str,
+    name: str,
+    numbers: Sequence[int],
+    transport: GraphqlTransport,
+) -> tuple[dict[int, dict[str, Any]], list[int], int]:
+    """One ``PrRepliesBatch`` call over ``numbers``: ``(replies by number,
+    unresolved numbers, point cost)``. A heavy-query failure leaves every number
+    unresolved, for :func:`_fetch_pr_replies_batch` to retry narrower; any other
+    transport failure propagates."""
+    variables: dict[str, Any] = {"owner": owner, "name": name}
+    for i, num in enumerate(numbers):
+        variables[f"n{i}"] = int(num)
+    nodes, unresolved, cost = _run_aliased_pr_query(
+        transport, _pr_replies_batch_query(len(numbers)), variables, numbers)
+    resolved: dict[int, dict[str, Any]] = {
+        num: {
+            "reviews": node.get("reviews") or {"nodes": []},
+            "comments": node.get("comments") or {"nodes": []},
+            "reviewThreads": node.get("reviewThreads") or {"totalCount": 0},
+        }
+        for num, node in nodes.items()
+    }
+    return resolved, unresolved, cost
+
+
+def _fetch_pr_replies_batch(
+    owner: str,
+    name: str,
+    numbers: Sequence[int],
+    transport: GraphqlTransport,
+    batch_size: int = PR_REPLIES_BATCH_SIZE,
+) -> tuple[dict[int, dict[str, Any]], int]:
+    """Fetch ``reviews``, ``comments``, and ``reviewThreads`` for sampled PRs
+    in aliased batches of :data:`PR_REPLIES_BATCH_SIZE`, retrying unresolved
+    aliases at :data:`PR_REPLIES_RETRY_WIDTHS`."""
+    replies, cost = _in_aliased_batches(
+        numbers, lambda pool: _run_pr_replies_batch_query(owner, name, pool, transport),
+        batch_size, f"pr replies batch failed for {owner}/{name} PRs")
+    return {num: dict(reply) for num, reply in replies.items()}, cost
+
+
+def _reply_followup_parts(pr: Mapping[str, Any]) -> dict[str, tuple[str, int]]:
+    """RFC-0022: the reply lists of one PR node a follow-up read goes on with,
+    as ``{field: (endCursor, first)}``: each of ``reviews`` and ``comments``
+    that is cut (:func:`porchlamp.core.gates.reply_connection_cut`), names the
+    cursor to go on from and holds fewer than :data:`PR_REPLY_NODE_CAP` nodes,
+    read for the rest of its cap at most :data:`PR_REPLY_PAGE_SIZE` at a time."""
+    parts: dict[str, tuple[str, int]] = {}
+    for field in ("reviews", "comments"):
+        connection = pr.get(field)
+        if not gates.reply_connection_cut(connection):
+            continue
+        cursor = connection["pageInfo"].get("endCursor")
+        nodes = connection.get("nodes")
+        have = len(nodes) if isinstance(nodes, list) else 0
+        if isinstance(cursor, str) and cursor and have < PR_REPLY_NODE_CAP:
+            parts[field] = (cursor, min(PR_REPLY_PAGE_SIZE, PR_REPLY_NODE_CAP - have))
+    return parts
+
+
+def _reply_followup_query(
+    numbers: Sequence[int], parts: Sequence[Mapping[str, tuple[str, int]]],
+) -> tuple[str, dict[str, Any]]:
+    """RFC-0022: one aliased ``PrRepliesFollowUp`` query and its variables
+    (``owner`` and ``name`` left to the caller): alias ``p<i>`` reads, on PR
+    ``numbers[i]``, the next page of each reply list ``parts[i]`` names
+    (:func:`_reply_followup_parts`), in the first page's fields."""
+    declarations: list[str] = []
+    aliases: list[str] = []
+    variables: dict[str, Any] = {}
+    for i, (number, lists) in enumerate(zip(numbers, parts)):
+        declarations.append(f"$n{i}: Int!")
+        variables[f"n{i}"] = int(number)
+        reads: list[str] = []
+        for field, key, node_fields in (("reviews", "r", _REVIEW_NODE_FIELDS),
+                                        ("comments", "c", _COMMENT_NODE_FIELDS)):
+            if field not in lists:
+                continue
+            cursor, first = lists[field]
+            declarations += [f"${key}f{i}: Int!", f"${key}a{i}: String!"]
+            variables[f"{key}f{i}"] = int(first)
+            variables[f"{key}a{i}"] = cursor
+            reads.append(f"{field}(first: ${key}f{i}, after: ${key}a{i}) {{"
+                         f" {_REPLY_PAGE_FIELDS} nodes {{ {node_fields} }} }}")
+        aliases.append(f"p{i}: pullRequest(number: $n{i}) {{ number {' '.join(reads)} }}")
+    query = (
+        f"query PrRepliesFollowUp($owner: String!, $name: String!, {', '.join(declarations)}) {{"
+        f" rateLimit {{ cost }} r: repository(owner: $owner, name: $name) {{ {' '.join(aliases)} }} }}"
+    )
+    return query, variables
+
+
+def _merge_reply_followup(pr: dict[str, Any], node: Mapping[str, Any], fields: Iterable[str]) -> set[str]:
+    """RFC-0022: append one follow-up read's page of each of ``fields`` to the
+    PR node's recorded list (in place), oldest first, with that page's
+    ``totalCount`` and ``pageInfo``. Returns the fields whose page cannot move
+    the list on: missing, without ``pageInfo``, or adding no node while saying
+    more remain. Such a list is left as it was, still cut, so its readers know
+    it is not whole, and is not read on again (that read would repeat)."""
+    stalled: set[str] = set()
+    for field in fields:
+        page = node.get(field)
+        recorded = pr.get(field)
+        new_nodes = page.get("nodes") if isinstance(page, Mapping) else None
+        page_info = page.get("pageInfo") if isinstance(page, Mapping) else None
+        if (not isinstance(recorded, Mapping) or not isinstance(new_nodes, list)
+                or not isinstance(page_info, Mapping)
+                or (not new_nodes and page_info.get("hasNextPage") is True)):
+            stalled.add(field)
+            continue
+        merged = dict(recorded)
+        merged["nodes"] = [*(recorded.get("nodes") or []), *new_nodes]
+        merged["pageInfo"] = dict(page_info)
+        if "totalCount" in page:
+            merged["totalCount"] = page["totalCount"]
+        pr[field] = merged
+    return stalled
+
+
+def _fetch_reply_followups(owner: str, name: str, prs: Sequence[dict[str, Any]],
+                           transport: GraphqlTransport,
+                           batch_size: int = PR_REPLIES_BATCH_SIZE) -> int:
+    """RFC-0022: read on, by PR number, every reply list that a PR whose
+    replies the record holds left cut, until it is whole or holds
+    :data:`PR_REPLY_NODE_CAP` nodes; returns the point cost.
+
+    A window page and a ``PrRepliesBatch`` lookup carry a PR's first
+    :data:`PR_REVIEWS_FIRST` reviews and :data:`PR_COMMENTS_FIRST` comments,
+    oldest first, with each list's ``pageInfo``. Each round reads the next page
+    of every list left cut, in aliased batches of ``batch_size`` PRs retried
+    narrower like the reply batches (:func:`_in_aliased_batches`): a PR no width
+    resolves fails the fetch. Rounds stop when no list is left to read on, at
+    most ``ceil(PR_REPLY_NODE_CAP / PR_REPLY_PAGE_SIZE)`` of them. A longer list
+    keeps ``pageInfo.hasNextPage`` true, so its readers know it is cut
+    (:func:`porchlamp.core.gates.replies_cut`). PRs of every author are read on:
+    the 4.1 review proxy counts every merged PR's approvals. Nodes marked
+    ``REPLIES_RECORDED_KEY: False`` (outside a reply sample) are not read, and a
+    node recorded without ``pageInfo`` is never cut.
+    """
+    by_number: dict[int, dict[str, Any]] = {}
+    for pr in prs:
+        number = pr.get("number")
+        if isinstance(number, int) and not isinstance(number, bool) and pr.get(REPLIES_RECORDED_KEY) is not False:
+            by_number[number] = pr
+    stalled: set[tuple[int, str]] = set()
+    cost = 0
+    for _round in range(-(-PR_REPLY_NODE_CAP // PR_REPLY_PAGE_SIZE)):
+        todo: dict[int, dict[str, tuple[str, int]]] = {}
+        for number, pr in by_number.items():
+            lists = {field: part for field, part in _reply_followup_parts(pr).items()
+                     if (number, field) not in stalled}
+            if lists:
+                todo[number] = lists
+        if not todo:
+            break
+
+        def run(pool: Sequence[int], todo: Mapping[int, Mapping[str, tuple[str, int]]] = todo,
+                ) -> tuple[dict[int, Mapping[str, Any]], list[int], int]:
+            query, variables = _reply_followup_query(pool, [todo[number] for number in pool])
+            return _run_aliased_pr_query(transport, query, {"owner": owner, "name": name, **variables}, pool)
+
+        pages, round_cost = _in_aliased_batches(
+            list(todo), run, batch_size, f"pr reply follow-up failed for {owner}/{name} PRs")
+        cost += round_cost
+        for number, node in pages.items():
+            for field in _merge_reply_followup(by_number[number], node, todo[number]):
+                stalled.add((number, field))
+    return cost
 
 
 # --------------------------------------------------------------------------- #
@@ -669,6 +997,13 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
     ledger delta that reaches ``cap`` without meeting a settled PR has read
     exactly the first pages of a fresh fetch, so it continues as one and the
     existing records are not reused.
+
+    RFC-0022: a page and a sample lookup carry each PR's first
+    :data:`PR_REVIEWS_FIRST` reviews and :data:`PR_COMMENTS_FIRST` comments with
+    each list's ``pageInfo``; every list they leave cut, on a PR whose replies
+    the record holds, is then read on by PR number until whole or
+    :data:`PR_REPLY_NODE_CAP` long (:func:`_fetch_reply_followups`), its cost in
+    ``cost_points``. A ledger delta's PRs are read on before the merge.
     """
     window_start = now - timedelta(days=PR_WINDOW_DAYS)
     prs: list[dict] = []
@@ -779,6 +1114,10 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
             cost += _apply_reply_sample(owner, name, prs, sample_cap, transport)
             sampled = True
 
+    # RFC-0022: each reply list a page or a sample lookup left cut is read on by
+    # PR number, so the record holds a PR's replies whole up to the cap.
+    cost += _fetch_reply_followups(owner, name, prs, transport)
+
     if existing_prs is not None:
         merged = ledger.merge_pr_window_delta(
             existing_prs, prs, now=now, window_days=PR_WINDOW_DAYS, cap=None
@@ -855,6 +1194,12 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
     the GraphQL ``first`` per page; drop it for very active repositories
     whose full page exceeds the server-side query time budget.
 
+    #57: the stored per-PR derivation (``derived``) records the rules of this
+    collection run only; no measure reads it. Every reader recomputes the
+    per-PR facts from the recorded nodes under the rules of the derive run
+    (:func:`derive_pr_window_fields`, :func:`ghost_rate_prs_from_window`,
+    :func:`closed_unread_counts`), so a rule change reaches every record.
+
     With ``incremental_ledger`` the existing envelope's settled PRs are
     reused only when it was fetched by the current query
     (:func:`pr_window_query_is_current`); an envelope from an older query is
@@ -910,7 +1255,7 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
         data["sampled"] = True
         data["sample_cap"] = PR_SAMPLE_CAP
         data["sample_seed"] = PR_SAMPLE_SEED
-        data["sample_size"] = len(reply_sampled_prs(result.prs))
+        data["sample_size"] = sum(1 for pr in result.prs if pr.get(REPLIES_RECORDED_KEY) is not False)
     write_envelope(target, source="github-graphql:pr-window", data=data,
                    fetched_at=now.isoformat())
     return "ok"
@@ -966,11 +1311,22 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
     Returns ``{field: (value, confidence)}`` for
     :data:`PR_WINDOW_BUNDLE_FIELDS`. The envelope-recorded facts (count,
     truncation, point cost) are ``verified``; the statistics computed here
-    are ``derived``: the count of external PRs with a measured TTFHR, the
-    TTFHR median over them (02 §4 1.1), the share of decided external PRs
+    are ``derived``: the count of outside PRs with a measured TTFHR, the
+    TTFHR median over them (02 §4 1.1), the share of decided outside PRs
     with a substantive review (02 §4 4.3), and the outside PRs and the
     closed-unread ones among them (:func:`closed_unread_counts`; absent when
     the envelope records no PR list). Empty dict when ``prw`` is None.
+
+    #57: every per-PR fact is recomputed here from the recorded PR nodes
+    (``prs``) by :func:`derive_pr_window` under the current rules, as
+    D-GATE-5 and ``closed_unread`` recompute them. The envelope's stored
+    ``derived`` list records the rules of the run that collected it (the bot
+    list, D-IN-2's maintainers) and is never read: a rule change reaches
+    every stored record at the next derive. An outside PR has an external
+    author association and a non-bot author (D-IN-1,
+    :func:`porchlamp.core.gates.is_outside_pr`): a bot's own pull requests
+    (Dependabot, Renovate, a release bot) are not outside contributions,
+    whoever answers them.
 
     #51: the statistics read the PRs whose replies the record holds (rows
     whose ``substantive_review`` is ``None`` were not sampled). A record that
@@ -992,15 +1348,12 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
             fields["pr_window_outside_pr_count"] = (None, "missing")
             fields["pr_window_closed_unread_count"] = (None, "missing")
         return fields
-    derived = prw.get("derived") or []
-    external = [d for d in derived if d.get("is_external")]
-    with_latency = [d["ttfhr_hours"] for d in external
-                    if d.get("ttfhr_hours") is not None]
-    decided_external = [
-        d for d in external
-        if d.get("decided") and ("substantive_review" not in d or d.get("substantive_review") is not None)
-    ]
-    substantive = [d for d in decided_external if d.get("substantive_review")]
+    prs = prw.get("prs")
+    nodes = [pr for pr in prs if isinstance(pr, Mapping)] if isinstance(prs, list) else []
+    outside = [d for d in derive_pr_window(nodes) if d["is_external"] and not d["is_bot_author"]]
+    with_latency = [d["ttfhr_hours"] for d in outside if d["ttfhr_hours"] is not None]
+    decided_outside = [d for d in outside if d["decided"] and d["substantive_review"] is not None]
+    substantive = [d for d in decided_outside if d["substantive_review"]]
     fields = {
         "pr_window_count": (int(prw.get("count") or 0), "verified"),
         "pr_window_truncated": (bool(prw.get("truncated")), "verified"),
@@ -1010,14 +1363,46 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
             round(statistics.median(with_latency), 4), "derived") if with_latency
         else (None, "derived"),
         "pr_window_substantive_review_rate": (
-            round(len(substantive) / len(decided_external), 4), "derived")
-        if decided_external else (None, "derived"),
+            round(len(substantive) / len(decided_outside), 4), "derived")
+        if decided_outside else (None, "derived"),
     }
-    prs = prw.get("prs")
     if isinstance(prs, list):
-        closed_unread, outside = closed_unread_counts(prs)
-        fields["pr_window_outside_pr_count"] = (outside, "derived")
+        closed_unread, outside_count = closed_unread_counts(prs)
+        fields["pr_window_outside_pr_count"] = (outside_count, "derived")
         fields["pr_window_closed_unread_count"] = (closed_unread, "derived")
+    return fields
+
+
+def derive_pr_window_landing_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
+    """RFC-0015 (#60): what a recorded ``pr_window`` envelope ``data`` shows of
+    pull requests landed outside GitHub's merge (:mod:`porchlamp.core.landing`).
+
+    Returns ``{field: (value, confidence)}`` for two bundle fields:
+
+    * ``pr_window_landing_recorded`` (``verified``): whether every recorded PR
+      node carries the fields landing reads
+      (:func:`porchlamp.core.landing.landing_recorded`). A record fetched before
+      #63 does not; its 1.5 TTM_p90 and 4.1 review proxy then read GitHub's
+      merges alone, as they did before.
+    * ``pr_window_landed_external_count`` (``derived``): the outside PRs (an
+      external author association and a non-bot author, D-IN-1) the record shows
+      landed, which 1.5 TTM_p90 counts as merged at their close. ``(None,
+      "missing")`` on a record cut short of its window, whose statistics are all
+      refused (:func:`derive_pr_window_fields`).
+
+    Empty dict when ``prw`` is None or records no PR list.
+    """
+    if not prw or not isinstance(prw.get("prs"), list):
+        return {}
+    prs = [pr for pr in prw["prs"] if isinstance(pr, Mapping)]
+    fields: dict[str, tuple[Any, str]] = {
+        "pr_window_landing_recorded": (bool(prs) and all(landing.landing_recorded(pr) for pr in prs), "verified"),
+    }
+    if pr_window_cut_short(prw):
+        fields["pr_window_landed_external_count"] = (None, "missing")
+    else:
+        fields["pr_window_landed_external_count"] = (
+            sum(1 for pr in prs if _is_external_nonbot(pr) and landing.is_landed(pr)), "derived")
     return fields
 
 
@@ -1056,6 +1441,13 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
 #   recorded history rather than failing the whole repo's collection — and
 #   excludes that author from MR_first's population entirely
 #   (:func:`_no_prior_merged` returns ``None``), never assumed a first-timer;
+# * RFC-0015 (#60): each window PR records its labels and its latest close
+#   event with that event's closer (:data:`porchlamp.core.landing.PR_LANDING_FIELDS`),
+#   so a PR the project landed outside GitHub's merge counts as merged, at its
+#   close, wherever the cohorts read a merge (:mod:`porchlamp.core.landing`).
+#   The per-author search records neither: a 25-alias search batch asking for
+#   them failed with HTTP 502 when measured on ``pytorch/pytorch`` (2026-10-22).
+#   The light history (RFC-0009, :func:`fetch_light_pr_history`) records both;
 # * derivation (``derive_cohort_fields``, pure over the recorded envelope):
 #   for each of DR_90 (1.2), MR_first (1.3), newcomer conversion (5.2) and
 #   RR_90 (5.3) both a raw rate (over the identified cohort, no D-IN-3
@@ -1065,9 +1457,11 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
 # Documented approximations: "no previously merged PR" (MR_first — the
 # predicate is merge time, not creation time) is a statement about recorded
 # history only — the 365-d window plus the sampled per-author newest-30 search;
-# a truncated newcomer band excludes candidates whose oldest recorded PR sits
-# within ``TRUNCATION_MARGIN_DAYS`` of the truncation floor, since an even older,
-# unrecorded PR would misclassify them as a newcomer.
+# a PR older than the window that the project landed outside GitHub's merge is
+# known only from that search, which records no landing, so it does not count
+# as a prior merge; a truncated newcomer band excludes candidates whose oldest
+# recorded PR sits within ``TRUNCATION_MARGIN_DAYS`` of the truncation floor,
+# since an even older, unrecorded PR would misclassify them as a newcomer.
 
 #: D-IN-4: the author-history window — 365 d of PRs.
 AUTHOR_WINDOW_DAYS: int = 365
@@ -1095,9 +1489,11 @@ DECISION_COHORT_START_DAYS: int = 270
 DECISION_WINDOW_DAYS: int = 90
 #: D-IN-3: MIN_ACCOUNT_AGE_DAYS, MIN_PUBLIC_EVENTS and AUTHOR_CAP_FRACTION
 #: are imported from porchlamp.core.constants.
-#: 5.2: the first PR converted when merged within 180 d of opening.
+#: 5.2: the first PR converted when merged within 180 d of opening (merged on
+#: GitHub or landed outside its merge, RFC-0015).
 NEWCOMER_CONVERT_WINDOW_DAYS: int = 180
-#: 5.3: a return needs a second PR within 90 d after the first PR's merge.
+#: 5.3: a return needs a second PR within 90 d after the first PR's merge (or
+#: landing, RFC-0015).
 RETURN_WINDOW_DAYS: int = 90
 #: At most this many per-author ``search`` calls per repo,
 #: deterministically sampled (:func:`_seeded_sample`) from the union of the
@@ -1125,6 +1521,11 @@ AUTHOR_SEARCH_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 #: The 365-d window query: PRs in all three states, newest first, light
 #: fields (no reviews/comments — the author section does not derive
 #: D-IN-2). ``rateLimit`` carries ``cost`` and ``remaining``.
+#: RFC-0015 (#60): each PR's labels and latest close event with its closer
+#: (:data:`porchlamp.core.landing.PR_LANDING_FIELDS`), so the cohorts count a PR
+#: landed outside GitHub's merge as merged. A 100-PR page costs 2 points where it
+#: cost 1 (``pytorch/pytorch``'s newest page, measured 2026-10-22). Envelopes
+#: recorded before lack both keys and their cohorts read GitHub's merges alone.
 AUTHOR_WINDOW_QUERY: str = (
     "query AuthorWindow($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost remaining }"
@@ -1133,7 +1534,8 @@ AUTHOR_WINDOW_QUERY: str = (
     " orderBy: {field: CREATED_AT, direction: DESC}) {"
     " pageInfo { hasNextPage endCursor }"
     " nodes { number createdAt closedAt mergedAt state"
-    " author { __typename login ... on User { createdAt } } authorAssociation }"
+    " author { __typename login ... on User { createdAt } } authorAssociation"
+    + landing.PR_LANDING_FIELDS + " }"
     " } } }"
 )
 
@@ -1575,6 +1977,11 @@ def fetch_light_pr_history(
     Pages newest-first at 1 GraphQL point per page (no ``search(type: ISSUE)`` calls)
     and groups up to :data:`AUTHOR_SEARCH_FIRST` PRs per author login.
     Returns ``(by_author, cost_points, remaining, ok)``.
+
+    RFC-0015: each grouped PR keeps the ``labels`` and ``timelineItems`` its page
+    recorded (:data:`porchlamp.core.landing.PR_LANDING_FIELDS`), so the cohorts
+    count an earlier PR landed outside GitHub's merge as a merge; a page without
+    them adds neither key.
     """
     by_author: dict[str, list[dict]] = {}
     total_seen = 0
@@ -1609,13 +2016,15 @@ def fetch_light_pr_history(
             if login:
                 bucket = by_author.setdefault(login, [])
                 if len(bucket) < AUTHOR_SEARCH_FIRST:
-                    bucket.append({
+                    entry = {
                         "number": raw.get("number"),
                         "createdAt": raw.get("createdAt"),
                         "closedAt": raw.get("closedAt"),
                         "mergedAt": raw.get("mergedAt"),
                         "state": raw.get("state"),
-                    })
+                    }
+                    entry.update({key: raw[key] for key in ("labels", "timelineItems") if key in raw})
+                    bucket.append(entry)
             if total_seen >= cap:
                 break
         page_info = connection.get("pageInfo") or {}
@@ -1811,13 +2220,19 @@ def _decided_within_days(pr: dict, days: int) -> bool:
 def _author_pr_history(window_prs: Sequence[dict],
                        record: Optional[dict], login: str) -> list[dict]:
     """The author's recorded PR history: the window PRs union the record's
-    search PRs, deduplicated by PR number (search entries win)."""
+    search PRs, deduplicated by PR number (search entries win).
+
+    RFC-0015: a search entry wins only the fields it records; a window node's
+    other fields -- its labels and latest close event, which the per-author
+    search does not record -- are kept, so a PR landed outside GitHub's merge
+    stays landed when the search found it too."""
     seen: dict[Any, dict] = {}
     for pr in window_prs:
         if _login_of(pr) == login:
             seen[pr.get("number")] = pr
     for pr in (record or {}).get("prs") or []:
-        seen[pr.get("number")] = pr
+        number = pr.get("number")
+        seen[number] = {**seen[number], **pr} if number in seen else pr
     return list(seen.values())
 
 
@@ -1868,7 +2283,9 @@ def _no_prior_merged(pr: dict, window_prs: Sequence[dict],
                      records: dict[str, dict]) -> Optional[bool]:
     """1.3 MR_first: the author had no other recorded PR merged strictly
     before this one's ``createdAt``, in the union of the window and the
-    author's search history.
+    author's search history. A PR landed outside GitHub's merge counts as
+    merged at its close (:func:`porchlamp.core.landing.merged_or_landed_at`,
+    RFC-0015).
 
     Returns ``None`` (unknown) when the author's prior-merge history was not
     measured for this repo: the search failed (``history_unmeasured``) or
@@ -1884,7 +2301,7 @@ def _no_prior_merged(pr: dict, window_prs: Sequence[dict],
         return False
     history = _author_pr_history(window_prs, record, login)
     return not any(
-        (other_merged := _parse_iso(other.get("mergedAt"))) is not None
+        (other_merged := _parse_iso(landing.merged_or_landed_at(other))) is not None
         and other_merged < created
         for other in history
         if other.get("number") != pr.get("number")
@@ -1913,7 +2330,12 @@ def _newcomer_cohort_authors(window_prs: Sequence[dict], records: dict[str, dict
                              sampled: Sequence[str], anchor: datetime) -> list[dict]:
     """The sampled newcomer-cohort roster (5.2/5.3), each entry carrying the
     public ``login``/``first_pr``/``followups`` fields plus the private
-    (``_``-prefixed) facts :func:`derive_cohort_fields` reduces to rates."""
+    (``_``-prefixed) facts :func:`derive_cohort_fields` reduces to rates.
+
+    RFC-0015: a PR landed outside GitHub's merge counts as merged at its close
+    (:func:`porchlamp.core.landing.merged_or_landed_at`), for the conversion, the
+    return clock and each roster entry's ``merged_at``; ``_first_landed`` marks a
+    first PR merged that way rather than by GitHub."""
     band_start = anchor - timedelta(days=NEWCOMER_BAND_START_DAYS)
     band_end = anchor - timedelta(days=NEWCOMER_BAND_END_DAYS)
     oldest: dict[str, datetime] = {}
@@ -1945,7 +2367,8 @@ def _newcomer_cohort_authors(window_prs: Sequence[dict], records: dict[str, dict
             continue  # recorded evidence of an even-older PR: not a genuine newcomer
         followups = [pr for _c, _n, pr in history[1:]]
         record = records.get(login) or {}
-        first_merged = _parse_iso(first_pr.get("mergedAt"))
+        first_merged_at = landing.merged_or_landed_at(first_pr)
+        first_merged = _parse_iso(first_merged_at)
         converted = (first_merged is not None
                      and first_merged - first_created <= timedelta(days=NEWCOMER_CONVERT_WINDOW_DAYS))
         returned = first_merged is not None and any(
@@ -1960,13 +2383,14 @@ def _newcomer_cohort_authors(window_prs: Sequence[dict], records: dict[str, dict
             "account_created_at": record.get("account_created_at"),
             "first_pr": {"number": first_pr.get("number"),
                          "created_at": first_pr.get("createdAt"),
-                         "merged_at": first_pr.get("mergedAt")},
+                         "merged_at": first_merged_at},
             "followups": [{"number": pr.get("number"),
                            "created_at": pr.get("createdAt"),
-                           "merged_at": pr.get("mergedAt")} for pr in followups],
+                           "merged_at": landing.merged_or_landed_at(pr)} for pr in followups],
             "_eligible": _account_eligibility(record, first_pr.get("createdAt")),
             "_first_created": first_created,
             "_first_merged": first_merged,
+            "_first_landed": landing.is_landed(first_pr),
             "_converted": converted,
             "_returned": returned,
         })
@@ -1982,6 +2406,7 @@ def _author_public(author: dict) -> dict:
 AUTHOR_HISTORY_BUNDLE_FIELDS: tuple[str, ...] = (
     "author_history_cost_points", "author_history_truncated",
     "author_history_rate_limit_remaining", "newcomer_sampled_author_count",
+    "author_history_landing_recorded",
     "decision_cohort_coverage_gap_days", "cohort_decision_pr_numbers",
     "authors_total", "authors_excluded_unsampled",
     "authors_excluded_unmeasured", "authors_excluded_ineligible",
@@ -1989,12 +2414,13 @@ AUTHOR_HISTORY_BUNDLE_FIELDS: tuple[str, ...] = (
     "dr90_decision_rate_raw", "dr90_decision_pr_count_raw",
     "dr90_decision_rate_author_history_cohort", "dr90_decision_pr_count_author_history_cohort",
     "mr_first_rate_raw", "mr_first_pr_count_raw",
-    "mr_first_rate", "mr_first_pr_count",
+    "mr_first_rate", "mr_first_pr_count", "mr_first_landed_pr_count",
     "newcomer_cohort_author_count", "cohort_newcomer_authors",
     "newcomer_conversion_raw", "newcomer_conversion_raw_author_count",
     "newcomer_conversion", "newcomer_conversion_author_count",
+    "newcomer_conversion_landed_author_count",
     "rr90_return_rate_raw", "rr90_return_raw_author_count",
-    "rr90_return_rate", "rr90_return_author_count",
+    "rr90_return_rate", "rr90_return_author_count", "rr90_return_landed_author_count",
     "newcomer_unmeasured_detail",
 )
 
@@ -2017,6 +2443,17 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     When more than :data:`AUTHOR_UNMEASURED_MAX_FRACTION` of cohort authors are
     unmeasured, adjusted rates and counts are reported as ``(None, "missing")``
     with detail recorded in ``cohort_unmeasured_detail`` and ``newcomer_unmeasured_detail``.
+
+    RFC-0015 (#60): MR_first, its no-prior-merge predicate, newcomer conversion and
+    RR_90 count a PR landed outside GitHub's merge as merged at its close
+    (:func:`porchlamp.core.landing.merged_or_landed_at`); DR_90 is unchanged (a close
+    was always a decision). How many of each adjusted rate's PRs or authors that
+    makes is recorded beside the rate's own count -- ``mr_first_landed_pr_count``,
+    ``newcomer_conversion_landed_author_count`` (converted by a landing) and
+    ``rr90_return_landed_author_count`` (first PR landed) -- and
+    ``author_history_landing_recorded`` says whether the record's window PRs carry
+    the landing fields at all: an envelope recorded before them does not, and its
+    rates count GitHub's merges alone.
     """
     if not ah:
         return {}
@@ -2032,6 +2469,8 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         return out
     window_prs: Sequence[dict] = ah.get("prs") or []
     records = {str(r.get("login") or "").lower(): r for r in ah.get("author_records") or []}
+    out["author_history_landing_recorded"] = (
+        bool(window_prs) and all(landing.landing_recorded(pr) for pr in window_prs), "verified")
 
     covered_since = _covered_since(ah, anchor)
     requested_start = anchor - timedelta(days=DECISION_COHORT_START_DAYS)
@@ -2073,7 +2512,7 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     mr_candidates = [pr for pr in cohort_prs
                      if _no_prior_merged(pr, window_prs, records) is True]
     raw_mr_decided = [pr for pr in mr_candidates if pr.get("closedAt") is not None]
-    raw_mr_merged = sum(1 for pr in raw_mr_decided if pr.get("mergedAt") is not None)
+    raw_mr_merged = sum(1 for pr in raw_mr_decided if landing.merged_or_landed_at(pr) is not None)
     out["mr_first_rate_raw"] = (_ratio(raw_mr_merged, len(raw_mr_decided)), "derived")
     out["mr_first_pr_count_raw"] = (len(raw_mr_decided), "derived")
 
@@ -2088,6 +2527,7 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         out["dr90_decision_pr_count_author_history_cohort"] = (None, "missing")
         out["mr_first_rate"] = (None, "missing")
         out["mr_first_pr_count"] = (None, "missing")
+        out["mr_first_landed_pr_count"] = (None, "missing")
         out["cohort_unmeasured_detail"] = (detail, "verified")
     else:
         dr90_kept = _cap_prs([pr for pr in cohort_prs if _eligible(pr, records) is True])
@@ -2097,9 +2537,10 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
 
         mr_kept = _cap_prs([pr for pr in mr_candidates if _eligible(pr, records) is True])
         mr_decided = [pr for pr in mr_kept if pr.get("closedAt") is not None]
-        mr_merged = sum(1 for pr in mr_decided if pr.get("mergedAt") is not None)
+        mr_merged = sum(1 for pr in mr_decided if landing.merged_or_landed_at(pr) is not None)
         out["mr_first_rate"] = (_ratio(mr_merged, len(mr_decided)), "derived")
         out["mr_first_pr_count"] = (len(mr_decided), "derived")
+        out["mr_first_landed_pr_count"] = (sum(1 for pr in mr_decided if landing.is_landed(pr)), "derived")
 
     # --- 5.2 / 5.3: the sampled newcomer cohort -----------------------------
     authors = _newcomer_cohort_authors(window_prs, records, sampled, anchor)
@@ -2125,20 +2566,25 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
             detail = f"{newcomer_unmeasured} of {newcomer_total} newcomer authors unmeasured"
         out["newcomer_conversion"] = (None, "missing")
         out["newcomer_conversion_author_count"] = (None, "missing")
+        out["newcomer_conversion_landed_author_count"] = (None, "missing")
         out["rr90_return_rate"] = (None, "missing")
         out["rr90_return_author_count"] = (None, "missing")
+        out["rr90_return_landed_author_count"] = (None, "missing")
         out["newcomer_unmeasured_detail"] = (detail, "verified")
     else:
         conv_kept = _cap_authors(eligible_authors, "_first_created")
         out["newcomer_conversion"] = (
             _ratio(sum(1 for a in conv_kept if a["_converted"]), len(conv_kept)), "derived")
         out["newcomer_conversion_author_count"] = (len(conv_kept), "derived")
+        out["newcomer_conversion_landed_author_count"] = (
+            sum(1 for a in conv_kept if a["_converted"] and a["_first_landed"]), "derived")
 
         merged_first_eligible = [a for a in eligible_authors if a["_first_merged"] is not None]
         rr_kept = _cap_authors(merged_first_eligible, "_first_merged")
         out["rr90_return_rate"] = (
             _ratio(sum(1 for a in rr_kept if a["_returned"]), len(rr_kept)), "derived")
         out["rr90_return_author_count"] = (len(rr_kept), "derived")
+        out["rr90_return_landed_author_count"] = (sum(1 for a in rr_kept if a["_first_landed"]), "derived")
 
     merged_first_all = [a for a in authors if a["_first_merged"] is not None]
     out["rr90_return_rate_raw"] = (

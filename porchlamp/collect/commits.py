@@ -1,12 +1,16 @@
 """Commit-author collection and domain-based derivations.
 
-Collects the trailing 365 d of commits (cap 1,000, newest first) with
-``commit.author.email``, ``author.login`` and ``author.type`` (``02`` section
-3: "Commits | trailing 365 d (EF, bus factor), trailing 180 d (vitality)");
-:func:`collect_commits_365d` records the cap as a fact by returning the
-envelope ``data`` as a window-metadata dict with a ``truncated`` boolean,
-the convention :mod:`porchlamp.collect.github_graphql` uses for its capped
-windows; and derives from the typed commit actors:
+Collects the trailing 365 d of commits (newest first) with the commit
+``sha``, ``commit.author.email``, ``author.login`` and ``author.type``
+(``02`` section 3: "Commits | trailing 365 d (EF, bus factor), trailing
+180 d (vitality)"): every commit when GitHub counts at most
+:data:`COMMIT_CAP` in the window, else :data:`COMMIT_CAP` of them in whole
+pages spread evenly over the year (RFC-0021). :func:`collect_commits_365d`
+records which as a fact by returning the envelope ``data`` as a
+window-metadata dict (``total``, ``sampled``, ``truncated``), the
+convention :mod:`porchlamp.collect.github_graphql` uses for its windows;
+``porchlamp.core.commit_domains.commit_window`` is how readers read it.
+This module derives from the typed commit actors:
 
 * organisation by email domain (spec 3.2): one corporate-domain org per
   domain; ``users.noreply.github.com`` maps to the author's login (never an
@@ -24,8 +28,9 @@ login in :data:`KNOWN_BOT_LOGINS`); substring matching is absent (F12).
 
 ``CommitActor``, ``CommitRecord``, the three domain tables
 (``NOREPLY_DOMAIN``, ``PERSONAL_DOMAINS``, ``KNOWN_BOT_LOGINS``),
-``is_bot``, ``org_key``, ``author_key``, ``envelope_rows`` and
-``records_from_rows`` are
+``is_bot``, ``org_key``, ``author_key``, ``envelope_rows``,
+``commit_window`` (with ``CommitWindow`` and ``COMMIT_WINDOW_CUT_DETAIL``)
+and ``records_from_rows`` are
 defined in ``porchlamp.core.commit_domains`` (stdlib only, so
 ``porchlamp.derive.bundle`` can import it while it cannot import this module --
 ``tests/core/test_import_graph.py``) and are re-exported here unchanged;
@@ -43,17 +48,22 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping, Optional, Sequence
 
+from porchlamp.core import constants
+
 #: Defined in ``porchlamp.core.commit_domains`` -- the one place this logic
 #: lives -- and re-exported here unchanged so callers of this module
 #: (``commits.CommitActor``, ``commits.is_bot`` etc.) resolve the same
 #: objects. ``porchlamp.derive.bundle`` imports them from that module directly.
 from porchlamp.core.commit_domains import (
+    COMMIT_WINDOW_CUT_DETAIL,
     KNOWN_BOT_LOGINS,
     NOREPLY_DOMAIN,
     PERSONAL_DOMAINS,
     CommitActor,
     CommitRecord,
+    CommitWindow,
     author_key,
+    commit_window,
     envelope_rows,
     is_bot,
     org_key,
@@ -68,6 +78,8 @@ __all__ = [
     "COMMIT_WINDOW_DAYS",
     "COMMIT_CAP",
     "COMMIT_PAGE_SIZE",
+    "COMMIT_TOTAL_QUERY",
+    "COMMIT_WINDOW_CUT_DETAIL",
     "VITALITY_WINDOW_DAYS",
     "SIGNOFF_TRAILER",
     "KNOWN_BOT_LOGINS",
@@ -75,12 +87,16 @@ __all__ = [
     "PERSONAL_DOMAINS",
     "CommitActor",
     "CommitRecord",
+    "CommitWindow",
     "author_key",
+    "commit_window",
     "envelope_rows",
     "is_bot",
     "org_key",
     "records_from_rows",
     "shape_commit_rows",
+    "commit_total_fetcher",
+    "sample_pages",
     "collect_commits_365d",
     "derive_commits_180d_rows",
     "can_derive_180d_from_365d",
@@ -91,8 +107,11 @@ __all__ = [
 
 #: EF and bus factor are computed over the trailing 365 d.
 COMMIT_WINDOW_DAYS: int = 365
-#: At most 1,000 commits per repo are collected (newest first).
-COMMIT_CAP: int = 1000
+#: D-IN-4 Commits (RFC-0021): every commit of the window up to this many,
+#: else this many in whole pages spread evenly over it. Defined in the
+#: constants freeze (``porchlamp.core.constants``) and re-bound here under its
+#: original name.
+COMMIT_CAP: int = constants.COMMIT_CAP
 #: REST listing page size (GitHub max per_page for commits is 100).
 COMMIT_PAGE_SIZE: int = 100
 #: D-GATE-4: vitality counts the trailing 180 d.
@@ -102,16 +121,30 @@ VITALITY_WINDOW_DAYS: int = 180
 #: never stored). The exact convention text per the DCO spec.
 SIGNOFF_TRAILER: str = "Signed-off-by:"
 
+#: RFC-0021: GitHub's count of the default-branch commits since ``$since``
+#: (one GraphQL call, 1 point). It counts the commits the REST listing pages
+#: through with the same ``since``: 2,568, 3,839, 5,586 and 11,767 both ways
+#: on ``numpy/numpy``, ``moby/moby``, ``cilium/cilium`` and
+#: ``grafana/grafana`` (2026-10-22).
+COMMIT_TOTAL_QUERY: str = (
+    "query CommitTotal($owner: String!, $name: String!, $since: GitTimestamp!) {"
+    " repository(owner: $owner, name: $name) { defaultBranchRef { target {"
+    " ... on Commit { history(since: $since) { totalCount } } } } } }"
+)
+
 
 def shape_commit_rows(raw_commits: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Shape raw GitHub REST commit objects into envelope rows.
 
-    Each row is ``{"date", "author_email", "author_login", "author_type",
-    "signed_off"}``: ``date`` and ``author_email`` come from the git commit
-    author, ``author_login`` and ``author_type`` from the linked GitHub
-    account ("" when the commit has none), and ``signed_off`` (02
-    section 4 3.1) is whether :data:`SIGNOFF_TRAILER` occurs in
-    ``commit.message`` -- the message text itself is never kept in the row.
+    Each row is ``{"sha", "date", "author_email", "author_login",
+    "author_type", "signed_off"}``: ``sha`` is the commit id ("" when the
+    object carries none; the incremental ledger's dedup key,
+    :func:`porchlamp.collect.ledger._commit_key`), ``date`` and
+    ``author_email`` come from the git commit author, ``author_login`` and
+    ``author_type`` from the linked GitHub account ("" when the commit has
+    none), and ``signed_off`` (02 section 4 3.1) is whether
+    :data:`SIGNOFF_TRAILER` occurs in ``commit.message`` -- the message text
+    itself is never kept in the row.
     """
     rows: list[dict[str, Any]] = []
     for commit in raw_commits:
@@ -120,6 +153,7 @@ def shape_commit_rows(raw_commits: Sequence[Mapping[str, Any]]) -> list[dict[str
         account = commit.get("author") or {}
         message = git_commit.get("message") or ""
         rows.append({
+            "sha": str(commit.get("sha") or ""),
             "date": git_author.get("date"),
             "author_email": git_author.get("email") or "",
             "author_login": account.get("login") or "",
@@ -129,69 +163,161 @@ def shape_commit_rows(raw_commits: Sequence[Mapping[str, Any]]) -> list[dict[str
     return rows
 
 
+def commit_total_fetcher(transport: Any, owner: str, name: str) -> Callable[[str], int]:
+    """A ``fetch_total`` for :func:`collect_commits_365d` over a GraphQL
+    transport (``porchlamp.collect.github_graphql.GhCliTransport``'s
+    ``execute(query, variables)``): :data:`COMMIT_TOTAL_QUERY` for
+    ``owner/name``. Raises ``RuntimeError`` when the answer carries no count
+    (an error, a repository without a default branch), so the caller marks
+    the collector failed and a rerun asks again -- never a guessed count.
+    """
+
+    def fetch_total(since: str) -> int:
+        doc = transport.execute(COMMIT_TOTAL_QUERY, {"owner": owner, "name": name, "since": since})
+        node: Any = doc
+        for key in ("data", "repository", "defaultBranchRef", "target", "history", "totalCount"):
+            node = node.get(key) if isinstance(node, Mapping) else None
+        if isinstance(node, bool) or not isinstance(node, int) or node < 0:
+            errors = doc.get("errors") if isinstance(doc, Mapping) else None
+            raise RuntimeError(f"commit total for {owner}/{name} not answered: {str(errors)[:160]}")
+        return node
+
+    return fetch_total
+
+
+def sample_pages(total: int) -> list[int]:
+    """The REST pages (1-based, newest first) the commits of a window of
+    ``total`` commits are read from (RFC-0021).
+
+    The window fills ``P = ceil(total / COMMIT_PAGE_SIZE)`` pages. Up to
+    ``k = COMMIT_CAP // COMMIT_PAGE_SIZE`` pages that is every page; above
+    it, the ``k`` pages ``1 + floor(i * P / k)`` for ``i`` in ``0..k-1``: page
+    1 (the newest commits, which vitality and the last-commit date read) and
+    then one page every ``P / k`` pages, so each read page stands for the
+    same share of the window (``P / k`` pages, rounded) and the year's oldest
+    months are read as densely as its newest.
+    """
+    pages_total = -(-total // COMMIT_PAGE_SIZE)
+    k = COMMIT_CAP // COMMIT_PAGE_SIZE
+    if pages_total <= k:
+        return list(range(1, pages_total + 1))
+    return [1 + (i * pages_total) // k for i in range(k)]
+
+
+def _window_data(rows: list[dict[str, Any]], since: str, *, total: Optional[int],
+                 truncated: bool = False, pages: Optional[list[int]] = None) -> dict[str, Any]:
+    """The ``commits_365d`` envelope ``data`` :func:`collect_commits_365d`
+    records (``porchlamp.core.commit_domains.commit_window`` reads it)."""
+    data: dict[str, Any] = {
+        "count": len(rows),
+        "cap": COMMIT_CAP,
+        "truncated": truncated,
+        "since": since,
+        "total": total,
+        "sampled": pages is not None,
+    }
+    if pages is not None and total is not None:
+        data["pages_total"] = -(-total // COMMIT_PAGE_SIZE)
+        data["sample_pages"] = pages
+    data["rows"] = rows
+    return data
+
+
+def _merged_with_delta(
+    fetch_page: Callable[[int, str], Sequence[Mapping[str, Any]]],
+    since: str,
+    now: datetime,
+    existing_rows: Sequence[Mapping[str, Any]],
+) -> Optional[list[dict[str, Any]]]:
+    """W6-4: the existing whole window plus the commits pushed since, or
+    ``None`` when the delta does not meet a known commit within
+    :data:`COMMIT_CAP` rows or the merge passes :data:`COMMIT_CAP` (the window
+    then needs the sample a full collection takes)."""
+    from porchlamp.collect import ledger
+
+    known = {ledger._commit_key(row) for row in existing_rows}
+    delta: list[dict[str, Any]] = []
+    for page in range(1, COMMIT_CAP // COMMIT_PAGE_SIZE + 1):
+        raw = list(fetch_page(page, since))
+        shaped = shape_commit_rows(raw)
+        delta.extend(shaped)
+        if any(ledger._commit_key(row) in known for row in shaped) or len(raw) < COMMIT_PAGE_SIZE:
+            merged = ledger.merge_commits_365d_delta(
+                existing_rows, delta, now=now, window_days=COMMIT_WINDOW_DAYS, cap=COMMIT_CAP + 1)
+            return merged if len(merged) <= COMMIT_CAP else None
+    return None
+
+
 def collect_commits_365d(
     fetch_page: Callable[[int, str], Sequence[Mapping[str, Any]]],
     now: Optional[datetime] = None,
     *,
+    fetch_total: Optional[Callable[[str], int]] = None,
     existing_rows: Optional[Sequence[Mapping[str, Any]]] = None,
     existing_truncated: bool = False,
 ) -> dict[str, Any]:
-    """Collect the trailing 365 d of commits, newest first, capped.
+    """Collect the trailing 365 d of commits, newest first (D-IN-4
+    Commits, RFC-0021).
 
     ``fetch_page(page, since)`` is the transport boundary: it must return
     the raw commit objects of one page of the
     ``repos/{owner}/{name}/commits`` listing (page >= 1, ``since`` the
-    ISO-8601 window start). Fetching stops at a page with fewer than
-    :data:`COMMIT_PAGE_SIZE` items or once :data:`COMMIT_CAP` rows are
-    gathered; a repo with more commits than the cap records its newest
-    :data:`COMMIT_CAP` commits (a sub-365 d slice).
+    ISO-8601 window start). ``fetch_total(since)`` returns GitHub's count of
+    the default-branch commits since then (:func:`commit_total_fetcher`); it
+    is asked only when the first page is full.
 
-    When ``existing_rows`` is supplied (W6-4 incremental ledger refresh),
-    stops paging once a commit already present in ``existing_rows`` is
-    encountered and merges the delta via :func:`porchlamp.collect.ledger.merge_commits_365d_delta`.
+    * A first page short of :data:`COMMIT_PAGE_SIZE` is the whole window.
+    * When the count is at most :data:`COMMIT_CAP`, pages are read in order
+      until a short page -- one page past the count's last, for commits pushed
+      meanwhile: the whole window, ``total`` its row count.
+    * Above it, the :func:`sample_pages` pages are read: ``sampled`` true,
+      ``total`` the count, ``pages_total`` and ``sample_pages`` recorded (a
+      commit a push moved onto a second read page is kept once).
+    * A window that does not end where it should -- past the count's pages,
+      or past :data:`COMMIT_CAP` rows when no ``fetch_total`` is given (a run
+      told to keep no sample) -- is recorded ``truncated``: cut, so no
+      windowed measure reads it.
+
+    When ``existing_rows`` is supplied (W6-4 incremental ledger refresh), is
+    not ``existing_truncated`` and every row carries its ``sha``, pages are
+    read until a known commit and the delta is merged via
+    :func:`porchlamp.collect.ledger.merge_commits_365d_delta`; a delta that
+    meets no known commit or a merge past :data:`COMMIT_CAP` falls back to a
+    full collection, and so do rows without a ``sha`` (their fallback key
+    never matches a new row's sha, so every commit would be kept twice).
     """
-    from porchlamp.collect import ledger
-
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(days=COMMIT_WINDOW_DAYS)).isoformat()
-    existing_keys: set[Any] = set()
-    if existing_rows:
-        existing_keys = {ledger._commit_key(r) for r in existing_rows if isinstance(r, Mapping)}
 
-    rows: list[dict[str, Any]] = []
-    truncated = False
-    stopped_on_existing = False
-    for page in range(1, COMMIT_CAP // COMMIT_PAGE_SIZE + 1):
+    if existing_rows and not existing_truncated and all(
+            isinstance(row, Mapping) and row.get("sha") for row in existing_rows):
+        merged = _merged_with_delta(fetch_page, since, now, existing_rows)
+        if merged is not None:
+            return _window_data(merged, since, total=len(merged))
+
+    first = list(fetch_page(1, since))
+    rows = shape_commit_rows(first)
+    if len(first) < COMMIT_PAGE_SIZE:
+        return _window_data(rows, since, total=len(rows))
+    total = fetch_total(since) if fetch_total is not None else None
+    if total is not None and total > COMMIT_CAP:
+        pages = sample_pages(total)
+        seen = {row["sha"] for row in rows if row["sha"]}
+        for page in pages[1:]:
+            for row in shape_commit_rows(list(fetch_page(page, since))):
+                if row["sha"] and row["sha"] in seen:
+                    continue
+                seen.add(row["sha"])
+                rows.append(row)
+        return _window_data(rows, since, total=total, pages=pages)
+    last_page = (-(-total // COMMIT_PAGE_SIZE) + 1 if total is not None
+                 else COMMIT_CAP // COMMIT_PAGE_SIZE)
+    for page in range(2, last_page + 1):
         raw = list(fetch_page(page, since))
-        shaped = shape_commit_rows(raw)
-        rows.extend(shaped)
-        if existing_keys and any(ledger._commit_key(s) in existing_keys for s in shaped):
-            stopped_on_existing = True
-            break
+        rows.extend(shape_commit_rows(raw))
         if len(raw) < COMMIT_PAGE_SIZE:
-            break
-        if len(rows) >= COMMIT_CAP:
-            truncated = True
-            break
-
-    if existing_rows:
-        paged_hit_cap = truncated
-        rows = ledger.merge_commits_365d_delta(
-            existing_rows,
-            rows,
-            now=now,
-            window_days=COMMIT_WINDOW_DAYS,
-            cap=COMMIT_CAP,
-        )
-        truncated = paged_hit_cap or len(rows) >= COMMIT_CAP or (stopped_on_existing and existing_truncated)
-    else:
-        rows = rows[:COMMIT_CAP]
-    return {
-        "count": len(rows),
-        "cap": COMMIT_CAP,
-        "truncated": truncated,
-        "rows": rows,
-    }
+            return _window_data(rows, since, total=len(rows))
+    return _window_data(rows, since, total=total, truncated=True)
 
 
 def _human_window(records: Sequence[CommitRecord], now: datetime,
@@ -356,7 +482,10 @@ def can_derive_180d_from_365d(
 ) -> bool:
     """Return True if commits_180d can be derived from commits_365d with 0 API calls.
 
-    Returns True when ``c365_data`` is a Mapping with a commit list, and either:
+    Returns False for a ``sampled`` record (RFC-0021): its rows are pages
+    spread over the year with gaps between them, not the newest commits in
+    order. Otherwise True when ``c365_data`` is a Mapping with a commit list,
+    and either:
     - ``truncated`` is False,
     - the list contains >= 300 commits, or
     - the oldest commit date is <= ``now - window_days``.
@@ -365,6 +494,8 @@ def can_derive_180d_from_365d(
         return False
     commits = _extract_c365_commits(c365_data)
     if not isinstance(commits, list):
+        return False
+    if c365_data.get("sampled") is True:
         return False
     if not c365_data.get("truncated", False):
         return True

@@ -18,10 +18,14 @@ routed off-platform and D-GATE-5 is left UNDECIDED for it: GitHub cannot see
 its review, so the ghost rate says nothing about whether it answers.
 
 ``evidence_sufficiency`` is the D-EVID-1 stage-3 gate on the composite
-coverage C (D-MISS-3): C >= 0.60 is rated, below is
-``unrated: insufficient_evidence`` (listed, not ranked).
+coverage C (D-MISS-3) and the measured pillars: C >= 0.60 with every pillar
+of ``EVIDENCE_GATE_REQUIRED_PILLARS`` (responsiveness) measured is rated,
+anything else is ``unrated: insufficient_evidence`` (listed, not ranked;
+RFC-0024 added the pillar condition). ``unmeasured_required_pillars`` names
+the required pillars a repo lacks.
 
-The seven numeric gate thresholds below and ``OSI_APPROVED_LICENSES`` live
+The seven numeric gate thresholds below, D-EVID-1's
+``EVIDENCE_GATE_REQUIRED_PILLARS`` and ``OSI_APPROVED_LICENSES`` live
 in ``porchlamp.core.constants`` and are imported back here under their original
 names. The licence list belongs there because D-GATE-3 *interprets* it as a
 predicate deciding eligible vs ``REASON_UNLICENSED``, so an upstream-list
@@ -41,7 +45,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from porchlamp.core import constants
 from porchlamp.core.commit_domains import CommitActor, is_bot
-from porchlamp.core.models import FeatureBundle, GateResult, Measured, PRWindowEvent
+from porchlamp.core.models import FeatureBundle, GateResult, Measured, PillarScore, PRWindowEvent
 
 #: Decision ids recorded in ``GateResult.undecided`` (02 section 2).
 GATE_1 = "D-GATE-1"  # software project
@@ -111,6 +115,12 @@ GATE5_MAX_ZERO_RESPONSE_SHARE: float = constants.GATE5_MAX_ZERO_RESPONSE_SHARE
 GATE6_DECISION_WINDOW_DAYS: int = constants.GATE6_DECISION_WINDOW_DAYS
 #: D-EVID-1: composite coverage threshold (D-MISS-3).
 EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
+#: D-EVID-1 (RFC-0024): pillars that must each have a measured parameter.
+EVIDENCE_GATE_REQUIRED_PILLARS: tuple[str, ...] = constants.EVIDENCE_GATE_REQUIRED_PILLARS
+if not set(EVIDENCE_GATE_REQUIRED_PILLARS) <= set(constants.PILLAR_NAMES):
+    raise ValueError(
+        f"EVIDENCE_GATE_REQUIRED_PILLARS {EVIDENCE_GATE_REQUIRED_PILLARS!r} names a pillar outside {constants.PILLAR_NAMES!r}"
+    )
 
 #: D-GATE-3: SPDX states that mean "no usable licence recorded" (the gate then
 #: looks for a ``LICENSE*`` file before failing). Mirrors the collector's
@@ -345,6 +355,11 @@ GHOST_RATE_INPUT_ID: str = "gr14_ghost_rate"
 
 #: D-IN-2: the author associations GitHub gives a repository's own people.
 MAINTAINER_ASSOCIATIONS: frozenset[str] = frozenset({"MEMBER", "OWNER", "COLLABORATOR"})
+#: 02 section 4: the author associations of an outside PR's author, the
+#: "external PRs" every responsiveness measure, 4.3, D-GATE-5 and
+#: ``closed_unread`` count (:func:`is_outside_pr`). A fixed GitHub
+#: vocabulary, not a tunable, so not hashed.
+EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset({"NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "CONTRIBUTOR"})
 
 #: The Chinese, Japanese and Korean letters a comment's length counts
 #: ``constants.SUBSTANTIVE_COMMENT_CJK_WEIGHT`` times: Han ideographs (the
@@ -398,6 +413,21 @@ def is_bot_actor_node(actor: object) -> bool:
     return is_bot(CommitActor(
         login=str(actor.get("login") or ""), email="", actor_type=str(actor.get("__typename") or ""),
     ))
+
+
+def is_outside_pr(pr: object) -> bool:
+    """Whether a recorded PR node is an outside PR, the population of every
+    external-PR measure (1.1 TTFHR, 1.2 DR_90, 1.4 GR_14 and D-GATE-5, 1.5
+    TTM_p90, 4.3, ``closed_unread``, D-GATE-6's hand-off notices): its
+    ``authorAssociation`` is external (:data:`EXTERNAL_ASSOCIATIONS`) and its
+    author is not a bot (D-IN-1, :func:`is_bot_actor_node`). Read from the
+    node itself, so a change to D-IN-1 reaches every stored record at derive
+    time (#57). ``False`` for no node."""
+    if not isinstance(pr, Mapping):
+        return False
+    if str(pr.get("authorAssociation") or "").upper() not in EXTERNAL_ASSOCIATIONS:
+        return False
+    return not is_bot_actor_node(pr.get("author"))
 
 
 def maintainer_logins(prs: Iterable[object]) -> frozenset[str]:
@@ -475,6 +505,229 @@ def first_substantive_response(pr: Mapping[str, Any], maintainers: frozenset[str
     return None if best is None else (best[1], best[2])
 
 
+def _parse_iso_opt(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return _parse_iso(value)
+    except ValueError:
+        return None
+
+
+_REVIEW_BOILERPLATE_STRIP_RE = re.compile(r"https?://\S+|@[\w-]+|#\d+|\d+")
+_REVIEW_WS_RE = re.compile(r"\s+")
+
+
+def normalize_review_text(text: str) -> str:
+    """Normalize review or comment prose for boilerplate deduplication (RFC-0018).
+
+    Lowercases, strips URLs, ``@mentions``, ``#123`` issue/PR references, and
+    digits, and collapses whitespace so templated greetings or coverage pastes
+    that differ only by PR number, contributor login, or percentage collapse to
+    one key.
+    """
+    cleaned = _REVIEW_BOILERPLATE_STRIP_RE.sub("", (text or "").lower())
+    return _REVIEW_WS_RE.sub(" ", cleaned).strip()
+
+
+def substantive_review_boilerplate(
+    prs: Sequence[Mapping[str, Any]], maintainers: frozenset[str]
+) -> frozenset[str]:
+    """Normalized texts appearing on >= ``SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS``
+    distinct sampled PRs across non-bot, non-author reviews or D-IN-2 maintainer
+    comments meeting ``SUBSTANTIVE_REVIEW_BODY_CHARS`` (RFC-0018)."""
+    pr_counts: dict[str, int] = {}
+    for pr in prs:
+        author_login = _node_login(pr.get("author"))
+        seen_on_pr: set[str] = set()
+        for raw in (pr.get("reviews") or {}).get("nodes") or []:
+            if not isinstance(raw, Mapping):
+                continue
+            rev_author = raw.get("author")
+            rev_login = _node_login(rev_author)
+            if is_bot_actor_node(rev_author) or rev_login == author_login:
+                continue
+            body = str(raw.get("body") or "")
+            if comment_length(body) >= constants.SUBSTANTIVE_REVIEW_BODY_CHARS:
+                norm = normalize_review_text(body)
+                if norm:
+                    seen_on_pr.add(norm)
+        for comment in (pr.get("comments") or {}).get("nodes") or []:
+            if not is_maintainer_response(comment, author_login, maintainers):
+                continue
+            body_text = str(comment.get("bodyText") or "")
+            if comment_length(body_text) >= constants.SUBSTANTIVE_REVIEW_BODY_CHARS:
+                norm = normalize_review_text(body_text)
+                if norm:
+                    seen_on_pr.add(norm)
+        for norm in seen_on_pr:
+            pr_counts[norm] = pr_counts.get(norm, 0) + 1
+    return frozenset(
+        norm
+        for norm, count in pr_counts.items()
+        if count >= constants.SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS
+    )
+
+
+def has_substantive_review_or_comment(
+    pr: Mapping[str, Any],
+    maintainers: frozenset[str],
+    boilerplate: frozenset[str] = frozenset(),
+) -> bool:
+    """RFC-0018 (02 §4.3): whether a recorded PR node has either (a) a non-bot,
+    non-author review with 1+ inline comments or a non-boilerplate body of >=
+    ``SUBSTANTIVE_REVIEW_BODY_CHARS`` effective characters, or (b) a
+    non-boilerplate D-IN-2 maintainer issue comment of >=
+    ``SUBSTANTIVE_REVIEW_BODY_CHARS`` effective characters."""
+    author_login = _node_login(pr.get("author"))
+    for raw in (pr.get("reviews") or {}).get("nodes") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        rev_author = raw.get("author")
+        rev_login = _node_login(rev_author)
+        if is_bot_actor_node(rev_author) or rev_login == author_login:
+            continue
+        inline_count = int((raw.get("comments") or {}).get("totalCount") or 0)
+        body = str(raw.get("body") or "")
+        if inline_count >= 1 or (
+            comment_length(body) >= constants.SUBSTANTIVE_REVIEW_BODY_CHARS
+            and normalize_review_text(body) not in boilerplate
+        ):
+            return True
+    for comment in (pr.get("comments") or {}).get("nodes") or []:
+        if not is_maintainer_response(comment, author_login, maintainers):
+            continue
+        body_text = str(comment.get("bodyText") or "")
+        if (
+            comment_length(body_text) >= constants.SUBSTANTIVE_REVIEW_BODY_CHARS
+            and normalize_review_text(body_text) not in boilerplate
+        ):
+            return True
+    return False
+
+
+def has_non_author_approval(pr: Mapping[str, Any]) -> bool:
+    """True when a recorded PR node has an APPROVED review by a non-author,
+    non-bot account (02 §4 4.1, D-IN-1)."""
+    author_login = _node_login(pr.get("author"))
+    for raw in (pr.get("reviews") or {}).get("nodes") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        if str(raw.get("state") or "").upper() != "APPROVED":
+            continue
+        reviewer = raw.get("author")
+        login = _node_login(reviewer)
+        if not login or login == author_login:
+            continue
+        if is_bot_actor_node(reviewer):
+            continue
+        return True
+    return False
+
+
+def is_excluded_from_review_denominator(
+    pr: Mapping[str, Any],
+    maintainers: frozenset[str],
+    boilerplate: frozenset[str] = frozenset(),
+) -> bool:
+    """RFC-0018, RFC-0022 (02 §4.3): whether a decided PR node is excluded from
+    the 4.3 ``substantive_review_rate`` denominator as (a) a draft PR closed
+    without ever becoming ready for review, (b) an unanswered PR closed by its
+    own author within ``GATE5_RESPONSE_DEADLINE_DAYS`` (14 d) of clock start, or
+    (c) a PR whose recorded replies remain cut (:func:`replies_cut`) with no
+    recorded substantive review or comment (:func:`has_substantive_review_or_comment`).
+    Shared by ``porchlamp.collect.github_graphql.derive_pr_window`` and
+    ``porchlamp.derive.bundle._resolve_substantive_review_rate`` so the rate
+    denominator and ``Measured.n`` agree on every record."""
+    if replies_cut(pr) and not has_substantive_review_or_comment(pr, maintainers, boilerplate):
+        return True
+    author_login = _node_login(pr.get("author"))
+    is_draft = bool(pr.get("isDraft", False))
+    ready_for_review_at: str | None = (
+        pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None
+    )
+    closed_by_author = bool(pr.get("closedByAuthor", False))
+    closed_by_maint_at: str | None = (
+        pr.get("closedByMaintainerAt") if isinstance(pr.get("closedByMaintainerAt"), str) else None
+    )
+    if (
+        closed_by_maint_at is None
+        and pr.get("state") == "CLOSED"
+        and not pr.get("mergedAt")
+        and pr.get("closedByMaintainer") is True
+    ):
+        closed_by_maint_at = pr.get("closedAt") if isinstance(pr.get("closedAt"), str) else None
+
+    timeline_conn = pr.get("timelineItems")
+    timeline_nodes = timeline_conn.get("nodes") if isinstance(timeline_conn, Mapping) else None
+    if isinstance(timeline_nodes, list):
+        latest_ready_dt: datetime | None = None
+        latest_ready_at: str | None = None
+        latest_close_dt: datetime | None = None
+        latest_close_event: Mapping[str, Any] | None = None
+        for ev in timeline_nodes:
+            if not isinstance(ev, Mapping):
+                continue
+            ev_type = ev.get("__typename")
+            ev_ts = ev.get("createdAt")
+            ev_dt = _parse_iso_opt(ev_ts)
+            if ev_type == "ReadyForReviewEvent" and isinstance(ev_ts, str) and ev_dt is not None:
+                if latest_ready_dt is None or ev_dt >= latest_ready_dt:
+                    latest_ready_dt, latest_ready_at = ev_dt, ev_ts
+            elif ev_type == "ClosedEvent" and (
+                latest_close_event is None
+                or (ev_dt is not None and (latest_close_dt is None or ev_dt >= latest_close_dt))
+            ):
+                latest_close_dt, latest_close_event = ev_dt, ev
+        if ready_for_review_at is None and latest_ready_at is not None:
+            ready_for_review_at = latest_ready_at
+        if (
+            latest_close_event is not None
+            and not pr.get("mergedAt")
+            and not closed_by_author
+            and closed_by_maint_at is None
+        ):
+            actor = latest_close_event.get("actor")
+            actor_login = _node_login(actor)
+            if actor_login and actor_login == author_login:
+                closed_by_author = True
+            elif actor_login and not is_bot_actor_node(actor):
+                ev_created = latest_close_event.get("createdAt")
+                closed_by_maint_at = (
+                    ev_created
+                    if isinstance(ev_created, str) and _parse_iso_opt(ev_created) is not None
+                    else (pr.get("closedAt") if isinstance(pr.get("closedAt"), str) else None)
+                )
+
+    ready_dt = _parse_iso_opt(ready_for_review_at)
+    closed_dt = _parse_iso_opt(pr.get("closedAt"))
+    if is_draft and ready_dt is None and closed_dt is not None:
+        return True
+    merged_dt = _parse_iso_opt(pr.get("mergedAt"))
+    if not closed_by_author or merged_dt is not None or closed_dt is None:
+        return False
+    created_dt = _parse_iso_opt(pr.get("createdAt"))
+    clock_start = (
+        max(created_dt, ready_dt)
+        if (created_dt is not None and ready_dt is not None)
+        else (ready_dt or created_dt)
+    )
+    if clock_start is None:
+        return False
+    deadline = timedelta(days=constants.GATE5_RESPONSE_DEADLINE_DAYS)
+    if closed_dt > clock_start + deadline:
+        return False
+    response = first_substantive_response(pr, maintainers)
+    best_dt = _parse_iso_opt(response[0]) if response is not None else None
+    closed_m_dt = _parse_iso_opt(closed_by_maint_at)
+    answered_within_deadline = bool(
+        (best_dt is not None and best_dt <= clock_start + deadline)
+        or (closed_m_dt is not None and clock_start <= closed_m_dt <= clock_start + deadline)
+    )
+    had_prior_response = bool(best_dt is not None and best_dt <= closed_dt)
+    return not answered_within_deadline and not had_prior_response
+
+
 def pr_window_coverage(
     data: Mapping[str, Any], window_start: datetime | None, *, fetched_at: str | None = None,
 ) -> tuple[bool, str | None]:
@@ -542,6 +795,28 @@ def pr_window_coverage(
 REPLIES_RECORDED_KEY = "replies_recorded"
 
 
+def reply_connection_cut(connection: object) -> bool:
+    """RFC-0022: whether a recorded ``reviews`` or ``comments`` connection of a
+    PR node stops short of the PR's thread: its recorded ``pageInfo`` says
+    GitHub holds another page (``hasNextPage`` true).
+
+    The collector reads a cut connection on by PR number until it is whole or
+    holds :data:`~porchlamp.core.constants.PR_REPLY_NODE_CAP` nodes, so only a
+    longer thread stays cut. A connection recorded without ``pageInfo`` (by the
+    query before RFC-0022, which kept the first 10 reviews and 20 comments of
+    each PR and did not record whether more existed) is read as whole, as every
+    reader read it then.
+    """
+    page_info = connection.get("pageInfo") if isinstance(connection, Mapping) else None
+    return isinstance(page_info, Mapping) and page_info.get("hasNextPage") is True
+
+
+def replies_cut(pr: Mapping[str, Any]) -> bool:
+    """RFC-0022: whether a PR node's recorded reviews or comments stop short of
+    its thread (:func:`reply_connection_cut` on either connection)."""
+    return reply_connection_cut(pr.get("reviews")) or reply_connection_cut(pr.get("comments"))
+
+
 def reply_sampled_prs(prs: Iterable[object]) -> list[Mapping[str, Any]]:
     """#51: the PR nodes whose replies a ``pr_window`` record holds, in order.
 
@@ -551,8 +826,26 @@ def reply_sampled_prs(prs: Iterable[object]) -> list[Mapping[str, Any]]:
     and D-GATE-5, 4.3 and the 4.1 review proxy, the D-GATE-6 hand-off notices,
     ``closed_unread``) read these nodes only; the sample has equal inclusion
     probabilities, so they need no weights. PR-level measures read every node.
+
+    RFC-0022: nor a node whose recorded replies stop short of its thread
+    (:func:`replies_cut`) and hold no D-IN-2 response
+    (:func:`first_substantive_response` over the :func:`maintainer_logins` of
+    every node in ``prs``): the record cannot show whether the project answered
+    that PR, so no reply measure reads it as unanswered, or as unreviewed. A cut
+    node whose recorded part holds a response stays for measures that response
+    settles, while each measure's own reader withholds a cut PR when its
+    specific positive evidence is absent or could be preceded on the other cut
+    connection. Nodes recorded before RFC-0022 carry no ``pageInfo`` and are
+    never cut.
     """
-    return [pr for pr in prs if isinstance(pr, Mapping) and pr.get(REPLIES_RECORDED_KEY) is not False]
+    nodes = [pr for pr in prs if isinstance(pr, Mapping)]
+    recorded = [pr for pr in nodes if pr.get(REPLIES_RECORDED_KEY) is not False]
+    cut = [pr for pr in recorded if replies_cut(pr)]
+    if not cut:
+        return recorded
+    maintainers = maintainer_logins(nodes)
+    unsettled = {id(pr) for pr in cut if first_substantive_response(pr, maintainers) is None}
+    return [pr for pr in recorded if id(pr) not in unsettled]
 
 
 def record_cut_short(data: Mapping[str, Any] | None, required_days: int) -> bool:
@@ -565,6 +858,7 @@ def record_cut_short(data: Mapping[str, Any] | None, required_days: int) -> bool
     D-GATE-5 share one definition. A truncated record with no readable
     ``window_anchor`` cannot show what it covers and counts as cut. A record
     that is not truncated, or holds no ``data``, is not cut.
+    :func:`record_cut_short_at` is the same test against an instant.
     """
     if not isinstance(data, Mapping) or data.get("truncated") is not True:
         return False
@@ -575,7 +869,29 @@ def record_cut_short(data: Mapping[str, Any] | None, required_days: int) -> bool
         anchor = None
     if anchor is None:
         return True
-    covered, _cutoff = pr_window_coverage(data, anchor - timedelta(days=required_days))
+    return record_cut_short_at(data, anchor - timedelta(days=required_days))
+
+
+def record_cut_short_at(data: Mapping[str, Any] | None, start: datetime) -> bool:
+    """#51 rule 5 against an instant: whether a windowed PR record says it
+    stopped at a PR cap before reaching ``start``, whatever its own
+    ``window_anchor``.
+
+    :func:`record_cut_short` counts the days a measure needs back from the
+    record's own anchor. A reader that joins the record to another envelope
+    needs that envelope's instant instead, because the two are collected at
+    different times: 1.2 DR_90 joins the ``pr_window`` record's decision cohort
+    (PRs opened from its ``window_anchor`` minus 180 days) to the
+    ``author_history`` record's per-author eligibility, so the history must
+    hold every PR opened since that instant. As in :func:`record_cut_short`,
+    only a ``truncated`` record is cut, judged by :func:`pr_window_coverage`;
+    a ``start`` with no offset is read as UTC.
+    """
+    if not isinstance(data, Mapping) or data.get("truncated") is not True:
+        return False
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    covered, _cutoff = pr_window_coverage(data, start)
     return not covered
 
 
@@ -593,12 +909,7 @@ def pr_window_cut_short(data: Mapping[str, Any] | None, window_start: datetime |
     truncated record is ever cut, judged by :func:`pr_window_coverage`.
     """
     if window_start is not None:
-        if not isinstance(data, Mapping) or data.get("truncated") is not True:
-            return False
-        if window_start.tzinfo is None:
-            window_start = window_start.replace(tzinfo=timezone.utc)
-        covered, _cutoff = pr_window_coverage(data, window_start)
-        return not covered
+        return record_cut_short_at(data, window_start)
     days = data.get("window_days") if isinstance(data, Mapping) else None
     if isinstance(days, bool) or not isinstance(days, int) or days <= 0:
         days = constants.PR_WINDOW_DAYS
@@ -630,6 +941,7 @@ class GhostRatePR:
     closed_by_maintainer_at: str | None = None
     author_created_at: str | None = None
     number: int | None = None
+    replies_cut: bool = False
 
 
 def wilson_lower_bound_from_share(
@@ -798,6 +1110,13 @@ def evaluate_gate5_window(
             if closed_dt <= clock_start + deadline and not had_prior_response:
                 excluded_self_closed += 1
                 continue
+
+        # RFC-0022: a PR whose recorded replies stop short of its thread and
+        # show no response within 14 d is withheld rather than counted as
+        # unanswered, since the cut part of the thread may hold an answer
+        # within the 14 d window.
+        if not answered_within_14d and pr.replies_cut:
+            continue
 
         counted_prs.append(
             Gate5CountedPR(
@@ -1023,16 +1342,42 @@ def evaluate_gates(
     return GateResult(eligible=True, reason=None, routed=routed, undecided=tuple(undecided))
 
 
-def evidence_sufficiency(coverage: float) -> GateResult:
-    """D-EVID-1 (02 section 2, stage 3): rated iff composite coverage C >= 0.60.
+def unmeasured_required_pillars(pillars: Mapping[str, PillarScore]) -> tuple[str, ...]:
+    """D-EVID-1 (RFC-0024): the pillars of ``EVIDENCE_GATE_REQUIRED_PILLARS``
+    that have no measured parameter in ``pillars``, in that constant's order;
+    ``()`` when every one of them is measured.
+
+    A pillar is measured when it has a D-MISS-2 score
+    (``PillarScore.score is not None``: at least one of its parameters was
+    measured, :func:`porchlamp.core.aggregate.aggregate_pillars`). A required
+    pillar missing from ``pillars`` raises ``ValueError``: the caller never
+    aggregated it, and reading that absence as either answer would invent
+    one."""
+    absent = [name for name in EVIDENCE_GATE_REQUIRED_PILLARS if name not in pillars]
+    if absent:
+        raise ValueError(f"pillars has no entry for required pillar(s) {absent}")
+    return tuple(name for name in EVIDENCE_GATE_REQUIRED_PILLARS if pillars[name].score is None)
+
+
+def evidence_sufficiency(coverage: float, pillars: Mapping[str, PillarScore]) -> GateResult:
+    """D-EVID-1 (02 section 2, stage 3): rated iff composite coverage C >= 0.60
+    AND every pillar of ``EVIDENCE_GATE_REQUIRED_PILLARS`` is measured
+    (:func:`unmeasured_required_pillars` returns ``()``; RFC-0024).
 
     ``coverage`` is the composite coverage C of D-MISS-3 (stage-6 output),
-    within [0, 1]. Below the threshold the repo is listed but not
-    ranked (``unrated: insufficient_evidence``)."""
+    within [0, 1], under whichever weights the caller ranks with; ``pillars``
+    are the repo's D-MISS-2 pillar scores, which no weight vector changes.
+    Failing either condition lists the repo but does not rank it
+    (``unrated: insufficient_evidence``). The pillar condition holds under a
+    persona's or a custom weight vector too: D-DEF-2 makes P(decision) the
+    first factor of a contribution's value, and a composite renormalised over
+    the other pillars (D-MISS-2) would otherwise rank a repo whose answers to
+    outside pull requests were never observed."""
     if isinstance(coverage, bool) or not isinstance(coverage, (int, float)):
         raise ValueError(f"coverage must be a real number, got {coverage!r}")
     if not 0.0 <= coverage <= 1.0:
         raise ValueError(f"coverage must be within [0, 1], got {coverage!r}")
-    if coverage >= EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE:
+    unmeasured = unmeasured_required_pillars(pillars)
+    if coverage >= EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE and not unmeasured:
         return GateResult(eligible=True, reason=None, routed=None, undecided=())
     return GateResult(eligible=False, reason=REASON_INSUFFICIENT_EVIDENCE, routed=None, undecided=())

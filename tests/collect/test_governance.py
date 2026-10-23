@@ -178,13 +178,14 @@ def test_collect_governance_envelope_evidence(tmp_path):
 
 
 def test_collect_governance_per_file_sha256_matches_independent_recomputation(tmp_path):
-    """Every one of the 12 GOVERNANCE_FILES + AI_POLICY_FILES entries
-    carries a ``sha256`` computed over its own body bytes -- recomputed here
-    with a plain ``hashlib.sha256`` call independently of the collector."""
+    """Every one of the 14 POLICY_FILES entries (GOVERNANCE_FILES +
+    AI_POLICY_FILES + PR_TEMPLATE_FILES) carries a ``sha256`` computed over its
+    own body bytes -- recomputed here with a plain ``hashlib.sha256`` call
+    independently of the collector."""
     import hashlib
 
-    all_files = gov.GOVERNANCE_FILES + gov.AI_POLICY_FILES
-    assert len(all_files) == 12
+    all_files = gov.POLICY_FILES
+    assert len(all_files) == 14
     bodies = {fname: f"distinct body #{i} for {fname}\n" for i, fname in enumerate(all_files)}
 
     def fetch_file(path: str) -> Optional[str]:
@@ -202,7 +203,7 @@ def test_collect_governance_per_file_sha256_matches_independent_recomputation(tm
         assert entry["sha256"] == expected, fname
         assert entry["body"] == bodies[fname]
         checked += 1
-    assert checked == 12
+    assert checked == 14
 
 
 def test_collect_governance_pages_until_20_merged(tmp_path):
@@ -470,29 +471,60 @@ def _prw(prs: list[dict]) -> dict:
 
 
 def _raw_pr(number: int, created: str, merged: Optional[str], login: str,
-            assoc: str, typ: str = "User") -> dict:
-    return {"number": number, "createdAt": created, "mergedAt": merged,
-            "author": {"__typename": typ, "login": login},
-            "authorAssociation": assoc}
+            assoc: str, typ: str = "User",
+            merged_by: Optional[str] = None,
+            merged_by_type: str = "User",
+            author_created: Optional[str] = "2020-01-01T00:00:00Z",
+            closed_events: Optional[list[dict]] = None) -> dict:
+    author: dict[str, Any] = {"__typename": typ, "login": login}
+    if author_created is not None:
+        author["createdAt"] = author_created
+    pr: dict[str, Any] = {
+        "number": number,
+        "createdAt": created,
+        "mergedAt": merged,
+        "author": author,
+        "authorAssociation": assoc,
+    }
+    if merged_by is not None:
+        pr["mergedBy"] = {"__typename": merged_by_type, "login": merged_by}
+    if closed_events is not None:
+        pr["closedEvents"] = closed_events
+    return pr
 
 
 def test_promotion_verified_external_to_member():
+    # RFC-0016: even when GitHub returns the same current authorAssociation
+    # ("MEMBER") on every PR by alice, action-based promotion detects that
+    # alice first had an age-eligible PR merged by another human ("maint")
+    # and >= 30d later merged another author's PR (#110 by "other").
     prw = _prw([_raw_pr(100, "2026-03-01T00:00:00Z", "2026-03-05T00:00:00Z",
-                        "alice", "NONE"),
+                        "alice", "MEMBER", merged_by="maint"),
                 _raw_pr(110, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z",
-                        "alice", "MEMBER")])
+                        "other", "NONE", merged_by="alice")])
     value, ev = gov.classify_promotion_ladder(prw, {}, [])
     assert value == "VERIFIED"
     assert ev["rule"] == "verified_transition"
-    assert ev["promoted_accounts"] == [
-        {"login": "alice", "from": "NONE", "to": "MEMBER"}]
+    assert ev["promoted_accounts"] == [{
+        "login": "alice",
+        "first_outside_pr": 100,
+        "first_outside_merged_at": "2026-03-05T00:00:00+00:00",
+        "first_outside_merged_by": "maint",
+        "outside_merged_count": 1,
+        "first_maintainer_action": "merge",
+        "first_maintainer_pr": 110,
+        "first_maintainer_at": "2026-09-02T00:00:00+00:00",
+        "outside_days": 181.0,
+    }]
 
 
 def test_promotion_no_transition_same_association():
+    # alice has merged PRs in the window, but never performs a maintainer
+    # action on another author's PR.
     prw = _prw([_raw_pr(100, "2026-03-01T00:00:00Z", "2026-03-05T00:00:00Z",
-                        "alice", "MEMBER"),
+                        "alice", "MEMBER", merged_by="maint"),
                 _raw_pr(110, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z",
-                        "alice", "MEMBER")])
+                        "alice", "MEMBER", merged_by="maint")])
     value, ev = gov.classify_promotion_ladder(prw, {}, [])
     assert value == "AD_HOC"
     assert ev["rule"] == "no_evidence"
@@ -500,17 +532,22 @@ def test_promotion_no_transition_same_association():
 
 
 def test_promotion_bot_author_never_counts():
-    prw = _prw([_raw_pr(100, "2026-03-01T00:00:00Z", None, "dep[bot]", "NONE",
-                        typ="Bot"),
-                _raw_pr(110, "2026-09-01T00:00:00Z", None, "dep[bot]", "MEMBER",
-                        typ="Bot")])
+    prw = _prw([_raw_pr(100, "2026-03-01T00:00:00Z", "2026-03-05T00:00:00Z",
+                        "dep[bot]", "NONE", typ="Bot", merged_by="maint"),
+                _raw_pr(110, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z",
+                        "other", "NONE", merged_by="dep[bot]", merged_by_type="Bot")])
     value, _ = gov.classify_promotion_ladder(prw, {}, [])
     assert value == "AD_HOC"
 
 
 def test_promotion_member_to_external_is_not_promotion():
-    prw = _prw([_raw_pr(100, "2026-03-01T00:00:00Z", None, "bob", "MEMBER"),
-                _raw_pr(110, "2026-09-01T00:00:00Z", None, "bob", "NONE")])
+    # bob merges another author's PR first (2026-03-02), and only later has
+    # his own PR merged by maint (2026-09-02): no outside phase before first
+    # maintainer action.
+    prw = _prw([_raw_pr(100, "2026-03-01T00:00:00Z", "2026-03-02T00:00:00Z",
+                        "other", "NONE", merged_by="bob"),
+                _raw_pr(110, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z",
+                        "bob", "NONE", merged_by="maint")])
     value, _ = gov.classify_promotion_ladder(prw, {}, [])
     assert value == "AD_HOC"
 
@@ -587,13 +624,13 @@ def test_promotion_no_nomination_wording_stays_ad_hoc():
 
 def test_promotion_verified_beats_closed_and_documented():
     prw = _prw([_raw_pr(1, "2026-06-01T00:00:00Z", "2026-06-02T00:00:00Z",
-                        "alice", "NONE"),
-                _raw_pr(2, "2026-07-01T00:00:00Z", "2026-07-02T00:00:00Z",
-                        "alice", "COLLABORATOR")])
+                        "alice", "MEMBER", merged_by="bob"),
+                _raw_pr(2, "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z",
+                        "bob", "COLLABORATOR", merged_by="alice")])
     files = {"GOVERNANCE.md": {"present": True, "sha256": "h",
                                "body": "become a maintainer\n"}}
     value, ev = gov.classify_promotion_ladder(
-        prw, files, _corp365(("alice", "a@one.org")))
+        prw, files, _corp365(("alice", "a@one.org"), ("bob", "b@one.org")))
     assert value == "VERIFIED"
     assert ev["rule"] == "verified_transition"
 
@@ -640,14 +677,7 @@ def test_ai_posture_ad_hoc_default():
     assert "ban" not in ev
 
 
-# --- PROSCRIBED detection de-scoped ------------------------------------------ #
-#
-# Ban detection across free-form prose introduces false positives because
-# co-occurrence of an AI token and a negation/ban token in the same span
-# cannot separate negative usage from permission or scope boundaries.
-# `classify_ai_posture` does not attempt ban detection:
-# REGULATED is AI_POLICY_FILES presence only; everything else is AD_HOC.
-# PROSCRIBED is never returned.
+# --- RFC-0019: PROSCRIBED and REGULATED (ai_rule_text) oracles --------------- #
 
 #: Ordinary CONTRIBUTING.md sentences to ensure false positives are not triggered:
 ORDINARY_CONTRIBUTING_SENTENCES: tuple[str, ...] = (
@@ -674,8 +704,9 @@ def test_ai_posture_ordinary_contributing_prose_is_ad_hoc_never_proscribed(sente
 
 def test_ai_posture_explicit_ai_policy_section_is_regulated():
     """A genuine AI-policy file (AI_POLICY.md, in AI_POLICY_FILES) with an
-    explicit policy section: presence is the whole signal now (content is
-    irrelevant), same mechanism as test_ai_posture_regulated_policy_file_present."""
+    explicit policy section: presence is sufficient for REGULATED when the body
+    contains no unqualified ban, same mechanism as
+    test_ai_posture_regulated_policy_file_present."""
     files = {"AI_POLICY.md": {"present": True, "sha256": "h",
                               "body": "## AI usage policy\n\n"
                                       "AI-assisted contributions are welcome "
@@ -688,11 +719,10 @@ def test_ai_posture_explicit_ai_policy_section_is_regulated():
 
 def test_ai_posture_never_proscribed_over_all_twelve_files():
     """Every one of GOVERNANCE_FILES + AI_POLICY_FILES present at once, each
-    carrying one of the nine sentences that used to misfire (cycled to fill
-    all twelve): PROSCRIBED is structurally unreachable (classify_ai_posture
-    has no code path that returns it) and REGULATED fires from the
-    AI_POLICY_FILES entries' mere presence, exactly as it would for any
-    other body text."""
+    carrying one of the nine ordinary sentences above (cycled to fill all
+    twelve): none of the nine sentences is an unqualified ban, so PROSCRIBED
+    does not fire, and REGULATED fires from the AI_POLICY_FILES entries'
+    presence."""
     all_files = gov.GOVERNANCE_FILES + gov.AI_POLICY_FILES
     assert len(all_files) == 12
     files = {
@@ -705,6 +735,171 @@ def test_ai_posture_never_proscribed_over_all_twelve_files():
     assert value == "REGULATED"
     assert ev["rule"] == "ai_policy_file"
     assert sorted(ev["ai_policy_files_present"]) == sorted(gov.AI_POLICY_FILES)
+
+
+EXPLICIT_BAN_SENTENCES: tuple[str, ...] = (
+    "We do not accept AI-generated PRs.",
+    "Contributions must not include content generated by large language models or other probabilistic tools, including but not limited to Copilot or ChatGPT.",
+    "The QEMU project thus requires that contributors refrain from using AI content generators on patches intended to be submitted to the project.",
+    "No LLMs for pull requests.",
+    "It is expressly forbidden to contribute to Gentoo any content that has been created with the assistance of Natural Language Processing artificial intelligence tools.",
+    "AI-generated pull requests will be closed without review.",
+    "Submissions written using generative AI (even partially) are not accepted.",
+    "AI tools must not be used to write code for this project.",
+    "Pull requests written by ChatGPT are not welcome.",
+    "The use of Copilot is forbidden in this repository.",
+)
+
+
+@pytest.mark.parametrize("sentence", EXPLICIT_BAN_SENTENCES)
+def test_ai_posture_proscribed_on_explicit_ban_sentences(sentence):
+    """RFC-0019: an unqualified sentence banning AI-generated code or pull
+    requests in CONTRIBUTING.md or a PR template classifies as PROSCRIBED and
+    records the file and matching sentence."""
+    for doc_name in ("CONTRIBUTING.md", ".github/PULL_REQUEST_TEMPLATE.md"):
+        files = {doc_name: {"present": True, "sha256": "h", "body": f"# Policy\n\n{sentence}\n"}}
+        value, ev = gov.classify_ai_posture(files)
+        assert value == "PROSCRIBED", (doc_name, sentence)
+        assert ev["rule"] == "explicit_ban"
+        assert ev["ban"] == {"file": doc_name, "sentence": sentence}
+
+
+def test_ai_posture_explicit_ban_in_ai_policy_file_beats_file_presence():
+    """RFC-0019: an AGENTS.md or AI_POLICY.md file that exists to prohibit AI
+    contributions must classify as PROSCRIBED rather than REGULATED."""
+    sentence = "AI must not be used to generate code for contributions to this project."
+    files = {"AGENTS.md": {"present": True, "sha256": "h", "body": sentence + "\n"}}
+    value, ev = gov.classify_ai_posture(files)
+    assert value == "PROSCRIBED"
+    assert ev["rule"] == "explicit_ban"
+    assert ev["ai_policy_files_present"] == ["AGENTS.md"]
+    assert ev["ban"] == {"file": "AGENTS.md", "sentence": sentence}
+
+
+QUALIFIED_OR_NON_CODE_BAN_SENTENCES: tuple[str, ...] = (
+    "We do not accept AI-generated code that you do not understand.",
+    "Fully AI-generated pull requests are not accepted.",
+    "AI-generated PRs without disclosure will be closed.",
+    "Low-quality AI-generated PRs will be closed.",
+    "Do not submit AI-generated issues or comments.",
+    "We do not accept AI-generated contributions unless they are disclosed.",
+    "Undisclosed use of AI tools is prohibited.",
+    "Code generated by a large language model or similar technology is presumed to be tainted code, and must not be committed without prior written approval by core.",
+    "Do not post output from Large Language Models or similar generative AI as comments on GitHub.",
+    "Do not submit AI-generated content that may introduce copyright issues.",
+)
+
+
+@pytest.mark.parametrize("sentence", QUALIFIED_OR_NON_CODE_BAN_SENTENCES)
+def test_ai_posture_qualified_or_non_code_bans_are_regulated_not_proscribed(sentence):
+    """RFC-0019: a ban narrowed by a condition (undisclosed, unreviewed,
+    untested, low-quality, not understood) or scoped solely to non-code
+    surfaces (issues, comments, reports, translations, artwork) regulates AI
+    contributions rather than proscribing them."""
+    files = {"CONTRIBUTING.md": {"present": True, "sha256": "h", "body": sentence + "\n"}}
+    value, ev = gov.classify_ai_posture(files)
+    assert value == "REGULATED", sentence
+    assert ev["rule"] == "ai_rule_text"
+    assert ev["rule_text"] == {"file": "CONTRIBUTING.md", "text": sentence}
+
+
+@pytest.mark.parametrize(
+    "doc_name, body, expected_text",
+    [
+        ("CONTRIBUTING.md", "## AI Usage Policy\n\nBe careful with tools.\n", "## AI Usage"),
+        (".github/PULL_REQUEST_TEMPLATE.md", "- [ ] I have disclosed any AI tools used\n",
+         "- [ ] I have disclosed any AI tools"),
+        (".github/pull_request_template.md",
+         "Please disclose any use of AI tools in the PR description.\n",
+         "Please disclose any use of AI tools in the PR description."),
+        (".github/CONTRIBUTING.md",
+         "If you used an AI assistant, you must review and test the code yourself.\n",
+         "If you used an AI assistant, you must review and test the code yourself."),
+        ("docs/CONTRIBUTING.md",
+         "Commits written with AI help must carry an Assisted-by: trailer.\n",
+         "Commits written with AI help must carry an Assisted-by: trailer."),
+    ],
+)
+def test_ai_posture_regulated_by_rule_text_in_contributing_and_pr_template(
+    doc_name: str, body: str, expected_text: str
+):
+    """RFC-0019: headings, checkboxes, disclosure directives, review/test
+    imperatives, and commit-trailer conventions in CONTRIBUTING.md or
+    PULL_REQUEST_TEMPLATE.md classify as REGULATED with rule='ai_rule_text'."""
+    files = {doc_name: {"present": True, "sha256": "h", "body": body}}
+    value, ev = gov.classify_ai_posture(files)
+    assert value == "REGULATED"
+    assert ev["rule"] == "ai_rule_text"
+    assert ev["rule_text"] == {"file": doc_name, "text": expected_text}
+
+
+def test_ai_posture_ignores_non_ai_governance_files_for_prose_rules():
+    """RFC-0019: GOVERNANCE.md, MAINTAINERS.md, and SECURITY.md are not scanned
+    for AI prose rules (a vulnerability-reporting ban in SECURITY.md is about
+    security reports, not code contributions)."""
+    files = {
+        "SECURITY.md": {
+            "present": True,
+            "sha256": "h",
+            "body": "We do not accept AI-generated PRs or reports.\n",
+        },
+        "GOVERNANCE.md": {
+            "present": True,
+            "sha256": "h",
+            "body": "## AI Usage Policy\n",
+        },
+    }
+    value, ev = gov.classify_ai_posture(files)
+    assert value == "AD_HOC"
+    assert ev["rule"] == "no_evidence"
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "You don't need to disclose AI usage.",
+        "Contributors are not required to disclose AI use.",
+        "We do not ban AI-generated contributions.",
+        "Nothing here forbids using AI tooling.",
+        "AI-assisted contributions are welcome.",
+        "May use AI tools for local development.",
+    ],
+)
+def test_ai_posture_negated_requirement_and_permissive_prose_stay_ad_hoc(sentence: str):
+    files = {"CONTRIBUTING.md": {"present": True, "sha256": "h", "body": sentence + "\n"}}
+    value, ev = gov.classify_ai_posture(files)
+    assert value == "AD_HOC", sentence
+    assert ev["rule"] == "no_evidence"
+
+
+def test_ai_posture_proscribed_wires_to_ai_hard_ban_persona_gate(tmp_path):
+    """RFC-0019 end-to-end: a CONTRIBUTING.md ban sentence classifies as
+    PROSCRIBED in derive_repo, resolves to Measured('PROSCRIBED') in
+    bundle.py, and fires the D-PERS-2 ai_assisted hard-ban exclusion gate."""
+    from porchlamp.core.persona import persona_gates
+    from porchlamp.derive.bundle import load_bundle
+
+    raw = tmp_path / "raw"
+    files = {f: None for f in gov.POLICY_FILES}
+    files["CONTRIBUTING.md"] = {
+        "present": True,
+        "sha256": "h",
+        "body": "We do not accept AI-generated pull requests.\n",
+    }
+    gov_data = _gov_data(merged_prs=[], checks=[], check_names=[], files=files)
+    write_envelope(raw / "governance" / f"{KEY}.json", source="test",
+                   data=gov_data, fetched_at="2026-09-11T00:00:00Z")
+    doc = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path,
+                             fetch=False, now=NOW)
+    assert doc["meta"]["ai_posture"] == "PROSCRIBED"
+    assert doc["meta"]["ai_posture_evidence"]["rule"] == "explicit_ban"
+    import json
+    doc_path = tmp_path / f"{KEY}.json"
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    import types
+    fb = load_bundle(doc_path, raw_root=raw)
+    gates = persona_gates(types.SimpleNamespace(pillars={}), fb.inputs)
+    assert gates.get("ai_assisted") == "ai_hard_ban"
 
 # --- c365 must be a row sequence, never a bare mapping ----------------------- #
 
@@ -791,9 +986,9 @@ def test_derive_repo_governance_evidence_fields(tmp_path):
     write_envelope(raw / "governance" / f"{KEY}.json", source="test",
                    data=gov_data, fetched_at="2026-09-11T00:00:00Z")
     prw = _prw([_raw_pr(100, "2026-03-01T00:00:00Z", "2026-03-05T00:00:00Z",
-                        "alice", "NONE"),
+                        "alice", "MEMBER", merged_by="maint"),
                 _raw_pr(110, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z",
-                        "alice", "MEMBER")])
+                        "other", "NONE", merged_by="alice")])
     write_envelope(raw / "pr_window" / f"{KEY}.json", source="test",
                    data=prw, fetched_at="2026-09-11T00:00:00Z")
     write_envelope(raw / "commits_365d" / f"{KEY}.json", source="test",
@@ -805,8 +1000,7 @@ def test_derive_repo_governance_evidence_fields(tmp_path):
     assert m["legal_ip"] == "FOUNDATION_CLA"
     assert m["legal_ip_evidence"]["rule"] == "foundation_cla_check"
     assert m["promotion_ladder"] == "VERIFIED"
-    assert m["promotion_ladder_evidence"]["promoted_accounts"] == [
-        {"login": "alice", "from": "NONE", "to": "MEMBER"}]
+    assert m["promotion_ladder_evidence"]["promoted_accounts"][0]["login"] == "alice"
     assert m["ai_posture"] == "AD_HOC"
     assert m["ai_posture_evidence"]["rule"] == "no_evidence"
     for field in ("legal_ip", "legal_ip_evidence", "promotion_ladder",
@@ -1432,9 +1626,10 @@ def test_promotion_closed_holds_when_commit_authors_have_no_merged_pr_in_the_win
     assert "pr_window_cut_short" not in ev
 
 
-def test_promotion_on_a_cut_pr_window_measures_only_a_verified_transition():
-    """#51 rule 5: on a record cut short of its window, CLOSED, DOCUMENTED and AD_HOC
-    all rest on an absence the unrecorded part could refute; only VERIFIED stands."""
+def test_promotion_on_a_cut_pr_window_refuses_every_rung():
+    """#51 rule 5 + RFC-0016: on a record cut short of its 180d window, every rung
+    (VERIFIED, CLOSED, DOCUMENTED, AD_HOC) rests on an absence the unrecorded part
+    could refute, so all are refused when cut and measured when uncut."""
     def cut(prs: list[dict]) -> dict:
         return {"window_anchor": "2026-09-12T00:00:00Z", "window_days": 180, "truncated": True,
                 "prs": prs, "derived": []}
@@ -1453,12 +1648,355 @@ def test_promotion_on_a_cut_pr_window_measures_only_a_verified_transition():
         assert fields["promotion_ladder"][1] == "missing"
         assert fields["promotion_ladder_evidence"][0]["reason"] == (
             "pr_window truncated before reaching 180d window start")
-    promoted = [_raw_pr(3, "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z", "alice", "NONE"),
-                _raw_pr(4, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z", "alice", "MEMBER")]
-    assert gov.derive_governance_fields(docs, cut(promoted), c365)["promotion_ladder"] == (
+    promoted = [_raw_pr(3, "2026-06-01T00:00:00Z", "2026-06-02T00:00:00Z",
+                        "alice", "MEMBER", merged_by="maint"),
+                _raw_pr(4, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z",
+                        "other", "NONE", merged_by="alice")]
+    # Cut window: VERIFIED is also refused because an earlier maintainer action
+    # in the unrecorded half of the 180d window would refute promotion.
+    assert gov.classify_promotion_ladder(cut(promoted), {}, c365)[0] == "AD_HOC"
+    cut_promoted_fields = gov.derive_governance_fields(docs, cut(promoted), c365)
+    assert cut_promoted_fields["promotion_ladder"] == ("DOCUMENTED", "missing")
+    assert cut_promoted_fields["promotion_ladder_evidence"][0]["reason"] == (
+        "pr_window truncated before reaching 180d window start")
+    # Uncut window: VERIFIED and CLOSED are both measured.
+    uncut_promoted = {**cut(promoted), "truncated": False}
+    assert gov.derive_governance_fields(docs, uncut_promoted, c365)["promotion_ladder"] == (
         "VERIFIED", "derived")
-    # the same record, uncut: CLOSED, measured
-    uncut = {**cut(closed_prs), "truncated": False}
-    assert gov.derive_governance_fields(None, uncut, c365)["promotion_ladder"] == ("CLOSED", "derived")
+    uncut_closed = {**cut(closed_prs), "truncated": False}
+    assert gov.derive_governance_fields(None, uncut_closed, c365)["promotion_ladder"] == (
+        "CLOSED", "derived")
+
+
+# =========================================================================== #
+# RFC-0016 (F2a): Action-based promotion_ladder VERIFIED unit tests
+# =========================================================================== #
+
+def test_promotion_phase_floor_30_days_boundary(monkeypatch):
+    """PROMOTION_MIN_OUTSIDE_DAYS (30d) separates short-gap maintainer rotation
+    from genuine outsider-to-maintainer promotion."""
+    # 29 days between outside merge (2026-06-01) and maintainer action (2026-06-30): rejected
+    prs_29d = [
+        _raw_pr(1, "2026-05-30T00:00:00Z", "2026-06-01T00:00:00Z",
+                "alice", "MEMBER", merged_by="maint"),
+        _raw_pr(2, "2026-06-29T00:00:00Z", "2026-06-30T00:00:00Z",
+                "other", "NONE", merged_by="alice"),
+    ]
+    assert gov.classify_promotion_ladder(_prw(prs_29d), {}, [])[0] == "AD_HOC"
+
+    # Exactly 30 days (2026-06-01 -> 2026-07-01): accepted
+    prs_30d = [
+        _raw_pr(1, "2026-05-30T00:00:00Z", "2026-06-01T00:00:00Z",
+                "alice", "MEMBER", merged_by="maint"),
+        _raw_pr(2, "2026-06-30T00:00:00Z", "2026-07-01T00:00:00Z",
+                "other", "NONE", merged_by="alice"),
+    ]
+    val, ev = gov.classify_promotion_ladder(_prw(prs_30d), {}, [])
+    assert val == "VERIFIED"
+    assert ev["promoted_accounts"][0]["outside_days"] == 30.0
+
+    # Raising PROMOTION_MIN_OUTSIDE_DAYS to 45 rejects the 30-day fixture
+    monkeypatch.setattr(gov, "PROMOTION_MIN_OUTSIDE_DAYS", 45)
+    assert gov.classify_promotion_ladder(_prw(prs_30d), {}, [])[0] == "AD_HOC"
+
+
+def test_promotion_account_age_floor_d_in_3_90_days():
+    """D-IN-3: outside PR author's GitHub account must be >= MIN_ACCOUNT_AGE_DAYS
+    (90d) old at pr.createdAt."""
+    # Account created 89 days before PR #1 createdAt (2026-03-03 -> 2026-05-31 is 89d)
+    prs_young = [
+        _raw_pr(1, "2026-05-31T00:00:00Z", "2026-06-01T00:00:00Z",
+                "alice", "MEMBER", merged_by="maint",
+                author_created="2026-03-03T00:00:00Z"),
+        _raw_pr(2, "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z",
+                "other", "NONE", merged_by="alice"),
+    ]
+    assert gov.classify_promotion_ladder(_prw(prs_young), {}, [])[0] == "AD_HOC"
+
+    # Account created exactly 90 days before PR #1 createdAt (2026-03-02 -> 2026-05-31 is 90d)
+    prs_old_enough = [
+        _raw_pr(1, "2026-05-31T00:00:00Z", "2026-06-01T00:00:00Z",
+                "alice", "MEMBER", merged_by="maint",
+                author_created="2026-03-02T00:00:00Z"),
+        _raw_pr(2, "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z",
+                "other", "NONE", merged_by="alice"),
+    ]
+    assert gov.classify_promotion_ladder(_prw(prs_old_enough), {}, [])[0] == "VERIFIED"
+
+
+def test_promotion_self_merge_before_outside_merge_disqualifies_existing_maintainer():
+    """A self-merge proves write access at that timestamp, so a later PR merged by
+    a teammate does not make the account an outside contributor."""
+    prs = [
+        # alice self-merges PR #1 on 2026-04-01 -> write access already held
+        _raw_pr(1, "2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z",
+                "alice", "MEMBER", merged_by="alice"),
+        # teammate merges alice's PR #2 on 2026-05-01
+        _raw_pr(2, "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z",
+                "alice", "MEMBER", merged_by="maint"),
+        # alice merges other's PR #3 on 2026-08-01
+        _raw_pr(3, "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z",
+                "other", "NONE", merged_by="alice"),
+    ]
+    val, ev = gov.classify_promotion_ladder(_prw(prs), {}, [])
+    assert val == "AD_HOC"
+    assert ev["promoted_accounts"] == []
+
+
+def test_promotion_closed_event_by_non_author_counts_as_maintainer_action():
+    """Closing another author's PR (D-IN-2) is a maintainer triage action; closing
+    one's own PR is not."""
+    # Closing own PR does not count as maintainer action
+    prs_self_close = [
+        _raw_pr(1, "2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z",
+                "alice", "NONE", merged_by="maint"),
+        _raw_pr(2, "2026-07-01T00:00:00Z", None,
+                "alice", "NONE",
+                closed_events=[{"createdAt": "2026-07-02T00:00:00Z",
+                                "actor": {"__typename": "User", "login": "alice"}}]),
+    ]
+    assert gov.classify_promotion_ladder(_prw(prs_self_close), {}, [])[0] == "AD_HOC"
+
+    # Closing another author's PR >= 30d after outside merge counts as VERIFIED
+    prs_other_close = [
+        _raw_pr(1, "2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z",
+                "alice", "COLLABORATOR", merged_by="maint"),
+        _raw_pr(2, "2026-07-01T00:00:00Z", None,
+                "other", "NONE",
+                closed_events=[{"createdAt": "2026-07-02T00:00:00Z",
+                                "actor": {"__typename": "User", "login": "alice"}}]),
+    ]
+    val, ev = gov.classify_promotion_ladder(_prw(prs_other_close), {}, [])
+    assert val == "VERIFIED"
+    assert ev["promoted_accounts"][0]["first_maintainer_action"] == "close"
+    assert ev["promoted_accounts"][0]["first_maintainer_pr"] == 2
+
+
+# =========================================================================== #
+# RFC-0017 (F5a): Legal IP precedence & FOUNDATION_ORGS unit tests
+# =========================================================================== #
+
+def test_legal_ip_foundation_owner_with_generic_cla_check_derives_foundation_cla():
+    """RFC-0017: a generic CLA check (license/cla, cla-signed, cla-assistant) on a
+    FOUNDATION_ORGS owner derives FOUNDATION_CLA via foundation_owner_cla_check."""
+    for check_name in ("license/cla", "cla-signed", "cla-assistant", "CLA"):
+        value, ev = gov.classify_legal_ip(
+            [check_name, "ci"],
+            {"count": 55, "total": 60, "share": 0.9167},
+            foundation_owner=True,
+        )
+        assert value == "FOUNDATION_CLA", check_name
+        assert ev["rule"] == "foundation_owner_cla_check", check_name
+
+
+def test_legal_ip_dco_evidence_beats_foundation_owner_without_cla_check():
+    """RFC-0017: when a FOUNDATION_ORGS repo has no CLA check on recent PRs,
+    measured DCO evidence (dco_check or signoff_share >= 0.5) wins over the
+    blanket foundation_owner fallback (e.g. apache/hbase, apache/beam,
+    apache/zeppelin, apache/arrow)."""
+    val_check, ev_check = gov.classify_legal_ip(
+        ["DCO", "ci"], {"count": 10, "total": 60, "share": 0.1667},
+        foundation_owner=True,
+    )
+    assert val_check == "DCO"
+    assert ev_check["rule"] == "dco_check"
+
+    val_share, ev_share = gov.classify_legal_ip(
+        ["ci"], {"count": 58, "total": 60, "share": 0.9667},
+        foundation_owner=True,
+    )
+    assert val_share == "DCO"
+    assert ev_share["rule"] == "signoff_share"
+
+    # Without CLA check and with signoff share < 0.5, foundation_owner fallback fires
+    val_owner, ev_owner = gov.classify_legal_ip(
+        ["ci"], {"count": 2, "total": 60, "share": 0.0333},
+        foundation_owner=True,
+    )
+    assert val_owner == "FOUNDATION_CLA"
+    assert ev_owner["rule"] == "foundation_owner"
+
+
+def test_legal_ip_eclipsefdn_eca_is_foundation_cla_check():
+    """Eclipse Foundation's eclipsefdn/eca status context is recognised as a
+    foundation CLA check regardless of owner."""
+    value, ev = gov.classify_legal_ip(["eclipsefdn/eca", "ci"], None, foundation_owner=False)
+    assert value == "FOUNDATION_CLA"
+    assert ev["rule"] == "foundation_cla_check"
+
+
+def test_derive_repo_foundation_orgs_and_no_foundation_suffix_heuristic(tmp_path):
+    """RFC-0017: SeleniumHQ and trinodb are in FOUNDATION_ORGS, while arbitrary
+    '*-foundation' owners (e.g. x402-foundation) do not trigger foundation_owner
+    in v2 legal_ip."""
+    from porchlamp.core.constants import FOUNDATION_ORGS
+    assert "seleniumhq" in FOUNDATION_ORGS
+    assert "trinodb" in FOUNDATION_ORGS
+    assert "x402-foundation" not in FOUNDATION_ORGS
+
+    raw = tmp_path / "raw"
+    empty_files = {f: None for f in gov.GOVERNANCE_FILES + gov.AI_POLICY_FILES}
+    # x402-foundation/x402 with 5 probed SHAs, no CLA check, 0 signoff -> NONE (not FOUNDATION_CLA)
+    write_envelope(
+        raw / "governance" / "x402-foundation__x402.json",
+        source="test",
+        data={
+            **_gov_data(merged_prs=[], checks=[], check_names=["ci"], files=empty_files),
+            "checks_shas_probed": 5,
+            "checks_shas_available": 5,
+        },
+        fetched_at="2026-09-11T00:00:00Z",
+    )
+    bundle = derive.derive_repo("x402-foundation", "x402", derive.Ecosystem.NPM,
+                                tmp_path, fetch=False, now=NOW)
+    assert bundle["meta"]["legal_ip"] == "NONE"
+    assert bundle["meta"]["legal_ip_evidence"]["rule"] == "no_evidence"
+    assert bundle["meta"]["legal_ip_evidence"]["foundation_owner"] is False
+
+
+# =========================================================================== #
+# C5b: Governance file path resolution (.github > root > docs, extensions, org)
+# =========================================================================== #
+
+def test_resolve_governance_path_directory_and_extension_precedence():
+    """C5b: .github/ > root > docs/, and .md > .rst > .txt > extensionless within
+    each directory, matched case-insensitively."""
+    # .github beats root and docs even when .github has .rst and root has .md
+    assert gov.resolve_governance_path(
+        "CONTRIBUTING.md",
+        ["docs/CONTRIBUTING.md", "CONTRIBUTING.md", ".github/contributing.rst"],
+    ) == ".github/contributing.rst"
+
+    # Root beats docs
+    assert gov.resolve_governance_path(
+        "GOVERNANCE.md",
+        ["docs/GOVERNANCE.md", "governance.txt"],
+    ) == "governance.txt"
+
+    # Within a directory, .md > .rst > .txt > ""
+    assert gov.resolve_governance_path(
+        "MAINTAINERS.md",
+        ["docs/MAINTAINERS", "docs/maintainers.txt", "docs/Maintainers.rst"],
+    ) == "docs/Maintainers.rst"
+
+
+def test_collect_governance_resolves_tree_variants_and_nomination_match(tmp_path):
+    """C5b: collect_governance resolves non-root / non-.md governance files from
+    the tree envelope and _nomination_match reads them."""
+    raw_dir = tmp_path / "raw"
+    write_envelope(
+        raw_dir / "tree" / f"{KEY}.json",
+        source="test-tree",
+        data={
+            "paths": ["README.md", ".github/governance.rst", "docs/contributing.txt"],
+            "truncated": False,
+        },
+        fetched_at="2026-09-12T00:00:00Z",
+    )
+    bodies = {
+        ".github/governance.rst": "Contributors can become a maintainer via TSC vote.\n",
+        "docs/contributing.txt": "See governance.\n",
+    }
+    fetched: list[str] = []
+
+    def fetch_file(path: str) -> Optional[str]:
+        fetched.append(path)
+        return bodies.get(path)
+
+    assert gov.collect_governance(
+        raw_dir, OWNER, NAME, now=NOW, api=FakeApi([[]]), fetch_file=fetch_file
+    ) == "ok"
+    assert set(fetched) == {".github/governance.rst", "docs/contributing.txt"}
+    d = read_envelope(raw_dir / "governance" / f"{KEY}.json").data
+    assert d["files"]["GOVERNANCE.md"]["path"] == ".github/governance.rst"
+    assert d["files"]["CONTRIBUTING.md"]["path"] == "docs/contributing.txt"
+    value, ev = gov.classify_promotion_ladder(None, d["files"], [])
+    assert value == "DOCUMENTED"
+    assert ev["document_match"] == {
+        "file": "GOVERNANCE.md",
+        "path": ".github/governance.rst",
+        "line": "Contributors can become a maintainer via TSC vote.",
+    }
+
+
+def test_collect_governance_org_default_fallback_for_contributing_and_security_only(tmp_path):
+    """C5b: <owner>/.github fallback applies to CONTRIBUTING.md and SECURITY.md
+    when absent from the repo, but never to GOVERNANCE.md or MAINTAINERS.md."""
+    raw_dir = tmp_path / "raw"
+    write_envelope(
+        raw_dir / "tree" / f"{KEY}.json",
+        source="test-tree",
+        data={"paths": ["README.md"], "truncated": False},
+        fetched_at="2026-09-12T00:00:00Z",
+    )
+    org_tree = [".github/CONTRIBUTING.md", "SECURITY.rst", "GOVERNANCE.md", "MAINTAINERS.md"]
+    org_bodies = {
+        ".github/CONTRIBUTING.md": "You can become a maintainer by nomination.\n",
+        "SECURITY.rst": "Report vulnerabilities privately.\n",
+        "GOVERNANCE.md": "Org governance should not be inherited.\n",
+        "MAINTAINERS.md": "Org maintainers should not be inherited.\n",
+    }
+    org_fetched: list[str] = []
+
+    def fetch_org(path: str) -> Optional[str]:
+        org_fetched.append(path)
+        return org_bodies.get(path)
+
+    assert gov.collect_governance(
+        raw_dir,
+        OWNER,
+        NAME,
+        now=NOW,
+        api=FakeApi([[]]),
+        fetch_file=lambda p: None,
+        org_tree_paths=org_tree,
+        fetch_org_file=fetch_org,
+    ) == "ok"
+    assert set(org_fetched) == {".github/CONTRIBUTING.md", "SECURITY.rst"}
+    d = read_envelope(raw_dir / "governance" / f"{KEY}.json").data
+    assert d["files"]["CONTRIBUTING.md"]["org_default"] is True
+    assert d["files"]["CONTRIBUTING.md"]["path"] == f"{OWNER}/.github:.github/CONTRIBUTING.md"
+    assert d["files"]["SECURITY.md"]["org_default"] is True
+    assert d["files"]["SECURITY.md"]["path"] == f"{OWNER}/.github:SECURITY.rst"
+    assert d["files"]["GOVERNANCE.md"] is None
+    assert d["files"]["MAINTAINERS.md"] is None
+    value, ev = gov.classify_promotion_ladder(None, d["files"], [])
+    assert value == "DOCUMENTED"
+    assert ev["document_match"]["file"] == "CONTRIBUTING.md"
+    assert ev["document_match"]["path"] == f"{OWNER}/.github:.github/CONTRIBUTING.md"
+
+
+
+def test_signoff_share_refuses_cut_window_and_reads_sampled_window():
+    """RFC-0021: signoff_share refuses a cut commits_365d record (truncated dict
+    or 1,000-row bare list) and reads an evenly spaced sample unweighted."""
+    rows = [_c365_row(f"u{i}", f"u{i}@corp.com", signed_off=(i < 60)) for i in range(100)]
+    assert gov.signoff_share({"rows": rows, "truncated": True, "count": 100, "cap": 1000}) is None
+    assert gov.signoff_share([_c365_row("a", "a@corp.com", signed_off=True) for _ in range(1000)]) is None
+
+    sampled = {"rows": rows, "sampled": True, "total": 12000, "truncated": False, "count": 100, "cap": 5000}
+    assert gov.signoff_share(sampled) == {"count": 60, "total": 100, "share": 0.6}
+
+
+def test_derive_governance_fields_cut_commits_withholds_no_evidence_but_keeps_foundation_and_cla():
+    """RFC-0021: on a cut commits_365d record, the negative NONE verdict rests
+    on an unmeasured Signed-off-by share and is withheld (missing), whereas a
+    foundation owner or CLA check still derives."""
+    from porchlamp.core import commit_domains
+
+    cut_c365 = {"rows": [_c365_row("a", "a@corp.com", signed_off=False) for _ in range(100)],
+                "truncated": True, "count": 100, "cap": 1000}
+    gov_empty = _gov_with_probe(gov.CHECK_EVIDENCE_SHA_CAP, 10, ["ci/build"])
+    fields_none = gov.derive_governance_fields(gov_empty, None, cut_c365, foundation_owner=False)
+    assert fields_none["legal_ip"] == ("NONE", "missing")
+    assert fields_none["legal_ip_evidence"][0]["reason"] == commit_domains.COMMIT_WINDOW_CUT_DETAIL
+
+    # Foundation owner and CLA check do not depend on the sign-off share:
+    fields_fnd = gov.derive_governance_fields(gov_empty, None, cut_c365, foundation_owner=True)
+    assert fields_fnd["legal_ip"] == ("FOUNDATION_CLA", "derived")
+
+    gov_cla = _gov_with_probe(1, 1, ["cla/google"])
+    fields_cla = gov.derive_governance_fields(gov_cla, None, cut_c365, foundation_owner=False)
+    assert fields_cla["legal_ip"] == ("CORP_CLA", "derived")
 
 

@@ -144,7 +144,7 @@ class LeaderboardRow(StrictModel):
     """One ranked repository row, as `GET /v1/porchlamp/leaderboard` returns it.
 
     Every field in `06-UX-DESIGN.md` §4. Coverage bands (`02` D-MISS-3):
-    `>= 0.95` no ceiling, `[0.80, 0.95)` ceiling A, `[0.60, 0.80)` ceiling B;
+    `>= 0.90` no ceiling, `[0.80, 0.90)` ceiling A, `[0.60, 0.80)` ceiling B;
     a row here always has `coverage >= 0.60` (below that a repository is
     `unrated`, see `NotRankedRow`).
     """

@@ -67,6 +67,7 @@ _DX = ParamDef(
     kind=KIND_NUMERIC,
     score=clamped_identity,
     min_n=constants.PARAM_MIN_N["dx"],
+    proxy_min_n=constants.DX_PROXY_MIN_N,
     domain=(0.0, 100.0),
     higher_is_better=True,
 )
@@ -101,8 +102,8 @@ def rr90_return_rate(value: ParamValue) -> ParamScore:
 
 
 def dx(value: ParamValue) -> ParamScore:
-    """5.4 DX — 0.5 CI runtime + 0.5 setup signals, on 0-100.
+    """5.4 DX — 0.5 CI runtime + 0.5 setup signals (or setup-signals proxy when < 5 CI runs), on 0-100.
 
-    Identity clamped to [0, 100]; minimum sample 5 CI runs. Takes the bundle
-    input ``dx``."""
+    Identity clamped to [0, 100]; primary minimum sample 5 CI runs, setup-signals
+    proxy minimum sample 0 CI runs (RFC-0020). Takes the bundle input ``dx``."""
     return _apply(_DX, value)

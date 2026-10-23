@@ -15,6 +15,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 
 from porchlamp.collect import commits as cc  # noqa: E402
@@ -210,7 +212,8 @@ def test_vitality_bot_only_recent_commits_is_not_vital():
 
 
 # --------------------------------------------------------------------------- #
-# Collector: 365 d window, cap 1000, transport-boundary paging
+# Collector: 365 d window, whole up to COMMIT_CAP, an evenly spaced sample
+# above it (RFC-0021), transport-boundary paging
 # --------------------------------------------------------------------------- #
 
 def test_collect_stops_at_short_page_and_shapes_rows():
@@ -220,42 +223,126 @@ def test_collect_stops_at_short_page_and_shapes_rows():
         calls.append((page, since))
         return [_raw(i, page) for i in range(100 if page < 3 else 40)]
 
-    data = cc.collect_commits_365d(fetch, now=NOW)
+    data = cc.collect_commits_365d(fetch, now=NOW, fetch_total=lambda since: 240)
     rows = data["rows"]
     assert len(rows) == 240
     assert data["truncated"] is False and data["count"] == 240
+    assert data["total"] == 240 and data["sampled"] is False
     assert [p for p, _ in calls] == [1, 2, 3]
     assert all(s == (NOW - timedelta(days=365)).isoformat() for _, s in calls)
-    assert rows[0] == {"date": "2026-09-01T00:00:00Z", "author_email": "u0@corp.com",
+    assert rows[0] == {"sha": "sha-1-0", "date": "2026-09-01T00:00:00Z", "author_email": "u0@corp.com",
                        "author_login": "u0", "author_type": "User", "signed_off": False}
 
 
-def test_collect_caps_at_1000_commits():
+def test_collect_short_first_page_is_whole_and_never_asks_the_count():
+    """A window that ends on page 1 is whole: GitHub's count (a GraphQL
+    point) is asked only when the first page is full."""
+    asked: list[str] = []
+
+    def total(since: str) -> int:
+        asked.append(since)
+        return 40
+
+    data = cc.collect_commits_365d(lambda page, since: [_raw(i, page) for i in range(40)],
+                                   now=NOW, fetch_total=total)
+    assert asked == []
+    assert data["count"] == data["total"] == 40
+    assert data["sampled"] is False and data["truncated"] is False
+
+
+def test_collect_reads_every_page_up_to_the_cap():
+    """GitHub counts 4,950 commits: at most COMMIT_CAP, so every page is read
+    (the old collector stopped at 1,000 and recorded the window cut)."""
     calls: list[int] = []
 
     def fetch(page: int, since: str):
         calls.append(page)
+        return [_raw(i, page) for i in range(100 if page < 50 else 50)]
+
+    data = cc.collect_commits_365d(fetch, now=NOW, fetch_total=lambda since: 4950)
+    assert calls == list(range(1, 51))
+    assert data["count"] == data["total"] == 4950
+    assert data["truncated"] is False and data["sampled"] is False
+    assert cc.COMMIT_CAP == 5000
+
+
+def test_collect_samples_evenly_spaced_pages_above_the_cap():
+    """GitHub counts 12,345 commits (124 pages): the 50 pages
+    1 + floor(i * 124 / 50) are read -- page 1 and one page every 2.48 --
+    and the record says it is a sample of that total."""
+    calls: list[int] = []
+
+    def fetch(page: int, since: str):
+        calls.append(page)
+        return [_raw(i, page) for i in range(100 if page < 124 else 45)]
+
+    data = cc.collect_commits_365d(fetch, now=NOW, fetch_total=lambda since: 12345)
+    expected_pages = [1 + (i * 124) // 50 for i in range(50)]
+    assert calls == expected_pages
+    assert expected_pages[:5] == [1, 3, 5, 8, 10] and expected_pages[-1] == 122
+    assert data["sampled"] is True and data["truncated"] is False
+    assert data["total"] == 12345 and data["pages_total"] == 124
+    assert data["sample_pages"] == expected_pages
+    assert data["count"] == len(data["rows"]) == 5000
+
+
+def test_collect_sample_keeps_a_commit_once_when_a_push_moves_it():
+    """A push between two page reads moves the listing: a commit read on one
+    sampled page can come back on the next. It is kept once (by sha)."""
+    def fetch(page: int, since: str):
+        rows = [_raw(i, page) for i in range(100)]
+        if page == 3:
+            rows[0] = _raw(99, 1)  # page 1's last commit, pushed down onto page 3
+        return rows
+
+    data = cc.collect_commits_365d(fetch, now=NOW, fetch_total=lambda since: 12345)
+    shas = [row["sha"] for row in data["rows"]]
+    assert len(shas) == len(set(shas)) == 4999
+    assert shas.count("sha-1-99") == 1
+
+
+def test_collect_whole_window_reads_one_page_past_the_count():
+    """Commits pushed between the count and the paging: the count says 300,
+    the listing has 305 by the time it is read; the page past the count's
+    last finds them and the window stays whole."""
+    def fetch(page: int, since: str):
+        return [_raw(i, page) for i in range(100 if page <= 3 else 5)]
+
+    data = cc.collect_commits_365d(fetch, now=NOW, fetch_total=lambda since: 300)
+    assert data["count"] == data["total"] == 305
+    assert data["truncated"] is False and data["sampled"] is False
+
+
+def test_collect_records_cut_when_the_window_outgrows_its_count():
+    """The listing still has full pages past the count's last page plus one:
+    the collector cannot say it holds the window and records it cut."""
+    def fetch(page: int, since: str):
         return [_raw(i, page) for i in range(100)]
 
-    data = cc.collect_commits_365d(fetch, now=NOW)
-    assert len(data["rows"]) == 1000
-    assert data["truncated"] is True  # every page full: the fetch stopped on the cap
-    assert calls == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    data = cc.collect_commits_365d(fetch, now=NOW, fetch_total=lambda since: 300)
+    assert data["truncated"] is True and data["count"] == 400 and data["total"] == 300
+    assert cc.commit_window(data).cut is True
 
 
 # --------------------------------------------------------------------------- #
-# The cap is a recorded fact (B:commits-cap, second half)                     #
+# Without a count the cap is still a recorded fact (B:commits-cap)            #
 # --------------------------------------------------------------------------- #
 
-def test_collect_records_truncation_when_cap_hit():
+def test_collect_without_a_count_records_a_window_past_the_cap_as_cut():
+    """A run given no ``fetch_total`` keeps no sample: it reads up to
+    COMMIT_CAP rows and records a window that does not end there cut."""
+    calls: list[int] = []
+
     def fetch(page: int, since: str):
+        calls.append(page)
         return [_raw(i, page) for i in range(100)]  # every page full
 
     data = cc.collect_commits_365d(fetch, now=NOW)
-    assert data["truncated"] is True
-    assert data["count"] == cc.COMMIT_CAP == 1000
+    assert calls == list(range(1, 51))
+    assert data["truncated"] is True and data["total"] is None and data["sampled"] is False
+    assert data["count"] == len(data["rows"]) == cc.COMMIT_CAP
     assert data["cap"] == cc.COMMIT_CAP
-    assert len(data["rows"]) == 1000
+    assert cc.commit_window(data).cut is True
 
 
 def test_collect_not_truncated_when_under_cap():
@@ -266,6 +353,46 @@ def test_collect_not_truncated_when_under_cap():
     assert data["truncated"] is False
     assert data["count"] == 240 < data["cap"]
     assert len(data["rows"]) == 240
+
+
+def test_sample_pages_every_page_up_to_the_cap_then_evenly_spaced():
+    assert cc.sample_pages(1) == [1]
+    assert cc.sample_pages(5000) == list(range(1, 51))
+    assert cc.sample_pages(5001) == list(range(1, 51))  # 51 pages: page 50 stands for 50-51
+    pages = cc.sample_pages(117074)  # openclaw/openclaw's 365 days on 2026-10-22: 1,171 pages
+    assert len(pages) == 50 and pages[0] == 1 and pages[-1] == 1 + (49 * 1171) // 50
+    assert all(b - a in (23, 24) for a, b in zip(pages, pages[1:]))
+
+
+class _FakeGraphql:
+    """The GraphQL transport boundary: records each call, returns ``doc``."""
+
+    def __init__(self, doc: dict) -> None:
+        self.doc = doc
+        self.calls: list[tuple[str, dict]] = []
+
+    def execute(self, query: str, variables: dict) -> dict:
+        self.calls.append((query, variables))
+        return self.doc
+
+
+def test_commit_total_fetcher_reads_the_history_count():
+    transport = _FakeGraphql({"data": {"repository": {"defaultBranchRef": {"target": {
+        "history": {"totalCount": 12345}}}}}})
+    fetch_total = cc.commit_total_fetcher(transport, OWNER, NAME)
+    assert fetch_total("2025-09-12T12:00:00+00:00") == 12345
+    assert transport.calls == [(cc.COMMIT_TOTAL_QUERY, {
+        "owner": OWNER, "name": NAME, "since": "2025-09-12T12:00:00+00:00"})]
+
+
+def test_commit_total_fetcher_raises_when_no_count_comes_back():
+    """No default branch, or an error: a failed collector (retried on the
+    next run), never a guessed count."""
+    for doc in ({"data": {"repository": {"defaultBranchRef": None}}},
+                {"errors": [{"message": "Something went wrong"}]},
+                {"data": {"repository": {"defaultBranchRef": {"target": {"history": {"totalCount": True}}}}}}):
+        with pytest.raises(RuntimeError):
+            cc.commit_total_fetcher(_FakeGraphql(doc), OWNER, NAME)("2025-09-12T12:00:00+00:00")
 
 
 def test_statistics_unchanged_on_normal_multiorg_input():
@@ -286,9 +413,11 @@ def test_shape_handles_unlinked_and_bot_authors():
                                                 "date": "2026-09-03T00:00:00Z"}},
              "author": {"login": "dependabot[bot]", "type": "Bot"}}]
     rows = cc.shape_commit_rows(raws)
-    assert rows[1] == {"date": "2026-09-02T00:00:00Z", "author_email": "n@corp.com",
+    assert rows[1] == {"sha": "s", "date": "2026-09-02T00:00:00Z", "author_email": "n@corp.com",
                        "author_login": "", "author_type": "", "signed_off": False}
     assert rows[2]["author_type"] == "Bot" and rows[2]["author_login"] == "dependabot[bot]"
+    assert [row["sha"] for row in rows] == ["sha-1-1", "s", "s2"]
+    assert cc.shape_commit_rows([{"commit": {"author": {"date": "2026-09-04T00:00:00Z"}}}])[0]["sha"] == ""
 
 
 # --- ownership extension: signed_off boolean (02 section 4 3.1) ------------- #
@@ -492,17 +621,56 @@ def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch, block_live_netwo
     assert st["commits_365d"] == "ok"
     assert st["contributors"] == "skip" and st["downloads"] == "skip"
     env = json.loads((tmp_path / "commits_365d" / f"{KEY}.json").read_text())
-    # collect_commits_365d now returns a window-metadata dict (the cap is a
-    # recorded fact); the shaped rows live under "rows", count < cap so the
-    # window is not truncated.
+    # collect_commits_365d returns a window-metadata dict (RFC-0021: the
+    # count of the year's commits and whether the rows are a sample are
+    # recorded facts); the shaped rows live under "rows", and a first page
+    # short of 100 is the whole window, so GitHub's count is never asked.
     assert env["data"]["truncated"] is False and env["data"]["count"] == 2
+    assert env["data"]["total"] == 2 and env["data"]["sampled"] is False
     assert env["data"]["cap"] == cc.COMMIT_CAP
     assert env["data"]["rows"] == [
-        {"date": "2026-09-01T00:00:00Z", "author_email": "u0@corp.com",
+        {"sha": "sha-1-0", "date": "2026-09-01T00:00:00Z", "author_email": "u0@corp.com",
          "author_login": "u0", "author_type": "User", "signed_off": False},
-        {"date": "2026-09-02T00:00:00Z", "author_email": "n@corp.com",
+        {"sha": "x", "date": "2026-09-02T00:00:00Z", "author_email": "n@corp.com",
          "author_login": "", "author_type": "", "signed_off": False},
     ]
     commit_calls = [c for c in calls if c[0] == "repos/acme/widget/commits"]
     assert len(commit_calls) == 1
     assert any(a.startswith("since=") for a in commit_calls[0]) and "-f" in commit_calls[0]
+
+
+def test_derive_repo_refuses_ef_and_bus_factor_on_cut_window_while_keeping_vitality(tmp_path):
+    """RFC-0021: a cut commits_365d record (either a truncated window dict or a
+    legacy 1,000-row bare list) withholds EF, bus_factor, and the sign-off
+    verdict while still measuring vitality (which needs only one recent human
+    commit)."""
+    rows_100 = [row("a@corp.com", "alice", days_ago=1 + i / 40) for i in range(100)]
+    cut_dict = {"count": 100, "cap": 1000, "truncated": True, "rows": rows_100}
+    _write_envelope(tmp_path / "dict", "commits_365d", KEY, cut_dict)
+    out_dict = _run(tmp_path / "dict")
+    assert out_dict["confidence"]["elephant_factor"] == "missing"
+    assert out_dict["confidence"]["bus_factor"] == "missing"
+    assert out_dict["meta"]["vitality"] is True and out_dict["confidence"]["vitality"] == "derived"
+    assert out_dict["confidence"]["legal_ip"] == "missing"
+
+    legacy_list = [row("a@corp.com", "alice", days_ago=1 + i / 4000) for i in range(1000)]
+    _write_envelope(tmp_path / "list", "commits_365d", KEY, legacy_list)
+    out_list = _run(tmp_path / "list")
+    assert out_list["confidence"]["elephant_factor"] == "missing"
+    assert out_list["confidence"]["bus_factor"] == "missing"
+    assert out_list["meta"]["vitality"] is True and out_list["confidence"]["vitality"] == "derived"
+    assert out_list["confidence"]["legal_ip"] == "missing"
+
+
+def test_derive_repo_measures_ef_bus_factor_and_signoff_on_sampled_window(tmp_path):
+    """RFC-0021: an evenly spaced sample (sampled=True, total >= len(rows))
+    derives EF, bus_factor, vitality, and legal_ip from the sampled pages."""
+    data = {**_collected(_WINDOW_RAW), "sampled": True, "total": 12000}
+    _write_envelope(tmp_path, "commits_365d", KEY, data)
+    out = _run(tmp_path)
+    m, conf = out["meta"], out["confidence"]
+    assert m["elephant_factor"] == 1 and conf["elephant_factor"] == "derived"
+    assert m["bus_factor"] == 1 and conf["bus_factor"] == "derived"
+    assert m["vitality"] is True and conf["vitality"] == "derived"
+    assert m["legal_ip"] == "DCO" and conf["legal_ip"] == "derived"
+

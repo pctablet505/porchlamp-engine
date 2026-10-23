@@ -340,7 +340,9 @@ def persona_composite(record: ScoreRecord, persona: str) -> PersonaComposite:
     "measured" pillars -- an unmeasured pillar's own coverage is already
     0.0, so it contributes nothing and needs no special case).
     ``PersonaComposite.rated`` is that same persona-weighted coverage's own
-    D-EVID-1/D-MISS-3 rated outcome (``coverage >= 0.60``, ``04`` section 6's
+    D-EVID-1/D-MISS-3 rated outcome (``coverage >= 0.60``, and -- RFC-0024,
+    under every weight vector -- a measured responsiveness pillar; ``04``
+    section 6's
     per-persona-rated ruling: never copied from the balanced
     ``ScoreRecord``, since a repo rated under the balanced weights can be
     unrated under a persona's, and vice versa). ``porchlamp`` is ``None`` when
@@ -368,7 +370,7 @@ def persona_composite(record: ScoreRecord, persona: str) -> PersonaComposite:
     coverage = aggregate.composite_coverage(pillars, weights=weights)
     composite_raw = aggregate.composite_score_raw(pillars, weights=weights)
 
-    rated, ceiling = aggregate.coverage_status(coverage)
+    rated, ceiling = aggregate.coverage_status(coverage, pillars)
     if not rated or composite_raw is None:
         return PersonaComposite(porchlamp=None, coverage=coverage, tier=None, rated=False)
     composite = round(composite_raw, 2)

@@ -854,14 +854,16 @@ def _has_decided_external_pr_in_raw(
                 )
             )
         )
-        derived_raw = data.get("derived") if isinstance(data, Mapping) else None
+        # #57: the per-PR classification is recomputed from the recorded
+        # GraphQL nodes under the current rules, never read from the envelope's
+        # stored ``derived`` list (the rules of the run that collected it).
         derived_by_num = (
             {
                 row.get("number"): row
-                for row in derived_raw
-                if isinstance(row, Mapping) and row.get("number") is not None
+                for row in github_graphql.derive_pr_window([pr for pr in prs if isinstance(pr, Mapping)])
+                if row.get("number") is not None
             }
-            if isinstance(derived_raw, Sequence) and not isinstance(derived_raw, (str, bytes))
+            if used_prs_key
             else None
         )
         if isinstance(prs, Sequence) and not isinstance(prs, (str, bytes)):
@@ -975,17 +977,11 @@ def _review_handoff(raw_root: Path, basename: str) -> bool | None:
         return None
     data = document.get("data") if isinstance(document, Mapping) else None
     prs = data.get("prs") if isinstance(data, Mapping) else None
-    derived = data.get("derived") if isinstance(data, Mapping) else None
-    if not isinstance(prs, list) or not isinstance(derived, list):
+    if not isinstance(prs, list):
         return None
-    classified = {
-        row.get("number"): row for row in derived if isinstance(row, Mapping) and row.get("number") is not None
-    }
-    outside = [
-        pr for pr in github_graphql.reply_sampled_prs(prs)
-        if (row := classified.get(pr.get("number"))) is not None
-        and row.get("is_external") and not row.get("is_bot_author")
-    ]
+    # #57: outside PRs judged from the recorded nodes under the current rules
+    # (the core's one definition), never from the stored ``derived`` list.
+    outside = [pr for pr in github_graphql.reply_sampled_prs(prs) if gates.is_outside_pr(pr)]
     notices = sum(_pr_has_review_handoff_notice(pr) for pr in outside)
     return bool(
         notices >= constants.GATE6_HANDOFF_MIN_PRS
@@ -1102,6 +1098,7 @@ def is_confirmed_black_hole_in_raw(
                 )
             ),
             "number": pr.get("number"),
+            "replies_cut": gates.replies_cut(pr),
         }
         filtered_kwargs = {k: v for k, v in kwargs.items() if k in field_names}
         records.append(gates.GhostRatePR(**filtered_kwargs))

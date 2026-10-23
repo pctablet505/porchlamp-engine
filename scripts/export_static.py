@@ -339,6 +339,7 @@ def _export_reproject(conn: sqlite3.Connection, snapshot_id: str, details: dict[
         "tier_order": list(constants.TIER_ORDER),
         "tier_cutoffs": [[cutoff, label] for cutoff, label in constants.TIER_CUTOFFS],
         "rated_min_coverage": constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE,
+        "evidence_required_pillars": list(constants.EVIDENCE_GATE_REQUIRED_PILLARS),
         "ceiling_a_min_coverage": constants.CEILING_A_MIN_COVERAGE,
         "no_ceiling_min_coverage": constants.NO_CEILING_MIN_COVERAGE,
         "ratio_decimals": RATIO_DECIMALS,

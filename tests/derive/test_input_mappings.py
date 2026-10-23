@@ -49,6 +49,26 @@ PR_WINDOW_UNRESOLVABLE_DETAIL = (
 )
 
 
+def _outside(pr: dict[str, Any]) -> dict[str, Any]:
+    """A recorded PR node by an outside author. #57: every pr_window reader
+    classifies the node itself (an external association and a non-bot author,
+    ``porchlamp.core.gates.is_outside_pr``), never the envelope's stored
+    ``derived`` list, so the fixtures record what GitHub records."""
+    author = {"login": f"u{pr['number']}", **(pr.get("author") or {}), "__typename": "User"}
+    return {**pr, "authorAssociation": "NONE", "author": author}
+
+
+def _member(pr: dict[str, Any]) -> dict[str, Any]:
+    """A recorded PR node by one of the repository's own people."""
+    return {**pr, "authorAssociation": "MEMBER", "author": {"login": f"m{pr['number']}", "__typename": "User"}}
+
+
+def _bot(pr: dict[str, Any]) -> dict[str, Any]:
+    """A recorded PR node a bot opened (D-IN-1: GitHub types it ``Bot``); GitHub
+    gives Dependabot's PRs an external association."""
+    return {**pr, "authorAssociation": "CONTRIBUTOR", "author": {"login": "dependabot", "__typename": "Bot"}}
+
+
 def test_input_mappings_cover_every_v2_input_id() -> None:
     assert set(INPUT_MAPPINGS) == set(constants.PARAM_INPUT_IDS)
     assert len(INPUT_MAPPINGS) == 18
@@ -129,13 +149,13 @@ _TTM_PRS = [
     {"number": 4, "createdAt": "2026-08-04T00:00:00+00:00", "mergedAt": "2026-08-05T16:00:00+00:00"},
     {"number": 5, "createdAt": "2026-08-05T00:00:00+00:00", "mergedAt": "2026-08-07T02:00:00+00:00"},
 ]
-_TTM_DERIVED = [{"number": n, "is_external": True, "merged": True} for n in (1, 2, 3, 4, 5)]
+_TTM_PRS = [_outside(pr) for pr in _TTM_PRS]
 
 
 def test_ttm_p90_hours(tmp_path: Path) -> None:
     # Latencies 10/20/30/40/50h; nearest-rank p90 of 5 values (ceil(0.9*5)=5th
     # smallest, 1-indexed) is the max: 50.0.
-    data = pr_window_data(prs=_TTM_PRS, derived=_TTM_DERIVED)
+    data = pr_window_data(prs=_TTM_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__widget", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window")})
     bundle = load(tmp_path, doc)
@@ -147,7 +167,7 @@ def test_ttm_p90_hours(tmp_path: Path) -> None:
     )
 
     # Negative 1: only 4 merged-external latencies, below min n 5.
-    low_data = pr_window_data(prs=_TTM_PRS[:4], derived=_TTM_DERIVED[:4])
+    low_data = pr_window_data(prs=_TTM_PRS[:4])
     write_envelope(tmp_path / "raw", "pr_window", "acme__low-n", low_data, "2026-09-01T00:05:00+00:00")
     low_doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__low-n")})
     low_bundle = load(tmp_path, low_doc, key="acme__low-n")
@@ -166,12 +186,10 @@ _TTM_MIXED_PRS = [
     # 201: internal (is_external False), merged, a very long latency -- must
     # be excluded by the is_external filter, not counted toward n or p90.
     {"number": 201, "createdAt": "2026-07-01T00:00:00+00:00", "mergedAt": "2026-08-10T00:00:00+00:00"},
-    # 202: external, derived.merged False, but its raw record still carries
-    # a parseable mergedAt (isolates the "merged" flag guard from the
-    # separate "raw mergedAt is null" guard the resolver also has -- a null
-    # mergedAt would be excluded either way and could not kill a mutant that
-    # only drops the "merged" flag check). Its ~524h latency would corrupt
-    # the p90 below if wrongly counted.
+    # 202: merged, but opened by a bot (Dependabot, which GitHub gives an
+    # external association): D-IN-1 keeps a bot's own PRs out of every
+    # external-PR measure (#57). Its ~524h latency would corrupt the p90
+    # below if wrongly counted.
     {"number": 202, "createdAt": "2026-08-06T00:00:00+00:00", "mergedAt": "2026-08-27T20:00:00+00:00"},
     # 203: external, merged, but mergedAt < createdAt (clock skew / bad
     # data) -- excluded by the merged-before-created guard, not the two
@@ -186,25 +204,20 @@ _TTM_MIXED_PRS = [
     {"number": 207, "createdAt": "2026-08-04T00:00:00+00:00", "mergedAt": "2026-08-05T00:00:00+00:00"},
     {"number": 208, "createdAt": "2026-08-05T00:00:00+00:00", "mergedAt": "2026-08-06T06:00:00+00:00"},
 ]
-_TTM_MIXED_DERIVED = [
-    {"number": 201, "is_external": False, "merged": True},
-    {"number": 202, "is_external": True, "merged": False},
-    {"number": 203, "is_external": True, "merged": True},
-    {"number": 204, "is_external": True, "merged": True},
-    {"number": 205, "is_external": True, "merged": True},
-    {"number": 206, "is_external": True, "merged": True},
-    {"number": 207, "is_external": True, "merged": True},
-    {"number": 208, "is_external": True, "merged": True},
+_TTM_MIXED_PRS = [
+    _member(pr) if pr["number"] == 201 else _bot(pr) if pr["number"] == 202 else _outside(pr)
+    for pr in _TTM_MIXED_PRS
 ]
 
 
 def test_ttm_p90_hours_excludes_internal_unmerged_and_backwards_time_prs(tmp_path: Path) -> None:
-    """: 1.5 TTM_p90 must count only PRs that are external AND merged
-    AND have mergedAt >= createdAt. The fixture carries one PR failing each
-    of the three guards (201 internal, 202 unmerged, 203 backwards-time)
+    """: 1.5 TTM_p90 must count only PRs that are outside PRs (external,
+    non-bot author) AND merged AND have mergedAt >= createdAt. The fixture
+    carries one PR failing each of the three guards (201 internal, 202
+    bot-authored, 203 backwards-time)
     alongside 5 clean external-merged PRs (204-208, latencies 6/12/18/24/30h)
     -- proving n and the p90 come from the 5 clean PRs alone, not 8."""
-    data = pr_window_data(prs=_TTM_MIXED_PRS, derived=_TTM_MIXED_DERIVED)
+    data = pr_window_data(prs=_TTM_MIXED_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__mixed-ttm", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__mixed-ttm")})
     bundle = load(tmp_path, doc, key="acme__mixed-ttm")
@@ -224,8 +237,11 @@ def test_ttm_p90_hours_excludes_internal_unmerged_and_backwards_time_prs(tmp_pat
 # --------------------------------------------------------------------------- #
 
 def test_substantive_review_rate(tmp_path: Path) -> None:
-    decided_external = [{"is_external": True, "decided": True} for _ in range(10)]
-    data = pr_window_data(derived=decided_external)
+    decided_external = [
+        _outside({"number": i, "createdAt": "2026-08-01T00:00:00+00:00", "closedAt": "2026-08-02T00:00:00+00:00"})
+        for i in range(10)
+    ]
+    data = pr_window_data(prs=decided_external)
     write_envelope(tmp_path / "raw", "pr_window", "acme__widget", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(
         meta={"pr_window_substantive_review_rate": 0.4},
@@ -240,7 +256,7 @@ def test_substantive_review_rate(tmp_path: Path) -> None:
     )
 
     # Negative 1: only 9 decided-external PRs, below min n 10.
-    low_data = pr_window_data(derived=decided_external[:9])
+    low_data = pr_window_data(prs=decided_external[:9])
     write_envelope(tmp_path / "raw", "pr_window", "acme__low-n", low_data, "2026-09-01T00:05:00+00:00")
     low_doc = base_document(
         meta={"pr_window_substantive_review_rate": 0.4},
@@ -267,9 +283,10 @@ def test_substantive_review_rate_excludes_internal_reviews_from_n(tmp_path: Path
     review's mutant) would count all 16 and wrongly yield
     Measured(value=0.5, n=12) on a related 6/6 fixture; this one pins the
     correct n so that mutant cannot survive."""
-    internal_decided = [{"is_external": False, "decided": True} for _ in range(12)]
-    external_decided = [{"is_external": True, "decided": True} for _ in range(4)]
-    data = pr_window_data(derived=internal_decided + external_decided)
+    decided = {"createdAt": "2026-08-01T00:00:00+00:00", "closedAt": "2026-08-02T00:00:00+00:00"}
+    internal_decided = [_member({"number": i, **decided}) for i in range(12)]
+    external_decided = [_outside({"number": 100 + i, **decided}) for i in range(4)]
+    data = pr_window_data(prs=internal_decided + external_decided)
     write_envelope(tmp_path / "raw", "pr_window", "acme__mixed", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(
         meta={"pr_window_substantive_review_rate": 0.5},
@@ -278,6 +295,28 @@ def test_substantive_review_rate_excludes_internal_reviews_from_n(tmp_path: Path
     bundle = load(tmp_path, doc, key="acme__mixed")
     assert bundle.inputs["substantive_review_rate"] == Unmeasured(
         reason="insufficient_n", detail="4 decided external PRs, need >= 10",
+    )
+
+
+def test_substantive_review_rate_excludes_never_ready_drafts_and_early_self_closes_from_n(
+    tmp_path: Path,
+) -> None:
+    """RFC-0018: ``n`` in ``_resolve_substantive_review_rate`` excludes never-ready
+    drafts and unanswered author self-closes within 14 d of clock start, matching
+    ``derive_pr_window_fields``'s denominator."""
+    decided = {"createdAt": "2026-08-01T00:00:00+00:00", "closedAt": "2026-08-02T00:00:00+00:00"}
+    eligible = [_outside({"number": i, **decided}) for i in range(9)]
+    never_ready = _outside({"number": 100, **decided, "isDraft": True})
+    early_self_close = _outside({"number": 101, **decided, "closedByAuthor": True})
+    data = pr_window_data(prs=eligible + [never_ready, early_self_close])
+    write_envelope(tmp_path / "raw", "pr_window", "acme__sr-denom", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(
+        meta={"pr_window_substantive_review_rate": 0.5},
+        provenance={"pr_window_count": prov("pr_window", key="acme__sr-denom")},
+    )
+    bundle = load(tmp_path, doc, key="acme__sr-denom")
+    assert bundle.inputs["substantive_review_rate"] == Unmeasured(
+        reason="insufficient_n", detail="9 decided external PRs, need >= 10",
     )
 
 
@@ -1538,11 +1577,11 @@ _DR90_PRS = [
     {"number": 108, "createdAt": "2026-05-16T00:00:00+00:00", "mergedAt": "2026-12-02T00:00:00+00:00"},
     {"number": 109, "createdAt": "2026-05-15T00:00:00+00:00"},
 ]
-_DR90_DERIVED = [{"number": n, "is_external": True} for n in range(100, 110)]
+_DR90_PRS = [_outside(pr) for pr in _DR90_PRS]
 
 
 def test_dr90_decision_rate(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_PRS, derived=_DR90_DERIVED)
+    data = pr_window_data(prs=_DR90_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__widget", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window")})
     bundle = load(tmp_path, doc)
@@ -1579,16 +1618,7 @@ _DR90_BOUNDARY_PRS = [
     {"number": 150, "createdAt": "2026-04-04T00:00:00+00:00"},  # internal, in-range date
     {"number": 250, "createdAt": "2025-12-25T00:00:00+00:00"},  # external, far outside
 ]
-_DR90_BOUNDARY_DERIVED = [
-    {"number": 89, "is_external": True},
-    {"number": 90, "is_external": True},
-    {"number": 91, "is_external": True},
-    {"number": 179, "is_external": True},
-    {"number": 180, "is_external": True},
-    {"number": 181, "is_external": True},
-    {"number": 150, "is_external": False},
-    {"number": 250, "is_external": True},
-]
+_DR90_BOUNDARY_PRS = [_member(pr) if pr["number"] == 150 else _outside(pr) for pr in _DR90_BOUNDARY_PRS]
 
 
 def test_dr90_decision_rate_cohort_window_boundaries(tmp_path: Path) -> None:
@@ -1598,7 +1628,7 @@ def test_dr90_decision_rate_cohort_window_boundaries(tmp_path: Path) -> None:
     PARAM_MIN_N=10 -- an off-by-one on either edge, or a dropped
     is_external check (which would additionally admit the internal #150),
     changes the exact count named in this Unmeasured detail."""
-    data = pr_window_data(prs=_DR90_BOUNDARY_PRS, derived=_DR90_BOUNDARY_DERIVED)
+    data = pr_window_data(prs=_DR90_BOUNDARY_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__boundary", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__boundary")})
     bundle = load(tmp_path, doc, key="acme__boundary")
@@ -1625,11 +1655,11 @@ _DR90_MALFORMED_PRS = [
     {"number": 900, "createdAt": None},
     {"number": 901, "createdAt": "not-a-timestamp"},
 ]
-_DR90_MALFORMED_DERIVED = [{"number": n, "is_external": True} for n in (100, 101, 102, 103, 104, 105, 106, 107, 900, 901)]
+_DR90_MALFORMED_PRS = [_outside(pr) for pr in _DR90_MALFORMED_PRS]
 
 
 def test_dr90_decision_rate_malformed_created_at_excluded_and_named(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_MALFORMED_PRS, derived=_DR90_MALFORMED_DERIVED)
+    data = pr_window_data(prs=_DR90_MALFORMED_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__malformed", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__malformed")})
     bundle = load(tmp_path, doc, key="acme__malformed")
@@ -1699,11 +1729,11 @@ _DR90_SOCK_PRS = [
     {"number": 518, "createdAt": "2026-04-25T00:00:00+00:00", "author": {"login": "honest-g"}},
     {"number": 519, "createdAt": "2026-04-29T00:00:00+00:00", "author": {"login": "honest-h"}},
 ]
-_DR90_SOCK_DERIVED = [{"number": n, "is_external": True} for n in range(500, 520)]
+_DR90_SOCK_PRS = [_outside(pr) for pr in _DR90_SOCK_PRS]
 
 
 def test_dr90_decision_rate_author_cap_sock_puppet(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_SOCK_PRS, derived=_DR90_SOCK_DERIVED)
+    data = pr_window_data(prs=_DR90_SOCK_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__sock", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__sock")})
     bundle = load(tmp_path, doc, key="acme__sock")
@@ -1756,7 +1786,7 @@ _DR90_CAP_BOUNDARY_PRS = [
     {"number": 538, "createdAt": "2026-04-27T00:00:00+00:00", "author": {"login": "honest-14"}},
     {"number": 539, "createdAt": "2026-04-29T00:00:00+00:00", "author": {"login": "honest-15"}},
 ]
-_DR90_CAP_BOUNDARY_DERIVED = [{"number": n, "is_external": True} for n in range(520, 540)]
+_DR90_CAP_BOUNDARY_PRS = [_outside(pr) for pr in _DR90_CAP_BOUNDARY_PRS]
 
 
 def test_dr90_decision_rate_author_cap_boundary(tmp_path: Path) -> None:
@@ -1766,7 +1796,7 @@ def test_dr90_decision_rate_author_cap_boundary(tmp_path: Path) -> None:
     kept PRs is decided (the dominant author's oldest): r = 1/19 = 0.0526.
     A cap that kept all 5 would report n=20, r=2/20=0.1 (the dropped PR
     #524 is decided); a cap that dropped all 5 would report n=15, r=0/15=0.0."""
-    data = pr_window_data(prs=_DR90_CAP_BOUNDARY_PRS, derived=_DR90_CAP_BOUNDARY_DERIVED)
+    data = pr_window_data(prs=_DR90_CAP_BOUNDARY_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__cap-boundary", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__cap-boundary")})
     bundle = load(tmp_path, doc, key="acme__cap-boundary")
@@ -1796,11 +1826,11 @@ _DR90_CAP_INSUFFICIENT_PRS = [
     {"number": 550, "createdAt": "2026-04-05T00:00:00+00:00", "author": {"login": "honest-2"}},
     {"number": 551, "createdAt": "2026-04-09T00:00:00+00:00", "author": {"login": "honest-3"}},
 ]
-_DR90_CAP_INSUFFICIENT_DERIVED = [{"number": n, "is_external": True} for n in range(540, 552)]
+_DR90_CAP_INSUFFICIENT_PRS = [_outside(pr) for pr in _DR90_CAP_INSUFFICIENT_PRS]
 
 
 def test_dr90_decision_rate_cap_reduces_below_min_n(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_CAP_INSUFFICIENT_PRS, derived=_DR90_CAP_INSUFFICIENT_DERIVED)
+    data = pr_window_data(prs=_DR90_CAP_INSUFFICIENT_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__cap-insufficient", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__cap-insufficient")})
     bundle = load(tmp_path, doc, key="acme__cap-insufficient")
@@ -1851,7 +1881,7 @@ _DR90_GATE_PRS = [
     {"number": 313, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
      "author": {"login": "few-events-2"}},
 ]
-_DR90_GATE_DERIVED = [{"number": n, "is_external": True} for n in range(300, 314)]
+_DR90_GATE_PRS = [_outside(pr) for pr in _DR90_GATE_PRS]
 
 _DR90_GATE_AUTHOR_RECORDS = [
     *[{"login": f"eligible-{i}", "account_created_at": "2025-12-01T00:00:00+00:00",
@@ -1874,7 +1904,7 @@ def test_dr90_decision_rate_eligibility_gate_applied_with_author_history(tmp_pat
     (the cap is a no-op -- one PR per surviving author). 4 of the 10 kept
     are decided: r = 4/10 = 0.4. ``method`` is "primary": both the cap AND
     the gate applied."""
-    data = pr_window_data(prs=_DR90_GATE_PRS, derived=_DR90_GATE_DERIVED)
+    data = pr_window_data(prs=_DR90_GATE_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__gated", data, "2026-09-01T00:05:00+00:00")
     ah_data = author_history_data(author_records=_DR90_GATE_AUTHOR_RECORDS)
     write_envelope(tmp_path / "raw", "author_history", "acme__gated", ah_data, "2026-09-01T00:06:00+00:00")
@@ -1903,7 +1933,7 @@ def test_dr90_decision_rate_eligibility_gate_unapplied_without_author_history(tm
     both DIFFERENT from the gated test above, proving the gate (not just
     the cap) changes the reported rate. ``method`` is
     "proxy:din3_unapplied"."""
-    data = pr_window_data(prs=_DR90_GATE_PRS, derived=_DR90_GATE_DERIVED)
+    data = pr_window_data(prs=_DR90_GATE_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__ungated", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__ungated")})
     bundle = load(tmp_path, doc, key="acme__ungated")
@@ -1938,7 +1968,7 @@ _DR90_UNMEASURED_PRS = [
     {"number": 410, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
      "author": {"login": "flaky-fetch"}},
 ]
-_DR90_UNMEASURED_DERIVED = [{"number": n, "is_external": True} for n in range(400, 411)]
+_DR90_UNMEASURED_PRS = [_outside(pr) for pr in _DR90_UNMEASURED_PRS]
 
 _DR90_UNMEASURED_AUTHOR_RECORDS = [
     *[{"login": f"clean-{i}", "account_created_at": "2025-12-01T00:00:00+00:00",
@@ -1955,7 +1985,7 @@ def test_dr90_decision_rate_eligibility_unmeasured_author_excluded(tmp_path: Pat
     Measured, not Unmeasured(insufficient_n), pinning that the exclusion
     is counted BEFORE the min_n check, not after. 5 of the 10 kept are
     decided: r = 5/10 = 0.5."""
-    data = pr_window_data(prs=_DR90_UNMEASURED_PRS, derived=_DR90_UNMEASURED_DERIVED)
+    data = pr_window_data(prs=_DR90_UNMEASURED_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__unmeasured-author", data, "2026-09-01T00:05:00+00:00")
     ah_data = author_history_data(author_records=_DR90_UNMEASURED_AUTHOR_RECORDS)
     write_envelope(tmp_path / "raw", "author_history", "acme__unmeasured-author", ah_data,
@@ -1987,7 +2017,7 @@ _DR90_HISTORY_ONLY_PRS = [
        "mergedAt": "2026-04-06T00:00:00+00:00" if i < 4 else None,
        "author": {"login": f"clean-{i}"}} for i in range(10)],
 ]
-_DR90_HISTORY_ONLY_DERIVED = [{"number": n, "is_external": True} for n in range(600, 610)]
+_DR90_HISTORY_ONLY_PRS = [_outside(pr) for pr in _DR90_HISTORY_ONLY_PRS]
 
 _DR90_HISTORY_ONLY_AUTHOR_RECORDS = [
     *[{"login": f"clean-{i}", "account_created_at": "2025-12-01T00:00:00+00:00",
@@ -2000,7 +2030,7 @@ _DR90_HISTORY_ONLY_AUTHOR_RECORDS = [
 
 
 def test_dr90_decision_rate_ignores_history_unmeasured_when_eligibility_is_measured(tmp_path: Path) -> None:
-    data = pr_window_data(prs=_DR90_HISTORY_ONLY_PRS, derived=_DR90_HISTORY_ONLY_DERIVED)
+    data = pr_window_data(prs=_DR90_HISTORY_ONLY_PRS)
     write_envelope(tmp_path / "raw", "pr_window", "acme__history-only", data, "2026-09-01T00:05:00+00:00")
     ah_data = author_history_data(author_records=_DR90_HISTORY_ONLY_AUTHOR_RECORDS)
     write_envelope(tmp_path / "raw", "author_history", "acme__history-only", ah_data, "2026-09-01T00:06:00+00:00")
@@ -2020,6 +2050,151 @@ def test_dr90_decision_rate_ignores_history_unmeasured_when_eligibility_is_measu
         method=_DR90_METHOD_GATED, source="raw/pr_window/acme__history-only.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
+
+
+# --------------------------------------------------------------------------- #
+# 1.2 dr90_decision_rate -- #66 F1: an author_history record cut short of the  #
+# decision cohort's start is refused. The start is the instant THIS pr_window  #
+# record fixes (its anchor 2026-09-01 minus 180 d = 2026-03-05), not a day     #
+# count from the history's own anchor: the two are collected at different     #
+# times.                                                                      #
+# --------------------------------------------------------------------------- #
+
+def _cut_author_history(window_anchor: str, oldest_created: str,
+                        author_records: list[dict[str, Any]]) -> dict[str, Any]:
+    """An ``author_history`` record cut at its cap (``truncated``) anchored at
+    ``window_anchor``, holding two PRs, the oldest opened at ``oldest_created``."""
+    return {
+        **author_history_data(author_records=author_records),
+        "window_anchor": window_anchor, "window_days": 365, "truncated": True,
+        "prs": [{"number": 2, "createdAt": "2026-08-30T00:00:00+00:00"},
+                {"number": 1, "createdAt": oldest_created}],
+    }
+
+
+def _load_dr90_with_history(tmp_path: Path, key: str, ah_data: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    data = pr_window_data(prs=_DR90_GATE_PRS)
+    write_envelope(tmp_path / "raw", "pr_window", key, data, "2026-09-01T00:05:00+00:00")
+    write_envelope(tmp_path / "raw", "author_history", key, ah_data, "2026-09-01T00:06:00+00:00")
+    doc = base_document(
+        provenance={
+            "pr_window_count": prov("pr_window", key=key),
+            "author_history_cost_points": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00", key=key),
+        },
+    )
+    return load(tmp_path, doc, key=key).inputs["dr90_decision_rate"], data
+
+
+def _history_cut_detail(cutoff: str) -> str:
+    return (
+        "author_history envelope is truncated before reaching the decision cohort start "
+        f"2026-03-05T00:00:00+00:00 (pr_window anchor - 180d): it holds the PRs opened from {cutoff}, "
+        "so the D-IN-3 eligibility join would drop every cohort author it never recorded"
+    )
+
+
+def test_dr90_refuses_an_author_history_cut_short_of_the_cohort_start(tmp_path: Path) -> None:
+    """The shape the 2026-10-21 snapshot carried: the history was cut at its cap weeks back,
+    so it recorded none of the cohort's authors. The join used to drop all 14, reading a
+    collector failure as ``insufficient_n`` with n=0; it is now refused as what it is."""
+    value, _data = _load_dr90_with_history(
+        tmp_path, "acme__ah-cut", _cut_author_history("2026-08-25T00:00:00+00:00", "2026-08-01T00:00:00+00:00", []))
+    assert value == Unmeasured(reason="collector_failure", detail=_history_cut_detail("2026-08-01T00:00:00+00:00"))
+
+
+def test_dr90_judges_the_history_cut_at_the_pr_window_cohort_start_not_its_own_anchor(tmp_path: Path) -> None:
+    """A history anchored 14 days AFTER the pr_window (2026-09-15) whose oldest recorded PR
+    opened 2026-03-10 reaches 180 days back from its own anchor (2026-03-19) but not the
+    cohort's start 2026-03-05: refused, although every cohort author has an eligibility
+    record (without the guard this reads Measured 0.4, n=10)."""
+    value, _data = _load_dr90_with_history(
+        tmp_path, "acme__ah-newer",
+        _cut_author_history("2026-09-15T00:00:00+00:00", "2026-03-10T00:00:00+00:00", _DR90_GATE_AUTHOR_RECORDS))
+    assert value == Unmeasured(reason="collector_failure", detail=_history_cut_detail("2026-03-10T00:00:00+00:00"))
+
+
+def test_dr90_reads_a_cut_history_that_still_reaches_the_cohort_start(tmp_path: Path) -> None:
+    """A history anchored 12 days BEFORE the pr_window (2026-08-20), cut at its cap with its
+    oldest PR opened 2026-03-01: short of 180 days from its own anchor (2026-02-21), but it
+    holds every PR since the cohort's start 2026-03-05, so the gated rate stands (the same
+    0.4 over 10 eligible authors as the uncut history above)."""
+    value, data = _load_dr90_with_history(
+        tmp_path, "acme__ah-older",
+        _cut_author_history("2026-08-20T00:00:00+00:00", "2026-03-01T00:00:00+00:00", _DR90_GATE_AUTHOR_RECORDS))
+    assert value == Measured(
+        value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        method=_DR90_METHOD_GATED, source="raw/pr_window/acme__ah-older.json",
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# #57: every pr_window reader classifies the recorded PR nodes under the      #
+# current rules. A stored ``derived`` list that disagrees with the nodes (an  #
+# older run's rules) is not read, and a bot's own PRs are not outside PRs.    #
+# --------------------------------------------------------------------------- #
+
+def _stale_derived(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A stored ``derived`` list from an older run that calls every PR internal,
+    unmerged and undecided."""
+    return [{"number": pr["number"], "is_external": False, "is_bot_author": False, "merged": False,
+             "decided": False, "substantive_review": None} for pr in prs]
+
+
+def _load_window(tmp_path: Path, key: str, data: dict[str, Any], meta: dict[str, Any] | None = None) -> Any:
+    write_envelope(tmp_path / "raw", "pr_window", key, data, "2026-09-01T00:05:00+00:00")
+    return load(tmp_path, base_document(meta=meta, provenance={"pr_window_count": prov("pr_window", key=key)}),
+                key=key).inputs
+
+
+_DECIDED_OUTSIDE = [
+    _outside({"number": 800 + i, "createdAt": "2026-08-01T00:00:00+00:00", "closedAt": "2026-08-02T00:00:00+00:00"})
+    for i in range(10)
+]
+
+
+def test_window_readers_ignore_a_stored_derived_list_that_disagrees_with_the_nodes(tmp_path: Path) -> None:
+    """1.5, 1.2 and 4.3's n read the PR nodes: with a stored list that calls every PR
+    internal, unmerged and undecided, each still measures the same values as above (a
+    reader of the stored list measures nothing)."""
+    ttm = pr_window_data(prs=_TTM_PRS, derived=_stale_derived(_TTM_PRS))
+    assert _load_window(tmp_path, "acme__stale-ttm", ttm)["ttm_p90_hours"] == Measured(
+        value=50.0, n=5, window_start="2026-03-05T00:00:00+00:00", window_end="2026-09-01T00:00:00+00:00",
+        method="primary", source="raw/pr_window/acme__stale-ttm.json", source_hash=expected_hash(ttm),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+    dr = pr_window_data(prs=_DR90_PRS, derived=_stale_derived(_DR90_PRS))
+    assert _load_window(tmp_path, "acme__stale-dr90", dr)["dr90_decision_rate"] == Measured(
+        value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END, method=_DR90_METHOD,
+        source="raw/pr_window/acme__stale-dr90.json", source_hash=expected_hash(dr),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+    sr = pr_window_data(prs=_DECIDED_OUTSIDE, derived=_stale_derived(_DECIDED_OUTSIDE))
+    inputs = _load_window(tmp_path, "acme__stale-sr", sr, meta={"pr_window_substantive_review_rate": 0.4})
+    assert inputs["substantive_review_rate"] == Measured(
+        value=0.4, n=10, window_start="2026-03-05T00:00:00+00:00", window_end="2026-09-01T00:00:00+00:00",
+        method="primary", source="raw/pr_window/acme__stale-sr.json", source_hash=expected_hash(sr),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+def test_window_readers_leave_out_pull_requests_a_bot_opened(tmp_path: Path) -> None:
+    """D-IN-1 keeps a bot's own PRs out of 1.2 and 4.3, as D-GATE-5 already does: twelve
+    Dependabot PRs (external association, typed Bot), opened in the cohort and decided
+    within the hour, beside the ten outside PRs of each fixture above. Counted, they would
+    read DR_90 0.5714 over 14 (the per-author cap keeps 4 of Dependabot's 12) and 4.3 n=22."""
+    bots = [_bot({"number": 900 + i, "createdAt": "2026-05-01T00:00:00+00:00",
+                  "mergedAt": "2026-05-01T01:00:00+00:00", "closedAt": "2026-05-01T01:00:00+00:00"})
+            for i in range(12)]
+    dr = pr_window_data(prs=_DR90_PRS + bots)
+    assert _load_window(tmp_path, "acme__bot-dr90", dr)["dr90_decision_rate"] == Measured(
+        value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END, method=_DR90_METHOD,
+        source="raw/pr_window/acme__bot-dr90.json", source_hash=expected_hash(dr),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+    sr = pr_window_data(prs=_DECIDED_OUTSIDE + bots)
+    inputs = _load_window(tmp_path, "acme__bot-sr", sr, meta={"pr_window_substantive_review_rate": 0.4})
+    assert inputs["substantive_review_rate"].n == 10
 
 
 @pytest.mark.parametrize("v1_legal_ip", ["CORP_CLA_RECIPROCAL", "CORP_CLA_UNILATERAL"])
@@ -2114,6 +2289,28 @@ def test_dx_resolver_measured_insufficient_n_and_missing(tmp_path: Path) -> None
         reason="collector_failure",
         detail="v1 deriver recorded no dx value (no actions_runs envelope)",
     )
+
+    doc_proxy = base_document(
+        meta={"dx": 70.0, "dx_run_count": 0, "dx_method": "proxy:setup_signals_only"},
+        provenance={"dx": prov("actions_runs", key="acme__dx-ok")},
+        confidence={"dx": "derived", "dx_run_count": "derived", "dx_method": "derived"},
+    )
+    bundle_proxy = load(tmp_path, doc_proxy, key="acme__dx-proxy")
+    assert bundle_proxy.inputs["dx"] == Measured(
+        value=70.0,
+        n=0,
+        window_start=None,
+        window_end=None,
+        method="proxy:setup_signals_only",
+        source="raw/actions_runs/acme__dx-ok.json",
+        source_hash=expected_hash(runs_data),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+    from porchlamp.core.params import accessibility
+    scored_proxy = accessibility.dx(bundle_proxy.inputs["dx"])
+    assert scored_proxy.measured is True
+    assert scored_proxy.score == 70.0
+    assert scored_proxy.method == "proxy:setup_signals_only"
 
 
 def _cut_records(tmp_path: Path, key: str) -> None:
@@ -2227,7 +2424,7 @@ def test_cut_short_windows_refused_by_bundle_resolvers(tmp_path: Path) -> None:
 
 
 def test_a_ladder_the_deriver_withheld_on_a_cut_pr_window_names_the_cut(tmp_path: Path) -> None:
-    """The governance deriver records no rung but VERIFIED on a cut record (confidence ``missing``); the bundle says
+    """The governance deriver records no rung on a cut record (confidence ``missing``); the bundle says
     why, where a ladder missing for any other cause keeps the generic detail."""
     _cut_records(tmp_path, "acme__cut-missing")
     document = _cut_document("acme__cut-missing", "CLOSED")
@@ -2240,12 +2437,12 @@ def test_a_ladder_the_deriver_withheld_on_a_cut_pr_window_names_the_cut(tmp_path
         reason="collector_failure", detail="v1 deriver recorded no value")
 
 
-def test_a_verified_promotion_stands_on_a_cut_pr_window(tmp_path: Path) -> None:
-    """An observed promotion is positive evidence: a cut record does not refute it."""
+def test_a_verified_promotion_is_also_refused_on_a_cut_pr_window(tmp_path: Path) -> None:
+    """RFC-0016: action-based VERIFIED rests on the absence of earlier maintainer actions in the 180d window."""
     _cut_records(tmp_path, "acme__cut-verified")
     bundle = load(tmp_path, _cut_document("acme__cut-verified", "VERIFIED"), key="acme__cut-verified")
-    value = bundle.inputs["promotion_ladder"]
-    assert isinstance(value, Measured) and value.value == "VERIFIED"
+    assert bundle.inputs["promotion_ladder"] == Unmeasured(
+        reason="collector_failure", detail="pr_window envelope is truncated before reaching the 180d window start")
 
 
 def test_author_history_required_days_match_the_collector() -> None:
@@ -2257,4 +2454,278 @@ def test_author_history_required_days_match_the_collector() -> None:
         "newcomer_conversion": github_graphql.NEWCOMER_BAND_START_DAYS,
         "rr90_return_rate": github_graphql.NEWCOMER_BAND_START_DAYS,
     }
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0015 (#60): pull requests landed outside GitHub's merge                 #
+# --------------------------------------------------------------------------- #
+
+
+def _landed_node(
+    number: int,
+    created: str,
+    closed: str,
+    *,
+    label: str | None = None,
+    closer: str | None = "Commit",
+    author_association: str = "CONTRIBUTOR",
+) -> dict[str, Any]:
+    return {
+        "number": number,
+        "authorAssociation": author_association,
+        "createdAt": created,
+        "closedAt": closed,
+        "mergedAt": None,
+        "state": "CLOSED",
+        "labels": {"nodes": [{"name": label}] if label else []},
+        "timelineItems": {
+            "nodes": [
+                {
+                    "__typename": "ClosedEvent",
+                    "createdAt": closed,
+                    "actor": {"__typename": "User", "login": "bob"},
+                    "closer": {"__typename": "Commit", "oid": "abc123"} if closer == "Commit" else None,
+                }
+            ]
+        },
+    }
+
+
+def test_ttm_p90_hours_counts_landed_external_prs_and_notes_landing_on_insufficient_n(tmp_path: Path) -> None:
+    """RFC-0015: ``ttm_p90_hours`` includes external PRs landed outside GitHub's merge (whose
+    ``derived.merged`` is ``False``, timed at ``closedAt - createdAt``) while still excluding
+    internal landed PRs and plain-closed PRs; when ``n < 5``, its detail names how many outside
+    PRs landed or notes that the record pre-dates RFC-0015's fields."""
+    prs = [
+        # 1-2: GitHub-merged external PRs (10h, 20h)
+        {"number": 1, "authorAssociation": "CONTRIBUTOR", "createdAt": "2026-08-01T00:00:00+00:00", "mergedAt": "2026-08-01T10:00:00+00:00"},
+        {"number": 2, "authorAssociation": "CONTRIBUTOR", "createdAt": "2026-08-02T00:00:00+00:00", "mergedAt": "2026-08-02T20:00:00+00:00"},
+        # 3-5: external PRs landed outside GitHub's merge (30h by commit, 40h by "Merged", 50h by "integrated")
+        _landed_node(3, "2026-08-03T00:00:00+00:00", "2026-08-04T06:00:00+00:00", closer="Commit"),
+        _landed_node(4, "2026-08-04T00:00:00+00:00", "2026-08-05T16:00:00+00:00", label="Merged", closer=None),
+        _landed_node(5, "2026-08-05T00:00:00+00:00", "2026-08-07T02:00:00+00:00", label="integrated", closer=None),
+        # 6: internal PR landed by commit (900h) -> excluded by is_outside_pr
+        _landed_node(6, "2026-07-01T00:00:00+00:00", "2026-08-07T12:00:00+00:00", closer="Commit", author_association="MEMBER"),
+        # 7: external plain close (no commit, no landing label, 800h) -> excluded
+        _landed_node(7, "2026-07-01T00:00:00+00:00", "2026-08-03T08:00:00+00:00", closer=None),
+    ]
+    derived = [
+        {"number": 1, "is_external": True, "merged": True},
+        {"number": 2, "is_external": True, "merged": True},
+        {"number": 3, "is_external": True, "merged": False},
+        {"number": 4, "is_external": True, "merged": False},
+        {"number": 5, "is_external": True, "merged": False},
+        {"number": 6, "is_external": False, "merged": False},
+        {"number": 7, "is_external": True, "merged": False},
+    ]
+    data = pr_window_data(prs=prs, derived=derived)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__landed-ttm", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__landed-ttm")})
+    bundle = load(tmp_path, doc, key="acme__landed-ttm")
+    assert bundle.inputs["ttm_p90_hours"] == Measured(
+        value=50.0, n=5, window_start="2026-03-05T00:00:00+00:00",
+        window_end="2026-09-01T00:00:00+00:00", method="primary",
+        source="raw/pr_window/acme__landed-ttm.json",
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+    # Insufficient n with landing fields recorded: names the landed count
+    low_data = pr_window_data(prs=prs[:4], derived=derived[:4])
+    write_envelope(tmp_path / "raw", "pr_window", "acme__landed-low", low_data, "2026-09-01T00:05:00+00:00")
+    low_doc = base_document(
+        meta={"pr_window_landing_recorded": True, "pr_window_landed_external_count": 2},
+        provenance={"pr_window_count": prov("pr_window", key="acme__landed-low")},
+    )
+    assert load(tmp_path, low_doc, key="acme__landed-low").inputs["ttm_p90_hours"] == Unmeasured(
+        reason="insufficient_n",
+        detail="4 merged external PRs with recorded latency, need >= 5; 2 outside PRs in the record "
+               "were landed outside GitHub's merge and count as merged",
+    )
+
+    # Insufficient n on a record fetched before RFC-0015's fields
+    pre_doc = base_document(
+        meta={"pr_window_landing_recorded": False, "pr_window_landed_external_count": 0},
+        provenance={"pr_window_count": prov("pr_window", key="acme__landed-low")},
+    )
+    assert load(tmp_path, pre_doc, key="acme__landed-pre").inputs["ttm_p90_hours"] == Unmeasured(
+        reason="insufficient_n",
+        detail="4 merged external PRs with recorded latency, need >= 5; the record shows no landing "
+               "outside GitHub's merge (fetched before RFC-0015's fields)",
+    )
+
+
+def test_pipeline_defenses_proxy_counts_landed_prs_toward_min_n_floor(tmp_path: Path) -> None:
+    """RFC-0015: ``_resolve_pipeline_defenses`` counts landed PRs alongside GitHub-merged PRs in
+    ``Measured.n`` for ``proxy:review_ci``, so 7 GitHub-merged + 3 landed PRs clear the 10-PR floor
+    while 7 GitHub-merged + 2 landed + 1 plain-closed PR stay at ``n=9`` (``insufficient_n``)."""
+    from porchlamp.core.params.rigor import pipeline_defenses as rigor_pipeline_defenses
+
+    def _make(n_landed: int, key: str) -> Any:
+        prs: list[dict[str, Any]] = [
+            {"number": i, "mergedAt": "2026-08-01T00:00:00+00:00"} for i in range(1, 8)
+        ]
+        for j in range(n_landed):
+            prs.append(_landed_node(100 + j, "2026-08-02T00:00:00+00:00", "2026-08-03T00:00:00+00:00"))
+        # Plain close without landing signal: never counted
+        prs.append(_landed_node(999, "2026-08-02T00:00:00+00:00", "2026-08-03T00:00:00+00:00", closer=None))
+        pr_window_env = pr_window_data(prs=prs)
+        write_envelope(tmp_path / "raw", "pr_window", key, pr_window_env, "2026-09-01T00:05:00+00:00")
+        write_envelope(tmp_path / "raw", "runs", key, {"runs": []}, "2026-09-01T00:03:00+00:00")
+        doc = base_document(
+            meta={"pipeline_defenses": 64.0, "pipeline_defenses_method": "proxy:review_ci"},
+            provenance={"pipeline_defenses": {
+                "source": [f"/original-data-dir/raw/pr_window/{key}.json",
+                           f"/original-data-dir/raw/runs/{key}.json"],
+                "fetched_at": "2026-09-01T00:05:00+00:00",
+            }},
+            confidence={"pipeline_defenses": "derived"},
+        )
+        return load(tmp_path, doc, key=key).inputs["pipeline_defenses"]
+
+    below = _make(2, "acme__pd-landed-9")
+    at_floor = _make(3, "acme__pd-landed-10")
+    assert (below.n, at_floor.n) == (9, 10)
+    assert rigor_pipeline_defenses(below).measured is False
+    assert rigor_pipeline_defenses(at_floor).measured is True
+
+
+def test_author_history_rate_resolvers_append_landing_note_on_insufficient_n(tmp_path: Path) -> None:
+    """RFC-0015: when ``mr_first_rate``, ``newcomer_conversion`` or ``rr90_return_rate`` is
+    ``insufficient_n``, its detail names how many PRs/authors were landed outside GitHub's merge
+    when ``author_history_landing_recorded`` is ``True``, and notes their absence when ``False``."""
+    recorded_doc = base_document(
+        meta={
+            "author_history_landing_recorded": True,
+            "mr_first_rate": 0.5, "mr_first_pr_count": 4, "mr_first_landed_pr_count": 2,
+            "newcomer_conversion": 0.5, "newcomer_conversion_author_count": 4,
+            "newcomer_conversion_landed_author_count": 1,
+            "rr90_return_rate": 0.5, "rr90_return_author_count": 3,
+            "rr90_return_landed_author_count": 3,
+        },
+        confidence={
+            "mr_first_rate": "derived",
+            "newcomer_conversion": "derived",
+            "rr90_return_rate": "derived",
+        },
+    )
+    recorded_bundle = load(tmp_path, recorded_doc, key="acme__ah-landed-note")
+    assert recorded_bundle.inputs["mr_first_rate"] == Unmeasured(
+        reason="insufficient_n",
+        detail="4 PRs in the D-IN-3-adjusted cohort, need >= 5; 2 of them were landed outside "
+               "GitHub's merge and count as merged",
+    )
+    assert recorded_bundle.inputs["newcomer_conversion"] == Unmeasured(
+        reason="insufficient_n",
+        detail="4 authors in the D-IN-3-adjusted cohort, need >= 5; 1 of them converted by a "
+               "first PR landed outside GitHub's merge",
+    )
+    assert recorded_bundle.inputs["rr90_return_rate"] == Unmeasured(
+        reason="insufficient_n",
+        detail="3 authors in the D-IN-3-adjusted cohort, need >= 5; 3 of them had a first PR "
+               "landed outside GitHub's merge",
+    )
+
+    unrecorded_doc = base_document(
+        meta={
+            "author_history_landing_recorded": False,
+            "mr_first_rate": 0.5, "mr_first_pr_count": 4, "mr_first_landed_pr_count": 0,
+            "newcomer_conversion": 0.5, "newcomer_conversion_author_count": 4,
+            "newcomer_conversion_landed_author_count": 0,
+            "rr90_return_rate": 0.5, "rr90_return_author_count": 3,
+            "rr90_return_landed_author_count": 0,
+        },
+        confidence={
+            "mr_first_rate": "derived",
+            "newcomer_conversion": "derived",
+            "rr90_return_rate": "derived",
+        },
+    )
+    unrecorded_bundle = load(tmp_path, unrecorded_doc, key="acme__ah-unrecorded-note")
+    suffix = "; the record shows no landing outside GitHub's merge (fetched before RFC-0015's fields)"
+    assert unrecorded_bundle.inputs["mr_first_rate"] == Unmeasured(
+        reason="insufficient_n", detail=f"4 PRs in the D-IN-3-adjusted cohort, need >= 5{suffix}",
+    )
+    assert unrecorded_bundle.inputs["newcomer_conversion"] == Unmeasured(
+        reason="insufficient_n", detail=f"4 authors in the D-IN-3-adjusted cohort, need >= 5{suffix}",
+    )
+    assert unrecorded_bundle.inputs["rr90_return_rate"] == Unmeasured(
+        reason="insufficient_n", detail=f"3 authors in the D-IN-3-adjusted cohort, need >= 5{suffix}",
+    )
+
+
+def test_cut_commits_365d_refused_by_bundle_resolvers_and_sampled_accepted(tmp_path: Path) -> None:
+    """RFC-0021: bundle resolvers for elephant_factor, openssf_criticality, and
+    sign-off-based legal_ip refuse a commits_365d record cut at the old cap even
+    when a pre-RFC-0021 derived document recorded them as derived; a check-based
+    legal_ip and an evenly spaced sample stay Measured."""
+    from porchlamp.core import commit_domains
+
+    cut_refusal = Unmeasured(
+        reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL,
+    )
+    key_cut = "acme__commits-cut"
+    _write_openssf_envelopes(tmp_path, key_cut)
+    write_envelope(
+        tmp_path / "raw", "commits_365d", key_cut,
+        {"count": 1000, "cap": 1000, "truncated": True, "rows": [{"author_email": "a@corp.com"}] * 40},
+        "2026-09-01T00:05:00+00:00",
+    )
+    write_envelope(tmp_path / "raw", "governance", key_cut, {"files": {}}, "2026-09-01T00:05:00+00:00")
+
+    def doc_for(key: str, *, legal_ip: str = "DCO", rule: str = "signoff_share",
+                legal_conf: str = "derived") -> dict[str, Any]:
+        return base_document(
+            meta={
+                "elephant_factor": 2,
+                "elephant_factor_commit_count": 40,
+                "openssf_signals": dict(_OPENSSF_SIGNALS),
+                "legal_ip": legal_ip,
+                "legal_ip_evidence": {"rule": rule},
+            },
+            provenance={
+                "vitality": prov("commits_365d", key=key),
+                "elephant_factor": prov("commits_365d", key=key),
+                "openssf_signals": {
+                    "source": [f"/original-data-dir/raw/{c}/{key}.json" for c in _OPENSSF_PROV_COLLECTORS],
+                    "fetched_at": "2026-09-01T00:05:00+00:00",
+                },
+                "legal_ip": prov("governance", key=key),
+            },
+            confidence={
+                "vitality": "derived",
+                "elephant_factor": "derived",
+                "openssf_signals": "derived",
+                "legal_ip": legal_conf,
+            },
+        )
+
+    bundle_cut = load(tmp_path, doc_for(key_cut, legal_ip="DCO", rule="signoff_share"), key=key_cut)
+    assert bundle_cut.inputs["elephant_factor"] == cut_refusal
+    assert bundle_cut.inputs["openssf_criticality"] == cut_refusal
+    assert bundle_cut.inputs["legal_ip"] == cut_refusal
+
+    # NONE with rule "no_evidence" (whether derived before RFC-0021 or withheld as missing):
+    for conf in ("derived", "missing"):
+        b_none = load(tmp_path, doc_for(key_cut, legal_ip="NONE", rule="no_evidence", legal_conf=conf), key=key_cut)
+        assert b_none.inputs["legal_ip"] == cut_refusal
+
+    # A check-based CLA verdict does not read the sign-off share and stands on a cut commits record:
+    b_cla = load(tmp_path, doc_for(key_cut, legal_ip="CORP_CLA", rule="cla_check"), key=key_cut)
+    assert isinstance(b_cla.inputs["legal_ip"], Measured) and b_cla.inputs["legal_ip"].value == "CORP_CLA"
+
+    # An evenly spaced sample (sampled=True, total=12000) resolves all three as Measured:
+    key_sampled = "acme__commits-sampled"
+    _write_openssf_envelopes(tmp_path, key_sampled)
+    write_envelope(
+        tmp_path / "raw", "commits_365d", key_sampled,
+        {"count": 40, "cap": 5000, "truncated": False, "sampled": True, "total": 12000,
+         "rows": [{"author_email": "a@corp.com"}] * 40},
+        "2026-09-01T00:05:00+00:00",
+    )
+    write_envelope(tmp_path / "raw", "governance", key_sampled, {"files": {}}, "2026-09-01T00:05:00+00:00")
+    bundle_sampled = load(tmp_path, doc_for(key_sampled, legal_ip="DCO", rule="signoff_share"), key=key_sampled)
+    assert isinstance(bundle_sampled.inputs["elephant_factor"], Measured)
+    assert isinstance(bundle_sampled.inputs["openssf_criticality"], Measured)
+    assert isinstance(bundle_sampled.inputs["legal_ip"], Measured)
+
 

@@ -115,28 +115,49 @@ def test_top_domain_share_corporate_domain_grouped() -> None:
     assert result == TopDomainShare(share=2 / 3, n=3, top_domain="corp.com")
 
 
-def test_top_domain_share_noreply_addresses_are_distinct_individuals() -> None:
-    """Two different GitHub noreply authors must NOT merge into one
-    ``users.noreply.github.com`` org (D-PARAM 3.2's own rule, reused
-    exactly) -- the "noreply domains merged" mutant target."""
+def test_top_domain_share_groups_noreply_addresses_under_their_domain() -> None:
+    """Three GitHub no-reply authors share one email domain: the detector
+    reads the raw domain (03 section 6, "top email domain share"), so they
+    are one bucket here even though 3.2's :func:`org_key` counts each of them
+    as their own org. Grouped by ``org_key`` (the defect this pins against)
+    the answer was three buckets of 1/3 and ``ef_domain_mismatch`` could not
+    fire."""
     records = [
         _record("alice", "1+alice@users.noreply.github.com"),
         _record("bob", "2+bob@users.noreply.github.com"),
         _record("carol", "3+carol@users.noreply.github.com"),
     ]
     result = top_domain_share(records)
-    # Three distinct individuals, no single one reaching more than 1/3.
-    assert result.n == 3
-    assert result.share == pytest.approx(1 / 3)
-    assert result.top_domain in {"alice", "bob", "carol"}
+    assert result == TopDomainShare(share=1.0, n=3, top_domain="users.noreply.github.com")
+    assert {org_key(r.actor) for r in records} == {"alice", "bob", "carol"}  # EF's buckets stay per author
 
 
-def test_top_domain_share_personal_domain_addresses_are_distinct_individuals() -> None:
-    records = [_record("alice", "alice@gmail.com"), _record("bob", "bob@gmail.com")]
+def test_top_domain_share_groups_personal_provider_addresses_under_their_domain() -> None:
+    records = [_record("alice", "alice@gmail.com"), _record("bob", "bob@gmail.com"),
+               _record("carol", "carol@corp.com")]
     result = top_domain_share(records)
-    assert result.n == 2
-    assert result.share == pytest.approx(0.5)
-    assert result.top_domain in {"alice", "bob"}
+    assert result == TopDomainShare(share=2 / 3, n=3, top_domain="gmail.com")
+
+
+def test_top_domain_share_folds_domain_case() -> None:
+    records = [_record("alice", "1+alice@USERS.NOREPLY.GITHUB.COM"),
+               _record("bob", "2+bob@users.noreply.github.com")]
+    assert top_domain_share(records) == TopDomainShare(share=1.0, n=2, top_domain="users.noreply.github.com")
+
+
+def test_top_domain_share_can_reach_half_while_the_elephant_factor_is_at_least_four() -> None:
+    """The ``ef_domain_mismatch`` condition (share >= 0.5 while EF >= 4) is
+    reachable: eight authors on one personal provider plus two corporate
+    domains. EF counts the eight as eight one-person orgs (EF 5 at the 50%
+    line); the top email domain holds 0.8 of the commits."""
+    from porchlamp.collect.commits import elephant_factor
+
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    records = [_record(f"dev{i}", f"dev{i}@gmail.com", date=when) for i in range(8)]
+    records += [_record("x", "x@one.com", date=when), _record("y", "y@two.com", date=when)]
+    assert elephant_factor(records, now) == 5
+    assert top_domain_share(records) == TopDomainShare(share=0.8, n=10, top_domain="gmail.com")
 
 
 def test_top_domain_share_excludes_bot_commits_from_numerator_and_denominator() -> None:
@@ -211,8 +232,8 @@ def test_org_key_folds_email_case_for_corporate_personal_and_noreply_domains() -
     domain" branch: 40 distinct authors on
     ``...@USERS.NOREPLY.GITHUB.COM`` would collapse into one org named
     ``"USERS.NOREPLY.GITHUB.COM"`` instead of staying 40 distinct
-    individuals, moving ``top_email_domain_share`` from 0.025 to 1.000 and
-    firing ``ef_domain_mismatch`` on a repo with no dominant contributor at
+    individuals, moving the elephant factor from 20 to 1 on a repo with no
+    dominant contributor at
     all."""
     # Corporate: the returned domain itself must be lower-cased, not the
     # verbatim recorded case.
@@ -270,3 +291,54 @@ def test_last_non_bot_commit_measured_absence_value_is_none_not_unmeasured() -> 
     assert isinstance(fact, LastNonBotCommitMeasured)
     assert fact.value is None
     assert fact.method == "measured:no_non_bot_commit_365d"
+
+
+# --------------------------------------------------------------------------- #
+# commit_window (RFC-0021: whole, sampled, and cut commits_365d records)      #
+# --------------------------------------------------------------------------- #
+
+def test_commit_window_bare_list_whole_below_legacy_cap_and_cut_at_it() -> None:
+    from porchlamp.core import constants
+    from porchlamp.core.commit_domains import CommitWindow, commit_window
+
+    assert commit_window(None) is None
+    assert commit_window({"not": "rows"}) is None
+
+    below = [{"sha": f"s{i}"} for i in range(constants.LEGACY_COMMIT_CAP - 1)]
+    assert commit_window(below) == CommitWindow(
+        rows=below, total=constants.LEGACY_COMMIT_CAP - 1, sampled=False, cut=False,
+    )
+
+    at_cap = [{"sha": f"s{i}"} for i in range(constants.LEGACY_COMMIT_CAP)]
+    assert commit_window(at_cap) == CommitWindow(
+        rows=at_cap, total=None, sampled=False, cut=True,
+    )
+
+    above_cap = [{"sha": f"s{i}"} for i in range(constants.LEGACY_COMMIT_CAP + 5)]
+    assert commit_window(above_cap) == CommitWindow(
+        rows=above_cap, total=None, sampled=False, cut=True,
+    )
+
+
+def test_commit_window_dict_whole_sampled_and_cut() -> None:
+    from porchlamp.core.commit_domains import CommitWindow, commit_window
+
+    rows = [{"sha": f"s{i}"} for i in range(10)]
+    # Whole window dict: total is len(rows), even if the pre-paging count was 9.
+    assert commit_window({"rows": rows, "truncated": False, "sampled": False, "total": 9}) == CommitWindow(
+        rows=rows, total=10, sampled=False, cut=False,
+    )
+    # Truncated (and not sampled) -> cut.
+    assert commit_window({"rows": rows, "truncated": True, "total": 10}) == CommitWindow(
+        rows=rows, total=None, sampled=False, cut=True,
+    )
+    # Sampled with valid total >= len(rows) -> sampled=True, cut=False.
+    assert commit_window({"rows": rows, "sampled": True, "total": 12345, "truncated": False}) == CommitWindow(
+        rows=rows, total=12345, sampled=True, cut=False,
+    )
+    # Sampled without a valid integer total >= len(rows) -> cut=True, sampled=False.
+    for bad_total in (None, 9, True, "12345"):
+        assert commit_window({"rows": rows, "sampled": True, "total": bad_total}) == CommitWindow(
+            rows=rows, total=None, sampled=False, cut=True,
+        )
+

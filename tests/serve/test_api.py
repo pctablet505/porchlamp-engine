@@ -1216,27 +1216,64 @@ def test_matrix_excludes_a_point_whose_quadrant_is_null_even_with_coordinates(tm
     assert body["unrenderable_count"] == 1
 
 
-def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api):
-    """RX3: `_no_ceiling_or_band`'s A/B bands (`porchlamp.core.constants.
-    CEILING_A_MIN_COVERAGE`=0.80, `NO_CEILING_MIN_COVERAGE`=0.95) -- the
+def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api, tmp_path):
+    """RX3: `_no_ceiling_or_band`'s A/B/no-ceiling bands (`porchlamp.core.constants.
+    CEILING_A_MIN_COVERAGE`=0.80, `NO_CEILING_MIN_COVERAGE`=0.90, RFC-0024) -- the
     one arithmetic `porchlamp/serve/app.py` performs itself, per its own
-    docstring's "the one exception". Uses `/reproject` with a custom
-    weight vector chosen so the resulting coverage lands in each band."""
+    docstring's "the one exception". Uses `/reproject` to verify the 0.90 boundary
+    on the shared fixture and all three bands (None, A, B) on explicit pillar
+    coverages."""
+    from dataclasses import replace as dc_replace
     from porchlamp.core import constants
+    from porchlamp.core.models import PillarScore
+    from porchlamp.store.writer import write_records
+    from serve.helpers import PILLARS, _with_persona_composites, make_rated_record, make_repo_write
 
     client, _fx, _db = api
-    # Every rated row in this fixture has uniform per-pillar coverage 0.9
-    # (`tests/store/helpers.make_rated_record`'s default), so ANY weight
-    # vector summing to 1 gives every row coverage_custom == 0.9 -- squarely
-    # inside ceiling band A ([0.80, 0.95)), never B or "no ceiling".
+    # Every rated row in the shared fixture has uniform per-pillar coverage 0.9
+    # (`tests/store/helpers.make_rated_record`'s default), which sits right on
+    # the RFC-0024 `NO_CEILING_MIN_COVERAGE = 0.90` boundary -> no ceiling (None).
     resp = client.post("/v1/porchlamp/reproject?page_size=1000", json=_WEIGHTS)
     assert resp.status_code == 200
     body = resp.json()
     assert body["rows"], "reproject returned no rows"
     for row in body["rows"]:
-        assert 0.80 <= row["coverage"] < 0.95
-        assert row["tier_ceiling"] == "A"
-    assert 0.80 <= 0.9 < constants.NO_CEILING_MIN_COVERAGE  # sanity on the fixture's own assumption
+        assert row["coverage"] == pytest.approx(0.90)
+        assert row["tier_ceiling"] is None
+    assert constants.NO_CEILING_MIN_COVERAGE == 0.90
+
+    # Verify all three bands (None at 0.92, "A" at 0.85, "B" at 0.70) via /reproject.
+    db_path = tmp_path / "bands.db"
+    conn = fresh_db(db_path)
+    band_specs = [("uncapped", 0.92, None), ("band-a", 0.85, "A"), ("band-b", 0.70, "B")]
+    items = []
+    for idx, (name, cov, _expected) in enumerate(band_specs, start=1):
+        rec = make_rated_record(
+            SNAPSHOT_ID, owner="acme", name=name, raw_hash=f"{idx:064x}",
+            composite=85.0 - idx, coverage=cov,
+        )
+        rec = dc_replace(
+            rec,
+            pillars={p: PillarScore(score=80.0, coverage=cov) for p in PILLARS},
+            rank=idx,
+            tie_group=idx,
+        )
+        items.append(make_repo_write(_with_persona_composites(rec)))
+    write_records(conn, SNAPSHOT_ID, items)
+    conn.commit()
+    finalize(conn, db_path)
+    conn.close()
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir(exist_ok=True)
+    (web_dir / "index.html").write_text("<html></html>")
+    band_client = TestClient(create_app(str(db_path), web_dir=web_dir))
+    band_resp = band_client.post("/v1/porchlamp/reproject?page_size=1000", json=_WEIGHTS)
+    assert band_resp.status_code == 200
+    by_name = {r["name"]: r for r in band_resp.json()["rows"]}
+    for name, cov, expected_ceiling in band_specs:
+        assert by_name[name]["coverage"] == pytest.approx(cov)
+        assert by_name[name]["tier_ceiling"] == expected_ceiling
 
 
 # --------------------------------------------------------------------------- #

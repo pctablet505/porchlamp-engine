@@ -159,11 +159,23 @@ def _snapshot() -> Snapshot:
 
 
 class FullyMeasured:
-    """coverage C = 1.0 (>= 0.95 -> no ceiling)."""
+    """coverage C = 1.0 (>= 0.90 -> no ceiling)."""
 
     @classmethod
     def bundle(cls) -> FeatureBundle:
         return _make_bundle(_base_inputs())
+
+
+class SingleMissingParam:
+    """RFC-0024 (D-MISS-3): only ``dr90_decision_rate`` unmeasured (weight .25
+    of responsiveness = .0625 of the composite) -> coverage C = 0.9375
+    (>= 0.90 -> no ceiling)."""
+
+    @classmethod
+    def bundle(cls) -> FeatureBundle:
+        inputs = dict(_base_inputs())
+        inputs["dr90_decision_rate"] = Unmeasured(reason="insufficient_n")
+        return _make_bundle(inputs)
 
 
 class GovernanceUnmeasured:
@@ -187,12 +199,12 @@ class GovernanceUnmeasured:
 
 
 def test_rated_path_no_ceiling_case() -> None:
-    """C >= 0.95: rated, no ceiling, tier_ceiling matches
+    """C >= 0.90: rated, no ceiling, tier_ceiling matches
     ``aggregate.coverage_status`` exactly (not re-derived by the test)."""
     record = score(FullyMeasured.bundle(), _populations(), _snapshot())
 
     assert record.coverage == pytest.approx(1.0)
-    expected_rated, expected_ceiling = aggregate.coverage_status(record.coverage)
+    expected_rated, expected_ceiling = aggregate.coverage_status(record.coverage, record.pillars)
     assert expected_rated is True
     assert expected_ceiling is None
 
@@ -205,14 +217,26 @@ def test_rated_path_no_ceiling_case() -> None:
     assert record.friction_coverage == pytest.approx(1.0)
 
 
+def test_rated_path_single_missing_parameter_has_no_ceiling() -> None:
+    """RFC-0024 (D-MISS-3): a single unmeasured parameter (dr90_decision_rate,
+    global weight 0.0625 -> C = 0.9375 >= 0.90) leaves ``tier_ceiling`` as
+    ``None`` and does not cap an S+ composite at Tier A."""
+    record = score(SingleMissingParam.bundle(), _populations(), _snapshot())
+
+    assert record.coverage == pytest.approx(0.9375)
+    assert record.rated is True
+    assert record.tier_ceiling is None
+    assert record.tier == "S+"
+
+
 def test_rated_path_ceiling_a_case_with_distinct_axis_coverages() -> None:
-    """0.80 <= C < 0.95: rated, ceiling "A", and the two axis coverages are
+    """0.80 <= C < 0.90: rated, ceiling "A", and the two axis coverages are
     non-zero and different from each other (a leverage/friction-coverage
     swap mutant dies here)."""
     record = score(GovernanceUnmeasured.bundle(), _populations(), _snapshot())
 
     assert record.coverage == pytest.approx(0.80)
-    expected_rated, expected_ceiling = aggregate.coverage_status(record.coverage)
+    expected_rated, expected_ceiling = aggregate.coverage_status(record.coverage, record.pillars)
     assert expected_rated is True
     assert expected_ceiling == "A"
 
@@ -277,3 +301,61 @@ def test_a_repository_that_does_not_hand_off_keeps_the_black_hole_flag() -> None
         assert record.gate.routed is None, review_handoff
         assert record.rated is True, review_handoff
         assert "black_hole" in record.suspicion, review_handoff
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0024 (D-EVID-1): no rating without a measured responsiveness parameter   #
+# --------------------------------------------------------------------------- #
+
+
+def _quiet_unanswered_bundle(*, merges_measured: bool = False) -> FeatureBundle:
+    """Every other pillar as ``FullyMeasured``; responsiveness only what a
+    quiet repository that answers nobody leaves: 5 outside PRs, all 5 without
+    a response within 14 days (the ghost rate is measured at 1.0 over n=5,
+    under its minimum n of 10, so it scores ``insufficient_n`` and D-GATE-5 is
+    UNDECIDED), and the other four parameters ``insufficient_n``. Composite
+    coverage is 0.75, over the 0.60 floor. ``merges_measured=True`` adds one
+    measured parameter, TTM_p90 over 5 merged PRs (.10 of the pillar: C =
+    0.775)."""
+    inputs: dict[str, Measured | Unmeasured] = dict(_base_inputs())
+    for input_id in ("ttfhr_hours", "dr90_decision_rate", "mr_first_rate", "ttm_p90_hours"):
+        inputs[input_id] = Unmeasured(reason="insufficient_n")
+    inputs["gr14_ghost_rate"] = _m(1.0, n=5)
+    if merges_measured:
+        inputs["ttm_p90_hours"] = _m(1.0, n=5)
+    return _make_bundle(inputs)
+
+
+def test_quiet_repository_that_answers_nobody_is_not_ranked_on_its_other_pillars() -> None:
+    """Before RFC-0024 this repository was rated (C = 0.75, ceiling B) and
+    ranked on criticality, governance, rigor and accessibility alone: D-GATE-5
+    cannot judge 5 PRs, and the composite renormalised the empty
+    responsiveness pillar away. 64 rated repositories on the 2026-10-21 data
+    had every recorded outside PR unanswered this way."""
+    record = score(_quiet_unanswered_bundle(), _populations(), _snapshot())
+
+    assert record.gate.eligible is True
+    assert "D-GATE-5" in record.gate.undecided
+    assert record.params["gr14_ghost_rate"].reason == "insufficient_n"
+    assert record.pillars["responsiveness"].score is None
+    assert record.coverage == pytest.approx(0.75)
+    assert record.rated is False
+    assert record.unrated_reason == "unrated: insufficient_evidence"
+    assert record.composite is None
+    assert record.tier is None
+    assert record.tier_ceiling is None
+
+
+def test_one_measured_responsiveness_parameter_rates_it_with_the_unchanged_ceiling() -> None:
+    """Over-correction guard: the pillar condition asks for evidence, not a
+    good score -- one measured parameter (TTM_p90) rates the same repository,
+    and the D-MISS-3 bands it falls in are unchanged (0.775 -> ceiling B)."""
+    record = score(_quiet_unanswered_bundle(merges_measured=True), _populations(), _snapshot())
+
+    assert record.pillars["responsiveness"].score is not None
+    assert record.pillars["responsiveness"].coverage == pytest.approx(0.10)
+    assert record.coverage == pytest.approx(0.775)
+    assert record.rated is True
+    assert record.unrated_reason is None
+    assert record.tier_ceiling == "B"
+    assert record.composite is not None

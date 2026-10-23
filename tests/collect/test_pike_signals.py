@@ -1060,3 +1060,102 @@ def test_graphql_issue_counts_incomplete_answer_is_a_failure_not_a_zero(tmp_path
     with pytest.raises(RuntimeError, match="incomplete"):
         pike.collect_issue_counts_graphql(tmp_path, OWNER, NAME, now=NOW, transport=_NoSearch())
     assert not (tmp_path / "issues_counts").exists()
+
+
+def test_code_review_rate_and_pipeline_defenses_proxy_count_landed_prs():
+    """RFC-0015 (#60): ``code_review_rate`` counts PRs landed outside GitHub's merge (by closing
+    commit or ``LANDING_LABELS``) in its denominator alongside GitHub-merged PRs, and in its
+    numerator when approved by a non-author human reviewer; plain-closed unmerged PRs do not count."""
+    def _landed_pr(number: int, author: str, reviews: list, *, label: str | None = None,
+                   closer: str | None = None) -> dict:
+        base = _pr(number, False, author, reviews)
+        base["labels"] = {"nodes": [{"name": label}] if label else []}
+        base["timelineItems"] = {"nodes": [{
+            "__typename": "ClosedEvent",
+            "createdAt": base["closedAt"],
+            "actor": {"__typename": "User", "login": "bob"},
+            "closer": {"__typename": "Commit", "oid": "abc123"} if closer == "Commit" else None,
+        }]}
+        return base
+
+    prs = [
+        _pr(1, True, "alice", [_review("bob", "APPROVED")]),                        # GitHub-merged, approved
+        _landed_pr(2, "carol", [_review("dave", "APPROVED")], closer="Commit"),     # landed by commit, approved
+        _landed_pr(3, "erin", [], label="Merged"),                                  # landed by label, unapproved
+        _landed_pr(4, "frank", [_review("grace", "APPROVED")], label="integrated"),  # landed by label, approved
+        _landed_pr(5, "henry", [_review("ivan", "APPROVED")]),                      # plain close: not in denominator
+    ]
+    # 4 merged-or-landed PRs (#1..#4), 3 approved (#1, #2, #4) -> 3/4 = 0.75
+    assert pike.code_review_rate(prs) == 0.75
+    value, method = pike.pipeline_defenses(None, prs, RUNS_DATA["runs"])
+    assert method == pike.METHOD_PROXY
+    # 0.6 * 0.75 * 100 + 0.4 * 0.7 * 100 = 45 + 28 = 73.0
+    assert value == pytest.approx(73.0, abs=1e-9)
+
+
+# --- RFC-0021: commits_365d window total scaling and cut-record refusal -------
+
+def test_derive_pike_signals_scales_commit_frequency_by_window_total_on_sample():
+    """RFC-0021: when commits_365d is an evenly spaced sample, commit_frequency_weekly
+    scales the sample's non-bot in-window commit share by GitHub's 365-day total."""
+    human_rows = _commit_rows()  # 520 human commits
+    bot_rows = [
+        {"date": "2025-09-12T00:00:00Z", "author_email": "d@users.noreply.github.com",
+         "author_login": "dependabot[bot]", "author_type": "Bot"}
+        for _ in range(520)
+    ]
+    sample_rows = human_rows + bot_rows  # 1,040 rows, 50% human
+    gh = {"created_at": (NOW - timedelta(days=3650)).isoformat()}
+    rel = {"source": "releases", "releases": []}
+    iss = {"closed_90d": 42, "updated_90d": 120, "comments_per_issue": 4.0}
+    dep = {"deduped_count": 1000}
+
+    # Whole window (window_total=None): 520 human commits / 52 = 10.0/wk.
+    whole_res = pike.derive_pike_signals(gh, sample_rows, rel, iss, dep, NOW)
+    assert whole_res is not None
+    assert whole_res[0]["commit_frequency_weekly"] == 10.0
+
+    # Sample of a 10,400-commit year: (520 / 1040) * 10400 / 52 = 100.0/wk.
+    sampled_res = pike.derive_pike_signals(
+        gh, sample_rows, rel, iss, dep, NOW, window_total=10400,
+    )
+    assert sampled_res is not None
+    assert sampled_res[0]["commit_frequency_weekly"] == 100.0
+    assert sampled_res[0]["contributor_count"] == 100
+    assert sampled_res[0]["org_count"] == 4
+
+
+def test_derive_w17_fields_refuses_cut_commits_365d_and_scales_sampled():
+    """RFC-0021: a commits_365d record cut at the old cap (truncated dict or
+    1,000-row bare list) leaves openssf_signals collector_failure with
+    COMMIT_WINDOW_CUT_DETAIL; a sampled record scales commit_frequency_weekly."""
+    from porchlamp.core import commit_domains
+
+    base_args = list(_stale_check_args(0))
+    # Index 5 is c365:
+    cut_dict = {"count": 520, "cap": 1000, "truncated": True, "rows": _commit_rows()}
+    args_cut_dict = list(base_args)
+    args_cut_dict[5] = cut_dict
+    out_cut = pike.derive_w17_fields(*args_cut_dict)
+    assert out_cut["openssf_signals"] == (None, None, None, "collector_failure")
+    assert out_cut["openssf_signals_detail"][0] == commit_domains.COMMIT_WINDOW_CUT_DETAIL
+    assert "openssf_signals_partial" not in out_cut
+
+    # Legacy 1,000-row bare list is also cut:
+    args_legacy = list(base_args)
+    args_legacy[5] = (_commit_rows() * 2)[:1000]
+    out_legacy = pike.derive_w17_fields(*args_legacy)
+    assert out_legacy["openssf_signals"] == (None, None, None, "collector_failure")
+    assert out_legacy["openssf_signals_detail"][0] == commit_domains.COMMIT_WINDOW_CUT_DETAIL
+
+    # Sampled window dict scales commit_frequency_weekly by total / len(rows):
+    sampled_dict = {
+        "count": 520, "cap": 5000, "truncated": False,
+        "sampled": True, "total": 5200, "rows": _commit_rows(),
+    }
+    args_sampled = list(base_args)
+    args_sampled[5] = sampled_dict
+    out_sampled = pike.derive_w17_fields(*args_sampled)
+    assert out_sampled["openssf_signals"][3] == "derived"
+    assert out_sampled["openssf_signals"][0].commit_frequency_weekly == 100.0
+

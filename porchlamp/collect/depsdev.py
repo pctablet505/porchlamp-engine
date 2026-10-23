@@ -94,6 +94,27 @@ package. A lookup that did not answer writes nothing and reports ``"fail"``,
 so the next run retries it. The cost of this precision is recall: a real package
 whose metadata does not name the repo is not attributed to it.
 
+A cut map is not a sample of the repo's packages (2026-10-22, issue #66): deps.dev
+fills it with whatever versions it lists first, often Go pseudo-versions of the
+repo itself (``KaTeX/KaTeX``, ``signalapp/Signal-Server`` and ``apache/kafka``:
+1,500 of 1,500), and on ``spring-projects/spring-boot`` every visible Maven
+package was another project's (``be.appify.prefab:*``, whose metadata names
+spring-boot), so the rival won with 0 dependents. Three rules close that gap
+without giving up the precision rule above. (1) On a cut map the ecosyste.ms
+repository lookup (:func:`porchlamp.collect.ecosystemes.repository_lookup_url`,
+the 1,500-version gap fill ``docs/v2/10-SCALING-PLAN.md`` section 7 names) adds
+its :data:`LOOKUP_CANDIDATE_LIMIT` most depended-on packages of the repo's
+registry, each accepted only when its own default version names the repo, the
+check the guess already passes. (2) npm has refused upper-case letters in new
+package names since 2017 and deps.dev answers 404 for a spelling the registry
+does not hold, so on a cut map an npm guess that is not linked as written is
+checked once more in lower case (``KaTeX/KaTeX`` publishes ``katex``). (3) On a
+cut map a winning count of 0 is not a measurement of the repo's package unless
+the repo's linked namesake is among the counted candidates: the real package
+may lie beyond the cut, so the repo is ``unresolved`` (a ``third_party_gap``)
+rather than a measured zero: D-MISS-1 leaves a third party's gap unmeasured,
+never scored as the worst value.
+
 D-PARAM 2.1 (``02`` section 4; ``03`` section 3): dependents are deduplicated
 by root organisation and dependents owned by the repo's own org are
 dropped. :func:`dedup_dependents` implements that rule on recorded
@@ -160,6 +181,12 @@ MAPPED_RELATION: str = "SOURCE_REPO"
 #: each), taken in order of linked versions. Bounds the cost of a monorepo
 #: that publishes dozens of packages.
 MAPPED_CANDIDATE_LIMIT: int = 5
+
+#: Most packages the ecosyste.ms repository lookup is asked for on a cut map
+#: (its ``per_page``), most dependents first; each one deps.dev links to the
+#: repo costs a version check (two calls) and a count, and each package object
+#: weighs tens to hundreds of kilobytes, so the lookup stays small.
+LOOKUP_CANDIDATE_LIMIT: int = 3
 
 _USER_AGENT: str = "porchlamp-research/0.1 (ranking study)"
 
@@ -482,13 +509,14 @@ def _get_json(url: str) -> Optional[dict]:
         return None
 
 
-def _fetch_status(url: str) -> tuple[Optional[int], Optional[dict]]:
+def _fetch_status(url: str) -> tuple[Optional[int], Optional[dict | list]]:
     """One keyless GET as ``(http_status, body)``, for callers that must tell
     "the source answered: nothing here" (404) from "no answer".
 
     ``http_status`` is None when nothing answered (transport error, timeout);
     an HTTP error answer returns its status with no body; a 200 whose body is
-    not a JSON object returns ``(200, None)``.
+    neither a JSON object nor a JSON array (the ecosyste.ms repository lookup
+    answers with an array) returns ``(200, None)``.
     """
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
@@ -498,7 +526,7 @@ def _fetch_status(url: str) -> tuple[Optional[int], Optional[dict]]:
                 body = json.load(response)
             except ValueError:
                 return status, None
-            return status, body if isinstance(body, dict) else None
+            return status, body if isinstance(body, (dict, list)) else None
     except urllib.error.HTTPError as err:
         return err.code, None
     except Exception:  # review-ok: gate-network — no answer is reported as None status
@@ -566,7 +594,9 @@ def _guess_is_linked(system: str, package: str, owner: str, name: str) -> Option
 
     True or False when deps.dev answered; None when it did not, so the caller
     retries rather than records "unlinked". A package deps.dev does not have
-    (404), or one with no default version, links nothing.
+    (404), or one with no default version, links nothing. The same check
+    accepts a package the ecosyste.ms repository lookup names on a cut map
+    (:func:`_lookup_candidates`).
     """
     status, payload = _fetch_status(package_url(system, package))
     if status == 404:
@@ -609,12 +639,55 @@ def _ecosystems_count(ecosystem: str, package: str) -> tuple[str, Optional[int],
     status, payload = _fetch_status(url)
     if status == 404:
         return "absent", None, url
-    if status != 200 or payload is None:
+    if status != 200 or not isinstance(payload, dict):
         return "no_answer", None, url
     parsed = _ecosystemes.parse_package(payload)
     if parsed is None:
         return "absent", None, url
     return "count", parsed["dependent_packages_count"], url
+
+
+def _lookup_candidates(
+    owner: str, name: str, ecosystem: str, system: str, known: set[str], listed: set[str],
+) -> Optional[list[str]]:
+    """Packages of the repo's registry that the ecosyste.ms repository lookup
+    names and deps.dev links to the repo, for a cut source-repo map.
+
+    Asks :func:`porchlamp.collect.ecosystemes.repository_lookup_url` for the
+    :data:`LOOKUP_CANDIDATE_LIMIT` most depended-on packages whose metadata
+    names the repo, keeps those of the repo's own registry that are not
+    already candidates (``known``: :func:`package_key` values), and accepts
+    each only when deps.dev links it to the repo: listed by the visible part of
+    the map as ``SOURCE_REPO`` (``listed``: :func:`package_key` values), or
+    its default version names the repo (:func:`_guess_is_linked`, the guess's
+    own check). ecosyste.ms matches on the same metadata a rival can write, so
+    its list alone attributes nothing. Returns the accepted names, most
+    dependents first; ``[]`` when the lookup answered with none (404
+    included); None when the lookup or a version check did not answer, so the
+    caller retries.
+    """
+    registry = _ecosystemes.registry_for_ecosystem(ecosystem)
+    if registry is None:
+        return []
+    status, payload = _fetch_status(
+        _ecosystemes.repository_lookup_url(owner, name, LOOKUP_CANDIDATE_LIMIT))
+    if status == 404:
+        return []
+    if status != 200:
+        return None
+    accepted: list[str] = []
+    seen = set(known)
+    for package, _count in _ecosystemes.parse_lookup(payload, registry):
+        key = package_key(ecosystem, package)
+        if key in seen:
+            continue
+        seen.add(key)
+        linked = True if key in listed else _guess_is_linked(system, package, owner, name)
+        if linked is None:
+            return None
+        if linked:
+            accepted.append(package)
+    return accepted
 
 
 def _fetch_dependents(
@@ -690,14 +763,17 @@ class PackageResolution:
 
     ``verdict``: ``"found"`` (``package`` and ``found`` set); ``"no_package"``
     (the map is complete and the registry has no package linked to the repo);
-    ``"unresolved"`` (nothing visible matched, but the map was cut at
+    ``"unresolved"`` (nothing visible matched, or every counted candidate read
+    0 and the repo's linked namesake was not among them, but the map was cut at
     :data:`MAP_VERSION_CAP`, so a package may lie beyond what deps.dev
     returned -- not a claim that none exists); or ``"fail"`` (not settled;
     retry). ``found`` is ``(envelope data, source url)`` of the
     chosen package's dependents. ``guessed``: the name guess, if one could be
     made; ``guess_linked``: whether deps.dev links it to the repo (None when
     there was no guess or the verdict is ``"fail"``). ``map_truncated``: the
-    source-repo map hit :data:`MAP_VERSION_CAP`.
+    source-repo map hit :data:`MAP_VERSION_CAP`. ``examined``: the candidates
+    counted for an ``"unresolved"`` verdict that read 0 (empty otherwise; a
+    ``"found"`` verdict records them in its envelope data).
     """
 
     verdict: str
@@ -707,6 +783,7 @@ class PackageResolution:
     guessed: Optional[str]
     guess_linked: Optional[bool]
     map_truncated: bool
+    examined: tuple[dict[str, Any], ...] = ()
 
 
 def resolve_repo_package(
@@ -723,9 +800,12 @@ def resolve_repo_package(
     name guess (:func:`package_name_for_repo`) is a candidate only: it counts
     when the source-repo map lists it, or, when the map is cut at
     :data:`MAP_VERSION_CAP`, when its own default version names the repo
-    (:func:`links_repo`). At most :data:`MAPPED_CANDIDATE_LIMIT` mapped
-    packages are examined, plus a linked guess; the one with the most
-    dependents wins (module docstring). Nothing here writes.
+    (:func:`links_repo`; an npm guess is checked in lower case too). At most
+    :data:`MAPPED_CANDIDATE_LIMIT` mapped packages are examined, plus a linked
+    guess, plus on a cut map the linked packages of the ecosyste.ms repository
+    lookup (:func:`_lookup_candidates`); the one with the most dependents wins
+    (module docstring). On a cut map a winning count of 0 is ``"unresolved"``
+    unless the linked guess was counted. Nothing here writes.
     """
     system = SYSTEM_FOR_ECOSYSTEM.get(ecosystem)
     if system is None:
@@ -754,20 +834,33 @@ def resolve_repo_package(
 
     guess_key = package_key(ecosystem, guessed) if guessed is not None else None
     guess_linked: Optional[bool] = None
+    linked_spelling = guessed
     if guessed is not None:
         if guess_key in merged:
             guess_linked = True
         elif truncated:
             guess_linked = _guess_is_linked(system, guessed, owner, name)
+            if guess_linked is False and ecosystem == "npm" and guessed != guessed.lower():
+                guess_linked = _guess_is_linked(system, guessed.lower(), owner, name)
+                if guess_linked:
+                    linked_spelling = guessed.lower()
             if guess_linked is None:
                 return PackageResolution("fail", None, None, map_status, guessed, None, truncated)
         else:
             guess_linked = False
 
     candidates = mapped[:MAPPED_CANDIDATE_LIMIT]
-    if guess_linked and guessed is not None \
+    if guess_linked and linked_spelling is not None \
             and guess_key not in {package_key(ecosystem, p) for p, _ in candidates}:
-        candidates.append((guessed, merged.get(guess_key, (guessed, 0))[1]))
+        candidates.append((linked_spelling, merged.get(guess_key, (linked_spelling, 0))[1]))
+    if truncated:
+        looked_up = _lookup_candidates(
+            owner, name, ecosystem, system,
+            {package_key(ecosystem, p) for p, _ in candidates}, set(merged))
+        if looked_up is None:
+            return PackageResolution("fail", None, None, map_status, guessed,
+                                     guess_linked, truncated)
+        candidates += [(p, merged.get(package_key(ecosystem, p), (p, 0))[1]) for p in looked_up]
     if not candidates:
         return PackageResolution("unresolved" if truncated else "no_package", None, None,
                                  map_status, guessed, guess_linked, truncated)
@@ -790,6 +883,11 @@ def resolve_repo_package(
                                  guess_linked, truncated)
     (data, source), _linked, package = min(
         results, key=lambda r: (-r[0][0]["dependent_count"], -r[1], r[2]))
+    guess_counted = bool(guess_linked) and any(
+        package_key(ecosystem, counted) == guess_key for _found, _n, counted in results)
+    if truncated and data["dependent_count"] == 0 and not guess_counted:
+        return PackageResolution("unresolved", None, None, map_status, guessed,
+                                 guess_linked, truncated, tuple(examined))
     data["guessed_package"] = guessed
     data["guess_linked"] = guess_linked
     data["source_repo_map"] = map_url
@@ -807,8 +905,9 @@ def _no_package_envelope_data(
     ecosystem: str, system: str, resolution: PackageResolution,
 ) -> dict[str, Any]:
     """Envelope body for a repo with no count: deps.dev links it to no package of
-    its registry (``no_package``), or the map was cut and showed none
-    (``unresolved``).
+    its registry (``no_package``), or the map was cut and showed none, or showed
+    only packages with 0 dependents and not the repo's linked namesake
+    (``unresolved``; those candidates are recorded as ``mapped_candidates``).
 
     Every dependents-shaped field is present and ``None`` (never omitted), as
     in :func:`_not_applicable_envelope_data`, so ``scripts/derive.py``'s
@@ -816,7 +915,7 @@ def _no_package_envelope_data(
     the input unmeasured. This is an observation about the registry, not a
     design-level rule: it is never ``not_applicable`` (D-MISS-5).
     """
-    return {
+    data: dict[str, Any] = {
         "ecosystem": ecosystem, "package": None, "system": system,
         "version": None, "dependent_count": None,
         "direct_dependent_count": None, "indirect_dependent_count": None,
@@ -829,6 +928,9 @@ def _no_package_envelope_data(
         "source_repo_map_http": resolution.map_status,
         "map_truncated": resolution.map_truncated,
     }
+    if resolution.examined:
+        data["mapped_candidates"] = list(resolution.examined)
+    return data
 
 
 def collect_dependents(
@@ -862,13 +964,14 @@ def collect_dependents(
     input stays unmeasured.
 
     Returns ``"unresolved"`` when the map was cut at :data:`MAP_VERSION_CAP`
-    and nothing visible matched: the same no-count envelope is written
-    (``source_used: "deps.dev:cut_map_unresolved"``), but it does not claim the
-    registry lacks a package.
+    and nothing visible matched, or every counted candidate read 0 and the
+    repo's linked namesake was not among them: the same no-count envelope is
+    written (``source_used: "deps.dev:cut_map_unresolved"``), but it does not
+    claim the registry lacks a package.
 
-    Returns ``"fail"`` when the question was not settled: the source-repo map
-    or the guess check got no answer, or no candidate package carried a count.
-    Nothing is written; the next run retries.
+    Returns ``"fail"`` when the question was not settled: the source-repo map,
+    the guess check or the cut-map repository lookup got no answer, or no
+    candidate package carried a count. Nothing is written; the next run retries.
 
     ``go_mod_module`` / ``maven_pom_xml``: optional content a caller
     already fetched (this function fetches neither) -- respectively the

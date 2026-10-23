@@ -28,7 +28,7 @@ from datetime import timezone as _utc_timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
-from porchlamp.core import commit_domains, constants, gates, hygiene, models, openssf
+from porchlamp.core import commit_domains, constants, gates, hygiene, landing, models, openssf
 from porchlamp.core.models import (
     BundleValidationError,
     Cohorts,
@@ -259,14 +259,14 @@ LastNonBotCommitValue = commit_domains.LastNonBotCommitValue
 @dataclass(frozen=True)
 class TopEmailDomainShareMeasured:
     """``top_email_domain_share``, measured: the ``ef_domain_mismatch``
-    detector's input (03 section 6). ``value`` is the top org's share of
-    ``n`` non-bot commits in ``[0, 1]``; ``top_domain`` is the org key
-    itself (:func:`porchlamp.core.commit_domains.org_key` -- a literal email
-    domain for a corporate address, but the author's login for a
-    ``users.noreply.github.com`` or personal-domain address, exactly
-    mirroring 3.2 elephant_factor's own grouping so the two facts can never
-    disagree about who counts as "one entity"); ``n`` is the non-bot commit
-    count the share was computed over."""
+    detector's input (03 section 6). ``value`` is the top email domain's
+    share of ``n`` non-bot commits in ``[0, 1]``; ``top_domain`` is that
+    commit email domain itself, lower-cased
+    (:func:`porchlamp.core.commit_domains.top_domain_share`): a personal
+    provider or ``users.noreply.github.com`` is one domain here, where 3.2
+    elephant_factor counts one org per author on it -- the difference the
+    detector reads; ``n`` is the non-bot commit count the share was
+    computed over."""
 
     value: float
     top_domain: str
@@ -743,21 +743,26 @@ def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValu
 
     domain = commit_domains.top_domain_share(records)
     domain_fact: TopEmailDomainShareValue
-    if domain.n < _TOP_DOMAIN_SHARE_MIN_N:
+    window = None if used_fallback else commit_domains.commit_window(_envelope_data(path))
+    if window is not None and window.cut:
+        # RFC-0021: the newest days of a busier year are not the window's
+        # commits; the share is refused like the EF it is compared with.
+        domain_fact = Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
+    elif domain.n < _TOP_DOMAIN_SHARE_MIN_N:
         domain_fact = Unmeasured(
             reason="insufficient_n",
             detail=f"{domain.n} non-bot commits, minimum {_TOP_DOMAIN_SHARE_MIN_N}",
         )
     elif domain.top_domain == "":
         # n cleared the minimum but not one non-bot commit carried an
-        # attributable org (porchlamp.core.commit_domains.org_key needs an
-        # "@"-bearing email; this sample corpus's commits_180d rows carry
+        # email domain (porchlamp.core.commit_domains.top_domain_share needs
+        # an "@"-bearing email; this sample corpus's commits_180d rows carry
         # none at all) -- a real collector gap, distinct from "too few
         # commits" (insufficient_n) and worth its own detail.
         domain_fact = Unmeasured(
             reason="collector_failure",
             detail=f"{domain.n} non-bot commits but none carry an author_email "
-                   "porchlamp.core.commit_domains.org_key could resolve to an org",
+                   "with a domain",
         )
     else:
         domain_fact = TopEmailDomainShareMeasured(
@@ -1128,12 +1133,18 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
         if confidence_value in ("verified", "derived", "flag") and value_ok:
             path = _resolve_envelope(source, ctx.raw_root)
             mapped = _map_v1_value(value, vocab)
-            # #51 rule 5: on a pr_window record cut short of its window only an
-            # observed promotion (VERIFIED) is evidence; every other rung rests on
-            # the absence of something the unrecorded part could hold.
-            if (v1_field == "promotion_ladder" and mapped != "VERIFIED"
+            # #51 rule 5 + RFC-0016: on a pr_window record cut short of its
+            # 180d window, every promotion_ladder rung (including action-based
+            # VERIFIED) rests on the absence of earlier actions in the
+            # unrecorded portion of the window.
+            if (v1_field == "promotion_ladder"
                     and _pr_window_cut_short(_pr_window_envelope(ctx)[1])):
                 return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
+            # RFC-0021: the sign-off regime (DCO by share, or the NONE default
+            # beside it) reads the window's Signed-off-by share, which a
+            # commits record cut at the pre-RFC-0021 cap does not hold.
+            if v1_field == "legal_ip" and _legal_ip_reads_signoff(ctx) and _commits_365d_cut(ctx):
+                return Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
             if path is not None and isinstance(fetched_at, str) and fetched_at and mapped is not None:
                 source_hash = _envelope_hash(path)
                 relative = _relative_source(path, ctx.raw_root)
@@ -1151,6 +1162,9 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
             # #51 rule 5: the deriver withholds every rung but VERIFIED on a cut pr_window record; say why.
             if v1_field == "promotion_ladder" and _pr_window_cut_short(_pr_window_envelope(ctx)[1]):
                 return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
+            # RFC-0021: the deriver withholds the sign-off regime on a cut commits record; say why.
+            if v1_field == "legal_ip" and _legal_ip_reads_signoff(ctx) and _commits_365d_cut(ctx):
+                return Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
             return Unmeasured(reason="collector_failure", detail="v1 deriver recorded no value")
         return Unmeasured(reason="collector_failure",
                            detail=f"v1 confidence {confidence_value!r} for {v1_field!r} is not recognized")
@@ -1326,6 +1340,41 @@ def _author_history_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapp
     return result
 
 
+def _commits_365d_cut(ctx: _V1Ctx) -> bool:
+    """RFC-0021: whether this bundle's ``commits_365d`` record stopped at the
+    pre-RFC-0021 newest-1,000 cap (:func:`porchlamp.core.commit_domains.
+    commit_window`), memoized on ``ctx.cache``.
+
+    Keyed off the ``vitality`` provenance entry: ``scripts/derive.py``
+    records it from the commits_365d envelope whenever that envelope holds
+    rows, a cut one included (vitality reads the newest commits, which a cut
+    record still holds). ``False`` when the entry is absent or ``raw_root``
+    cannot resolve it -- the rows' own readers then already report the
+    envelope missing. The readers of a window measure (3.2 EF, 2.2, 3.1's
+    sign-off regime) refuse a cut record here as well as at derive time, so
+    a derived document written before RFC-0021 cannot carry a value computed
+    on the newest days alone.
+    """
+    if "commits_365d_cut" in ctx.cache:
+        return ctx.cache["commits_365d_cut"]
+    path = _resolve_envelope(_first_source(ctx.provenance.get("vitality")), ctx.raw_root)
+    window = commit_domains.commit_window(_envelope_data(path)) if path is not None else None
+    cut = window is not None and window.cut
+    ctx.cache["commits_365d_cut"] = cut
+    return cut
+
+
+def _legal_ip_reads_signoff(ctx: _V1Ctx) -> bool:
+    """RFC-0021: whether the recorded 3.1 verdict rests on the window's
+    ``Signed-off-by`` share -- rule ``signoff_share`` (DCO by share) or
+    ``no_evidence`` (the NONE default, reached only once the share stayed
+    under half) in ``meta.legal_ip_evidence``, written by
+    ``porchlamp.collect.governance.classify_legal_ip``. A check- or
+    foundation-based verdict does not, and stands on a cut commits record."""
+    evidence = ctx.meta.get("legal_ip_evidence")
+    return isinstance(evidence, Mapping) and evidence.get("rule") in ("signoff_share", "no_evidence")
+
+
 #: #51: the core definitions (:mod:`porchlamp.core.gates`), shared with the
 #: collector and D-GATE-5: the PR nodes whose replies a ``pr_window`` record
 #: holds, whether a ``pr_window`` record stopped short of its own window, and
@@ -1333,6 +1382,14 @@ def _author_history_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapp
 _reply_sampled_prs = gates.reply_sampled_prs
 _pr_window_cut_short = gates.pr_window_cut_short
 _author_history_cut_short = gates.record_cut_short
+#: #66 F1: whether the ``author_history`` record stopped short of an instant
+#: another envelope fixes (1.2 DR_90's cohort start, from the ``pr_window``
+#: record's own anchor).
+_author_history_cut_short_at = gates.record_cut_short_at
+#: #57: an outside PR (external association, non-bot author), read from the
+#: recorded PR node under the current rules, never from the envelope's stored
+#: ``derived`` list; the same predicate the collector's per-PR rows apply.
+_is_outside_pr = gates.is_outside_pr
 
 
 def _pr_window_bounds(data: Optional[Mapping[str, Any]]) -> tuple[Optional[str], Optional[str]]:
@@ -1351,27 +1408,24 @@ def _pr_window_bounds(data: Optional[Mapping[str, Any]]) -> tuple[Optional[str],
 
 
 def _merged_external_latency_hours(data: Mapping[str, Any]) -> list[float]:
-    """Merge latency in hours for merged, external PRs (1.5 TTM_p90).
+    """Merge latency in hours for merged outside PRs (1.5 TTM_p90).
 
-    Joins the raw pr_window envelope's ``derived`` classifications
-    (``is_external``, ``merged``) with its ``prs`` raw nodes (``createdAt``,
-    ``mergedAt``) by PR ``number``: the collector records them in two
-    separate lists, neither alone carries both facts.
+    #57: read from the raw pr_window envelope's ``prs`` nodes alone: an
+    outside PR (:func:`porchlamp.core.gates.is_outside_pr`: an external
+    author association and a non-bot author, D-IN-1) whose merge timestamp is no
+    earlier than its ``createdAt``. The envelope's stored ``derived`` list,
+    the collection run's own classification, is not read, so a rule change
+    since collection reaches this measure, and a bot's own merged PRs
+    (Dependabot, Renovate) do not set the p90. RFC-0015: a node landed
+    outside GitHub's merge (:func:`porchlamp.core.landing.is_landed`) counts as
+    merged, at its close (:func:`porchlamp.core.landing.merged_or_landed_at`).
     """
-    classified = {
-        entry.get("number"): entry
-        for entry in (data.get("derived") or [])
-        if isinstance(entry, Mapping) and entry.get("number") is not None
-    }
     out: list[float] = []
     for pr in data.get("prs") or []:
-        if not isinstance(pr, Mapping):
-            continue
-        info = classified.get(pr.get("number"))
-        if not info or not info.get("is_external") or not info.get("merged"):
+        if not _is_outside_pr(pr):
             continue
         created = _parse_iso_or_none(pr.get("createdAt"))
-        merged = _parse_iso_or_none(pr.get("mergedAt"))
+        merged = _parse_iso_or_none(landing.merged_or_landed_at(pr))
         if created is None or merged is None or merged < created:
             continue
         out.append((merged - created).total_seconds() / 3600.0)
@@ -1411,7 +1465,11 @@ def _dr90_author_eligible(
     population) when the login has no author_history record at all (the
     two envelopes' decision-cohort windows do not perfectly coincide -- the
     365 d window's cohort is a superset of pr_window's narrower 1.2
-    band, so a genuine miss should be rare but is not impossible) or when
+    band, so a genuine miss should be rare but is not impossible; #66: the
+    superset holds only for two records sharing an anchor, so a history
+    anchored N days before the pr_window has no record for an author whose
+    only cohort PR opened in the band's last N days, and a history cut short
+    of the band's start is refused by :func:`_resolve_dr90_decision_rate`) or when
     its eligibility fetch failed (``eligibility_unmeasured``); otherwise
     ``porchlamp.core.hygiene.is_eligible_account`` on the record's own
     ``account_created_at``/``public_event_count`` against THIS PR's
@@ -1455,10 +1513,13 @@ def _dr90_decision_cohort(
     """1.2 DR_90's cohort and decision count over the raw pr_window envelope,
     D-IN-3-adjusted.
 
-    Joins ``derived[].is_external`` with ``prs[].{createdAt,mergedAt,closedAt,
-    author}`` by PR ``number`` -- the same by-number join
-    :func:`_merged_external_latency_hours` uses for 1.5. The cohort is every
-    external PR whose ``createdAt`` falls in the half-open interval
+    Reads the ``prs[]`` nodes alone (``createdAt``, ``mergedAt``,
+    ``closedAt``, ``author``): #57, a PR belongs to the cohort when it is an
+    outside PR (:func:`porchlamp.core.gates.is_outside_pr`: an external
+    author association and a non-bot author, D-IN-1), judged from the node
+    under the current rules as for 1.5 (:func:`_merged_external_latency_hours`),
+    never from the envelope's stored ``derived`` list. The cohort is every
+    outside PR whose ``createdAt`` falls in the half-open interval
     ``[anchor - 180d, anchor - 90d)``: the lower bound is inclusive (a PR
     opened exactly 180 d ago is still inside the collector's trailing
     window), the upper bound is exclusive (a PR opened exactly 90 d ago has
@@ -1510,21 +1571,13 @@ def _dr90_decision_cohort(
     capped rate below the floor is often a small population made smaller
     by a real cap bind, and the two numbers together say which.
     """
-    classified = {
-        entry.get("number"): entry
-        for entry in (data.get("derived") or [])
-        if isinstance(entry, Mapping) and entry.get("number") is not None
-    }
     cohort_start = anchor - timedelta(days=_DR90_COHORT_START_DAYS)
     cohort_end = anchor - timedelta(days=_DR90_COHORT_END_DAYS)
     decision_window = timedelta(days=_DR90_DECISION_WINDOW_DAYS)
     entries: list[tuple[str, datetime.datetime, Mapping[str, Any]]] = []
     malformed = 0
     for pr in data.get("prs") or []:
-        if not isinstance(pr, Mapping):
-            continue
-        info = classified.get(pr.get("number"))
-        if not info or not info.get("is_external"):
+        if not _is_outside_pr(pr):
             continue
         created = _parse_iso_or_none(pr.get("createdAt"))
         if created is None:
@@ -1566,6 +1619,21 @@ def _dr90_decision_cohort(
 _PR_WINDOW_CUT_SHORT_DETAIL = "pr_window envelope is truncated before reaching the 180d window start"
 
 
+def _author_history_cut_detail(ah_data: Mapping[str, Any], cohort_start: datetime.datetime) -> str:
+    """#66 F1: the detail of a 1.2 DR_90 refused because its ``author_history``
+    record stopped short of the decision cohort's start (an instant the
+    ``pr_window`` record's anchor fixes): the instant, and where the history's
+    PRs begin, from :func:`porchlamp.core.gates.pr_window_coverage`."""
+    start = cohort_start if cohort_start.tzinfo is not None else cohort_start.replace(tzinfo=_utc_timezone.utc)
+    _covered, cutoff = gates.pr_window_coverage(ah_data, start)
+    held = f"it holds the PRs opened from {cutoff}" if cutoff else "it records no PR with a readable createdAt"
+    return (
+        f"author_history envelope is truncated before reaching the decision cohort start {start.isoformat()} "
+        f"(pr_window anchor - {_DR90_COHORT_START_DAYS}d): {held}, so the D-IN-3 eligibility join would drop "
+        f"every cohort author it never recorded"
+    )
+
+
 def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     """1.2 DR_90 decision rate (D-IN-4 amendment; D-IN-3 per-author cap and
     eligibility gate). No v1 summary field exists for this cohort (the v1
@@ -1587,6 +1655,18 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
 
     #51: it reads every PR of the window, a sampled one included (decisions
     are PR-level facts), and refuses a record cut short of its window.
+
+    #66 F1: it also refuses (``collector_failure``) an ``author_history``
+    record cut short of the cohort's start, the instant ``window_anchor``
+    minus 180 d of THIS ``pr_window`` record
+    (:func:`porchlamp.core.gates.record_cut_short_at`): the two envelopes are
+    collected at different times, so the history's own day count does not say
+    whether it reaches this cohort. The join reads eligibility only for the
+    authors the history recorded, so a cut history silently dropped every
+    cohort author it never saw: ``n`` collapsed to an ``insufficient_n`` that
+    was a collector failure, or the rate was computed over the repeat
+    contributors alone. 1.3, 5.2 and 5.3 already refuse a history cut short of
+    their own cohorts (RFC-0013).
     """
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
@@ -1599,9 +1679,12 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
             reason="collector_failure",
             detail=f"pr_window envelope has no parseable window_anchor: {data.get('window_anchor')!r}",
         )
+    cohort_start = anchor - timedelta(days=_DR90_COHORT_START_DAYS)
     _ah_path, ah_data, _ah_fetched_at = _author_history_envelope(ctx)
     author_records: Optional[Mapping[str, Mapping[str, Any]]] = None
     if ah_data is not None:
+        if _author_history_cut_short_at(ah_data, cohort_start):
+            return Unmeasured(reason="collector_failure", detail=_author_history_cut_detail(ah_data, cohort_start))
         author_records = {
             str(record.get("login") or "").lower(): record
             for record in ah_data.get("author_records") or []
@@ -1617,7 +1700,7 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
         if malformed:
             detail += f" ({malformed} excluded: malformed or missing createdAt)"
         return Unmeasured(reason="insufficient_n", detail=detail)
-    window_start = (anchor - timedelta(days=_DR90_COHORT_START_DAYS)).isoformat()
+    window_start = cohort_start.isoformat()
     window_end = (anchor - timedelta(days=_DR90_COHORT_END_DAYS)).isoformat()
     source_hash = _envelope_hash(path)
     relative = _relative_source(path, ctx.raw_root)
@@ -1675,21 +1758,29 @@ def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
 def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     """4.3 Substantive review rate. The rate itself is the
     ``pr_window_substantive_review_rate`` summary field; ``n`` (decided
-    external PRs in the reply sample) has no summary field and is counted
-    from the raw envelope's ``derived`` classifications."""
+    outside PRs in the reply sample) has no summary field and is counted
+    from the raw envelope's PR nodes: #57, a decided (``closedAt``) outside PR
+    (:func:`porchlamp.core.gates.is_outside_pr`) whose replies the record
+    holds (:func:`porchlamp.core.gates.reply_sampled_prs`), the population
+    ``porchlamp.collect.github_graphql.derive_pr_window_fields`` computes the
+    rate over. The envelope's stored ``derived`` list is not read."""
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
     if _pr_window_cut_short(data):
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
-    decided_external = [
-        entry for entry in (data.get("derived") or [])
-        if isinstance(entry, Mapping)
-        and entry.get("is_external")
-        and entry.get("decided")
-        and ("substantive_review" not in entry or entry.get("substantive_review") is not None)
+    prs = data.get("prs")
+    nodes = [pr for pr in prs if isinstance(pr, Mapping)] if isinstance(prs, list) else []
+    maintainers = gates.maintainer_logins(nodes)
+    sampled = _reply_sampled_prs(nodes)
+    boilerplate = gates.substantive_review_boilerplate(sampled, maintainers)
+    decided_outside = [
+        pr for pr in sampled
+        if _is_outside_pr(pr)
+        and pr.get("closedAt") is not None
+        and not gates.is_excluded_from_review_denominator(pr, maintainers, boilerplate)
     ]
-    n = len(decided_external)
+    n = len(decided_outside)
     min_n = constants.PARAM_MIN_N["substantive_review_rate"]
     if n < min_n:
         return Unmeasured(reason="insufficient_n",
@@ -1706,11 +1797,32 @@ def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
                      method="primary", source=relative, source_hash=source_hash, fetched_at=fetched_at)
 
 
+def _landing_note(ctx: _V1Ctx, recorded_field: str, landed_field: str, counted: str) -> str:
+    """RFC-0015: the clause a merge-based measure's ``insufficient_n`` detail adds
+    about pull requests landed outside GitHub's merge, read from the derive-time
+    fields ``recorded_field`` (whether the record carries the landing fields) and
+    ``landed_field`` (how many landed PRs or authors the measure counted).
+
+    ``counted`` is the clause for a record that shows landings, with a
+    ``{landed}`` placeholder for the count; a record fetched before the landing
+    fields says it shows none; a bundle derived by a tree that recorded neither
+    field adds nothing."""
+    recorded = ctx.meta.get(recorded_field)
+    landed = ctx.meta.get(landed_field)
+    if recorded is False:
+        return "; the record shows no landing outside GitHub's merge (fetched before RFC-0015's fields)"
+    if recorded is True and _is_count(landed):
+        return "; " + counted.format(landed=landed)
+    return ""
+
+
 def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
     """1.5 TTM_p90. No v1 summary field exists at all (unlike TTFHR and the
     review rate): both the value and ``n`` are computed here from the raw
     pr_window envelope's merged-external-PR latencies
-    (:func:`_merged_external_latency_hours`)."""
+    (:func:`_merged_external_latency_hours`). RFC-0015: a PR landed outside
+    GitHub's merge is merged at its close; an ``insufficient_n`` detail names how
+    many outside PRs the record shows landed (:func:`_landing_note`)."""
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
@@ -1720,8 +1832,11 @@ def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
     n = len(latencies)
     min_n = constants.PARAM_MIN_N["ttm_p90_hours"]
     if n < min_n:
+        note = _landing_note(
+            ctx, "pr_window_landing_recorded", "pr_window_landed_external_count",
+            "{landed} outside PRs in the record were landed outside GitHub's merge and count as merged")
         return Unmeasured(reason="insufficient_n",
-                           detail=f"{n} merged external PRs with recorded latency, need >= {min_n}")
+                           detail=f"{n} merged external PRs with recorded latency, need >= {min_n}{note}")
     window_start, window_end = _pr_window_bounds(data)
     source_hash = _envelope_hash(path)
     relative = _relative_source(path, ctx.raw_root)
@@ -1895,12 +2010,21 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
     ``constants.OPENSSF_PROXY_MIN_SIGNALS`` of the ten are present, this
     row is ``Measured(method="proxy:no_dependents_signal")`` instead of
     Unmeasured; a dependents ``collector_failure`` still leaves 2.2
-    ``Unmeasured(collector_failure)`` (a retry can still measure it)."""
+    ``Unmeasured(collector_failure)`` (a retry can still measure it).
+
+    RFC-0021: a commits_365d record cut at the pre-RFC-0021 cap
+    (:func:`_commits_365d_cut`) leaves 2.2 ``Unmeasured(collector_failure)``
+    whatever the derived document recorded -- three of the ten signals are
+    counts over the window that record does not hold (it held every busy
+    repository's commit frequency at 19.23 a week), and D-MISS-5 never
+    renormalises a collector failure away."""
     confidence_value = ctx.confidence.get("openssf_signals")
     signals = ctx.meta.get("openssf_signals")
     entry = ctx.provenance.get("openssf_signals")
     source_field = entry.get("source") if isinstance(entry, Mapping) else None
     fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    if confidence_value != "collector_failure" and _commits_365d_cut(ctx):
+        return Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
     if confidence_value == "derived":
         if not isinstance(signals, Mapping):
             return Unmeasured(reason="collector_failure", detail=f"openssf_signals is not a mapping: {signals!r}")
@@ -1962,7 +2086,9 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
     backing the review-rate denominator (``porchlamp.collect.pike_signals.
     code_review_rate``), read from the pr_window envelope's own ``prs`` list
     -- 10-merged-PR minimum sample applies to the proxy method only
-    (``porchlamp.core.params.rigor._PIPELINE.proxy_min_n``).
+    (``porchlamp.core.params.rigor._PIPELINE.proxy_min_n``). RFC-0015: a PR
+    landed outside GitHub's merge is merged there and here
+    (:func:`porchlamp.core.landing.merged_or_landed_at`).
 
     When 4.1 is unmeasurable by either method, its confidence key is simply
     absent from the v1 document (not the string ``"missing"``) -- both are
@@ -1990,7 +2116,12 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
                 return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
             prs = data.get("prs") if isinstance(data, Mapping) else None
             sampled_prs = _reply_sampled_prs(prs or [])
-            n = sum(1 for pr in sampled_prs if pr.get("mergedAt") is not None)
+            n = sum(
+                1
+                for pr in sampled_prs
+                if landing.merged_or_landed_at(pr) is not None
+                and (gates.has_non_author_approval(pr) or not gates.reply_connection_cut(pr.get("reviews")))
+            )
         return Measured(value=float(value), n=n, window_start=None, window_end=None, method=method,
                          source=_relative_source(paths[0], ctx.raw_root),
                          source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
@@ -2026,6 +2157,7 @@ _AUTHOR_HISTORY_REQUIRED_DAYS: dict[str, int] = {
 
 def _author_history_rate_resolver(
     rate_field: str, count_field: str, detail_field: str, *, unset_detail: str, count_unit: str = "authors",
+    landed_field: str, landed_clause: str,
 ) -> InputResolver:
     """Read-through resolver for the three D-IN-3-adjusted cohort rates
     ``porchlamp.collect.github_graphql.derive_cohort_fields`` computes straight from
@@ -2061,6 +2193,12 @@ def _author_history_rate_resolver(
     and retention rate, but ``mr_first_rate``'s ``mr_first_pr_count`` counts
     PRs, not authors, so that row passes ``count_unit="PRs"``.
 
+    RFC-0015: ``landed_field`` is the field ``derive_cohort_fields`` records
+    beside ``count_field``, how many of those PRs or authors count as merged by
+    a landing outside GitHub's merge; an ``insufficient_n`` detail names it in
+    ``landed_clause`` (a ``{landed}`` placeholder for the count), or says the
+    record shows no landing (:func:`_landing_note`).
+
     #51 rule 5: a ``"derived"`` rate whose ``author_history`` record stopped
     short of the days its cohort needs (:data:`_AUTHOR_HISTORY_REQUIRED_DAYS`)
     is ``Unmeasured(collector_failure)``, whatever the deriver recorded.
@@ -2086,9 +2224,10 @@ def _author_history_rate_resolver(
             count_ok = isinstance(count, int) and not isinstance(count, bool)
             min_n = constants.PARAM_MIN_N.get(rate_field)
             if count_ok and min_n is not None and count < min_n:
+                note = _landing_note(ctx, "author_history_landing_recorded", landed_field, landed_clause)
                 return Unmeasured(
                     reason="insufficient_n",
-                    detail=f"{count} {count_unit} in the D-IN-3-adjusted cohort, need >= {min_n}",
+                    detail=f"{count} {count_unit} in the D-IN-3-adjusted cohort, need >= {min_n}{note}",
                 )
             value_ok = isinstance(value, (int, float)) and not isinstance(value, bool)
             if value_ok and count_ok:
@@ -2134,14 +2273,28 @@ def _unmapped(detail: str) -> InputResolver:
 
 
 def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """5.4 DX (0.5 CI runtime + 0.5 setup signals, on 0-100, min n = 5 pull-request commits)."""
+    """5.4 DX (0.5 CI runtime + 0.5 setup signals on 0-100, min n = 5 PR commits;
+    or setup-signals proxy ``proxy:setup_signals_only`` when < 5 PR commits, RFC-0020)."""
     confidence_value = ctx.confidence.get("dx")
     if confidence_value in ("derived", "verified"):
         value = ctx.meta.get("dx")
         count = ctx.meta.get("dx_run_count")
         count_ok = isinstance(count, int) and not isinstance(count, bool) and count >= 0
         min_n = constants.PARAM_MIN_N.get("dx")
-        if count_ok and min_n is not None and count < min_n:
+        raw_method = ctx.meta.get("dx_method")
+        is_proxy = (
+            raw_method == constants.METHOD_PROXY_DX_SETUP_SIGNALS
+            and count_ok
+            and min_n is not None
+            and count < min_n
+        )
+        method = (
+            constants.METHOD_PROXY_DX_SETUP_SIGNALS
+            if is_proxy
+            else constants.METHOD_PRIMARY
+        )
+        req_min_n = constants.DX_PROXY_MIN_N if is_proxy else min_n
+        if count_ok and req_min_n is not None and count < req_min_n:
             return Unmeasured(
                 reason="insufficient_n",
                 detail=f"{count} pull-request commits with a finished CI run, need >= {min_n}",
@@ -2162,7 +2315,7 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
                 relative = _relative_source(path, ctx.raw_root)
                 ctx.referenced[relative] = source_hash
                 return Measured(
-                    value=float(value), n=count, window_start=None, window_end=None, method="primary",
+                    value=float(value), n=count, window_start=None, window_end=None, method=method,
                     source=relative, source_hash=source_hash, fetched_at=fetched_at,
                 )
             detail = (f"v1 source is not an envelope: {source!r}" if path is None
@@ -2201,29 +2354,45 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
     )
 
 
+#: 3.2 EF's carried-through scalar (n = the commits it was computed from).
+_resolve_elephant_factor_scalar: InputResolver = _plain_scalar_resolver(
+    "elephant_factor", n_field="elephant_factor_commit_count")
+
+
+def _resolve_elephant_factor(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """3.2 Elephant factor: :data:`_resolve_elephant_factor_scalar`, refused
+    (``Unmeasured(collector_failure)``) on a commits_365d record cut at the
+    pre-RFC-0021 cap (:func:`_commits_365d_cut`): the org shares EF reads are
+    the newest days', not the year's (RFC-0021). A whole window or an evenly
+    spaced sample of it is read as recorded."""
+    if _commits_365d_cut(ctx):
+        return Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
+    return _resolve_elephant_factor_scalar(ctx)
+
+
 #: The v2 input mapping table: one resolver per
 #: ``constants.PARAM_INPUT_IDS`` entry, in the same pillar order.
 #:
 #: | Input id | Reads | When absent |
 #: |---|---|---|
-#: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
-#: | dr90_decision_rate | raw pr_window envelope: derived[].is_external joined with prs[].{createdAt,mergedAt,closedAt} by number, cohort [anchor-180d,anchor-90d) (D-IN-4 amendment) | no envelope -> collector_failure; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
-#: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
+#: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count, computed by derive from the pr_window PR nodes under the current rules (outside PRs: external association, non-bot author; never the envelope's stored derived list, #57) | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
+#: | dr90_decision_rate | raw pr_window envelope: prs[] nodes of outside PRs (gates.is_outside_pr: external association, non-bot author; #57) with their createdAt/mergedAt/closedAt, cohort [anchor-180d,anchor-90d) (D-IN-4 amendment); D-IN-3 eligibility joined from the author_history envelope's author_records | no envelope -> collector_failure; author_history truncated before the cohort start instant (pr_window anchor-180d, not the history's own anchor) -> collector_failure; no author_history envelope -> Measured with method proxy:din3_unapplied; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
+#: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted; merged includes landed outside GitHub's merge, RFC-0015: .mr_first_landed_pr_count) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n, detail names the landed count |
 #: | gr14_ghost_rate | meta.gr14_ghost_rate + .gr14_population_n + .gr14_window_start/_end, computed by derive with porchlamp.core.gates.zero_response_counts (also D-GATE-5's input) | no pr_window envelope -> collector_failure; not derived by this tree -> collector_failure; n=0 -> insufficient_n; n<10 -> insufficient_n at scoring with the true n |
-#: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number | no envelope -> collector_failure; n<5 -> insufficient_n |
+#: | ttm_p90_hours | raw pr_window envelope: prs[] nodes of merged outside PRs (gates.is_outside_pr; #57), merge time porchlamp.core.landing.merged_or_landed_at (RFC-0015) | no envelope -> collector_failure; n<5 -> insufficient_n, detail names meta.pr_window_landed_external_count |
 #: | dependents_deduped | meta.dependents_count when confidence=="derived" (dependents hook); meta.ecosystem gates it | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it |
-#: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
+#: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score); commits_365d record cut at the pre-RFC-0021 cap -> collector_failure |
 #: | downloads_monthly | meta.monthly_downloads; meta.downloads_status refines the Unmeasured detail | go/maven/systems -> not_applicable (D-MISS-5); otherwise third_party_gap, detail per downloads_status |
-#: | legal_ip | meta.legal_ip, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
-#: | elephant_factor | meta.elephant_factor; n = meta.elephant_factor_commit_count (non-bot org-attributed commits in the 365 d window; 0 when absent, e.g. the contributors-only fallback) | collector_failure; n<30 -> insufficient_n at scoring, with the true n |
+#: | legal_ip | meta.legal_ip, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection; a sign-off verdict (rule signoff_share / no_evidence) on a commits_365d record cut at the pre-RFC-0021 cap -> collector_failure |
+#: | elephant_factor | meta.elephant_factor; n = meta.elephant_factor_commit_count (non-bot org-attributed commits in the 365 d window; 0 when absent, e.g. the contributors-only fallback) | collector_failure; n<30 -> insufficient_n at scoring, with the true n; commits_365d record cut at the pre-RFC-0021 cap -> collector_failure |
 #: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
-#: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method: "primary" (scorecard) or "proxy:review_ci" (n = merged PRs) | confidence absent or missing -> third_party_gap (TP with proxy) |
+#: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method: "primary" (scorecard) or "proxy:review_ci" (n = merged or landed PRs, RFC-0015) | confidence absent or missing -> third_party_gap (TP with proxy) |
 #: | ai_posture | meta.ai_posture, vocab-validated against constants.AI_POSTURE_VALUES (identity map) | collector_failure; an out-of-set value is collector_failure too, never Measured |
-#: | substantive_review_rate | meta.pr_window_substantive_review_rate; n from the raw envelope | no envelope -> collector_failure; n<10 -> insufficient_n |
+#: | substantive_review_rate | meta.pr_window_substantive_review_rate (derive, from the PR nodes, #57); n = decided outside PRs in the reply sample, from the raw envelope's prs[] nodes | no envelope -> collector_failure; n<10 -> insufficient_n |
 #: | newcomer_issue_supply | meta.active_unclaimed_gfis | collector_failure |
-#: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
-#: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
-#: | dx | meta.dx + .dx_run_count (0.5 CI runtime + 0.5 setup signals) | no actions_runs envelope -> collector_failure; n<5 -> insufficient_n |
+#: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted; a first PR landed outside GitHub's merge converts, RFC-0015: .newcomer_conversion_landed_author_count) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n, detail names the landed count |
+#: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted; a first PR landed outside GitHub's merge starts the clock, RFC-0015: .rr90_return_landed_author_count) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n, detail names the landed count |
+#: | dx | meta.dx + .dx_run_count (0.5 CI runtime + 0.5 setup signals; proxy:setup_signals_only when n<5 and setup signals present) | no actions_runs envelope and no setup signals -> collector_failure; n<5 with no setup signals -> insufficient_n |
 INPUT_MAPPINGS: dict[str, InputResolver] = {
     "ttfhr_hours": _resolve_ttfhr_hours,
     "dr90_decision_rate": _resolve_dr90_decision_rate,
@@ -2231,6 +2400,8 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
         "mr_first_rate", "mr_first_pr_count", "cohort_unmeasured_detail",
         unset_detail="needs W1-4 author history; the v1 pipeline collected none",
         count_unit="PRs",
+        landed_field="mr_first_landed_pr_count",
+        landed_clause="{landed} of them were landed outside GitHub's merge and count as merged",
     ),
     "gr14_ghost_rate": _resolve_gr14_ghost_rate,
     "ttm_p90_hours": _resolve_ttm_p90_hours,
@@ -2242,7 +2413,7 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     # the legacy regex heuristic.
     "legal_ip": _vocab_scalar_resolver(
         "legal_ip", {value: value for value in constants.LEGAL_IP_VALUES} | V1_LEGAL_IP_VALUES),
-    "elephant_factor": _plain_scalar_resolver("elephant_factor", n_field="elephant_factor_commit_count"),
+    "elephant_factor": _resolve_elephant_factor,
     # "promotion_ladder" accepts both the current vocabulary as identity
     # (VERIFIED/DOCUMENTED/AD_HOC/CLOSED) and the legacy v1 spellings via
     # V1_LADDER_VALUES as a fallback.
@@ -2256,10 +2427,14 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     "newcomer_conversion": _author_history_rate_resolver(
         "newcomer_conversion", "newcomer_conversion_author_count", "newcomer_unmeasured_detail",
         unset_detail="needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+        landed_field="newcomer_conversion_landed_author_count",
+        landed_clause="{landed} of them converted by a first PR landed outside GitHub's merge",
     ),
     "rr90_return_rate": _author_history_rate_resolver(
         "rr90_return_rate", "rr90_return_author_count", "newcomer_unmeasured_detail",
         unset_detail="v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+        landed_field="rr90_return_landed_author_count",
+        landed_clause="{landed} of them had a first PR landed outside GitHub's merge",
     ),
     "dx": _resolve_dx,
 }

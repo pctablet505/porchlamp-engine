@@ -63,7 +63,7 @@ repo but is recorded.
 | **D-GATE-4** | Vitality | ≥ 1 commit by a non-bot `User` on the default branch in the trailing 180 d | Fail → gated `stale` | Spec gate 1, with bot typing from D-IN-1 |
 | **D-GATE-5** | Not a black hole | Over external PRs *opened* in the trailing 180 d that are ≥ 14 d old (`n ≥ 10` required, else `UNDECIDED`): share with zero substantive human response within 14 d of opening ≤ 0.50 | Fail → gated `black_hole` | Spec gate 2 with a window denominator and a minimum n; fixes F4/F6 |
 | **D-GATE-6** | PR workflow | ≥ 1 external PR decided in the trailing 365 d, OR off-platform markers present (`Documentation/process/submitting-patches*`, `MAINTAINERS` with `L:` mailing-list lines, README says patches go to a list/Gerrit/Phabricator), OR the repository **hands review off** (RFC-0007): among its outside PRs in the recorded `pr_window` (external, non-bot authors, no age filter) at least `GATE6_HANDOFF_MIN_PRS` = 5 and at least `GATE6_HANDOFF_MIN_SHARE` = 50 % carry a notice, i.e. a comment by an account other than the PR's author that contains (any letter case) one of `has been imported to Gerrit for code review`, `welcome to GitGitGadget`, `import it to our internal repository for further review`, or is written by an account whose login starts with `gitgitgadget` | Off-platform → **routed**, scored with responsiveness *unmeasured* and ranked under no lens (not on the balanced board, under any persona, or under custom weights); a repository that hands review off is routed whatever its decided PRs, and D-GATE-5 is then `UNDECIDED` for it, never failed (D-GATE-1..4 still decide; it gets no `black_hole` flag); neither → `unrated: no_external_workflow` | Spec gate 3 made detectable; `golang/go`, `git/git` and `mapbox/mapbox-gl-js` review outside PRs in Gerrit, on the mailing list and in an internal repository, where D-GATE-5 cannot see them |
-| **D-EVID-1** | Evidence sufficiency | Composite coverage `C ≥ 0.60` (see D-MISS-3) | Fail → `unrated: insufficient_evidence` (listed, not ranked) | A rank built on 40% of the weight is noise presented as order |
+| **D-EVID-1** | Evidence sufficiency | Composite coverage `C ≥ 0.60` (see D-MISS-3) AND every pillar in `EVIDENCE_GATE_REQUIRED_PILLARS` (`responsiveness`, RFC-0024) has at least one measured parameter | Fail → `unrated: insufficient_evidence` (listed, not ranked) | A rank built on 40% of the weight is noise presented as order; responsiveness measures `P(decision)` (D-DEF-2), so a repo whose answers to outside PRs were never observed cannot be ranked on its other pillars alone |
 
 Gated and unrated repos are stored and shown with their reason; they have no
 rank and no tier.
@@ -78,7 +78,12 @@ frozen constants (`porchlamp.core.constants.BOT_LOGINS`): the generic bot accoun
 `semantic-release`, `imgbot`, `netlify`, `vercel`, `sonarcloud`, `snyk-bot`,
 `greenkeeper`, `copilot`, `claude`), and the service accounts GitHub types as
 users that the recorded data shows answering pull requests as bots (RFC-0012
-gives the method and the evidence for each). Substring matching is removed (F12).
+and RFC-0014 give the method and the evidence for each). Substring matching is
+removed (F12). An outside pull request (the "external PRs" of 1.1, 1.2, 1.4,
+1.5, 4.3, D-GATE-5, D-GATE-6's hand-off notices and `closed_unread`) has an
+external `authorAssociation` and a non-bot author, read from the recorded PR
+nodes at derive time so a change to D-IN-1 reaches every stored record (#57,
+#66).
 
 **D-IN-2 Substantive human response.** A PR received a substantive response
 when a non-author, non-bot account whose `authorAssociation` is `MEMBER`,
@@ -99,10 +104,10 @@ first-timers are the cheapest way to inflate merge and return rates.
 
 | Input | Window | Cap | Note |
 |---|---|---|---|
-| Pull requests (all states) | opened in trailing 180 d | every PR opened in the window (amended 2026-10-18, RFC-0013: was the 500 newest). Replies and reviews are recorded for every PR when the window holds at most `PR_CAP` (2,000), else for an even random sample of `PR_SAMPLE_CAP` (1,000) of them, drawn by PR number with a fixed seed (`sampled`). A record that stops short of the window says so (`truncated`), and no window measure reads it | uniform window replaces "30 newest" (F4). The reply measures (1.1, 1.4 and D-GATE-5, 4.3) read the sample; decisions, merges and D-IN-2's maintainers read every PR |
-| Decision-rate cohort | opened in [now−180 d, now−90 d] (amended 2026-09-13: the older half of the W1-3 window; was [now−270 d, now−90 d]) | – | every PR in the cohort has had 90 d to be decided; n is smaller than the original design but the cohort is measurable from the collected 180 d window without a second fetch |
+| Pull requests (all states) | opened in trailing 180 d | every PR opened in the window (amended 2026-10-18, RFC-0013: was the 500 newest). Replies and reviews are recorded for every PR when the window holds at most `PR_CAP` (2,000), else for an even random sample of `PR_SAMPLE_CAP` (1,000) of them, drawn by PR number with a fixed seed (`sampled`); each PR's reviews and comments are read on by PR number until whole or `PR_REPLY_NODE_CAP` (300) of each, and a PR whose recorded thread stays cut (`pageInfo.hasNextPage`) without a D-IN-2 response is not read as unanswered or unreviewed (RFC-0022: was the first 10 reviews and 20 comments). A record that stops short of the window says so (`truncated`), and no window measure reads it | uniform window replaces "30 newest" (F4). The reply measures (1.1, 1.4 and D-GATE-5, 4.3) read the sample; decisions, merges and D-IN-2's maintainers read every PR |
+| Decision-rate cohort | opened in [now−180 d, now−90 d] (amended 2026-09-13: the older half of the W1-3 window; was [now−270 d, now−90 d]) | – | every PR in the cohort has had 90 d to be decided; n is smaller than the original design but the cohort is measurable from the collected 180 d window without a second fetch. D-IN-3's eligibility for its authors is read from the author history, so a history that stops short of the cohort's start (the PR window's anchor minus 180 d, whenever the history itself was collected) leaves the rate unmeasured (#66) |
 | Newcomer cohorts | first PR in [now−365 d, now−180 d] | 20 authors sampled per repo, from every PR opened in the trailing 365 d (amended 2026-10-18, RFC-0013: was the 500 newest) | gives 180 d to convert and 90 d to return. A history that stops short of a cohort's start leaves that cohort's rates unmeasured |
-| Commits | trailing 365 d (EF, bus factor), trailing 180 d (vitality) | 1,000 | email domains collected |
+| Commits | trailing 365 d (EF, bus factor, 3.1 sign-off share, 2.2 commit signals), trailing 180 d (vitality) | every commit of the 365-day window up to `COMMIT_CAP` (5,000; amended 2026-10-23, RFC-0021: was the 1,000 newest, `LEGACY_COMMIT_CAP`), else `COMMIT_CAP` (5,000) in 50 whole REST pages of 100 spread evenly over the year (`sampled`) with GitHub's count of the year's commits (`total`). A record cut at the old cap without a sample or total (`truncated`, or a legacy 1,000-row list) is refused (`collector_failure`) by every windowed commit measure | `sha` and email domains collected; 3.2 EF, bus factor and 3.1 sign-off share read the rows unweighted; 2.2 `commit_frequency_weekly` scales the rows' non-bot share by `total / 52` |
 | Issues with newcomer labels | open, updated in trailing 90 d | 200 | label aliases per repo (D-PARAM 5.1) |
 | CI runs | `pull_request` runs created at least 24 h before the fetch, grouped by commit (amended 2026-10-13: was "last 30 completed runs on the default branch") | newest 30 commits; 100 runs per page, a second and third page only while fewer than 5 commits have a wait | a run's time is `updated_at − run_started_at` (the runs list carries no `run_timing`). A commit's wait is its slowest run that ended in success or failure; a commit is left out when one of its runs was cancelled or has not finished, or when a success/failure run on it lasted over 6 h (a run waiting for a maintainer's approval is timed from its creation, and one never approved is closed as a failure after 30 days: 8.2 % of sampled success/failure runs). The median over single runs was dropped because Actions lists one run per workflow file, most of them small: it read under 20 min for 19 of 20 sampled projects, and 4 min for `pytorch/pytorch`, whose day-old pull-request commits wait about 75 min. Not seen: CI outside `pull_request` Actions runs, approval waits under 6 h, earlier attempts of a re-run |
 | Stargazers | trailing 90 d | – | universe entry only (StarScout) |
@@ -118,15 +123,25 @@ once at universe entry (stars-based criteria) and sets `stars_audited`; the UI
 class (`TP` third-party gap → unmeasured; `RC` repo-controlled → measured zero;
 `N` needs minimum sample).
 
+**Pull requests landed outside GitHub's merge (RFC-0015, #60).** A closed,
+unmerged pull request (`mergedAt` null, `closedAt` present) whose latest
+`ClosedEvent` names a commit as its `closer` or that carries a label in
+`porchlamp.core.constants.LANDING_LABELS` (`{"integrated", "merged"}`, whole
+name compared lower-cased) was landed outside GitHub's merge (`porchlamp.core.landing.is_landed`):
+the merge-based measures — 1.3 `MR_first` (and its no-prior-merge predicate),
+1.5 `TTM_p90`, 5.2 `newcomer_conversion`, 5.3 `RR_90` and the 4.1 review proxy —
+count it as merged at its `closedAt` (`porchlamp.core.landing.merged_or_landed_at`).
+The decision measures (1.2 `DR_90`, 1.4 `GR_14` and D-GATE-5) are unchanged.
+
 ### Pillar 1 — Responsiveness (25%)
 
 | Id | Parameter | Definition | w | global | min n | Curve | Class |
 |---|---|---|---|---|---|---|---|
 | 1.1 | TTFHR | median hours from opening to first substantive human response (D-IN-2), external PRs in window | .30 | 7.5 | 10 | 100 if ≤ 12 h; else `max(0, 100 − 25·log2(t/12))` | N |
 | 1.2 | DR_90 decision rate **(new)** | share of external PRs in the decision cohort that were merged or closed within 90 d | .25 | 6.25 | 10 | `min(100, 125·r)` | N |
-| 1.3 | MR_first | merged / decided among external PRs whose author had no prior merged PR in the repo (author history from W1-4) | .20 | 5.0 | 5 | `min(100, 125·r)` | N |
+| 1.3 | MR_first | merged / decided among external PRs whose author had no prior merged PR in the repo (author history from W1-4; includes PRs landed outside GitHub's merge, RFC-0015) | .20 | 5.0 | 5 | `min(100, 125·r)` | N |
 | 1.4 | GR_14 ghost rate | share of external PRs in window, ≥ 14 d old, with no substantive human response within 14 d | .15 | 3.75 | 10 | `max(0, 100 − 200·g)` | N |
-| 1.5 | TTM_p90 | nearest-rank p90 of merge latency (h) over merged external PRs in window; ecosystem ECDF | .10 | 2.5 | 5 | `100 − ECDF_mid(p90)` | N |
+| 1.5 | TTM_p90 | nearest-rank p90 of merge latency (h) over merged external PRs in window (including PRs landed outside GitHub's merge at `closedAt`, RFC-0015); ecosystem ECDF | .10 | 2.5 | 5 | `100 − ECDF_mid(p90)` | N |
 
 Why DR_90 is new and above MR_first: a decision (even a rejection with
 feedback) is the outcome the contributor is owed; merge rate alone rewards
@@ -150,9 +165,9 @@ systems is OpenSSF criticality only and coverage reflects it.
 
 | Id | Parameter | Definition | w | global | min n | Curve | Class |
 |---|---|---|---|---|---|---|---|
-| 3.1 | Legal IP | evidence-based regime: **DCO** = DCO check run on recent PRs or ≥ 50% of window commits carry `Signed-off-by`; **FOUNDATION_CLA** = EasyCLA/ASF/Eclipse/CNCF CLA check or owner in the foundation list; **CORP_CLA** = cla-assistant/google-cla/other CLA bot present; **NONE** = no CLA and no DCO evidence | .35 | 7.0 | – | DCO 100 · NONE 85 · FOUNDATION_CLA 75 · CORP_CLA_RECIPROCAL 40 (curated override only) · CORP_CLA 25 | RC |
+| 3.1 | Legal IP | evidence-based regime (RFC-0017 precedence): **FOUNDATION_CLA** = foundation-branded CLA check (`EasyCLA`, `asf/apache-cla`, `cncf-cla`, `eclipse-cla`, `eclipsefdn/eca`) or generic CLA check on an owner in `FOUNDATION_ORGS` (`foundation_owner_cla_check`), or owner in `FOUNDATION_ORGS` when neither CLA nor DCO evidence is present; **CORP_CLA** = generic CLA bot (`cla-assistant`, `google-cla`, `license/cla`, …) on a non-foundation owner; **DCO** = DCO check run on recent PRs or ≥ 50% of window commits carry `Signed-off-by` (outranks a bare `FOUNDATION_ORGS` owner without a CLA check); **NONE** = no CLA and no DCO evidence | .35 | 7.0 | – | DCO 100 · NONE 85 · FOUNDATION_CLA 75 · CORP_CLA 25 | RC |
 | 3.2 | Elephant factor | orgs by commit-author email domain over 365 d; personal domains (gmail, outlook, proton, users.noreply…) count as one org each per author; EF = min orgs reaching 50% of commits | .35 | 7.0 | 30 commits | `min(100, 25·EF)` | N |
-| 3.3 | Promotion ladder | **VERIFIED** (100): ≥ 1 account whose association moved external → MEMBER/COLLABORATOR within 24 months (observable in the PR window); **DOCUMENTED** (75): GOVERNANCE.md / MAINTAINERS.md / CONTRIBUTING.md names a maintainer nomination process; **AD_HOC** (40): none; **CLOSED** (10): every merged PR in window authored by one org and no external merges | .30 | 6.0 | – | enum | RC |
+| 3.3 | Promotion ladder | **VERIFIED** (100, RFC-0016): ≥ 1 non-bot D-IN-3 age-eligible (`≥ 90 d`) account in an uncut 180 d `pr_window` whose PR was merged by another non-bot human before the account's first access action and who ≥ `PROMOTION_MIN_OUTSIDE_DAYS` (30 d) later merged or closed another author's PR (D-IN-2); **CLOSED** (10): every merged PR in an uncut window authored by one org and no external merges; **DOCUMENTED** (75): GOVERNANCE / MAINTAINERS / CONTRIBUTING (resolved across `.github/` > root > `docs/`, case-insensitively across `.md`/`.rst`/`.txt`/extensionless, plus `<owner>/.github` org defaults for CONTRIBUTING) names a maintainer nomination process; **AD_HOC** (40): none | .30 | 6.0 | – | enum | RC |
 
 Why NONE scores 85 (owner decision O-1): with no CLA the inbound licence equals
 the outbound one and relicensing needs every contributor's consent, the same
@@ -164,13 +179,13 @@ default to DCO=100 (F7).
 | Id | Parameter | Definition | w | global | min n | Curve | Class |
 |---|---|---|---|---|---|---|---|
 | 4.1 | Pipeline defenses | when Scorecard exists: mean of checks {Code-Review, CI-Tests, Branch-Protection, Maintained, Dangerous-Workflow} × 10; when absent: proxy = 0.6·code-review rate (merged PRs in window with ≥ 1 approving review by a non-author) ×100 + 0.4·CI pass rate on the default branch ×100 (0 if no CI); `method` stored | .40 | 6.0 | 10 merged PRs (proxy) | linear | TP with proxy |
-| 4.2 | AI policy posture | REGULATED (policy file or `Assisted-by`/`AI-generated` trailer convention), PROSCRIBED (explicit ban sentence in a policy file), AD_HOC otherwise; persona-conditional scores as spec | .30 | 4.5 | – | REGULATED 95/95 · PROSCRIBED 25 (AI) / 85 (human) · AD_HOC 40 | RC |
-| 4.3 | Substantive review rate **(replaces the Gaussian)** | share of decided external PRs that received ≥ 1 review with inline comments or a review body ≥ 80 chars | .30 | 4.5 | 10 | `min(100, 125·r)` | N |
+| 4.2 | AI policy posture | PROSCRIBED (explicit code-contribution ban sentence in `CONTRIBUTING.md`, `README.md`, an AI rule document, or a PR template, without a conditional/disclosure qualifier or non-code target; evaluated first), REGULATED (AI rule document, `Assisted-by`/`Co-authored-by`/`AI-generated` trailer convention, AI policy heading, AI disclosure checkbox in a PR template, or explicit AI rule directive in `CONTRIBUTING.md` or a PR template), AD_HOC otherwise; persona-conditional scores as spec (RFC-0019) | .30 | 4.5 | – | REGULATED 95/95 · PROSCRIBED 25 (AI) / 85 (human) · AD_HOC 40 | RC |
+| 4.3 | Substantive review rate **(replaces the Gaussian)** | share of decided external PRs (excluding never-ready drafts and unanswered author self-closes within 14 d) that received ≥ 1 non-bot, non-author review with inline comments or a non-boilerplate body ≥ 80 effective chars (CJK weight 3), or a non-boilerplate D-IN-2 maintainer issue comment ≥ 80 effective chars (`SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS = 3`, RFC-0018) | .30 | 4.5 | 10 | `min(100, 125·r)` | N |
 
 Why the Gaussian goes: a curve that penalises "too much review" is not
 monotone, cannot be improved by doing the right thing past 3.5 comments, and
 was fed by issue-comment totals (F8). A monotone rate is Goodhart-safer and
-measurable from review threads.
+measurable from review threads and D-IN-2 maintainer feedback.
 
 ### Pillar 5 — Accessibility (15%)
 
@@ -179,7 +194,7 @@ measurable from review threads.
 | 5.1 | Newcomer-issue supply | open, unassigned issues carrying a newcomer label (canonical: `good first issue`, `help wanted`, plus per-repo aliases matching `/good.?first|beginner|easy|newcomer|first.?timers?|help.?wanted|starter/i` from the repo's label list), updated within 90 d; capped | .35 | 5.25 | – | `min(100, 10·count)` | RC |
 | 5.2 | Newcomer conversion **(new)** | share of newcomer-cohort authors (D-IN-4) whose first PR was merged within 180 d | .35 | 5.25 | 5 authors | `min(100, 200·r)` | N |
 | 5.3 | RR_90 return rate | of newcomer-cohort authors with a merged first PR, share with a second PR within 90 d | .15 | 2.25 | 5 authors | `min(100, 200·r)` | N |
-| 5.4 | DX | 0.5·runtime score (median CI wait over the newest 30 pull-request commits, D-IN-4 "CI runs": 100 if ≤ 20 min, −5/min after, floor 0; unmeasured when no commit has a wait) + 0.5·setup signals (devcontainer or Dockerfile or flake.nix; CONTRIBUTING.md with a setup/development section; README with install/build section: 0/1/2/3 → 0/40/70/100) | .15 | 2.25 | 5 commits | as stated | RC (signals), TP (runtime) |
+| 5.4 | DX | when ≥ 5 PR commits have a finished GitHub Actions run: 0.5·runtime score (median CI wait over the newest 30 PR commits, D-IN-4 "CI runs": 100 if ≤ 20 min, −5/min after, floor 0) + 0.5·setup signals (devcontainer or Dockerfile or flake.nix; CONTRIBUTING.md with a setup/development section; README with install/build section: 0/1/2/3 → 0/40/70/100); when < 5 PR commits have a finished GitHub Actions run and setup-signal sources exist: setup-signals score alone (`method = "proxy:setup_signals_only"`, `proxy_min_n = 0`, RFC-0020) | .15 | 2.25 | 5 commits (primary) / 0 (proxy) | as stated | RC (signals), TP with proxy (runtime) |
 
 Why conversion outranks return: a newcomer whose first PR is merged got the
 value; returning is a second-order effect and needs the most expensive
@@ -213,12 +228,14 @@ unmeasured and drops out of the composite the same way.
 
 **D-MISS-3 Coverage and ceilings.** Composite coverage `C = Σ_p W_p·c_p` under
 the active weights. `C < 0.60` → unrated. `0.60 ≤ C < 0.80` → tier ceiling B.
-`0.80 ≤ C < 0.95` → ceiling A. `C ≥ 0.95` → no ceiling. Coverage is stored and
-displayed next to every score. Why ceilings: a repo cannot be certified elite
-on partial evidence, and the ceiling gives the maintainer and the third parties
-a reason to close the gap.
+`0.80 ≤ C < 0.90` → ceiling A. `C ≥ 0.90` → no ceiling (amended 2026-10-23,
+RFC-0024: was `0.95`, so at most one missing parameter in any pillar does not
+cap a repository at Tier A while two missing parameters do). Coverage is stored
+and displayed next to every score. Why ceilings: a repo cannot be certified
+elite on partial evidence, and the ceiling gives the maintainer and the third
+parties a reason to close the gap.
 
-**D-MISS-4 Proxies.** A parameter may define one proxy method (4.1 does). The
+**D-MISS-4 Proxies.** A parameter may define one proxy method (2.2, 4.1, and 5.4 do). The
 `method` field records which was used; proxies never mark `Measured` as
 `verified` in provenance, they are `derived`.
 
@@ -380,7 +397,16 @@ failed criterion is published as such and drives v2.1 weights.
 language (current), top-N by monthly downloads per registry, top-N by
 dependents per registry, plus anchors; every candidate records its
 `selected_by` criteria. Selection bias is documented on the methodology page:
-percentiles are relative to this universe.
+percentiles are relative to this universe. (Amended 2026-10-22, RFC-0023: a
+language's star criterion runs only when its projects have an ecosystem the
+benchmark models, the registry they publish to or none at all: Python → pypi;
+JavaScript, TypeScript → npm; Rust → crates; Go → go; Java, Kotlin, Scala,
+Groovy → maven; C, C++, Zig, Vim Script, LLVM → systems. A language whose
+registry is not modeled yet (C#, Ruby, PHP, Dart, Swift, Lua, Clojure) is left
+out rather than filed under an ecosystem it does not have. Every language faces
+one star floor. A registry list's figure is recorded as its own number
+(`downloads_at_selection`), never as stars, and a repo it selected is not cut for
+its star count.)
 
 ## 14. What changed versus the spec, and why
 

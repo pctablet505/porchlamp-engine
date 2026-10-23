@@ -134,7 +134,7 @@ export function formatParameterValue(paramId, value) {
 export function deriveTierCeiling(coverage, explicitCeiling) {
   if (explicitCeiling !== undefined) return explicitCeiling;
   if (typeof coverage !== "number" || !Number.isFinite(coverage)) return null;
-  if (coverage >= 0.95) return null;
+  if (coverage >= 0.9) return null;
   if (coverage >= 0.8) return "A";
   if (coverage >= 0.6) return "B";
   return null;

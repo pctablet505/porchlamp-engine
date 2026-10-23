@@ -191,6 +191,58 @@ def test_merge_commits_365d_delta_fallback_key() -> None:
     assert merged[1]["msg"] == "updated"
 
 
+def test_merge_commits_365d_delta_keeps_same_second_commits_with_distinct_sha() -> None:
+    """#66 C2: stacked or rebased commits by one author in the same second
+    carry distinct ``sha`` values and must not collapse into one row."""
+    same_sec = (NOW - timedelta(days=3)).isoformat()
+    existing = [
+        {"sha": "sha-1", "date": same_sec, "author_login": "alice",
+         "author_email": "alice@corp.com", "signed_off": True},
+    ]
+    new_commits = [
+        {"sha": "sha-2", "date": same_sec, "author_login": "alice",
+         "author_email": "alice@corp.com", "signed_off": True},
+    ]
+    merged = merge_commits_365d_delta(existing, new_commits, now=NOW)
+    assert [c["sha"] for c in merged] == ["sha-2", "sha-1"]
+
+
+def test_collect_commits_365d_incremental_merges_by_sha_and_refetches_legacy_rows_without_sha() -> None:
+    """RFC-0021 / #66 C2: incremental refresh merges when existing rows carry
+    ``sha``, and falls back to a full collection when legacy rows lack ``sha``
+    (whose tuple key would never match a new row's sha)."""
+    from porchlamp.collect import commits as cc
+
+    d1 = (NOW - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    d2 = (NOW - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    page1_raw = [
+        {"sha": "sha-new", "commit": {"author": {"email": "a@corp.com", "date": d2}},
+         "author": {"login": "alice", "type": "User"}},
+        {"sha": "sha-old", "commit": {"author": {"email": "a@corp.com", "date": d1}},
+         "author": {"login": "alice", "type": "User"}},
+    ]
+    with_sha = [{"sha": "sha-old", "date": d1, "author_email": "a@corp.com",
+                 "author_login": "alice", "author_type": "User", "signed_off": False}]
+    merged = cc.collect_commits_365d(
+        lambda page, since: page1_raw if page == 1 else [],
+        now=NOW,
+        existing_rows=with_sha,
+    )
+    assert [r["sha"] for r in merged["rows"]] == ["sha-new", "sha-old"]
+    assert merged["count"] == merged["total"] == 2
+
+    without_sha = [{"date": d1, "author_email": "a@corp.com",
+                    "author_login": "alice", "author_type": "User", "signed_off": False}]
+    refetched = cc.collect_commits_365d(
+        lambda page, since: page1_raw if page == 1 else [],
+        now=NOW,
+        existing_rows=without_sha,
+    )
+    assert [r["sha"] for r in refetched["rows"]] == ["sha-new", "sha-old"]
+    assert refetched["count"] == 2
+
+
+
 def test_merge_releases_delta() -> None:
     existing = [
         {"id": 1, "tag_name": "v1.0.0", "published_at": (NOW - timedelta(days=30)).isoformat()},

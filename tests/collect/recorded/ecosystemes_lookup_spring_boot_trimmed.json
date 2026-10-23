@@ -1,0 +1,32 @@
+[
+ {
+  "name": "org.springframework.boot:spring-boot-starter-test",
+  "registry": {"name": "repo1.maven.org"},
+  "dependent_packages_count": 9077,
+  "repository_url": "https://github.com/spring-projects/spring-boot"
+ },
+ {
+  "name": "org.springframework.boot:spring-boot-starter-web",
+  "registry": {"name": "repo1.maven.org"},
+  "dependent_packages_count": 8658,
+  "repository_url": "https://github.com/spring-projects/spring-boot"
+ },
+ {
+  "name": "org.springframework.boot:spring-boot-configuration-processor",
+  "registry": {"name": "repo1.maven.org"},
+  "dependent_packages_count": 7252,
+  "repository_url": "https://github.com/spring-projects/spring-boot"
+ },
+ {
+  "name": "org.springframework.boot:spring-boot-autoconfigure",
+  "registry": {"name": "repo1.maven.org"},
+  "dependent_packages_count": 6483,
+  "repository_url": "https://github.com/spring-projects/spring-boot"
+ },
+ {
+  "name": "org.springframework.boot:spring-boot-starter",
+  "registry": {"name": "repo1.maven.org"},
+  "dependent_packages_count": 6138,
+  "repository_url": "https://github.com/spring-projects/spring-boot"
+ }
+]

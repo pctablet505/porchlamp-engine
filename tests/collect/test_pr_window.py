@@ -22,6 +22,7 @@ from porchlamp.collect import github_graphql as gql
 from porchlamp.collect.envelope import envelope_hash, read_envelope, write_envelope
 from porchlamp.collect import user_cache as gql_user_cache
 from porchlamp.collect.user_cache import UserCache
+from porchlamp.core import gates
 from porchlamp.derive.gate_evidence import pr_rule_inputs_recorded
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -315,6 +316,120 @@ def test_substantive_review_thresholds_exact():
     ]
     out = gql.derive_pr_window(prs)
     assert [d["substantive_review"] for d in out] == [False, True, True, False, True, False]
+
+
+def test_substantive_review_counts_maintainer_issue_comments_and_cjk_weight():
+    """RFC-0018: D-IN-2 maintainer issue comments of >= 80 effective chars
+    (including CJK weight 3) count as substantive review, while non-maintainer,
+    bot, self, or < 80-effective-char comments do not."""
+    created = "2026-08-01T00:00:00Z"
+    prs = [
+        # 1. MEMBER issue comment with 80 chars -> True
+        pr_node(101, created, comments=[comment("maint1", assoc="MEMBER", body="m" * 80)]),
+        # 2.MEMBER issue comment with 79 chars -> False
+        pr_node(102, created, comments=[comment("maint2", assoc="MEMBER", body="n" * 79)]),
+        # 3. Merger (in maintainers via mergedBy on PR 101) with CONTRIBUTOR association and 85 chars -> True
+        {**pr_node(103, created, comments=[comment("merger_bob", assoc="CONTRIBUTOR", body="b" * 85)]),
+         "mergedBy": {"login": "merger_bob"}},
+        # 4. External bystander (NONE, not in maintainers) with 120 chars -> False
+        pr_node(104, created, comments=[comment("stranger", assoc="NONE", body="s" * 120)]),
+        # 5. Author self-comment even with MEMBER association -> False
+        pr_node(105, created, author_login="alice",
+                comments=[comment("alice", assoc="MEMBER", body="a" * 120)]),
+        # 6. Bot comment with MEMBER association -> False
+        pr_node(106, created, comments=[comment("codecov", typ="Bot", assoc="MEMBER", body="c" * 120)]),
+        # 7. CJK maintainer comment: 27 CJK chars = 81 effective chars >= 80 -> True
+        pr_node(107, created, comments=[comment("maint3", assoc="OWNER", body="請" * 27)]),
+        # 8. CJK maintainer comment: 26 CJK chars = 78 effective chars < 80 -> False
+        pr_node(108, created, comments=[comment("maint3", assoc="OWNER", body="請" * 26)]),
+        # 9. CJK review body: 27 CJK chars = 81 effective chars >= 80 -> True
+        pr_node(109, created, reviews=[review("rev1", assoc="MEMBER", body="審" * 27, inline=0)]),
+        # 10. CJK review body: 26 CJK chars = 78 effective chars < 80 -> False
+        pr_node(110, created, reviews=[review("rev1", assoc="MEMBER", body="審" * 26, inline=0)]),
+    ]
+    out = gql.derive_pr_window(prs)
+    assert [d["substantive_review"] for d in out] == [
+        True, False, True, False, False, False, True, False, True, False
+    ]
+
+
+def test_substantive_review_boilerplate_guard_excludes_repeated_templates():
+    """RFC-0018: normalized review bodies or maintainer comments appearing on
+    >= 3 distinct PRs (ignoring URLs, @mentions, #numbers, and digits) are
+    excluded as canned boilerplate, while unique feedback or inline comments
+    still count."""
+    created = "2026-08-01T00:00:00Z"
+    canned = (
+        "Thank you for your contribution to our project @user{i}! "
+        "Before we can review PR #{num}, please run the test suite and check "
+        "https://example.org/docs/pr-{num} — coverage is currently {pct}%."
+    )
+    prs = [
+        # PRs 201..203 receive only the canned maintainer comment (differing in @user, #num, URL, %) -> all False
+        pr_node(201, created, comments=[comment("maint", assoc="MEMBER", body=canned.format(i=1, num=201, pct=81))]),
+        pr_node(202, created, comments=[comment("maint", assoc="MEMBER", body=canned.format(i=2, num=202, pct=82))]),
+        pr_node(203, created, reviews=[review("maint", assoc="MEMBER", body=canned.format(i=3, num=203, pct=83), inline=0)]),
+        # PR 204 receives the canned comment PLUS a unique 85-char maintainer review comment -> True
+        pr_node(204, created, comments=[
+            comment("maint", assoc="MEMBER", body=canned.format(i=4, num=204, pct=84)),
+            comment("maint", assoc="MEMBER", body="The retry loop in transport.py drops the cursor when page_size=10; please preserve after_cursor."),
+        ]),
+        # PR 205 receives the canned review body WITH an inline diff comment (inline=1) -> True
+        pr_node(205, created, reviews=[
+            review("maint", assoc="MEMBER", body=canned.format(i=5, num=205, pct=85), inline=1),
+        ]),
+        # PRs 206..207 share a 2-PR comment (< 3 threshold) -> both True
+        pr_node(206, created, comments=[comment("maint", assoc="MEMBER", body="Two-PR shared architectural note on the memory allocator alignment requirements in core.")]),
+        pr_node(207, created, comments=[comment("maint", assoc="MEMBER", body="Two-PR shared architectural note on the memory allocator alignment requirements in core.")]),
+    ]
+    out = gql.derive_pr_window(prs)
+    assert [d["substantive_review"] for d in out] == [
+        False, False, False, True, True, True, True
+    ]
+
+
+def test_substantive_review_denominator_excludes_never_ready_drafts_and_early_self_closes():
+    """RFC-0018: decided external PRs that are never-ready drafts or unanswered
+    author self-closes within 14d have substantive_review=None and are excluded
+    from the decided_external denominator."""
+    created = "2026-08-01T00:00:00Z"
+    closed_early = "2026-08-03T00:00:00Z"   # 2d after creation (<= 14d)
+    closed_late = "2026-08-25T00:00:00Z"    # 24d after creation (> 14d)
+    resp_early = "2026-08-02T00:00:00Z"     # 1d after creation
+    prs = [
+        # 1. Never-ready draft, closed -> None (excluded from denominator)
+        {**pr_node(301, created, closed=closed_late), "isDraft": True, "timelineItems": {"nodes": []}},
+        # 2. Draft that became ready before closing, unreviewed -> False (in denominator)
+        {**pr_node(302, created, closed=closed_late), "isDraft": True,
+         "timelineItems": {"nodes": [{"__typename": "ReadyForReviewEvent", "createdAt": "2026-08-05T00:00:00Z"}]}},
+        # 3. Unanswered author self-close within 14d -> None (excluded from denominator)
+        {**pr_node(303, created, author_login="alice", closed=closed_early),
+         "timelineItems": {"nodes": [{"__typename": "ClosedEvent", "createdAt": closed_early,
+                                      "actor": {"__typename": "User", "login": "alice"}}]}},
+        # 4. Author self-close after 14d (24d) with no response -> False (stays in denominator)
+        {**pr_node(304, created, author_login="alice", closed=closed_late),
+         "timelineItems": {"nodes": [{"__typename": "ClosedEvent", "createdAt": closed_late,
+                                      "actor": {"__typename": "User", "login": "alice"}}]}},
+        # 5. Author self-close within 14d AFTER a substantive maintainer comment -> True (stays in denominator)
+        {**pr_node(305, created, author_login="alice", closed=closed_early,
+                   comments=[comment("maint", assoc="MEMBER", created=resp_early, body="x" * 90)]),
+         "timelineItems": {"nodes": [{"__typename": "ClosedEvent", "createdAt": closed_early,
+                                      "actor": {"__typename": "User", "login": "alice"}}]}},
+    ]
+    out = gql.derive_pr_window(prs)
+    assert [d["substantive_review"] for d in out] == [None, False, None, False, True]
+    fields = gql.derive_pr_window_fields({
+        "window_anchor": "2026-09-01T00:00:00Z",
+        "window_days": 180,
+        "count": len(prs),
+        "truncated": False,
+        "cost_points": 5,
+        "prs": prs,
+        "derived": out,
+    })
+    # Denominator has 3 PRs (302=False, 304=False, 305=True) -> rate = 1/3 = 0.3333
+    assert fields["pr_window_substantive_review_rate"] == (round(1 / 3, 4), "derived")
+
 
 
 # --- decided / merged / external flags -----------------------------------------
@@ -713,6 +828,69 @@ def test_derive_repo_records_the_closed_unread_counts(tmp_path):
     assert bundle["confidence"]["pr_window_closed_unread_count"] == "derived"
     assert bundle["confidence"]["pr_window_outside_pr_count"] == "derived"
     assert bundle["provenance"]["pr_window_closed_unread_count"]["source"] == "raw/pr_window/acme__widget.json"
+
+
+# --- #57: the window statistics come from the recorded PR nodes -------------
+#
+# derive_pr_window_fields recomputes every per-PR fact from the stored nodes
+# under the current rules; the stored ``derived`` list (the rules of the run
+# that collected the envelope) is never read, and a bot's own PRs are not
+# outside PRs, whoever answers them.
+
+_PLUS_2H, _PLUS_10S = "2026-08-01T02:00:00Z", "2026-08-01T00:00:10Z"
+
+
+def _window_fields(prs, derived=None) -> dict:
+    record = {"count": len(prs), "truncated": False, "cost_points": 1, "prs": prs}
+    if derived is not None:
+        record["derived"] = derived
+    return gql.derive_pr_window_fields(record)
+
+
+def test_window_statistics_come_from_the_pr_nodes_not_the_stored_derived_list():
+    """PR 1 got a maintainer's substantive review 2 h after opening; PR 2's only
+    reply came from ``k8s-ci-robot`` (in BOT_LOGINS since RFC-0012) 10 s after
+    opening. An older run stored a list that counted the bot's reply on both and
+    no substantive review: read, it gives a median of 10 s over 2 and a rate of 0."""
+    prs = [_closed_unmerged(1, reviews=[review(body="r" * 80, created=_PLUS_2H)]),
+           _closed_unmerged(2, author_login="bob",
+                            comments=[comment("k8s-ci-robot", assoc="MEMBER", body="k" * 40, created=_PLUS_10S)])]
+    stale = [{**row, "ttfhr_hours": 10 / 3600, "substantive_review": False} for row in gql.derive_pr_window(prs)]
+    for derived in (None, stale):
+        fields = _window_fields(prs, derived)
+        assert fields["pr_window_external_measured_latency_count"] == (1, "derived")
+        assert fields["pr_window_ttfhr_median_hours"] == (2.0, "derived")
+        assert fields["pr_window_substantive_review_rate"] == (0.5, "derived")
+
+
+def test_window_statistics_leave_out_pull_requests_a_bot_opened():
+    """D-IN-1 keeps a bot's own PRs out of 1.1 and 4.3, as D-GATE-5 and
+    closed_unread already do: three Dependabot PRs (external association, typed
+    Bot), each approved by a maintainer 10 s after opening, beside one outside PR
+    reviewed after 2 h. Counted, they read a median of 10 s over 4 and 4.3 at 0.25."""
+    bot_prs = [_closed_unmerged(10 + i, assoc="CONTRIBUTOR", author_login="dependabot", author_typ="Bot",
+                                reviews=[review(state="APPROVED", created=_PLUS_10S)]) for i in range(3)]
+    prs = [_closed_unmerged(1, reviews=[review(body="r" * 80, created=_PLUS_2H)]), *bot_prs]
+    fields = _window_fields(prs)
+    assert fields["pr_window_external_measured_latency_count"] == (1, "derived")
+    assert fields["pr_window_ttfhr_median_hours"] == (2.0, "derived")
+    assert fields["pr_window_substantive_review_rate"] == (1.0, "derived")
+    assert fields["pr_window_outside_pr_count"] == (1, "derived")
+
+
+def test_the_per_pr_rows_and_the_core_agree_on_who_is_outside():
+    """One definition of an outside PR: derive_pr_window's ``is_external`` and
+    ``is_bot_author`` agree with porchlamp.core.gates.is_outside_pr on every node,
+    so the measures read from the rows and the readers of the nodes cannot part."""
+    from porchlamp.core import gates
+
+    prs = [pr_node(1, _OPENED), pr_node(2, _OPENED, assoc="MEMBER"), pr_node(3, _OPENED, assoc="FIRST_TIMER"),
+           pr_node(4, _OPENED, assoc="CONTRIBUTOR", author_login="dependabot", author_typ="Bot"),
+           pr_node(5, _OPENED, author_login="acme-ci[bot]"), pr_node(6, _OPENED, author_login="tekton-robot"),
+           pr_node(7, _OPENED, assoc="MANNEQUIN"), {**pr_node(8, _OPENED), "author": None}]
+    rows = gql.derive_pr_window(prs)
+    assert [gates.is_outside_pr(pr) for pr in prs] == [r["is_external"] and not r["is_bot_author"] for r in rows]
+    assert [gates.is_outside_pr(pr) for pr in prs] == [True, False, True, False, False, False, False, True]
 
 
 # =============================================================================
@@ -2754,4 +2932,596 @@ def test_an_author_history_cut_short_of_a_cohort_start_yields_no_rate_for_that_c
     assert short["dr90_decision_rate_author_history_cohort"] == (None, "missing")
     assert short["cohort_unmeasured_detail"][0].startswith(
         "author_history window truncated before reaching the 270d decision-cohort start")
+
+
+# =============================================================================
+# RFC-0015 (#60): pull requests landed outside GitHub's merge
+# =============================================================================
+
+
+def _with_landing(node: dict, *, labels: tuple[str, ...] = (), closer: str | None = None) -> dict:
+    """Attach the RFC-0015 ``labels`` and ``timelineItems`` fields to a PR node."""
+    closed_at = node.get("closedAt")
+    events = []
+    if closed_at is not None:
+        events.append({
+            "__typename": "ClosedEvent",
+            "createdAt": closed_at,
+            "actor": {"__typename": "User", "login": "bob"},
+            "closer": None if closer is None else (
+                {"__typename": "Commit", "oid": "deadbeef"} if closer == "Commit"
+                else {"__typename": closer, "number": 99}),
+        })
+    return {
+        **node,
+        "labels": {"nodes": [{"name": name} for name in labels]},
+        "timelineItems": {"nodes": events},
+    }
+
+
+def test_author_window_and_light_history_queries_record_landing_fields():
+    """RFC-0015: both author-history window queries include ``PR_LANDING_FIELDS`` and balance braces."""
+    from porchlamp.collect.ledger import LIGHT_PR_HISTORY_QUERY
+    from porchlamp.core import landing
+
+    for query in (gql.AUTHOR_WINDOW_QUERY, LIGHT_PR_HISTORY_QUERY):
+        assert landing.PR_LANDING_FIELDS in query
+        assert query.count("{") == query.count("}")
+
+
+def test_fetch_light_pr_history_preserves_landing_fields_when_present():
+    """RFC-0015: ``fetch_light_pr_history`` keeps ``labels`` and ``timelineItems`` from a page that
+    records them and omits them on a page that does not."""
+    landed_raw = _with_landing(
+        w4_pr(10, "2026-05-01T00:00:00Z", "alice", closed="2026-05-02T00:00:00Z"),
+        labels=("Merged",),
+        closer="Commit",
+    )
+    plain_raw = w4_pr(11, "2026-04-01T00:00:00Z", "bob", closed="2026-04-02T00:00:00Z")
+
+    class _LightTransport:
+        def execute(self, query: str, variables: dict) -> dict:
+            return {
+                "data": {
+                    "rateLimit": {"cost": 2, "remaining": 4998},
+                    "repository": {
+                        "pullRequests": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [landed_raw, plain_raw],
+                        }
+                    },
+                }
+            }
+
+    by_author, cost, remaining, ok = gql.fetch_light_pr_history("acme", "widget", _LightTransport())
+    assert (cost, remaining, ok) == (2, 4998, True)
+    assert by_author["alice"][0]["labels"] == landed_raw["labels"]
+    assert by_author["alice"][0]["timelineItems"] == landed_raw["timelineItems"]
+    assert "labels" not in by_author["bob"][0]
+    assert "timelineItems" not in by_author["bob"][0]
+
+
+def test_derive_pr_window_landing_fields_and_derive_repo_hook(tmp_path):
+    """RFC-0015: ``derive_pr_window_landing_fields`` records whether every PR node has the landing
+    fields and counts only external non-bot landed PRs; refuses the count on a cut window; and
+    ``scripts/derive.py`` writes both fields with ``raw/pr_window/<key>.json`` provenance."""
+    assert gql.derive_pr_window_landing_fields(None) == {}
+    assert gql.derive_pr_window_landing_fields({"count": 0}) == {}
+    assert gql.derive_pr_window_landing_fields({"prs": []}) == {
+        "pr_window_landing_recorded": (False, "verified"),
+        "pr_window_landed_external_count": (0, "derived"),
+    }
+
+    prs = [
+        # 1: external, landed by commit closer -> counted
+        _with_landing(pr_node(1, "2026-08-01T00:00:00Z", closed="2026-08-02T00:00:00Z"), closer="Commit"),
+        # 2: external, landed by "integrated" label -> counted
+        _with_landing(pr_node(2, "2026-08-03T00:00:00Z", closed="2026-08-04T00:00:00Z"), labels=("integrated",)),
+        # 3: external, GitHub-merged -> not landed outside GitHub's merge
+        _with_landing(
+            pr_node(3, "2026-08-05T00:00:00Z", closed="2026-08-06T00:00:00Z", merged="2026-08-06T00:00:00Z"),
+            labels=("Merged",),
+            closer="Commit",
+        ),
+        # 4: external, plain close -> not landed
+        _with_landing(pr_node(4, "2026-08-07T00:00:00Z", closed="2026-08-08T00:00:00Z")),
+        # 5: internal (MEMBER), landed by commit closer -> not external
+        _with_landing(
+            pr_node(5, "2026-08-09T00:00:00Z", closed="2026-08-10T00:00:00Z", assoc="MEMBER", author_login="bob"),
+            closer="Commit",
+        ),
+        # 6: bot author, landed by commit closer -> not human external
+        _with_landing(
+            pr_node(6, "2026-08-11T00:00:00Z", closed="2026-08-12T00:00:00Z",
+                    author_login="dependabot[bot]", author_typ="Bot"),
+            closer="Commit",
+        ),
+    ]
+    whole = {
+        "window_anchor": NOW.isoformat(), "window_days": 180, "cap": 2000,
+        "count": len(prs), "truncated": False, "cost_points": 1,
+        "prs": prs, "derived": gql.derive_pr_window(prs),
+    }
+    assert gql.derive_pr_window_landing_fields(whole) == {
+        "pr_window_landing_recorded": (True, "verified"),
+        "pr_window_landed_external_count": (2, "derived"),
+    }
+
+    # One node missing the landing fields -> pr_window_landing_recorded is False
+    partial = {**whole, "prs": [*prs[:-1], pr_node(7, "2026-08-13T00:00:00Z", closed="2026-08-14T00:00:00Z")]}
+    assert gql.derive_pr_window_landing_fields(partial)["pr_window_landing_recorded"] == (False, "verified")
+
+    # Cut-short window -> count is (None, "missing"), recorded flag stays (True, "verified")
+    cut = {**whole, "truncated": True}
+    assert gql.derive_pr_window_landing_fields(cut) == {
+        "pr_window_landing_recorded": (True, "verified"),
+        "pr_window_landed_external_count": (None, "missing"),
+    }
+
+    # End-to-end through scripts/derive.py
+    write_env(tmp_path / "raw", "pr_window", KEY, whole)
+    bundle = derive.derive_repo("acme", "widget", derive.Ecosystem.PYPI, tmp_path, fetch=False, now=NOW)
+    assert bundle["meta"]["pr_window_landing_recorded"] is True
+    assert bundle["meta"]["pr_window_landed_external_count"] == 2
+    assert bundle["confidence"]["pr_window_landing_recorded"] == "verified"
+    assert bundle["confidence"]["pr_window_landed_external_count"] == "derived"
+    assert bundle["provenance"]["pr_window_landed_external_count"]["source"] == "raw/pr_window/acme__widget.json"
+
+
+def test_author_pr_history_and_no_prior_merged_preserve_window_landing_across_search():
+    """RFC-0015: a per-author search entry carries neither ``labels`` nor ``timelineItems``; when the
+    same PR is also in the 365-day window with a landing signal, ``_author_pr_history`` keeps those
+    fields so ``_no_prior_merged`` disqualifies an author whose earlier PR was landed before the
+    cohort PR opened (and keeps one whose earlier PR was landed after)."""
+    earlier_landed = _with_landing(
+        w4_pr(10, "2026-01-10T00:00:00Z", "alice", closed="2026-01-20T00:00:00Z"),
+        labels=("Merged",),
+    )
+    later_pr = _with_landing(w4_pr(20, "2026-04-01T00:00:00Z", "alice", closed="2026-04-05T00:00:00Z"))
+    # Search entry for PR 10 has no labels/timelineItems
+    records = {"alice": w4_rec("alice", prs=[w4_spr(10, "2026-01-10T00:00:00Z", closed="2026-01-20T00:00:00Z")])}
+    merged_hist = {p["number"]: p for p in gql._author_pr_history([earlier_landed, later_pr], records["alice"], "alice")}
+    assert merged_hist[10]["labels"] == earlier_landed["labels"]
+    assert gql._no_prior_merged(later_pr, [earlier_landed, later_pr], records) is False
+
+    # Closed after later_pr opened -> still a first-timer at later_pr's creation
+    landed_after = _with_landing(
+        w4_pr(10, "2026-01-10T00:00:00Z", "alice", closed="2026-04-10T00:00:00Z"),
+        closer="Commit",
+    )
+    records_after = {"alice": w4_rec("alice", prs=[w4_spr(10, "2026-01-10T00:00:00Z", closed="2026-04-10T00:00:00Z")])}
+    assert gql._no_prior_merged(later_pr, [landed_after, later_pr], records_after) is True
+
+
+def test_derive_cohort_fields_counts_landed_prs_in_mr_first_conversion_and_rr90():
+    """RFC-0015: ``derive_cohort_fields`` counts landed PRs as merged at their ``closedAt`` across
+    1.3 MR_first, 5.2 newcomer conversion and 5.3 RR_90, records the landed counts and
+    ``author_history_landing_recorded``, and leaves 1.2 DR_90 unchanged."""
+    # Decision cohort [90d, 270d]:
+    # - d1: first-timer, landed by commit closer -> merged for MR_first (landed)
+    # - d2: first-timer, landed by "Merged" label -> merged for MR_first (landed)
+    # - d3: first-timer, GitHub-merged -> merged for MR_first (not landed)
+    # - d4: first-timer, plain close -> decided, not merged
+    # - d5: had an earlier landed PR (300d ago, closed 295d ago) -> excluded from MR_first
+    d1 = _with_landing(w4_days(101, 150, "d1", closed_after=5), closer="Commit")
+    d2 = _with_landing(w4_days(102, 150, "d2", closed_after=5), labels=("Merged",))
+    d3 = _with_landing(w4_days(103, 150, "d3", merged_after=5))
+    d4 = _with_landing(w4_days(104, 150, "d4", closed_after=5))
+    d5_prior = _with_landing(w4_days(99, 300, "d5", closed_after=5), closer="Commit")
+    d5_cohort = _with_landing(w4_days(105, 150, "d5", closed_after=5), closer="Commit")
+
+    # Newcomer cohort [180d, 365d] (placed at 300d/280d ago, outside the 270d decision band):
+    # - n1: first PR 300d ago, landed after 10d (converts), followup 20d after landing (returns)
+    # - n2: first PR 300d ago, landed after 181d (> 180d: does NOT convert, but IS in RR_90 denominator, no followup)
+    # - n3: first PR 300d ago, GitHub-merged after 10d (converts, not landed), followup 10d after merge (returns)
+    # - n4: first PR 300d ago, plain close after 10d (neither converts nor enters RR_90)
+    n1_first = _with_landing(w4_days(201, 300, "n1", closed_after=10), closer="Commit")
+    n1_follow = _with_landing(w4_days(202, 280, "n1", closed_after=5), labels=("integrated",))
+    n2_first = _with_landing(w4_days(203, 300, "n2", closed_after=181), labels=("Merged",))
+    n3_first = _with_landing(w4_days(204, 300, "n3", merged_after=10))
+    n3_follow = _with_landing(w4_days(205, 280, "n3"))
+    n4_first = _with_landing(w4_days(206, 300, "n4", closed_after=10))
+
+    prs = [d1, d2, d3, d4, d5_prior, d5_cohort, n1_first, n1_follow, n2_first, n3_first, n3_follow, n4_first]
+    logins = ["d1", "d2", "d3", "d4", "d5", "n1", "n2", "n3", "n4"]
+    records = [w4_rec(login) for login in logins]
+    sampled = ["n1", "n2", "n3", "n4"]
+    fields = gql.derive_cohort_fields(_w4_ah_data(prs, records, sampled=sampled))
+
+    assert fields["author_history_landing_recorded"] == (True, "verified")
+    # 1.2 DR_90: all 5 decision-band PRs (d1..d5_cohort) closed within 5d
+    assert fields["dr90_decision_rate_author_history_cohort"] == (1.0, "derived")
+    assert fields["dr90_decision_pr_count_author_history_cohort"] == (5, "derived")
+    # 1.3 MR_first: d5 excluded by prior landed PR; of {d1, d2, d3, d4}, 3 merged (2 landed + 1 GitHub)
+    assert fields["mr_first_rate_raw"] == (0.75, "derived")
+    assert fields["mr_first_pr_count_raw"] == (4, "derived")
+    assert fields["mr_first_rate"] == (0.75, "derived")
+    assert fields["mr_first_pr_count"] == (4, "derived")
+    assert fields["mr_first_landed_pr_count"] == (2, "derived")
+    # 5.2 newcomer_conversion: n1 (landed at 10d) and n3 (GitHub-merged at 10d) convert; n2 (landed at 181d) and n4 do not
+    assert fields["newcomer_conversion"] == (0.5, "derived")
+    assert fields["newcomer_conversion_author_count"] == (4, "derived")
+    assert fields["newcomer_conversion_landed_author_count"] == (1, "derived")
+    # 5.3 RR_90: n1, n2, n3 have a merged/landed first PR (2 of them landed: n1 and n2); n1 and n3 return within 90d
+    assert fields["rr90_return_rate"] == (round(2 / 3, 4), "derived")
+    assert fields["rr90_return_author_count"] == (3, "derived")
+    assert fields["rr90_return_landed_author_count"] == (2, "derived")
+
+    roster = {a["login"]: a for a in fields["cohort_newcomer_authors"][0]}
+    assert roster["n1"]["first_pr"]["merged_at"] == n1_first["closedAt"]
+    assert roster["n1"]["followups"][0]["merged_at"] == n1_follow["closedAt"]
+    assert roster["n4"]["first_pr"]["merged_at"] is None
+
+    # Cut-short window sets the three landed counts to (None, "missing")
+    cut_fields = gql.derive_cohort_fields(
+        _w4_ah_data([_with_landing(w4_days(1, 100, "u1", closed_after=5))], [w4_rec("u1")], sampled=["u1"], truncated=True)
+    )
+    assert cut_fields["mr_first_landed_pr_count"] == (None, "missing")
+    assert cut_fields["newcomer_conversion_landed_author_count"] == (None, "missing")
+    assert cut_fields["rr90_return_landed_author_count"] == (None, "missing")
+
+
+# --- RFC-0022: each PR's reviews and comments whole up to PR_REPLY_NODE_CAP -----------------
+
+def test_the_window_page_and_the_reply_batch_record_each_reply_lists_total_and_page_info():
+    """The first read of a PR's replies records whether GitHub holds more (``pageInfo``) and how
+    many (``totalCount``); the timeline reads the newest 100 ready-for-review and close events."""
+    reviews = ("reviews(first: 10) { totalCount pageInfo { hasNextPage endCursor } nodes { author {"
+               " __typename login } state body createdAt authorAssociation comments { totalCount } } }")
+    comments = ("comments(first: 20) { totalCount pageInfo { hasNextPage endCursor } nodes { author {"
+                " __typename login } authorAssociation bodyText createdAt } }")
+    batch = gql._pr_replies_batch_query(2)
+    for query in (gql.PR_WINDOW_QUERY, batch):
+        assert reviews in query and comments in query
+    assert batch.count(reviews) == batch.count(comments) == 2
+    timeline = "timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 100) {"
+    for query in (gql.PR_WINDOW_QUERY, gql.PR_WINDOW_LIGHT_QUERY):
+        assert timeline in query
+    assert (gql.PR_REVIEWS_FIRST, gql.PR_COMMENTS_FIRST, gql.PR_REPLY_PAGE_SIZE, gql.PR_REPLY_NODE_CAP) == (
+        10, 20, 100, 300)
+
+
+class ThreadedWindow(ScriptedWindow):
+    """A ``ScriptedWindow`` whose PR nodes hold their whole threads. ``PrWindow`` pages and
+    ``PrRepliesBatch`` lookups carry each PR's first ``PR_REVIEWS_FIRST`` reviews and
+    ``PR_COMMENTS_FIRST`` comments with GitHub's ``totalCount`` and ``pageInfo`` (the cursor is
+    the offset); ``PrRepliesFollowUp`` serves the page each alias asks for. A PR in ``stall``
+    gets an empty page that says more remain; one in ``refuse`` gets a GraphQL error."""
+
+    def __init__(self, nodes: list[dict], *, stall=(), refuse=()) -> None:
+        super().__init__(nodes)
+        self.stall, self.refuse = set(stall), set(refuse)
+
+    @staticmethod
+    def _page(items: list, offset: int, first: int) -> dict:
+        chunk = items[offset:offset + first]
+        end = offset + len(chunk)
+        return {"totalCount": len(items), "pageInfo": {"hasNextPage": end < len(items), "endCursor": str(end)},
+                "nodes": chunk}
+
+    def _first_reads(self, node: dict) -> dict:
+        out = dict(node)
+        for field, first in (("reviews", gql.PR_REVIEWS_FIRST), ("comments", gql.PR_COMMENTS_FIRST)):
+            if field in node:
+                out[field] = self._page(node[field]["nodes"], 0, first)
+        return out
+
+    def execute(self, query: str, variables: dict) -> dict:
+        name = query.split("(", 1)[0].split()[-1]
+        if name != "PrRepliesFollowUp":
+            doc = super().execute(query, variables)
+            repo = doc["data"]["r"]
+            if name == "PrWindow":
+                repo["pullRequests"]["nodes"] = [self._first_reads(n) for n in repo["pullRequests"]["nodes"]]
+            elif name == "PrRepliesBatch":
+                for alias, node in repo.items():
+                    repo[alias] = self._first_reads(node)
+            return doc
+        self.calls.append((name, dict(variables)))
+        repo, errors = {}, []
+        for key, number in variables.items():
+            if not (key.startswith("n") and key[1:].isdigit()):
+                continue
+            i = key[1:]
+            if number in self.refuse:
+                errors.append({"message": "Something went wrong", "path": ["r", f"p{i}"]})
+                continue
+            out = {"number": number}
+            for field, short in (("reviews", "r"), ("comments", "c")):
+                if f"{short}a{i}" not in variables:
+                    continue
+                if number in self.stall:
+                    out[field] = {"totalCount": 99, "nodes": [],
+                                  "pageInfo": {"hasNextPage": True, "endCursor": variables[f"{short}a{i}"]}}
+                else:
+                    out[field] = self._page(self.by_number[number][field]["nodes"],
+                                            int(variables[f"{short}a{i}"]), variables[f"{short}f{i}"])
+            repo[f"p{i}"] = out
+        doc = {"data": {"rateLimit": {"cost": 1}, "r": repo}}
+        if errors:
+            doc["errors"] = errors
+        return doc
+
+    def follow_ups(self) -> list[dict]:
+        """``{number: {field: (after, first)}}`` per ``PrRepliesFollowUp`` call."""
+        out = []
+        for name, call in self.calls:
+            if name != "PrRepliesFollowUp":
+                continue
+            asked: dict = {}
+            for key, number in call.items():
+                if key.startswith("n") and key[1:].isdigit():
+                    i = key[1:]
+                    asked[number] = {field: (call[f"{short}a{i}"], call[f"{short}f{i}"])
+                                     for field, short in (("reviews", "r"), ("comments", "c"))
+                                     if f"{short}a{i}" in call}
+            out.append(asked)
+        return out
+
+
+_T0 = datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+
+def _at(hours: float) -> str:
+    return (_T0 + timedelta(hours=hours)).isoformat()
+
+
+def _bot_reply(minutes: int) -> dict:
+    return comment("ci-bot", typ="Bot", assoc="NONE", body="CI report: every check passed on this commit.",
+                   created=_at(minutes / 60))
+
+
+def _threads() -> list[dict]:
+    """Three outside PRs, newest first. PR 3 is whole. PR 2's twelfth review is the first
+    maintainer's (an approval with a 90-character body), after eleven bot reviews. PR 1's
+    twenty-first comment is a maintainer's reply at hour 5, after twenty bot comments; its
+    one review, a maintainer's, comes at hour 50."""
+    pr1 = pr_node(1, _at(0), closed=_at(96),
+                  comments=[_bot_reply(m) for m in range(1, 21)]
+                  + [comment("maint", body="Thanks! Could you add a test for the empty case?", created=_at(5))]
+                  + [comment("passer", assoc="NONE", body="+1, I need this fix too, any update?", created=_at(6 + k))
+                     for k in range(4)],
+                  reviews=[review("maint", created=_at(50))])
+    pr2 = pr_node(2, _at(1), closed=_at(72), merged=_at(72), merged_by="maint",
+                  reviews=[review("copilot-pull-request-reviewer", typ="Bot", assoc="NONE", body="b" * 300,
+                                  created=_at(1 + k)) for k in range(1, 12)]
+                  + [review("maint", state="APPROVED", body="r" * 90, created=_at(31))])
+    pr3 = pr_node(3, _at(2), comments=[comment("maint", body="m" * 45, created=_at(4))])
+    return [pr3, pr2, pr1]
+
+
+def test_a_cut_reply_list_is_read_on_by_number_until_whole():
+    nodes = _threads()
+    t = ThreadedWindow(nodes)
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    got = {pr["number"]: pr for pr in res.prs}
+    full = {node["number"]: node for node in nodes}
+    assert got[1]["comments"]["nodes"] == full[1]["comments"]["nodes"]
+    assert got[1]["comments"]["pageInfo"] == {"hasNextPage": False, "endCursor": "25"}
+    assert got[1]["comments"]["totalCount"] == 25
+    assert got[2]["reviews"]["nodes"] == full[2]["reviews"]["nodes"]
+    assert got[2]["reviews"]["pageInfo"]["hasNextPage"] is False
+    assert not any(gates.replies_cut(pr) for pr in res.prs)
+    # one follow-up read, naming only the cut lists, from where the first read stopped
+    assert t.follow_ups() == [{1: {"comments": ("20", 100)}, 2: {"reviews": ("10", 100)}}]
+    assert res.cost_points == 2  # the page and the follow-up read
+
+
+def test_the_followed_up_replies_reach_ttfhr_the_review_rate_and_the_review_proxy():
+    """1.1, 4.3 and the 4.1 proxy read the replies the first read cut off: PR 1 was answered at
+    hour 5 (not at the review at hour 50), PR 2's approval is its twelfth review."""
+    from porchlamp.collect import pike_signals
+
+    res = gql.fetch_pr_window("acme", "widget", NOW, ThreadedWindow(_threads()), page_size=25)
+    prs = list(res.prs)
+    rows = {row["number"]: row for row in gql.derive_pr_window(prs)}
+    assert (rows[1]["first_substantive_response_at"], rows[1]["ttfhr_hours"]) == (_at(5), 5.0)
+    assert (rows[2]["ttfhr_hours"], rows[2]["substantive_review"]) == (30.0, True)
+    fields = gql.derive_pr_window_fields({"count": 3, "truncated": False, "cost_points": 2,
+                                          "prs": prs, "derived": gql.derive_pr_window(prs)})
+    assert fields["pr_window_ttfhr_median_hours"] == (5.0, "derived")  # of 5, 30 and 2 hours
+    assert fields["pr_window_substantive_review_rate"] == (0.5, "derived")  # PR 2 of PRs 1 and 2
+    assert pike_signals.code_review_rate(prs) == 1.0
+
+
+def _silent_cut_window() -> list[dict]:
+    """PR 7, opened 40 days before ``NOW`` and closed unmerged, holds sixty bot comments and no
+    reply; PR 8, opened 30 days before, a maintainer answered the next day."""
+    opened = NOW - timedelta(days=40)
+    pr7 = pr_node(7, opened.isoformat(), closed=(opened + timedelta(days=20)).isoformat(),
+                  comments=[comment("ci-bot", typ="Bot", assoc="NONE", body="CI report: every check passed.",
+                                    created=(opened + timedelta(minutes=m)).isoformat()) for m in range(60)])
+    opened8 = NOW - timedelta(days=30)
+    pr8 = pr_node(8, opened8.isoformat(),
+                  comments=[comment("maint", body="m" * 45, created=(opened8 + timedelta(days=1)).isoformat())])
+    return [pr8, pr7]
+
+
+def test_a_reply_list_longer_than_the_cap_stays_cut_and_its_silent_pr_reads_as_no_ones(monkeypatch):
+    """The list is read on in rounds until it holds the cap, then keeps ``hasNextPage``; a PR
+    whose recorded part holds no reply is then left out of D-GATE-5 and GR_14 (both record
+    builders), closed-unread and the per-PR reply rows, never counted as unanswered."""
+    from porchlamp.derive import gate_evidence
+
+    monkeypatch.setattr(gql, "PR_REPLY_NODE_CAP", 30)
+    monkeypatch.setattr(gql, "PR_REPLY_PAGE_SIZE", 5)
+    t = ThreadedWindow(_silent_cut_window())
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    prs = list(res.prs)
+    pr7 = next(pr for pr in prs if pr["number"] == 7)
+    assert len(pr7["comments"]["nodes"]) == 30
+    assert (pr7["comments"]["pageInfo"]["hasNextPage"], pr7["comments"]["totalCount"]) == (True, 60)
+    assert t.follow_ups() == [{7: {"comments": ("20", 5)}}, {7: {"comments": ("25", 5)}}]
+    assert [pr["number"] for pr in gates.reply_sampled_prs(prs)] == [8]
+    assert gates.zero_response_counts(gql.ghost_rate_prs_from_window(prs), NOW) == (0, 1)
+    assert [r.number for r in gate_evidence._ghost_rate_prs_from_nodes(prs)] == [8]
+    assert gql.closed_unread_counts(prs) == (0, 1)
+    row7 = next(row for row in gql.derive_pr_window(prs) if row["number"] == 7)
+    assert (row7["first_substantive_response_at"], row7["substantive_review"]) == (None, None)
+
+
+def test_derive_leaves_a_silent_cut_pr_out_of_the_ghost_rate(tmp_path, monkeypatch):
+    """The derive hook's 1.4 GR_14 (the input D-GATE-5 reads) over an envelope the collector
+    wrote: the silent cut PR 7 is not in the population; PR 8 was answered."""
+    monkeypatch.setattr(gql, "PR_REPLY_NODE_CAP", 30)
+    raw = tmp_path / "raw"
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW,
+                                 transport=ThreadedWindow(_silent_cut_window())) == "ok"
+    meta = derive.derive_repo("acme", "widget", derive.Ecosystem.PYPI, tmp_path, fetch=False, now=NOW)["meta"]
+    assert (meta["gr14_population_n"], meta["gr14_ghost_rate"]) == (1, 0.0)
+    assert (meta["pr_window_outside_pr_count"], meta["pr_window_closed_unread_count"]) == (1, 0)
+
+
+def test_a_follow_up_page_that_cannot_move_a_list_on_is_not_read_again():
+    t = ThreadedWindow(_threads(), stall={1})
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    pr1 = next(pr for pr in res.prs if pr["number"] == 1)
+    assert len(pr1["comments"]["nodes"]) == 20
+    assert pr1["comments"]["pageInfo"] == {"hasNextPage": True, "endCursor": "20"}
+    assert t.follow_ups() == [{1: {"comments": ("20", 100)}, 2: {"reviews": ("10", 100)}}]
+
+
+def test_a_follow_up_no_width_resolves_fails_the_fetch():
+    t = ThreadedWindow(_threads(), refuse={1})
+    with pytest.raises(RuntimeError, match=r"pr reply follow-up failed for acme/widget PRs: \[1\]"):
+        gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    # the batch, then PR 1 alone at each narrower width
+    assert [sorted(call) for call in t.follow_ups()] == [[1, 2], [1], [1]]
+
+
+def test_a_record_from_the_query_before_page_info_is_never_read_on():
+    """Nodes without ``pageInfo`` (the shape every envelope before RFC-0022 records) are read
+    as whole: no follow-up read, and every one stays in the reply set."""
+    t = ScriptedWindow([pr_node(2, _at(1), comments=[_bot_reply(m) for m in range(20)]),
+                        pr_node(1, _at(0), reviews=[review(created=_at(1))])])
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    assert [name for name, _ in t.calls] == ["PrWindow"]
+    assert [pr["number"] for pr in gql.reply_sampled_prs(res.prs)] == [2, 1]
+
+
+def test_follow_ups_read_only_the_sampled_prs_of_a_sampled_window():
+    """Above the cap the replies of the sample alone are recorded, so the sample alone is read on."""
+    nodes = _window_nodes(130)
+    for node in nodes:
+        node["comments"] = {"nodes": [_bot_reply(m) for m in range(25)]}
+    t = ThreadedWindow(nodes)
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=30, cap=50, sample_cap=20)
+    sample = gql.reply_sample_numbers("acme", "widget", [n["number"] for n in nodes], 20)
+    asked = {number for call in t.follow_ups() for number in call}
+    assert asked == sample
+    for pr in res.prs:
+        if pr["number"] in sample:
+            assert len(pr["comments"]["nodes"]) == 25 and not gates.replies_cut(pr)
+        else:
+            assert "comments" not in pr
+    assert gql._fetch_reply_followups(
+        "acme", "widget",
+        [{**nodes[0], gql.REPLIES_RECORDED_KEY: False,
+          "comments": ThreadedWindow._page([_bot_reply(m) for m in range(25)], 0, 20)}],
+        t,
+    ) == 0
+
+
+def test_the_sample_size_counts_the_drawn_sample_whatever_its_cut_prs(tmp_path, monkeypatch):
+    """``sample_size`` is the size of the drawn sample: a sampled PR whose replies stay cut is
+    still in it, though no reply measure reads it."""
+    monkeypatch.setattr(gql, "PR_REPLY_NODE_CAP", 20)
+    nodes = _window_nodes(2010, step_minutes=5)
+    cut = [_bot_reply(m) for m in range(21)]
+    for node in nodes:
+        node["comments"] = {"nodes": cut}
+    raw = tmp_path / "raw"
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW, transport=ThreadedWindow(nodes)) == "ok"
+    data = read_envelope(raw / "pr_window" / "acme__widget.json").data
+    assert (data["sampled"], data["sample_size"]) == (True, gql.PR_SAMPLE_CAP)
+    silent = [pr for pr in data["prs"] if pr.get(gql.REPLIES_RECORDED_KEY) is not False and not pr["reviews"]["nodes"]]
+    assert all(gates.replies_cut(pr) for pr in silent) and silent
+    assert len(gql.reply_sampled_prs(data["prs"])) == gql.PR_SAMPLE_CAP - len(silent)
+
+
+def test_cut_pr_per_measure_guards_withhold_unsettled_4_3_4_1_gr14_and_ttfhr():
+    """RFC-0022: when a cut PR stays in reply_sampled_prs because its recorded
+    prefix holds a non-substantive (<80 char) review or a post-14d comment,
+    downstream measures withhold it when the unrecorded suffix could reverse the
+    outcome (4.3 substantive_review, 4.1 code_review_rate, 1.4 GR_14, 1.1 TTFHR)."""
+    from porchlamp.collect import pike_signals
+    from porchlamp.derive import gate_evidence
+
+    short_rev = {
+        "author": {"__typename": "User", "login": "maint"},
+        "authorAssociation": "MEMBER",
+        "state": "COMMENTED",
+        "body": "Ack.",
+        "comments": {"totalCount": 0},
+        "createdAt": (NOW - timedelta(days=20)).isoformat(),
+    }
+    approved_long_rev = {
+        "author": {"__typename": "User", "login": "maint"},
+        "authorAssociation": "MEMBER",
+        "state": "APPROVED",
+        "body": (
+            "This implementation handles the cursor pagination boundary cleanly "
+            "and preserves backwards compatibility with legacy envelopes."
+        ),
+        "comments": {"totalCount": 1},
+        "createdAt": (NOW - timedelta(days=39)).isoformat(),
+    }
+    pr_cut_unsettled = {
+        **pr_node(
+            1,
+            (NOW - timedelta(days=40)).isoformat(),
+            closed=(NOW - timedelta(days=10)).isoformat(),
+            merged=(NOW - timedelta(days=10)).isoformat(),
+        ),
+        "reviews": {
+            "nodes": [short_rev],
+            "totalCount": 305,
+            "pageInfo": {"hasNextPage": True, "endCursor": "c300"},
+        },
+        "comments": {
+            "nodes": [],
+            "totalCount": 305,
+            "pageInfo": {"hasNextPage": True, "endCursor": "m300"},
+        },
+    }
+    pr_cut_settled = {
+        **pr_node(
+            2,
+            (NOW - timedelta(days=40)).isoformat(),
+            closed=(NOW - timedelta(days=35)).isoformat(),
+            merged=(NOW - timedelta(days=35)).isoformat(),
+        ),
+        "reviews": {
+            "nodes": [approved_long_rev],
+            "totalCount": 305,
+            "pageInfo": {"hasNextPage": True, "endCursor": "c300"},
+        },
+        "comments": {
+            "nodes": [],
+            "totalCount": 0,
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+        },
+    }
+    prs = [pr_cut_unsettled, pr_cut_settled]
+    assert [p["number"] for p in gql.reply_sampled_prs(prs)] == [1, 2]
+
+    derived = {d["number"]: d for d in gql.derive_pr_window(prs)}
+    # PR 1: best_kind == "review" while comments is cut -> ttfhr_hours is None;
+    # no recorded substantive review while replies are cut -> substantive_review is None.
+    assert derived[1]["ttfhr_hours"] is None
+    assert derived[1]["substantive_review"] is None
+    # PR 2: comments is whole -> ttfhr_hours is measured; substantive review is True.
+    assert derived[2]["ttfhr_hours"] == 24.0
+    assert derived[2]["substantive_review"] is True
+
+    # 4.1 code_review_rate: PR 1 (merged, cut reviews, no approval) is withheld;
+    # PR 2 (merged, cut reviews, recorded approval) counts -> rate is 1.0 (1/1), not 0.5 (1/2).
+    assert pike_signals.code_review_rate(prs) == 1.0
+
+    # 1.4 GR_14 / D-GATE-5: PR 1's only response is at day 20 (>14d) and its replies are cut
+    # -> withheld from population_n; PR 2 was answered at day 1 -> (0, 1).
+    gr_records = gql.ghost_rate_prs_from_window(prs)
+    assert [r.replies_cut for r in gr_records] == [True, True]
+    assert gates.zero_response_counts(gr_records, NOW) == (0, 1)
+    assert gates.zero_response_counts(gate_evidence._ghost_rate_prs_from_nodes(prs), NOW) == (0, 1)
 

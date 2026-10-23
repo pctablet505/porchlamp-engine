@@ -256,11 +256,17 @@ def test_handoff_none_without_a_readable_envelope(tmp_path: Path) -> None:
     assert gate_evidence_for(tmp_path, KEY).review_handoff is None  # not a document
 
 
-def test_handoff_none_when_the_classifications_are_missing(tmp_path: Path) -> None:
-    """Outside PRs are the collector's own ``derived`` rows; with none recorded there is no
-    population to judge, which is no opinion rather than a verdict of False."""
-    write_envelope(tmp_path, "pr_window", KEY, {"prs": _outside(1, 5, 5)})
-    assert gate_evidence_for(tmp_path, KEY).review_handoff is None
+def test_handoff_is_read_from_the_pr_nodes_not_the_stored_classifications(tmp_path: Path) -> None:
+    """#57: the outside PRs are judged from the recorded nodes under the current rules.
+    Five of ten outside PRs carry a Gerrit notice: a hand-off, whether the envelope stores
+    no ``derived`` list at all or a stale one that calls every author a bot (a reader of
+    the stored list answers no opinion, then False)."""
+    prs = _outside(1, 5, 5)
+    write_envelope(tmp_path, "pr_window", KEY, {"prs": prs})
+    assert gate_evidence_for(tmp_path, KEY).review_handoff is True
+    stale = [{**row, "is_bot_author": True} for row in derive_pr_window(prs)]
+    write_envelope(tmp_path, "pr_window", KEY, {"prs": prs, "derived": stale})
+    assert gate_evidence_for(tmp_path, KEY).review_handoff is True
 
 
 def test_handoff_reads_its_thresholds_and_phrases_from_the_constants(

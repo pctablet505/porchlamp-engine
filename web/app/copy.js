@@ -162,7 +162,7 @@ const COVERAGE_BAND_LABELS = Object.freeze({
   B: "Ceiling B",
 });
 export function coverageBandForValue(coverage) {
-  if (coverage >= 0.95) return "full";
+  if (coverage >= 0.9) return "full";
   if (coverage >= 0.8) return "A";
   if (coverage >= 0.6) return "B";
   return "below";
@@ -209,6 +209,9 @@ const UNRATED_REASON_COPY = Object.freeze({
  *  percent. `unratedReasonText` fills it and no view reads it, so it is not exported: the verifier and the tests read
  *  it from this file, as they read the reason maps above. */
 const UNRATED_COVERAGE_BELOW_FLOOR = "(coverage {coverage}, below the {floor} floor).";
+/** The clause for a project unrated with its coverage at or above the floor: D-EVID-1 also needs a measured
+ *  responsiveness pillar (RFC-0024), the one other way to be unrated for evidence. Read like the clause above. */
+const UNRATED_NO_RESPONSIVENESS = "(coverage {coverage}, but nothing measured on how it answers outside pull requests).";
 /** The coverage floor an unrated project fell below: methodology.json `missingness.coverage_thresholds.unrated_below`
  *  (a share); null without a methodology that states it. */
 export function unratedCoverageFloor(methodology) {
@@ -217,8 +220,9 @@ export function unratedCoverageFloor(methodology) {
 }
 /**
  * An unrated reason's sentence. Insufficient evidence names the project's coverage and the floor it fell below
- * (`floor`, a share from `unratedCoverageFloor`); without a floor (the methodology has not loaded) the sentence says
- * the reason alone, never a floor it was not given.
+ * (`floor`, a share from `unratedCoverageFloor`), or, when its coverage reached the floor, the responsiveness evidence
+ * it lacks; without a floor (the methodology has not loaded) the sentence says the reason alone, never a floor it was
+ * not given.
  */
 export function unratedReasonText(reason, coverage, floor = null) {
   const bare = bareUnratedReason(reason);
@@ -226,7 +230,8 @@ export function unratedReasonText(reason, coverage, floor = null) {
     if (typeof floor !== "number") return NOT_RANKED_LIST_REASONS.insufficient_evidence;
     const whole = (share) => `${Math.round(share * 100)}%`;
     const pct = typeof coverage === "number" ? whole(coverage) : "unknown";
-    return `${UNRATED_REASON_COPY[bare]} ${UNRATED_COVERAGE_BELOW_FLOOR.replace("{coverage}", pct).replace("{floor}", whole(floor))}`;
+    const clause = typeof coverage === "number" && coverage >= floor ? UNRATED_NO_RESPONSIVENESS : UNRATED_COVERAGE_BELOW_FLOOR;
+    return `${UNRATED_REASON_COPY[bare]} ${clause.replace("{coverage}", pct).replace("{floor}", whole(floor))}`;
   }
   return UNRATED_REASON_COPY[bare] || reason;
 }
@@ -1261,7 +1266,7 @@ export const MAINTAINER_BADGE_COPIED_LABEL = "Copied";
 
 // U-1 on the image itself: a badge names its tier, "(capped)" when the
 // ceiling binds, and the coverage band behind it (D-MISS-3's bands).
-const BADGE_COVERAGE_TEXT = Object.freeze({ full: "coverage 95–100%", A: "coverage 80–95%" });
+const BADGE_COVERAGE_TEXT = Object.freeze({ full: "coverage 90–100%", A: "coverage 80–90%" });
 // The tier states a badge image exists for, as tier|coverage band|ceiling.
 // S+ and S never carry a binding ceiling: a ceiling caps the tier at A or B
 // (porchlamp/core/aggregate.py apply_ceiling), so a capped badge is always A.
@@ -1473,15 +1478,15 @@ export const LEGAL_IP_LABELS = Object.freeze({
 
 /** ai_posture, classified by porchlamp/collect/governance.py classify_ai_posture. */
 export const AI_POSTURE_LABELS = Object.freeze({
-  REGULATED: "Written AI policy", // governance.py:911-912 a policy file of AI_POLICY_FILES (:116) is present
-  PROSCRIBED: "AI ban stated in a written policy", // docs/v2/02-RANKING-DESIGN.md:165 an explicit ban sentence in a policy file; governance.py:24-31 the collector never returns it
-  AD_HOC: "No written AI policy", // governance.py:913 no policy file found
+  REGULATED: "Written AI policy", // governance.py classify_ai_posture (RFC-0019): AI rule file, trailer convention, policy heading, PR template disclosure checkbox, or explicit AI rule directive
+  PROSCRIBED: "AI ban stated in a written policy", // governance.py classify_ai_posture (RFC-0019): explicit code-contribution ban sentence in a policy file or PR template
+  AD_HOC: "No written AI policy", // governance.py classify_ai_posture: no AI ban or regulation found
 });
 
 /** promotion_ladder, classified by porchlamp/collect/governance.py classify_promotion_ladder. */
 export const PROMOTION_LADDER_LABELS = Object.freeze({
-  VERIFIED: "An outside contributor became a member or collaborator", // governance.py:865 a promotion seen in the pull request window (PROMOTION_TARGET_ASSOCIATIONS, :166)
-  DOCUMENTED: "A written path to becoming a maintainer", // governance.py:891 a governance file names a nomination process (NOMINATION_PATTERN, :169)
-  AD_HOC: "No written path to becoming a maintainer", // governance.py:892 no promotion seen and no nomination text found
-  CLOSED: "Merged pull requests all came from one organisation", // governance.py:887 no outside merge, and every merged author belongs to one email-domain organisation
+  VERIFIED: "An outside contributor became a member or collaborator", // governance.py observed_promotions (RFC-0016): age-eligible account with outside merges >= PROMOTION_MIN_OUTSIDE_DAYS before a maintainer action
+  DOCUMENTED: "A written path to becoming a maintainer", // governance.py classify_promotion_ladder: a governance file names a nomination process (NOMINATION_PATTERN)
+  AD_HOC: "No written path to becoming a maintainer", // governance.py classify_promotion_ladder: no promotion seen and no nomination text found
+  CLOSED: "Merged pull requests all came from one organisation", // governance.py classify_promotion_ladder: no outside merge, and every merged author belongs to one email-domain organisation
 });

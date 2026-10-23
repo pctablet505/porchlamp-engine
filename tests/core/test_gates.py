@@ -943,10 +943,21 @@ def test_gate_evidence_rejects_invalid_fields() -> None:
         )
 
 
+def _evidence_pillars(*, responsiveness: float | None = 80.0) -> dict[str, Any]:
+    """The five pillars, every one measured at 80.0 except responsiveness,
+    whose score is ``responsiveness`` (``None``: no measured parameter, the
+    D-MISS-2 shape ``aggregate_pillars`` gives a wholly unmeasured pillar)."""
+    from porchlamp.core.models import PillarScore
+
+    pillars: dict[str, Any] = {name: PillarScore(score=80.0, coverage=1.0) for name in constants.PILLAR_NAMES}
+    pillars["responsiveness"] = PillarScore(score=responsiveness, coverage=0.0 if responsiveness is None else 1.0)
+    return pillars
+
+
 def test_evidence_gate_rates_at_the_threshold() -> None:
     from porchlamp.core import gates
 
-    result = gates.evidence_sufficiency(0.60)
+    result = gates.evidence_sufficiency(0.60, _evidence_pillars())
     assert result.eligible is True
     assert result.reason is None
     assert result.routed is None
@@ -956,7 +967,7 @@ def test_evidence_gate_rates_at_the_threshold() -> None:
 def test_evidence_gate_unrates_below_the_threshold() -> None:
     from porchlamp.core import gates
 
-    result = gates.evidence_sufficiency(0.599)
+    result = gates.evidence_sufficiency(0.599, _evidence_pillars())
     assert result.eligible is False
     assert result.reason == "unrated: insufficient_evidence"
     assert result.routed is None
@@ -967,11 +978,69 @@ def test_evidence_gate_rejects_out_of_range_coverage() -> None:
     from porchlamp.core import gates
 
     with pytest.raises(ValueError):
-        gates.evidence_sufficiency(-0.1)
+        gates.evidence_sufficiency(-0.1, _evidence_pillars())
     with pytest.raises(ValueError):
-        gates.evidence_sufficiency(1.2)
+        gates.evidence_sufficiency(1.2, _evidence_pillars())
     with pytest.raises(ValueError):
-        gates.evidence_sufficiency(True)  # type: ignore[arg-type]
+        gates.evidence_sufficiency(True, _evidence_pillars())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("coverage", "responsiveness", "rated"),
+    [
+        (0.60, 80.0, True),
+        (1.00, 0.0, True),  # a measured score of 0 is evidence: the pillar is measured
+        (0.599, 80.0, False),
+        (0.60, None, False),
+        (1.00, None, False),
+        (0.599, None, False),
+    ],
+)
+def test_evidence_gate_needs_the_floor_and_a_measured_responsiveness_pillar(
+    coverage: float, responsiveness: float | None, rated: bool
+) -> None:
+    """RFC-0024 (D-EVID-1): rated only when C >= 0.60 AND the responsiveness
+    pillar has a measured parameter -- full coverage elsewhere does not
+    stand in for it (D-DEF-2: P(decision) first)."""
+    from porchlamp.core import gates
+
+    result = gates.evidence_sufficiency(coverage, _evidence_pillars(responsiveness=responsiveness))
+    assert result.eligible is rated
+    assert result.reason == (None if rated else "unrated: insufficient_evidence")
+
+
+def test_required_pillars_are_responsiveness_read_from_the_constants() -> None:
+    from porchlamp.core import gates
+
+    assert constants.EVIDENCE_GATE_REQUIRED_PILLARS == ("responsiveness",)
+    assert gates.EVIDENCE_GATE_REQUIRED_PILLARS is constants.EVIDENCE_GATE_REQUIRED_PILLARS
+
+
+def test_unmeasured_required_pillars_names_the_missing_pillar() -> None:
+    from porchlamp.core import gates
+
+    assert gates.unmeasured_required_pillars(_evidence_pillars()) == ()
+    assert gates.unmeasured_required_pillars(_evidence_pillars(responsiveness=0.0)) == ()
+    assert gates.unmeasured_required_pillars(_evidence_pillars(responsiveness=None)) == ("responsiveness",)
+    # only the required pillars are read: an unmeasured accessibility pillar is not one
+    pillars = _evidence_pillars()
+    from porchlamp.core.models import PillarScore
+
+    pillars["accessibility"] = PillarScore(score=None, coverage=0.0)
+    assert gates.unmeasured_required_pillars(pillars) == ()
+
+
+def test_unmeasured_required_pillars_refuses_a_mapping_without_the_pillar() -> None:
+    """An absent required pillar is neither measured nor unmeasured: the
+    caller never aggregated it, so the gate refuses to guess."""
+    from porchlamp.core import gates
+
+    pillars = _evidence_pillars()
+    del pillars["responsiveness"]
+    with pytest.raises(ValueError, match="responsiveness"):
+        gates.unmeasured_required_pillars(pillars)
+    with pytest.raises(ValueError, match="responsiveness"):
+        gates.evidence_sufficiency(0.90, pillars)
 
 
 def test_spdx_compound_expression_boolean_precedence_and_parentheses() -> None:
@@ -1467,3 +1536,208 @@ def test_the_self_close_limit_is_the_response_deadline_constant(monkeypatch: pyt
     monkeypatch.setattr(gates, "GATE5_RESPONSE_DEADLINE_DAYS", 20)
     bd = gates.evaluate_gate5_window([_self_closed(created, 15)], NOW)
     assert (bd.excluded_self_closed, bd.population_n) == (1, 0)
+
+
+def test_record_cut_short_at_judges_a_truncated_record_against_an_instant() -> None:
+    """#66 F1: the cut test against an instant another envelope fixes, not the
+    record's own anchor. A truncated history anchored 2026-09-15 whose oldest
+    PR opened 2026-03-10 reaches 180 days back from its own anchor (2026-03-19)
+    but not the instant 2026-03-05 a ``pr_window`` anchored 2026-09-01 needs."""
+    from porchlamp.core import gates
+
+    utc = datetime.timezone.utc
+    record = {"window_anchor": "2026-09-15T00:00:00+00:00", "window_days": 365, "truncated": True,
+              "prs": [{"number": 2, "createdAt": "2026-09-01T00:00:00+00:00"},
+                      {"number": 1, "createdAt": "2026-03-10T00:00:00+00:00"}]}
+    assert gates.record_cut_short(record, 180) is False
+    assert gates.record_cut_short_at(record, datetime.datetime(2026, 3, 5, tzinfo=utc)) is True
+    # The oldest PR opened before the instant: the record holds every PR since.
+    assert gates.record_cut_short_at(record, datetime.datetime(2026, 3, 11, tzinfo=utc)) is False
+    # An instant with no offset is read as UTC.
+    assert gates.record_cut_short_at(record, datetime.datetime(2026, 3, 5)) is True
+    # Only a record that says it was truncated is cut; no record is not cut.
+    assert gates.record_cut_short_at({**record, "truncated": False}, datetime.datetime(2026, 3, 5, tzinfo=utc)) is False
+    assert gates.record_cut_short_at(None, datetime.datetime(2026, 3, 5, tzinfo=utc)) is False
+    # A truncated record with no readable createdAt cannot show it reaches the instant.
+    assert gates.record_cut_short_at({"truncated": True, "prs": [{"number": 1}]},
+                                     datetime.datetime(2026, 3, 5, tzinfo=utc)) is True
+
+
+@pytest.mark.parametrize("node, outside", [
+    ({"authorAssociation": "NONE", "author": {"__typename": "User", "login": "alice"}}, True),
+    ({"authorAssociation": "first_time_contributor", "author": {"__typename": "User", "login": "bob"}}, True),
+    ({"authorAssociation": "CONTRIBUTOR", "author": None}, True),  # a deleted account is not a bot
+    ({"authorAssociation": "MEMBER", "author": {"__typename": "User", "login": "carol"}}, False),
+    ({"authorAssociation": "MANNEQUIN", "author": {"__typename": "Mannequin", "login": "old"}}, False),
+    ({"author": {"__typename": "User", "login": "dave"}}, False),
+    ({"authorAssociation": "CONTRIBUTOR", "author": {"__typename": "Bot", "login": "dependabot"}}, False),
+    ({"authorAssociation": "NONE", "author": {"__typename": "User", "login": "acme-ci[bot]"}}, False),
+    ({"authorAssociation": "NONE", "author": {"__typename": "User", "login": "K8s-Ci-Robot"}}, False),
+    (None, False),
+])
+def test_is_outside_pr_is_external_association_and_non_bot_author(node: Any, outside: bool) -> None:
+    """#57: the one definition of an outside PR, read from the recorded node: an
+    external association (case-insensitive) and an author D-IN-1 does not call a
+    bot (``__typename`` Bot, a ``[bot]`` suffix, or a ``BOT_LOGINS`` login)."""
+    from porchlamp.core import gates
+
+    assert gates.is_outside_pr(node) is outside
+
+
+# --------------------------------------------------------------------------- #
+# RFC-0022: reply lists that stop short of the PR's thread                     #
+# --------------------------------------------------------------------------- #
+
+def _reply_list(nodes: list[dict[str, Any]], *, more: bool | None) -> dict[str, Any]:
+    """A recorded ``reviews``/``comments`` connection; ``more=None`` records no
+    ``pageInfo`` (the query before RFC-0022)."""
+    connection: dict[str, Any] = {"nodes": nodes}
+    if more is not None:
+        connection["pageInfo"] = {"hasNextPage": more, "endCursor": "c1"}
+        connection["totalCount"] = len(nodes) + (5 if more else 0)
+    return connection
+
+
+def _member_comment(login: str = "maint", association: str = "MEMBER") -> dict[str, Any]:
+    return {"author": {"__typename": "User", "login": login}, "authorAssociation": association,
+            "bodyText": "Thanks, this looks right; one question about the cache below.",
+            "createdAt": _iso(_ago(40))}
+
+
+def _bot_comment() -> dict[str, Any]:
+    return {"author": {"__typename": "Bot", "login": "ci-bot"}, "authorAssociation": "NONE",
+            "bodyText": "CI report: all 412 checks passed on this commit, coverage unchanged.",
+            "createdAt": _iso(_ago(41))}
+
+
+def _outside_pr(number: int, comments: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    return {"number": number, "createdAt": _iso(_ago(42)), "authorAssociation": "NONE",
+            "author": {"__typename": "User", "login": f"author{number}"},
+            "reviews": _reply_list([], more=False), "comments": comments, **fields}
+
+
+def test_a_reply_list_is_cut_only_when_its_page_info_says_more_remain() -> None:
+    from porchlamp.core import gates
+
+    assert gates.reply_connection_cut(_reply_list([], more=True)) is True
+    assert gates.reply_connection_cut(_reply_list([], more=False)) is False
+    # recorded before RFC-0022: no pageInfo, read as whole as every reader read it
+    assert gates.reply_connection_cut(_reply_list([], more=None)) is False
+    for odd in (None, [], {"pageInfo": None}, {"pageInfo": {"hasNextPage": "true"}}, {"pageInfo": {}}):
+        assert gates.reply_connection_cut(odd) is False, odd
+    whole = _outside_pr(1, _reply_list([], more=False))
+    assert gates.replies_cut(whole) is False
+    assert gates.replies_cut({**whole, "reviews": _reply_list([], more=True)}) is True
+    assert gates.replies_cut({**whole, "comments": _reply_list([], more=True)}) is True
+
+
+def test_a_cut_pr_without_a_recorded_response_leaves_the_reply_set() -> None:
+    """Twenty bot comments recorded, more on GitHub, no maintainer reply among them:
+    no reply measure may read the PR as unanswered. A cut PR whose recorded part
+    holds a maintainer's reply stays, and so do whole and legacy nodes."""
+    from porchlamp.core import gates
+
+    silent_cut = _outside_pr(1, _reply_list([_bot_comment()] * 20, more=True))
+    answered_cut = _outside_pr(2, _reply_list([_bot_comment()] * 19 + [_member_comment()], more=True))
+    silent_whole = _outside_pr(3, _reply_list([_bot_comment()] * 3, more=False))
+    silent_legacy = _outside_pr(4, _reply_list([_bot_comment()] * 20, more=None))
+    unsampled = {**_outside_pr(5, _reply_list([], more=False)), gates.REPLIES_RECORDED_KEY: False}
+    prs = [silent_cut, answered_cut, silent_whole, silent_legacy, unsampled]
+    assert [pr["number"] for pr in gates.reply_sampled_prs(prs)] == [2, 3, 4]
+    assert [pr["number"] for pr in gates.reply_sampled_prs(iter(prs))] == [2, 3, 4]
+
+
+def test_a_cut_prs_reply_counts_by_the_windows_d_in_2_maintainers() -> None:
+    """The reply on the cut PR is by a CONTRIBUTOR who merged another PR in the
+    window: D-IN-2 counts it (``maintainer_logins`` over every node, sampled or
+    not), so the PR stays; without that merge it is no response and the PR leaves."""
+    from porchlamp.core import gates
+
+    cut = _outside_pr(1, _reply_list([_member_comment("committer", "CONTRIBUTOR")], more=True))
+    merged_elsewhere = {**_outside_pr(9, _reply_list([], more=False)), "mergedAt": _iso(_ago(30)),
+                        "mergedBy": {"login": "committer"}, gates.REPLIES_RECORDED_KEY: False}
+    assert [pr["number"] for pr in gates.reply_sampled_prs([cut, merged_elsewhere])] == [1]
+    assert gates.reply_sampled_prs([cut]) == []
+
+
+def test_evaluate_gate5_window_withholds_cut_pr_answered_only_after_14d() -> None:
+    """RFC-0022: a cut PR whose recorded replies show only a response after 14 d
+    is withheld from D-GATE-5 / 1.4 GR_14 (the unrecorded part of the thread may
+    hold an answer within 14 d), whereas a cut PR answered within 14 d counts as
+    answered and a whole PR answered after 14 d counts as unanswered."""
+    from porchlamp.core import gates
+
+    cut_late = gates.GhostRatePR(
+        created_at=_iso(_ago(40)),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=_iso(_ago(20)),
+        number=1,
+        replies_cut=True,
+    )
+    cut_on_time = gates.GhostRatePR(
+        created_at=_iso(_ago(40)),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=_iso(_ago(35)),
+        number=2,
+        replies_cut=True,
+    )
+    whole_late = gates.GhostRatePR(
+        created_at=_iso(_ago(40)),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=_iso(_ago(20)),
+        number=3,
+        replies_cut=False,
+    )
+    assert gates.zero_response_counts([cut_late], NOW) == (0, 0)
+    assert gates.zero_response_counts([cut_late, cut_on_time], NOW) == (0, 1)
+    assert gates.zero_response_counts([cut_late, cut_on_time, whole_late], NOW) == (1, 2)
+
+
+def test_is_excluded_from_review_denominator_withholds_cut_pr_without_substantive_review() -> None:
+    """RFC-0022: a decided cut PR that stays in reply_sampled_prs via a short
+    (<80 char, 0 inline comments) review is excluded from the 4.3 denominator when
+    no substantive review or comment is recorded; a cut PR with a recorded
+    substantive review stays."""
+    from porchlamp.core import gates
+
+    short_review = {
+        "author": {"__typename": "User", "login": "maint"},
+        "authorAssociation": "MEMBER",
+        "state": "COMMENTED",
+        "body": "Looking into this.",
+        "comments": {"totalCount": 0},
+        "createdAt": _iso(_ago(40)),
+    }
+    long_review = {
+        **short_review,
+        "body": (
+            "The retry loop needs a bounded backoff and an explicit timeout guard "
+            "before we can merge this change into the main branch."
+        ),
+    }
+    cut_short = _outside_pr(
+        1,
+        _reply_list([], more=False),
+        closedAt=_iso(_ago(30)),
+        reviews=_reply_list([short_review], more=True),
+    )
+    cut_long = _outside_pr(
+        2,
+        _reply_list([], more=False),
+        closedAt=_iso(_ago(30)),
+        reviews=_reply_list([long_review], more=True),
+    )
+    whole_short = _outside_pr(
+        3,
+        _reply_list([], more=False),
+        closedAt=_iso(_ago(30)),
+        reviews=_reply_list([short_review], more=False),
+    )
+    maintainers = gates.maintainer_logins([cut_short, cut_long, whole_short])
+    assert gates.is_excluded_from_review_denominator(cut_short, maintainers) is True
+    assert gates.is_excluded_from_review_denominator(cut_long, maintainers) is False
+    assert gates.is_excluded_from_review_denominator(whole_short, maintainers) is False
+

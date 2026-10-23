@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "be7023c09aa5514472d2434d33527449db5a490152f0a3e1ea2defaf052ab91a"
+FROZEN_CONSTANTS_HASH = "d8c067b9e928b138beb68c9909d605b5737a1885275c786e0fbe8d9050b8a1c2"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -51,8 +51,9 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     ("PILLAR_WEIGHTS.rigor", constants.PILLAR_WEIGHTS["rigor"], 0.15),
     ("PILLAR_WEIGHTS.accessibility", constants.PILLAR_WEIGHTS["accessibility"], 0.15),
     ("EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE", constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE, 0.60),
+    ("EVIDENCE_GATE_REQUIRED_PILLARS", constants.EVIDENCE_GATE_REQUIRED_PILLARS, ("responsiveness",)),
     ("CEILING_A_MIN_COVERAGE", constants.CEILING_A_MIN_COVERAGE, 0.80),
-    ("NO_CEILING_MIN_COVERAGE", constants.NO_CEILING_MIN_COVERAGE, 0.95),
+    ("NO_CEILING_MIN_COVERAGE", constants.NO_CEILING_MIN_COVERAGE, 0.90),
     ("MIN_POPULATION", constants.MIN_POPULATION, 30),
     ("COMPOSITE_DECIMALS", constants.COMPOSITE_DECIMALS, 2),
     ("PERSONA_PRESETS.balanced", constants.PERSONA_PRESETS["balanced"], dict(constants.PILLAR_WEIGHTS)),
@@ -207,12 +208,47 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     # RFC-0011: D-IN-2 comment minimum, Chinese, Japanese and Korean letters counted three times.
     ("SUBSTANTIVE_COMMENT_MIN_CHARS", constants.SUBSTANTIVE_COMMENT_MIN_CHARS, 40),
     ("SUBSTANTIVE_COMMENT_CJK_WEIGHT", constants.SUBSTANTIVE_COMMENT_CJK_WEIGHT, 3),
-    # RFC-0012: D-IN-1's exact login list, 20 generic bot accounts and 75 service accounts.
-    ("BOT_LOGINS", len(constants.BOT_LOGINS), 95),
+    # RFC-0012 / RFC-0014: D-IN-1's exact login list, 20 generic bot accounts and 89 service accounts.
+    ("BOT_LOGINS", len(constants.BOT_LOGINS), 109),
     # RFC-0013: D-IN-4's whole PR window: every field up to 2,000 PRs, above that replies on a sample of 1,000.
     ("PR_CAP", constants.PR_CAP, 2000),
     ("PR_SAMPLE_CAP", constants.PR_SAMPLE_CAP, 1000),
     ("PR_SAMPLE_SEED", constants.PR_SAMPLE_SEED, 20260912),
+    # RFC-0015: the labels that mark a closed pull request landed outside GitHub's merge.
+    ("LANDING_LABELS", constants.LANDING_LABELS, frozenset({"integrated", "merged"})),
+    # RFC-0016: 3.3 promotion_ladder action-based minimum outside phase duration.
+    ("PROMOTION_MIN_OUTSIDE_DAYS", constants.PROMOTION_MIN_OUTSIDE_DAYS, 30),
+    # RFC-0017: 3.1 legal_ip explicit foundation GitHub organisation list.
+    (
+        "FOUNDATION_ORGS",
+        tuple(sorted(constants.FOUNDATION_ORGS)),
+        (
+            "apache",
+            "chaoss",
+            "cncf",
+            "eclipse",
+            "fdiooss",
+            "kubernetes",
+            "linuxfoundation",
+            "llvm",
+            "openjs-foundation",
+            "openstack",
+            "seleniumhq",
+            "trinodb",
+        ),
+    ),
+    # RFC-0018: 4.3 substantive review effective character threshold and boilerplate repetition guard.
+    ("SUBSTANTIVE_REVIEW_BODY_CHARS", constants.SUBSTANTIVE_REVIEW_BODY_CHARS, 80),
+    ("SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS", constants.SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS, 3),
+    # RFC-0020: 5.4 DX setup-signals proxy method and minimum CI run count.
+    ("DX_PROXY_MIN_N", constants.DX_PROXY_MIN_N, 0),
+    ("METHOD_PROXY_DX_SETUP_SIGNALS", constants.METHOD_PROXY_DX_SETUP_SIGNALS, "proxy:setup_signals_only"),
+    # RFC-0021: D-IN-4's commits: every commit of the 365 days up to 5,000, above that 5,000 in evenly
+    # spaced pages with GitHub's count of the year; a record at the old newest-1,000 cap is refused.
+    ("COMMIT_CAP", constants.COMMIT_CAP, 5000),
+    ("LEGACY_COMMIT_CAP", constants.LEGACY_COMMIT_CAP, 1000),
+    # RFC-0022: D-IN-4's reply lists: each PR's reviews and comments whole up to 300 nodes.
+    ("PR_REPLY_NODE_CAP", constants.PR_REPLY_NODE_CAP, 300),
 )
 
 

@@ -45,6 +45,29 @@ PR_SAMPLE_CAP: int = 1000
 #: smallest of the window's, so a rerun over the same PRs draws the same sample.
 PR_SAMPLE_SEED: int = 20260912
 
+#: D-IN-4 Commits (RFC-0021): a ``commits_365d`` record holds every
+#: default-branch commit of the trailing 365 days when GitHub counts at most
+#: this many; above it, this many in whole REST pages of 100 spread evenly over
+#: the year (``sampled``), with GitHub's count of the year's commits
+#: (``total``). 3.2 EF and 3.1's ``Signed-off-by`` share read the rows; 2.2's
+#: commit frequency reads the total.
+COMMIT_CAP: int = 5000
+
+#: D-IN-4 Commits (RFC-0021): the newest-commits cap every ``commits_365d``
+#: collector applied before RFC-0021, without a total. A record that stopped
+#: there (``truncated``, or a bare row list of this many rows) holds only the
+#: newest days of a busier year, so no windowed commit measure reads it.
+LEGACY_COMMIT_CAP: int = 1000
+
+#: D-IN-4 (RFC-0022): each PR whose replies a ``pr_window`` record holds has its
+#: reviews and its comments recorded whole up to this many of each, oldest first.
+#: The window page reads the first 10 reviews and 20 comments of each PR (all it
+#: kept before), and the collector reads a longer list on by PR number until it
+#: is whole or holds this many; a list still longer stays marked cut
+#: (``pageInfo.hasNextPage``), and no reply measure reads a PR whose recorded part
+#: holds no D-IN-2 response as unanswered (``porchlamp.core.gates.reply_sampled_prs``).
+PR_REPLY_NODE_CAP: int = 300
+
 #: D-MISS-1 reason for a Measured ECDF-kind input whose (ecosystem, param)
 #: has no frozen population at all (``porchlamp.core.engine``, added 2026-09-12).
 REASON_NO_POPULATION: str = "no_population"
@@ -103,12 +126,25 @@ COMPOSITE_DECIMALS: int = 2
 MIN_POPULATION: int = 30
 
 #: D-MISS-3 ceiling bands, above the D-EVID-1 rated threshold.
+#: ``NO_CEILING_MIN_COVERAGE = 0.90`` (amended by RFC-0024 from 0.95): permits
+#: at most one missing parameter in any pillar (single-parameter global weights
+#: span 0.025..0.100, leaving C in 0.9000..0.9750) while capping two missing
+#: parameters.
 CEILING_A_MIN_COVERAGE: float = 0.80
-NO_CEILING_MIN_COVERAGE: float = 0.95
+NO_CEILING_MIN_COVERAGE: float = 0.90
 
 #: D-EVID-1: composite coverage threshold (D-MISS-3) below which a repo is
 #: unrated.
 EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = 0.60
+
+#: D-EVID-1 (RFC-0024): pillars that must each have at least one measured
+#: parameter for a repo to be rated, whatever its composite coverage.
+#: Responsiveness measures P(decision), the factor D-DEF-2 evaluates first; the
+#: composite renormalises over measured pillars (D-MISS-2), so without this rule
+#: a repo whose answers to outside pull requests were never observed is ranked
+#: on its other pillars alone (275 rated repos on the 2026-10-21 data, 64 of
+#: them with every recorded outside PR unanswered within 14 days).
+EVIDENCE_GATE_REQUIRED_PILLARS: tuple[str, ...] = ("responsiveness",)
 
 #: D-GATE-4: trailing window for non-bot User commits on the default branch.
 GATE4_VITALITY_WINDOW_DAYS: int = 180
@@ -129,6 +165,16 @@ SUBSTANTIVE_COMMENT_MIN_CHARS: int = 40
 #: this many times: those scripts say in one letter about what Latin text says in three, so
 #: 14 of them reach the minimum.
 SUBSTANTIVE_COMMENT_CJK_WEIGHT: int = 3
+#: 4.3 substantive review rate (RFC-0018): minimum effective length (via
+#: ``porchlamp.core.gates.comment_length``) for a top-level review body or
+#: D-IN-2 maintainer issue comment to count as substantive without inline
+#: diff comments.
+SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
+#: 4.3 substantive review rate (RFC-0018): a normalized top-level review body
+#: or maintainer issue comment repeated across at least this many distinct PRs
+#: in the repository's PR window is treated as canned boilerplate rather than
+#: PR-specific substantive review.
+SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS: int = 3
 #: D-GATE-6: horizon for a decided external PR.
 GATE6_DECISION_WINDOW_DAYS: int = 365
 #: D-GATE-6 review hand-off (RFC-0007): a repository whose own notices send
@@ -218,6 +264,18 @@ LEGAL_IP_SCORES: Mapping[str, float] = MappingProxyType({
     "FOUNDATION_CLA": 75.0,
     "CORP_CLA": 25.0,
 })
+#: 3.1 "owner in the foundation list" (02 section 4): the GitHub owners,
+#: lower-cased, whose repositories take contributions under a foundation's
+#: agreement. Ownership is the weakest 3.1 signal (RFC-0017): it names a
+#: generic CLA check's beneficiary as a foundation rather than a company, and
+#: decides FOUNDATION_CLA on its own only when no CLA check and no DCO
+#: evidence is recorded. Relocated from ``scripts/derive.py``, where it was
+#: unhashed, with ``seleniumhq`` (Software Freedom Conservancy CLA) and
+#: ``trinodb`` (Trino Software Foundation CLA) added on recorded evidence.
+FOUNDATION_ORGS: frozenset[str] = frozenset({
+    "apache", "chaoss", "cncf", "eclipse", "fdiooss", "kubernetes", "linuxfoundation",
+    "llvm", "openjs-foundation", "openstack", "seleniumhq", "trinodb",
+})
 #: 3.3 promotion-ladder rung scores.
 PROMOTION_LADDER_SCORES: Mapping[str, float] = MappingProxyType({
     "VERIFIED": 100.0,
@@ -225,6 +283,12 @@ PROMOTION_LADDER_SCORES: Mapping[str, float] = MappingProxyType({
     "AD_HOC": 40.0,
     "CLOSED": 10.0,
 })
+#: 3.3 VERIFIED (RFC-0016): the fewest days between an account's first PR that
+#: another account merged and its own first merge or close of a PR in the
+#: recorded window. A shorter gap is what a maintainer whose earlier actions
+#: fall outside the record, or a new hire given access, looks like; an outside
+#: contributor's path to maintainer takes weeks.
+PROMOTION_MIN_OUTSIDE_DAYS: int = 30
 #: 4.2 AI posture scores, persona-conditional.
 AI_POSTURE_SCORES: Mapping[str, Mapping[str, float]] = MappingProxyType({
     "REGULATED": MappingProxyType({"human": 95.0, "ai": 95.0}),
@@ -393,9 +457,13 @@ PARAM_MIN_N: Mapping[str, int | None] = MappingProxyType({
 })
 
 #: 4.1 pipeline_defenses' ``proxy_min_n`` (the minimum sample that applies
-#: only when the measured method is a proxy, D-MISS-4); the only parameter
-#: that defines one.
+#: only when the measured method is a proxy, D-MISS-4).
 PIPELINE_DEFENSES_PROXY_MIN_N: int = 10
+#: 5.4 dx's ``proxy_min_n`` (RFC-0020): when fewer than ``PARAM_MIN_N["dx"]``
+#: pull-request commits have a finished GitHub Actions run, 5.4 falls back to
+#: the setup-signals proxy (``METHOD_PROXY_DX_SETUP_SIGNALS``) with minimum
+#: CI-run sample 0.
+DX_PROXY_MIN_N: int = 0
 
 #: D-MISS-1 ``collector_failure`` threshold for row 1.2 (DR_90) and row 1.3
 #: (MR_first): above this fraction of a repo's author-history cohort being
@@ -408,12 +476,27 @@ PIPELINE_DEFENSES_PROXY_MIN_N: int = 10
 #: Consumed by ``porchlamp.collect.github_graphql.derive_cohort_fields``.
 AUTHOR_UNMEASURED_MAX_FRACTION: float = 0.20
 
+#: 02 section 4 (RFC-0015, #60): a closed, unmerged pull request that carries one of
+#: these labels (its whole name, compared lower-cased) was landed outside GitHub's
+#: merge: the project committed its change itself and closed it. The labels the
+#: landing projects measured use: ``Merged`` (``pytorch/pytorch``'s merge bot and
+#: Meta's export bot), ``merged`` (``freebsd/freebsd-src``'s committers) and
+#: ``integrated`` (``openjdk/jdk``'s bot). A pull request whose close event names a
+#: commit as its closer is landed whatever its labels; ``porchlamp.core.landing`` is
+#: the one definition, and the merge-based measures (1.3, 1.5, 5.2, 5.3, the 4.1
+#: review proxy) count a landed pull request as merged at its close.
+LANDING_LABELS: frozenset[str] = frozenset({"integrated", "merged"})
+
 #: D-IN-1 (02 section 3): the exact-match bot logins, compared lower-cased. An actor is
 #: also a bot when GitHub types it ``Bot`` or its login ends in ``[bot]``; there is no
 #: substring matching (F12). The first group are generic bot accounts. The second are
 #: service accounts GitHub types as users: each login says it is a bot and was found
 #: answering outside pull requests in the recorded data with templated text, or within
 #: minutes of nearly every opening (RFC-0012 gives the method and each account's evidence).
+#: The third are the service accounts added by RFC-0014 (#57, #66): accounts with a bot
+#: login whose fast responses were on bot-authored PRs, and project-run CI, CLA, build and
+#: approval accounts with no ``bot`` token in the login, each verified by profile, text
+#: and commit history.
 BOT_LOGINS: frozenset[str] = frozenset({
     # generic bot accounts
     "allcontributors", "cla-bot", "claude", "codecov", "copilot", "dependabot", "easycla",
@@ -435,6 +518,11 @@ BOT_LOGINS: frozenset[str] = frozenset({
     "rust-rfcbot", "rustbot", "shaka-bot", "shiftbot", "sre-ci-robot", "stdlib-bot",
     "tekton-robot", "tempoxyz-bot", "theguild-bot", "ti-chi-bot", "volcano-sh-bot",
     "voxel51-bot", "workweave-bot", "ydbot", "zerxlabbot", "zulipbot",
+    # service accounts GitHub types as users (RFC-0014; #57, #66)
+    "autheliabot", "backstage-service", "ciliumbot", "crate-jenkins",
+    "elasticsearchmachine", "hlsjs-ci", "istio-testing", "mattermost-build", "servo-bot",
+    "sqla-tester", "tencent-adm", "ultralyticsassistant", "webkit-early-warning-system",
+    "yoshi-approver",
 })
 
 #: D-IN-3: for rate parameters (merge, decision, conversion, return) a PR
@@ -527,6 +615,8 @@ GATED_PERSONAS: tuple[str, ...] = (
 #: Measured.method vocabulary: "primary" or "proxy:<name>" (04 section 3, D-MISS-4).
 METHOD_PRIMARY: str = "primary"
 PROXY_METHOD_PREFIX: str = "proxy:"
+#: 5.4 DX setup-signals-only proxy method string (RFC-0020).
+METHOD_PROXY_DX_SETUP_SIGNALS: str = PROXY_METHOD_PREFIX + "setup_signals_only"
 
 #: The 18 parameter input ids (02 section 4, one per parameter), in pillar order.
 PARAM_INPUT_IDS: tuple[str, ...] = (
@@ -601,12 +691,16 @@ def constants_dict() -> dict[str, object]:
         "CAREER_CAPITAL_MIN_CRITICALITY": CAREER_CAPITAL_MIN_CRITICALITY,
         "CEILING_A_MIN_COVERAGE": CEILING_A_MIN_COVERAGE,
         "COHORT_RATE_SLOPE": COHORT_RATE_SLOPE,
+        "COMMIT_CAP": COMMIT_CAP,
         "COMPOSITE_DECIMALS": COMPOSITE_DECIMALS,
+        "DX_PROXY_MIN_N": DX_PROXY_MIN_N,
         "ELEPHANT_SLOPE": ELEPHANT_SLOPE,
         "EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE": EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE,
+        "EVIDENCE_GATE_REQUIRED_PILLARS": EVIDENCE_GATE_REQUIRED_PILLARS,
         "FIRST_TIMER_MIN_DECIDED_PRS": FIRST_TIMER_MIN_DECIDED_PRS,
         "FIRST_TIMER_MIN_MR_FIRST": FIRST_TIMER_MIN_MR_FIRST,
         "FIRST_TIMER_MIN_NEWCOMER_ISSUES": FIRST_TIMER_MIN_NEWCOMER_ISSUES,
+        "FOUNDATION_ORGS": tuple(sorted(FOUNDATION_ORGS)),
         "FRICTION_WEIGHTS": FRICTION_WEIGHTS,
         "GATE4_VITALITY_WINDOW_DAYS": GATE4_VITALITY_WINDOW_DAYS,
         "GATE5_MAX_ZERO_RESPONSE_SHARE": GATE5_MAX_ZERO_RESPONSE_SHARE,
@@ -621,10 +715,13 @@ def constants_dict() -> dict[str, object]:
         "GATE6_HANDOFF_RELAY_LOGIN_PREFIXES": GATE6_HANDOFF_RELAY_LOGIN_PREFIXES,
         "GATED_PERSONAS": GATED_PERSONAS,
         "GHOST_RATE_SLOPE": GHOST_RATE_SLOPE,
+        "LANDING_LABELS": tuple(sorted(LANDING_LABELS)),
+        "LEGACY_COMMIT_CAP": LEGACY_COMMIT_CAP,
         "LEGAL_IP_SCORES": LEGAL_IP_SCORES,
         "LEGAL_IP_VALUES": LEGAL_IP_VALUES,
         "LEVERAGE_WEIGHTS": LEVERAGE_WEIGHTS,
         "METHOD_PRIMARY": METHOD_PRIMARY,
+        "METHOD_PROXY_DX_SETUP_SIGNALS": METHOD_PROXY_DX_SETUP_SIGNALS,
         "MIN_ACCOUNT_AGE_DAYS": MIN_ACCOUNT_AGE_DAYS,
         "MIN_POPULATION": MIN_POPULATION,
         "MIN_PUBLIC_EVENTS": MIN_PUBLIC_EVENTS,
@@ -644,8 +741,10 @@ def constants_dict() -> dict[str, object]:
         "PIPELINE_DEFENSES_PROXY_MIN_N": PIPELINE_DEFENSES_PROXY_MIN_N,
         "PROMOTION_LADDER_SCORES": PROMOTION_LADDER_SCORES,
         "PROMOTION_LADDER_VALUES": PROMOTION_LADDER_VALUES,
+        "PROMOTION_MIN_OUTSIDE_DAYS": PROMOTION_MIN_OUTSIDE_DAYS,
         "PROXY_METHOD_PREFIX": PROXY_METHOD_PREFIX,
         "PR_CAP": PR_CAP,
+        "PR_REPLY_NODE_CAP": PR_REPLY_NODE_CAP,
         "PR_SAMPLE_CAP": PR_SAMPLE_CAP,
         "PR_SAMPLE_SEED": PR_SAMPLE_SEED,
         "PR_WINDOW_DAYS": PR_WINDOW_DAYS,
@@ -663,6 +762,8 @@ def constants_dict() -> dict[str, object]:
         "STARS_SCOUT_WINDOW_DAYS": STARS_SCOUT_WINDOW_DAYS,
         "SUBSTANTIVE_COMMENT_CJK_WEIGHT": SUBSTANTIVE_COMMENT_CJK_WEIGHT,
         "SUBSTANTIVE_COMMENT_MIN_CHARS": SUBSTANTIVE_COMMENT_MIN_CHARS,
+        "SUBSTANTIVE_REVIEW_BODY_CHARS": SUBSTANTIVE_REVIEW_BODY_CHARS,
+        "SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS": SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS,
         "SUPPLY_SLOPE": SUPPLY_SLOPE,
         "TIER_CUTOFFS": TIER_CUTOFFS,
         "TIER_ORDER": TIER_ORDER,
