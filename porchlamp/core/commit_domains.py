@@ -298,38 +298,61 @@ class TopDomainShare:
     ``porchlamp.derive.bundle``'s job, not this module's.
 
     ``n`` is the non-bot commit count (0 when there are none); ``top_
-    domain`` is the winning :func:`org_key` value ("" when ``n`` is 0, or
-    when no non-bot commit resolves to an org at all -- e.g. every row's
-    author has no recorded email; ``porchlamp.derive.bundle`` distinguishes
-    these two zero cases from each other); ``share`` is ``top_domain``'s
-    commit count divided by ``n`` (0.0 in either zero case)."""
+    domain`` is the winning commit email domain (:func:`_email_domain`; ""
+    when ``n`` is 0, or when no non-bot commit records an email domain at
+    all -- e.g. every row's author has no recorded email;
+    ``porchlamp.derive.bundle`` distinguishes these two zero cases from each
+    other); ``share`` is ``top_domain``'s commit count divided by ``n`` (0.0
+    in either zero case)."""
 
     share: float
     n: int
     top_domain: str
 
 
+def _email_domain(actor: CommitActor) -> Optional[str]:
+    """The commit-author email's domain, lower-cased, as recorded; ``None``
+    when no ``@``-bearing email with a non-empty domain is recorded.
+
+    The ``ef_domain_mismatch`` grouping (03 section 6: "top email domain
+    share"). Unlike :func:`org_key` it does not split a personal provider
+    or ``users.noreply.github.com`` into one bucket per author: those
+    addresses are exactly the ones 3.2 counts as one org per author, and the
+    detector exists to show when an elephant factor rests on them (03
+    section 3, 3.2: "an org using personal emails inflates EF").
+    """
+    email = actor.email.strip().lower()
+    if "@" not in email:
+        return None
+    return email.rsplit("@", 1)[1] or None
+
+
 def top_domain_share(records: Sequence[CommitRecord]) -> TopDomainShare:
     """The ``ef_domain_mismatch`` detector's raw input: the single
-    largest :func:`org_key` group's share of the non-bot commits.
+    largest commit email domain's (:func:`_email_domain`) share of the
+    non-bot commits.
 
-    Ties broken by ascending ``org_key`` string -- the exact tie rule
-    :func:`porchlamp.collect.commits.elephant_factor` already uses
-    (``sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))``), pinned
-    here again so the two facts can never disagree about which entity wins
-    a tie. A commit whose author resolves to no org (:func:`org_key`
-    returns ``None`` -- no ``@`` in the recorded email, or no email at
-    all) still counts in ``n`` but never in any org's numerator, mirroring
-    ``elephant_factor``'s own denominator rule."""
+    Grouped by the raw domain, not by :func:`org_key`. Grouped by the 3.2
+    org key -- the elephant factor's own buckets -- one bucket holding half
+    the commits makes EF 1, so "top share >= 0.5 while EF >= 4" could not
+    occur (0 of the 3,746 rated repositories of the 2026-10-21 snapshot).
+    A corporate domain holding half the commits still makes EF 1; the
+    detector fires only where EF splits that domain per author (a personal
+    provider or the GitHub no-reply domain).
+
+    Ties broken by ascending domain string (the tie rule
+    :func:`porchlamp.collect.commits.elephant_factor` uses for its org
+    keys). A commit with no recorded email domain still counts in ``n`` but
+    never in any domain's numerator."""
     non_bot = [record for record in records if not is_bot(record.actor)]
     n = len(non_bot)
     if n == 0:
         return TopDomainShare(share=0.0, n=0, top_domain="")
     counts: Counter[str] = Counter()
     for record in non_bot:
-        org = org_key(record.actor)
-        if org is not None:
-            counts[org] += 1
+        domain = _email_domain(record.actor)
+        if domain is not None:
+            counts[domain] += 1
     if not counts:
         return TopDomainShare(share=0.0, n=n, top_domain="")
     top_domain, top_count = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]

@@ -52,6 +52,7 @@ from porchlamp.collect.depsdev import package_key, package_name_for_repo
 from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
 from porchlamp.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
 from porchlamp.constants import BOT_LOGIN_MARKERS
+from porchlamp.core import constants as core_constants
 from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
@@ -68,10 +69,9 @@ GFI_WINDOW_DAYS = 30
 RR_WINDOW_DAYS = 90
 COMMITS_WINDOW_DAYS = 180
 SCORECARD_MISMATCH = 0.5
-FOUNDATION_ORGS = {
-    "apache", "kubernetes", "cncf", "linuxfoundation", "eclipse",
-    "openjs-foundation", "fdiooss", "openstack", "llvm", "chaoss",
-}
+#: 02 section 4 3.1's foundation list: one definition, hashed, in the core
+#: constants (RFC-0017).
+FOUNDATION_ORGS = core_constants.FOUNDATION_ORGS
 # GitHub's real author_association enum; model enum collapses FIRST_TIMER /
 # FIRST_TIME_CONTRIBUTOR -> FIRST_TIME and CONTRIBUTOR -> NONE (external, not
 # first-time; is_external is carried separately).
@@ -843,9 +843,11 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # commits_365d, so a value derived from c365 alone (no governance
     # envelope) still carries real provenance instead of None; a
     # "missing"-confidence field carries no source (matches every other
-    # b.missing() field in this module). (Foundation-owner fact mirrors the
-    # expression above; the list stays in FOUNDATION_ORGS, one definition per
-    # fact.) Field names match porchlamp.core.constants.PARAM_INPUT_IDS exactly:
+    # b.missing() field in this module). (Foundation-owner fact: membership
+    # of FOUNDATION_ORGS, the hashed 3.1 list, and nothing else -- the
+    # "-foundation" name suffix the v1 heuristic above also accepts is no
+    # list, and none of the six eligible repos it matched shows a CLA
+    # check, RFC-0017.) Field names match porchlamp.core.constants.PARAM_INPUT_IDS exactly:
     # promotion_ladder / ai_posture supersede the regex heuristic set above
     # with the evidence-based ones (02 §4 3.3/4.2). ---
     from porchlamp.collect import governance as gov_mod
@@ -857,8 +859,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     else:
         gov_src, gov_prov_at = None, None
     for field, (value, conf) in gov_mod.derive_governance_fields(
-            gov, prw, c365, owner.lower() in FOUNDATION_ORGS
-            or owner.lower().endswith("-foundation")).items():
+            gov, prw, c365, owner.lower() in FOUNDATION_ORGS).items():
         if conf == "missing":
             b.set(field, value, None, None, conf)
         else:

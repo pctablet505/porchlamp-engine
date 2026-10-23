@@ -218,6 +218,18 @@ LEGAL_IP_SCORES: Mapping[str, float] = MappingProxyType({
     "FOUNDATION_CLA": 75.0,
     "CORP_CLA": 25.0,
 })
+#: 3.1 "owner in the foundation list" (02 section 4): the GitHub owners,
+#: lower-cased, whose repositories take contributions under a foundation's
+#: agreement. Ownership is the weakest 3.1 signal (RFC-0017): it names a
+#: generic CLA check's beneficiary as a foundation rather than a company, and
+#: decides FOUNDATION_CLA on its own only when no CLA check and no DCO
+#: evidence is recorded. Relocated from ``scripts/derive.py``, where it was
+#: unhashed, with ``seleniumhq`` (Software Freedom Conservancy CLA) and
+#: ``trinodb`` (Trino Software Foundation CLA) added on recorded evidence.
+FOUNDATION_ORGS: frozenset[str] = frozenset({
+    "apache", "chaoss", "cncf", "eclipse", "fdiooss", "kubernetes", "linuxfoundation",
+    "llvm", "openjs-foundation", "openstack", "seleniumhq", "trinodb",
+})
 #: 3.3 promotion-ladder rung scores.
 PROMOTION_LADDER_SCORES: Mapping[str, float] = MappingProxyType({
     "VERIFIED": 100.0,
@@ -225,6 +237,12 @@ PROMOTION_LADDER_SCORES: Mapping[str, float] = MappingProxyType({
     "AD_HOC": 40.0,
     "CLOSED": 10.0,
 })
+#: 3.3 VERIFIED (RFC-0016): the fewest days between an account's first PR that
+#: another account merged and its own first merge or close of a PR in the
+#: recorded window. A shorter gap is what a maintainer whose earlier actions
+#: fall outside the record, or a new hire given access, looks like; an outside
+#: contributor's path to maintainer takes weeks.
+PROMOTION_MIN_OUTSIDE_DAYS: int = 30
 #: 4.2 AI posture scores, persona-conditional.
 AI_POSTURE_SCORES: Mapping[str, Mapping[str, float]] = MappingProxyType({
     "REGULATED": MappingProxyType({"human": 95.0, "ai": 95.0}),
@@ -627,6 +645,7 @@ def constants_dict() -> dict[str, object]:
         "FIRST_TIMER_MIN_DECIDED_PRS": FIRST_TIMER_MIN_DECIDED_PRS,
         "FIRST_TIMER_MIN_MR_FIRST": FIRST_TIMER_MIN_MR_FIRST,
         "FIRST_TIMER_MIN_NEWCOMER_ISSUES": FIRST_TIMER_MIN_NEWCOMER_ISSUES,
+        "FOUNDATION_ORGS": tuple(sorted(FOUNDATION_ORGS)),
         "FRICTION_WEIGHTS": FRICTION_WEIGHTS,
         "GATE4_VITALITY_WINDOW_DAYS": GATE4_VITALITY_WINDOW_DAYS,
         "GATE5_MAX_ZERO_RESPONSE_SHARE": GATE5_MAX_ZERO_RESPONSE_SHARE,
@@ -665,6 +684,7 @@ def constants_dict() -> dict[str, object]:
         "PIPELINE_DEFENSES_PROXY_MIN_N": PIPELINE_DEFENSES_PROXY_MIN_N,
         "PROMOTION_LADDER_SCORES": PROMOTION_LADDER_SCORES,
         "PROMOTION_LADDER_VALUES": PROMOTION_LADDER_VALUES,
+        "PROMOTION_MIN_OUTSIDE_DAYS": PROMOTION_MIN_OUTSIDE_DAYS,
         "PROXY_METHOD_PREFIX": PROXY_METHOD_PREFIX,
         "PR_CAP": PR_CAP,
         "PR_SAMPLE_CAP": PR_SAMPLE_CAP,

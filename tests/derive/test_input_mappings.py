@@ -2380,7 +2380,7 @@ def test_cut_short_windows_refused_by_bundle_resolvers(tmp_path: Path) -> None:
 
 
 def test_a_ladder_the_deriver_withheld_on_a_cut_pr_window_names_the_cut(tmp_path: Path) -> None:
-    """The governance deriver records no rung but VERIFIED on a cut record (confidence ``missing``); the bundle says
+    """The governance deriver records no rung on a cut record (confidence ``missing``); the bundle says
     why, where a ladder missing for any other cause keeps the generic detail."""
     _cut_records(tmp_path, "acme__cut-missing")
     document = _cut_document("acme__cut-missing", "CLOSED")
@@ -2393,12 +2393,12 @@ def test_a_ladder_the_deriver_withheld_on_a_cut_pr_window_names_the_cut(tmp_path
         reason="collector_failure", detail="v1 deriver recorded no value")
 
 
-def test_a_verified_promotion_stands_on_a_cut_pr_window(tmp_path: Path) -> None:
-    """An observed promotion is positive evidence: a cut record does not refute it."""
+def test_a_verified_promotion_is_also_refused_on_a_cut_pr_window(tmp_path: Path) -> None:
+    """RFC-0016: action-based VERIFIED rests on the absence of earlier maintainer actions in the 180d window."""
     _cut_records(tmp_path, "acme__cut-verified")
     bundle = load(tmp_path, _cut_document("acme__cut-verified", "VERIFIED"), key="acme__cut-verified")
-    value = bundle.inputs["promotion_ladder"]
-    assert isinstance(value, Measured) and value.value == "VERIFIED"
+    assert bundle.inputs["promotion_ladder"] == Unmeasured(
+        reason="collector_failure", detail="pr_window envelope is truncated before reaching the 180d window start")
 
 
 def test_author_history_required_days_match_the_collector() -> None:

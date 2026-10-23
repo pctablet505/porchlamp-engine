@@ -13,13 +13,21 @@ and derives them with ``NONE`` / ``AD_HOC`` / ``AD_HOC`` defaults:
   from that envelope with **no second commit fetch** and no
   message text stored anywhere (``03`` section 3: documents/text are not
   evidence for 3.1; only checks and the sign-off fact are).
-* **3.3 Promotion ladder** — association transitions read from the
-  recorded ``pr_window`` envelope: an account whose earliest
-  observed association in the window is external and whose latest is
-  MEMBER/COLLABORATOR is a verified promotion. The CLOSED rung needs the
-  merged PR authors attributable to one email-domain org via the
-  ``commits_365d`` envelope. DOCUMENTED reads the collected
-  GOVERNANCE.md / MAINTAINERS.md / CONTRIBUTING.md bodies.
+* **3.3 Promotion ladder** — action-based promotions read from the
+  recorded 180 d ``pr_window`` envelope (RFC-0016): an account that first
+  had D-IN-3 age-eligible (``>= MIN_ACCOUNT_AGE_DAYS``) PRs merged by
+  another non-bot human, had no recorded merge or close action before
+  that merge, and at least :data:`PROMOTION_MIN_OUTSIDE_DAYS` (30 d)
+  later merged or closed another author's PR (D-IN-2 maintainer action)
+  is a verified promotion (``VERIFIED``). Because ``VERIFIED`` and
+  ``CLOSED`` both rest on the absence of earlier actions in the 180 d
+  window, a ``pr_window`` cut short of 180 d refuses every rung. The
+  ``CLOSED`` rung needs the merged PR authors attributable to one
+  email-domain org via the ``commits_365d`` envelope. ``DOCUMENTED``
+  reads the collected GOVERNANCE / MAINTAINERS / CONTRIBUTING bodies
+  (resolved across ``.github/``, root, and ``docs/`` with case and
+  extension variants, plus ``<owner>/.github`` org-level defaults for
+  CONTRIBUTING and SECURITY).
 * **4.2 AI policy posture** — presence of an AI-policy file (the
   :data:`AI_POLICY_FILES` family) only. **PROSCRIBED is never detected**:
   bare co-occurrence of a negation/ban token and the word "AI" cannot
@@ -41,18 +49,23 @@ Per ``03`` section 3, documents are not 3.1 evidence: the regime comes from
 check/status names and the sign-off share only. Classification constants
 are defined here, as the single definition; ``porchlamp.core.constants`` owns
 the value vocabularies (:data:`porchlamp.core.constants.LEGAL_IP_VALUES`,
-``PROMOTION_LADDER_VALUES``, ``AI_POSTURE_VALUES``).
+``PROMOTION_LADDER_VALUES``, ``AI_POSTURE_VALUES``) and the hashed
+:data:`porchlamp.core.constants.FOUNDATION_ORGS` and
+:data:`porchlamp.core.constants.PROMOTION_MIN_OUTSIDE_DAYS`.
 
-Priority, highest first (``02`` §4 + ``03`` §3):
+Priority, highest first (``02`` §4 + ``03`` §3, RFC-0016, RFC-0017):
 
-* 3.1: foundation-CLA check (or foundation owner) > corp-CLA check >
-  DCO check > sign-off share ≥ :data:`SIGNOFF_THRESHOLD` > NONE. A CLA bot
-  check is direct evidence of a CLA regime and outranks DCO evidence;
-  the DCO/CLA check names never overlap in practice.
-* 3.3: VERIFIED (observed transition) > CLOSED (single-org merge stream,
-  no external merges) > DOCUMENTED (nomination text) > AD_HOC. CLOSED
-  outranks DOCUMENTED so a closed repo cannot buy 75 by writing docs
-  (``03`` §3: the cheapest fake for 3.3).
+* 3.1: foundation-CLA check > generic CLA check on a
+  :data:`FOUNDATION_ORGS` owner > corp-CLA check > DCO check > sign-off
+  share ≥ :data:`SIGNOFF_THRESHOLD` > :data:`FOUNDATION_ORGS` owner (no
+  CLA check and no DCO evidence) > NONE. A CLA bot check is direct
+  evidence of a CLA regime and outranks DCO evidence; ownership alone is
+  the weakest signal and never shadows measured DCO evidence (RFC-0017).
+* 3.3: VERIFIED (observed outsider-to-maintainer action transition in an
+  uncut 180 d window) > CLOSED (single-org merge stream, no external
+  merges) > DOCUMENTED (nomination text) > AD_HOC. CLOSED outranks
+  DOCUMENTED so a closed repo cannot buy 75 by writing docs (``03`` §3:
+  the cheapest fake for 3.3).
 * 4.2: REGULATED (policy file present) > AD_HOC. PROSCRIBED is never
   emitted by this module (see above).
 """
@@ -64,8 +77,8 @@ import re
 import subprocess  # noqa: F401  (tests patch this module's subprocess)
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime, timezone
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
@@ -73,6 +86,12 @@ from porchlamp.collect import commits as commit_domains
 from porchlamp.collect import ghcli, net, validate
 from porchlamp.collect import github_graphql as pr_window
 from porchlamp.collect.envelope import read_envelope, sha256_hex, write_envelope
+from porchlamp.core import gates
+from porchlamp.core.constants import (
+    FOUNDATION_ORGS,
+    MIN_ACCOUNT_AGE_DAYS,
+    PROMOTION_MIN_OUTSIDE_DAYS,
+)
 # --------------------------------------------------------------------------- #
 # 02 §4 constants (defined here, once)                                        #
 # --------------------------------------------------------------------------- #
@@ -112,6 +131,16 @@ SIGNOFF_THRESHOLD: float = 0.5
 #: 02 §4 3.3: the files whose bodies name a maintainer nomination process.
 GOVERNANCE_FILES: tuple[str, ...] = (
     "GOVERNANCE.md", "MAINTAINERS.md", "CONTRIBUTING.md", "SECURITY.md")
+#: C5b: GitHub's documented community-health directory precedence
+#: (``.github/`` > repository root > ``docs/``).
+COMMUNITY_HEALTH_DIRS: tuple[str, ...] = (".github", "", "docs")
+#: C5b: recognised file extensions for :data:`GOVERNANCE_FILES`, in priority
+#: order within a directory (case-insensitive).
+GOVERNANCE_EXTENSIONS: tuple[str, ...] = (".md", ".rst", ".txt", "")
+#: C5b: GitHub's documented org-level community-health defaults resolved from
+#: ``<owner>/.github`` when absent from the repository itself (GOVERNANCE and
+#: MAINTAINERS are not GitHub-supported org-level defaults).
+ORG_DEFAULT_FILES: frozenset[str] = frozenset({"CONTRIBUTING.md", "SECURITY.md"})
 #: 02 §4 4.2: the AI-policy file family (a presence = a policy file).
 AI_POLICY_FILES: tuple[str, ...] = (
     "AI.md", "AI_POLICY.md", "AIPOLICY.md", "AI-POLICY.md",
@@ -132,6 +161,7 @@ POLICY_FILES: tuple[str, ...] = (*GOVERNANCE_FILES, *AI_POLICY_FILES)
 CLA_CHECK_PATTERNS: tuple[re.Pattern, ...] = tuple(
     re.compile(p, re.IGNORECASE) for p in (
         r"easycla",
+        r"eclipsefdn/eca",
         r"cla[-_ ]?assistant",
         r"cla[-_ ]?check",
         r"license/cla",
@@ -141,7 +171,8 @@ CLA_CHECK_PATTERNS: tuple[re.Pattern, ...] = tuple(
 #: Check names / status contexts that evidence a foundation-branded CLA
 #: (02 §4 3.1: "EasyCLA/ASF/Eclipse/CNCF CLA check"). Every alternative here
 #: also satisfies :data:`CLA_CHECK_PATTERNS` (EasyCLA is CNCF's bot; ASF/
-#: Eclipse/CNCF run a named "<foundation>-cla" bot or status context), so a
+#: Eclipse/CNCF run a named "<foundation>-cla" bot or status context such as
+#: Eclipse Foundation's ``eclipsefdn/eca``), so a
 #: bare foundation-name substring with no CLA marker never matches here:
 #: matching "apache"/"asf"/"cncf"/"eclipse" on their own would shadow a
 #: real DCO check on common non-CLA build-job names.
@@ -151,6 +182,7 @@ FOUNDATION_CHECK_PATTERNS: tuple[re.Pattern, ...] = tuple(
         r"\b(asf|apache)[\s_/-]*cla\b",
         r"\bcncf[\s_/-]*cla\b",
         r"\beclipse[\s_/-]*cla\b",
+        r"\beclipsefdn/eca\b",
     ))
 #: Check names / status contexts that evidence a corporate CLA bot
 #: (02 §4 3.1: "cla-assistant/google-cla/other CLA bot present"). A corp CLA
@@ -675,12 +707,112 @@ def signoff_share(c365_rows: Optional[Sequence[Mapping[str, Any]]]) -> Optional[
     return {"count": count, "total": total, "share": share}
 
 
+def _read_tree_paths(raw_dir: Path, repo_key: str) -> Optional[set[str]]:
+    """Non-truncated tree paths from ``raw_dir/tree/<repo_key>.json``, or None."""
+    tree_envelope_path = raw_dir / "tree" / f"{repo_key}.json"
+    if not tree_envelope_path.is_file():
+        return None
+    try:
+        tree_env = read_envelope(tree_envelope_path)
+        if (
+            isinstance(tree_env.data, Mapping)
+            and tree_env.data.get("truncated") is False
+            and isinstance(tree_env.data.get("paths"), list)
+        ):
+            return {str(p) for p in tree_env.data["paths"] if p}
+    except Exception:
+        return None
+    return None
+
+
+def resolve_governance_path(canonical: str, available_paths: Iterable[str]) -> Optional[str]:
+    """C5b: resolve a canonical :data:`GOVERNANCE_FILES` name across GitHub's
+    documented community-health directories (``.github/`` > root > ``docs/``),
+    case-insensitively and across :data:`GOVERNANCE_EXTENSIONS`
+    (``.md`` > ``.rst`` > ``.txt`` > extensionless).
+
+    Returns the exact path spelling from ``available_paths`` that wins
+    precedence, or ``None`` when no matching file exists.
+    """
+    if canonical not in GOVERNANCE_FILES:
+        return None
+    stem = canonical.rsplit(".", 1)[0].lower()
+    by_lower: dict[str, str] = {}
+    for raw_path in sorted(str(p) for p in available_paths if p):
+        low = raw_path.lower()
+        if low not in by_lower:
+            by_lower[low] = raw_path
+    for directory in COMMUNITY_HEALTH_DIRS:
+        prefix = f"{directory}/" if directory else ""
+        for ext in GOVERNANCE_EXTENSIONS:
+            candidate = f"{prefix}{stem}{ext}"
+            if candidate in by_lower:
+                return by_lower[candidate]
+    return None
+
+
+def resolve_policy_path(canonical: str, available_paths: Iterable[str]) -> Optional[str]:
+    """Resolve any :data:`POLICY_FILES` entry against ``available_paths``.
+
+    :data:`GOVERNANCE_FILES` use :func:`resolve_governance_path`
+    (``.github/`` > root > ``docs/``, case-insensitive, ``.md``/``.rst``/``.txt``/``""``);
+    :data:`AI_POLICY_FILES` match their canonical path first, then case-insensitively.
+    """
+    if canonical in GOVERNANCE_FILES:
+        return resolve_governance_path(canonical, available_paths)
+    paths = [str(p) for p in available_paths if p]
+    if canonical in paths:
+        return canonical
+    target_low = canonical.lower()
+    for p in sorted(paths):
+        if p.lower() == target_low:
+            return p
+    return None
+
+
+def policy_file_body(
+    files: Mapping[str, Optional[Mapping[str, Any]]],
+    canonical: str,
+) -> Optional[tuple[str, str]]:
+    """Return ``(resolved_path, body)`` for ``canonical`` from ``files``, or ``None``.
+
+    Supports both canonical-keyed ``files`` dicts (as written by
+    :func:`collect_governance`, with optional ``"path"`` metadata) and raw
+    path-keyed dicts (e.g. ``{".github/GOVERNANCE.rst": {"body": ...}}`` or
+    org-default keys ``{"acme/.github:CONTRIBUTING.md": {"body": ...}}``).
+    """
+    direct = files.get(canonical)
+    if isinstance(direct, Mapping) and direct.get("body") is not None:
+        return str(direct.get("path") or canonical), str(direct.get("body") or "")
+    local_keys = [k for k, v in files.items() if isinstance(v, Mapping) and v.get("body") is not None and ":" not in k]
+    matched_local = resolve_policy_path(canonical, local_keys)
+    if matched_local is not None:
+        entry = files[matched_local]
+        assert isinstance(entry, Mapping)
+        return matched_local, str(entry.get("body") or "")
+    if canonical in ORG_DEFAULT_FILES:
+        org_map: dict[str, str] = {}
+        for k, v in files.items():
+            if isinstance(v, Mapping) and v.get("body") is not None and "/.github:" in k:
+                rel = k.split(":", 1)[1]
+                org_map[rel] = k
+        matched_org_rel = resolve_governance_path(canonical, org_map.keys())
+        if matched_org_rel is not None:
+            full_key = org_map[matched_org_rel]
+            entry = files[full_key]
+            assert isinstance(entry, Mapping)
+            return full_key, str(entry.get("body") or "")
+    return None
+
+
 def collect_governance(raw_dir: Path, owner: str, name: str,
                        now: Optional[datetime] = None,
                        api: Optional[RestTransport] = None,
                        fetch_file: Optional[FileFetcher] = None,
                        force: bool = False,
-                       graphql_transport: Optional[pr_window.GraphqlTransport] = None) -> str:
+                       graphql_transport: Optional[pr_window.GraphqlTransport] = None,
+                       org_tree_paths: Optional[Iterable[str]] = None,
+                       fetch_org_file: Optional[FileFetcher] = None) -> str:
     """Collect the governance evidence envelope for one repository.
 
     Writes ``raw_dir/governance/<owner>__<name>.json`` — one envelope whose
@@ -715,27 +847,57 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
         merged_prs, pulls_available = _merged_prs(api, owner, name)
         checks, shas_probed, shas_available = _check_evidence(api, owner, name, merged_prs)
         source_tag = "github-rest:governance"
-    tree_envelope_path = raw_dir / "tree" / f"{key}.json"
-    tree_paths: Optional[set[str]] = None
-    if tree_envelope_path.is_file():
-        try:
-            tree_env = read_envelope(tree_envelope_path)
-            if (
-                isinstance(tree_env.data, Mapping)
-                and tree_env.data.get("truncated") is False
-                and isinstance(tree_env.data.get("paths"), list)
-            ):
-                tree_paths = set(tree_env.data["paths"])
-        except Exception:
-            tree_paths = None
+    tree_paths = _read_tree_paths(raw_dir, key)
+    resolved_org_tree: Optional[set[str]] = (
+        {str(p) for p in org_tree_paths if p}
+        if org_tree_paths is not None
+        else _read_tree_paths(raw_dir, f"{owner}__.github")
+    )
 
     files: dict[str, Optional[dict[str, Any]]] = {}
     for fname in POLICY_FILES:
-        if tree_paths is not None and fname not in tree_paths:
-            files[fname] = None
+        rel_path: Optional[str]
+        if tree_paths is not None:
+            rel_path = resolve_policy_path(fname, tree_paths)
+            body = fetch_file(rel_path) if rel_path is not None else None
+        else:
+            rel_path = fname
+            body = fetch_file(fname)
+        if body is not None and rel_path is not None:
+            entry: dict[str, Any] = {
+                "present": True,
+                "sha256": sha256_hex(body),
+                "body": body,
+            }
+            if rel_path != fname:
+                entry["path"] = rel_path
+            files[fname] = entry
             continue
-        body = fetch_file(fname)
-        files[fname] = None if body is None else {"present": True, "sha256": sha256_hex(body), "body": body}
+        if fname in ORG_DEFAULT_FILES and (resolved_org_tree is not None or fetch_org_file is not None):
+            org_fetcher = fetch_org_file or fetch_file_text(owner, ".github")
+            org_rel: Optional[str] = None
+            org_body: Optional[str] = None
+            if resolved_org_tree is not None:
+                org_rel = resolve_governance_path(fname, resolved_org_tree)
+                if org_rel is not None:
+                    org_body = org_fetcher(org_rel)
+            else:
+                for cand_dir in COMMUNITY_HEALTH_DIRS:
+                    cand = f"{cand_dir}/{fname}" if cand_dir else fname
+                    org_body = org_fetcher(cand)
+                    if org_body is not None:
+                        org_rel = cand
+                        break
+            if org_body is not None and org_rel is not None:
+                files[fname] = {
+                    "present": True,
+                    "path": f"{owner}/.github:{org_rel}",
+                    "org_default": True,
+                    "sha256": sha256_hex(org_body),
+                    "body": org_body,
+                }
+                continue
+        files[fname] = None
     data: dict[str, Any] = {
         "pulls_available": pulls_available,
         "merged_pr_cap": MERGED_PR_CAP,
@@ -757,17 +919,33 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
 # 02 §4 classification (called from the scripts/derive.py hook)               #
 # --------------------------------------------------------------------------- #
 
+def is_foundation_owner(owner: str) -> bool:
+    """RFC-0017: True when ``owner`` (case-insensitively) is in :data:`FOUNDATION_ORGS`."""
+    return str(owner or "").strip().lower() in FOUNDATION_ORGS
+
+
 def classify_legal_ip(check_names: Sequence[str], signoff: Optional[Mapping[str, Any]],
                       foundation_owner: bool = False) -> tuple[str, dict[str, Any]]:
-    """02 §4 3.1: the evidence-based legal IP regime.
+    """02 §4 3.1 (RFC-0017): the evidence-based legal IP regime.
 
     ``check_names`` are the observed check-run names / status contexts,
     ``signoff`` the recorded ``{"count", "total", "share"}`` (None when no
-    commit evidence), ``foundation_owner`` the owner-in-foundation-list
+    commit evidence), ``foundation_owner`` the owner-in-:data:`FOUNDATION_ORGS`
     fact. Returns ``(value, evidence)`` with ``value`` in
     :data:`porchlamp.core.constants.LEGAL_IP_VALUES`; the evidence dict is
     factual (``03`` §3: documents are not evidence) and carries the fired
     ``rule``.
+
+    Precedence (RFC-0017):
+    1. ``foundation_cla_check`` -> ``FOUNDATION_CLA``
+    2. ``foundation_owner_cla_check`` (generic CLA check on a
+       :data:`FOUNDATION_ORGS` owner) -> ``FOUNDATION_CLA``
+    3. ``corp_cla_check`` -> ``CORP_CLA``
+    4. ``dco_check`` -> ``DCO``
+    5. ``signoff_share`` (>= :data:`SIGNOFF_THRESHOLD`) -> ``DCO``
+    6. ``foundation_owner`` (owner in :data:`FOUNDATION_ORGS` with no CLA check
+       and no DCO evidence) -> ``FOUNDATION_CLA``
+    7. ``no_evidence`` -> ``NONE``
     """
     names = sorted({str(n) for n in check_names if n})
     lowered = [n.lower() for n in names]
@@ -778,15 +956,17 @@ def classify_legal_ip(check_names: Sequence[str], signoff: Optional[Mapping[str,
     }
     if any(p.search(n) for n in lowered for p in FOUNDATION_CHECK_PATTERNS):
         return "FOUNDATION_CLA", {**evidence, "rule": "foundation_cla_check"}
-    if foundation_owner:
-        return "FOUNDATION_CLA", {**evidence, "rule": "foundation_owner"}
     if any(p.search(n) for n in lowered for p in CORP_CLA_CHECK_PATTERNS):
+        if foundation_owner:
+            return "FOUNDATION_CLA", {**evidence, "rule": "foundation_owner_cla_check"}
         return "CORP_CLA", {**evidence, "rule": "corp_cla_check"}
     if any(DCO_CHECK_PATTERN.search(n) for n in lowered):
         return "DCO", {**evidence, "rule": "dco_check"}
     if signoff and int(signoff.get("total") or 0) > 0 and \
             (int(signoff.get("count") or 0) / int(signoff["total"])) >= SIGNOFF_THRESHOLD:
         return "DCO", {**evidence, "rule": "signoff_share"}
+    if foundation_owner:
+        return "FOUNDATION_CLA", {**evidence, "rule": "foundation_owner"}
     return "NONE", {**evidence, "rule": "no_evidence"}
 
 
@@ -813,20 +993,146 @@ def _nomination_match(files: Mapping[str, Optional[Mapping[str, Any]]]
                       ) -> Optional[dict[str, str]]:
     """The first nomination-process line in a 3.3 governance file body."""
     for fname in ("GOVERNANCE.md", "MAINTAINERS.md", "CONTRIBUTING.md"):
-        entry = files.get(fname)
-        if not entry:
+        resolved = policy_file_body(files, fname)
+        if resolved is None:
             continue
-        for line in str(entry.get("body") or "").splitlines():
+        resolved_path, body = resolved
+        for line in body.splitlines():
             if NOMINATION_PATTERN.search(line):
-                return {"file": fname, "line": line.strip()[:200]}
+                out = {"file": fname, "line": line.strip()[:200]}
+                if resolved_path != fname:
+                    out["path"] = resolved_path
+                return out
     return None
+
+
+def observed_promotions(prs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """RFC-0016: action-based outsider-to-maintainer transitions in ``prs``.
+
+    GitHub evaluates ``PullRequest.authorAssociation`` at query time rather
+    than at PR creation time, so every PR by a given login in ``pr_window``
+    carries the same current association and an association transition is
+    structurally unobservable in a single snapshot. Instead, ``VERIFIED``
+    is measured from timestamped repository actions already recorded by
+    :data:`porchlamp.collect.github_graphql.PR_WINDOW_QUERY`:
+
+    1. **Access actions (D-IN-2)**: for every non-bot human actor
+       (:func:`porchlamp.core.gates.is_bot_actor_node`), collect all
+       merge actions (``mergedBy`` at ``mergedAt``, including self-merges)
+       and non-author close actions (``closedEvents[].actor`` at
+       ``closedEvents[].createdAt`` where ``actor != author``). Any actor
+       with an access action missing a parseable timestamp is disqualified.
+    2. **Maintainer action on another author's PR**: the candidate ``who``
+       must merge or close at least one PR authored by another non-empty
+       login (``pr_author != who``). ``first_access`` is the earliest
+       timestamp across all of ``who``'s access actions (including any
+       self-merge).
+    3. **Prior outside-contributor phase (D-IN-3)**: strictly before
+       ``first_access``, ``who`` must have authored at least one merged PR
+       in ``prs`` whose account age at ``pr.createdAt`` is at least
+       :data:`MIN_ACCOUNT_AGE_DAYS` (90 d) and that was merged by another
+       non-bot human (``mergedBy.login != who``).
+    4. **Minimum outside phase duration**: ``first_access -
+       first_outside_merged_at >= timedelta(days=PROMOTION_MIN_OUTSIDE_DAYS)``
+       (30 d), separating genuine outsider-to-maintainer promotions from
+       existing maintainers whose first merge action in the window happens
+       shortly after a teammate merged one of their PRs.
+    """
+    access_events: dict[str, list[tuple[datetime, str, str, Any]]] = {}
+    unparseable_access: set[str] = set()
+    outside_merges: dict[str, list[tuple[datetime, datetime, str, Any]]] = {}
+
+    for pr in prs:
+        if not isinstance(pr, Mapping):
+            continue
+        author = pr.get("author") if isinstance(pr.get("author"), Mapping) else {}
+        pr_author = str((author or {}).get("login") or "").strip()
+        pr_num = pr.get("number")
+
+        merged_by = pr.get("mergedBy")
+        if isinstance(merged_by, Mapping):
+            m_login = str(merged_by.get("login") or "").strip()
+            if m_login and not gates.is_bot_actor_node(merged_by):
+                m_at = _parse_iso(pr.get("mergedAt"))
+                if m_at is None:
+                    unparseable_access.add(m_login)
+                else:
+                    access_events.setdefault(m_login, []).append(
+                        (m_at, "merge", pr_author, pr_num)
+                    )
+
+        for ev in pr.get("closedEvents") or ():
+            if not isinstance(ev, Mapping):
+                continue
+            actor = ev.get("actor")
+            if not isinstance(actor, Mapping):
+                continue
+            c_login = str(actor.get("login") or "").strip()
+            if not c_login or c_login == pr_author or gates.is_bot_actor_node(actor):
+                continue
+            c_at = _parse_iso(ev.get("createdAt"))
+            if c_at is None:
+                unparseable_access.add(c_login)
+            else:
+                access_events.setdefault(c_login, []).append(
+                    (c_at, "close", pr_author, pr_num)
+                )
+
+        if not pr_author or gates.is_bot_actor_node(author):
+            continue
+        m_at = _parse_iso(pr.get("mergedAt"))
+        c_at = _parse_iso(pr.get("createdAt"))
+        a_created = _parse_iso((author or {}).get("createdAt"))
+        if m_at is None or c_at is None or a_created is None:
+            continue
+        if (c_at - a_created) < timedelta(days=MIN_ACCOUNT_AGE_DAYS):
+            continue
+        if not isinstance(merged_by, Mapping):
+            continue
+        m_login = str(merged_by.get("login") or "").strip()
+        if not m_login or m_login == pr_author or gates.is_bot_actor_node(merged_by):
+            continue
+        outside_merges.setdefault(pr_author, []).append((m_at, c_at, m_login, pr_num))
+
+    min_span = timedelta(days=PROMOTION_MIN_OUTSIDE_DAYS)
+    promoted: list[dict[str, Any]] = []
+    for who in sorted(access_events):
+        if who in unparseable_access:
+            continue
+        events = access_events[who]
+        maint_other = [e for e in events if e[2] and e[2] != who]
+        if not maint_other:
+            continue
+        first_access_dt = min(e[0] for e in events)
+        first_maint = min(maint_other, key=lambda e: (e[0], str(e[3] or "")))
+        prior_outside = [
+            m for m in outside_merges.get(who, ()) if m[0] < first_access_dt
+        ]
+        if not prior_outside:
+            continue
+        first_outside = min(prior_outside, key=lambda m: (m[0], str(m[3] or "")))
+        outside_span = first_access_dt - first_outside[0]
+        if outside_span < min_span:
+            continue
+        promoted.append({
+            "login": who,
+            "first_outside_pr": first_outside[3],
+            "first_outside_merged_at": first_outside[0].isoformat(),
+            "first_outside_merged_by": first_outside[2],
+            "outside_merged_count": len(prior_outside),
+            "first_maintainer_action": first_maint[1],
+            "first_maintainer_pr": first_maint[3],
+            "first_maintainer_at": first_access_dt.isoformat(),
+            "outside_days": round(outside_span.total_seconds() / 86400.0, 2),
+        })
+    return promoted
 
 
 def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
                               files: Mapping[str, Optional[Mapping[str, Any]]],
                               c365: Optional[Sequence[Mapping[str, Any]]]
                               ) -> tuple[str, dict[str, Any]]:
-    """02 §4 3.3: the promotion ladder rung.
+    """02 §4 3.3 (RFC-0016): the promotion ladder rung.
 
     ``prw`` is the recorded ``pr_window`` envelope data (None when
     absent), ``files`` the governance-file entries, ``c365`` the
@@ -837,31 +1143,15 @@ def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
     """
     prs = list((prw or {}).get("prs") or [])
     evidence: dict[str, Any] = {"pr_window_envelope": prw is not None}
+    prw_cut = pr_window.pr_window_cut_short(prw)
+    if prw_cut:
+        evidence["pr_window_cut_short"] = True
 
-    observed: dict[str, list[tuple[datetime, str]]] = {}
-    for pr in prs:
-        author = pr.get("author") or {}
-        login = str(author.get("login") or "").strip()
-        if not login or pr_window.is_bot_actor(author.get("__typename"), login):
-            continue
-        parsed = _parse_iso(pr.get("createdAt"))
-        if parsed is None:
-            continue
-        observed.setdefault(login, []).append(
-            (parsed, str(pr.get("authorAssociation") or "NONE")))
-    promoted: list[dict[str, str]] = []
-    for login, entries in observed.items():
-        entries.sort(key=lambda pair: pair[0])
-        external = [i for i, (_dt, assoc) in enumerate(entries)
-                    if assoc in pr_window.EXTERNAL_ASSOCIATIONS]
-        target = [i for i, (_dt, assoc) in enumerate(entries)
-                  if assoc in PROMOTION_TARGET_ASSOCIATIONS]
-        if external and target and min(external) < max(target):
-            promoted.append({"login": login,
-                             "from": entries[min(external)][1],
-                             "to": entries[max(target)][1]})
+    promoted = observed_promotions(prs)
     evidence["promoted_accounts"] = promoted
-    if promoted:
+    # RFC-0016: VERIFIED rests on the absence of earlier maintainer actions in
+    # the 180 d window, which a cut pr_window record cannot show.
+    if promoted and not prw_cut:
         return "VERIFIED", {**evidence, "rule": "verified_transition"}
 
     merged = [pr for pr in prs if pr.get("mergedAt")]
@@ -871,11 +1161,6 @@ def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
         if str(pr.get("authorAssociation") or "NONE") in pr_window.EXTERNAL_ASSOCIATIONS)
     evidence["external_merges"] = external_merges
     evidence["merged_author_orgs"] = None
-    # #51 rule 5: CLOSED rests on the absence of external merges, which a
-    # record cut short of its window cannot show.
-    prw_cut = pr_window.pr_window_cut_short(prw)
-    if prw_cut:
-        evidence["pr_window_cut_short"] = True
     orgs_by_login = _orgs_by_login(c365) if c365 is not None else {}
     if merged and external_merges == 0 and orgs_by_login:
         author_orgs: list[str] = []
@@ -953,10 +1238,12 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
       pr_window envelope and the governance-file envelope are absent --
       VERIFIED/CLOSED both need ``prs`` from pr_window, DOCUMENTED needs
       only the governance files, so either source alone still lets
-      :func:`classify_promotion_ladder` derive a real rung. #51: also
-      ``"missing"`` for any rung but VERIFIED when the pr_window record
-      stopped short of its window
-      (:func:`porchlamp.core.gates.pr_window_cut_short`).
+      :func:`classify_promotion_ladder` derive a real rung. #51 + RFC-0016:
+      also ``"missing"`` for **every** rung (including ``VERIFIED``) when the
+      ``pr_window`` record stopped short of its 180 d window
+      (:func:`porchlamp.core.gates.pr_window_cut_short`), because action-based
+      ``VERIFIED`` and ``CLOSED`` both rest on the absence of earlier actions
+      in the unrecorded portion of the window.
     * ``ai_posture``: ``"missing"`` when the governance-file envelope is
       absent -- it is the only source of file bodies.
 
@@ -1003,12 +1290,12 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
     else:
         ladder, ladder_ev = classify_promotion_ladder(prw, files, c365)
         ladder_conf = "derived"
-        # #51 rule 5: on a pr_window record cut short of its window only an
-        # observed promotion stands. Every other rung rests on an absence the
-        # unrecorded part could refute (a promotion outranks DOCUMENTED and
-        # AD_HOC; an external merge refutes CLOSED), and with CLOSED withheld a
-        # closed repo would otherwise buy DOCUMENTED with a nomination file.
-        if ladder != "VERIFIED" and pr_window.pr_window_cut_short(prw):
+        # #51 rule 5 + RFC-0016: on a pr_window record cut short of its 180 d
+        # window, every rung rests on an absence the unrecorded part could
+        # refute (an earlier maintainer action refutes action-based VERIFIED;
+        # an external merge refutes CLOSED; a promotion or closed stream
+        # outranks DOCUMENTED and AD_HOC).
+        if pr_window.pr_window_cut_short(prw):
             ladder_ev = {
                 **ladder_ev,
                 "reason": "pr_window truncated before reaching 180d window start",

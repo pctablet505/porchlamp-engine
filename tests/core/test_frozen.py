@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "5a406aecf99b4939c18d7453b7b73bd3f9af0cd460140489568f0b23f91d4365"
+FROZEN_CONSTANTS_HASH = "a48306f15d2c9e7603ca00ae25f34e176fbb1421b270a072f9db645f1eb5e1a3"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -215,6 +215,27 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     ("PR_SAMPLE_SEED", constants.PR_SAMPLE_SEED, 20260912),
     # RFC-0015: the labels that mark a closed pull request landed outside GitHub's merge.
     ("LANDING_LABELS", constants.LANDING_LABELS, frozenset({"integrated", "merged"})),
+    # RFC-0016: 3.3 promotion_ladder action-based minimum outside phase duration.
+    ("PROMOTION_MIN_OUTSIDE_DAYS", constants.PROMOTION_MIN_OUTSIDE_DAYS, 30),
+    # RFC-0017: 3.1 legal_ip explicit foundation GitHub organisation list.
+    (
+        "FOUNDATION_ORGS",
+        tuple(sorted(constants.FOUNDATION_ORGS)),
+        (
+            "apache",
+            "chaoss",
+            "cncf",
+            "eclipse",
+            "fdiooss",
+            "kubernetes",
+            "linuxfoundation",
+            "llvm",
+            "openjs-foundation",
+            "openstack",
+            "seleniumhq",
+            "trinodb",
+        ),
+    ),
 )
 
 

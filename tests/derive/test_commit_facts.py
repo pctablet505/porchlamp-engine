@@ -311,12 +311,13 @@ def test_top_email_domain_share_excludes_bot_commits(tmp_path: Path) -> None:
     assert fact.top_domain == "corp.com"
 
 
-def test_top_email_domain_share_noreply_addresses_are_distinct_individuals(tmp_path: Path) -> None:
-    """30 distinct per-user GitHub noreply authors, one commit each: if
-    noreply addresses were (wrongly) merged into one
-    ``users.noreply.github.com`` org, this would report share=1.0 for that
-    literal domain string. The correct answer is 30 distinct individuals,
-    each at 1/30."""
+def test_top_email_domain_share_groups_noreply_addresses_under_their_domain(tmp_path: Path) -> None:
+    """30 distinct per-user GitHub noreply authors, one commit each, share
+    the email domain ``users.noreply.github.com``: the detector's input is
+    the raw domain (03 section 6), so the share is 1.0 for that domain. The
+    org-key grouping this replaced (30 one-person buckets of 1/30, the
+    elephant factor's own buckets) could never reach the 0.5 the detector
+    needs while EF >= 4."""
     rows = [
         _row(f"user{i}", f"{1000 + i}+user{i}@users.noreply.github.com", f"2026-01-{i + 1:02d}T00:00:00Z")
         for i in range(30)
@@ -327,9 +328,8 @@ def test_top_email_domain_share_noreply_addresses_are_distinct_individuals(tmp_p
     fact = top_email_domain_share(bundle)
     assert isinstance(fact, TopEmailDomainShareMeasured)
     assert fact.n == 30
-    assert fact.value == pytest.approx(1 / 30)
-    assert fact.top_domain != "users.noreply.github.com"
-    assert fact.top_domain in {f"user{i}" for i in range(30)}
+    assert fact.value == 1.0
+    assert fact.top_domain == "users.noreply.github.com"
 
 
 def test_top_email_domain_share_tie_breaks_alphabetically_first(tmp_path: Path) -> None:

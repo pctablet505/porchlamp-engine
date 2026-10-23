@@ -259,14 +259,14 @@ LastNonBotCommitValue = commit_domains.LastNonBotCommitValue
 @dataclass(frozen=True)
 class TopEmailDomainShareMeasured:
     """``top_email_domain_share``, measured: the ``ef_domain_mismatch``
-    detector's input (03 section 6). ``value`` is the top org's share of
-    ``n`` non-bot commits in ``[0, 1]``; ``top_domain`` is the org key
-    itself (:func:`porchlamp.core.commit_domains.org_key` -- a literal email
-    domain for a corporate address, but the author's login for a
-    ``users.noreply.github.com`` or personal-domain address, exactly
-    mirroring 3.2 elephant_factor's own grouping so the two facts can never
-    disagree about who counts as "one entity"); ``n`` is the non-bot commit
-    count the share was computed over."""
+    detector's input (03 section 6). ``value`` is the top email domain's
+    share of ``n`` non-bot commits in ``[0, 1]``; ``top_domain`` is that
+    commit email domain itself, lower-cased
+    (:func:`porchlamp.core.commit_domains.top_domain_share`): a personal
+    provider or ``users.noreply.github.com`` is one domain here, where 3.2
+    elephant_factor counts one org per author on it -- the difference the
+    detector reads; ``n`` is the non-bot commit count the share was
+    computed over."""
 
     value: float
     top_domain: str
@@ -750,14 +750,14 @@ def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValu
         )
     elif domain.top_domain == "":
         # n cleared the minimum but not one non-bot commit carried an
-        # attributable org (porchlamp.core.commit_domains.org_key needs an
-        # "@"-bearing email; this sample corpus's commits_180d rows carry
+        # email domain (porchlamp.core.commit_domains.top_domain_share needs
+        # an "@"-bearing email; this sample corpus's commits_180d rows carry
         # none at all) -- a real collector gap, distinct from "too few
         # commits" (insufficient_n) and worth its own detail.
         domain_fact = Unmeasured(
             reason="collector_failure",
             detail=f"{domain.n} non-bot commits but none carry an author_email "
-                   "porchlamp.core.commit_domains.org_key could resolve to an org",
+                   "with a domain",
         )
     else:
         domain_fact = TopEmailDomainShareMeasured(
@@ -1128,10 +1128,11 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
         if confidence_value in ("verified", "derived", "flag") and value_ok:
             path = _resolve_envelope(source, ctx.raw_root)
             mapped = _map_v1_value(value, vocab)
-            # #51 rule 5: on a pr_window record cut short of its window only an
-            # observed promotion (VERIFIED) is evidence; every other rung rests on
-            # the absence of something the unrecorded part could hold.
-            if (v1_field == "promotion_ladder" and mapped != "VERIFIED"
+            # #51 rule 5 + RFC-0016: on a pr_window record cut short of its
+            # 180d window, every promotion_ladder rung (including action-based
+            # VERIFIED) rests on the absence of earlier actions in the
+            # unrecorded portion of the window.
+            if (v1_field == "promotion_ladder"
                     and _pr_window_cut_short(_pr_window_envelope(ctx)[1])):
                 return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_CUT_SHORT_DETAIL)
             if path is not None and isinstance(fetched_at, str) and fetched_at and mapped is not None:
