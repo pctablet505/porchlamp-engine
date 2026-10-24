@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "d8c067b9e928b138beb68c9909d605b5737a1885275c786e0fbe8d9050b8a1c2"
+FROZEN_CONSTANTS_HASH = "861c2259fbee531957b102e4dbfa11f5c5ab532d9cd75a3df21fe1e2c203fcf7"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -240,6 +240,10 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     # RFC-0018: 4.3 substantive review effective character threshold and boilerplate repetition guard.
     ("SUBSTANTIVE_REVIEW_BODY_CHARS", constants.SUBSTANTIVE_REVIEW_BODY_CHARS, 80),
     ("SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS", constants.SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS, 3),
+    ("AUTOMATION_MIN_PRS", constants.AUTOMATION_MIN_PRS, 20),
+    ("AUTOMATION_FAST_SECONDS", constants.AUTOMATION_FAST_SECONDS, 60),
+    ("AUTOMATION_FAST_SHARE", constants.AUTOMATION_FAST_SHARE, 0.80),
+    ("AUTOMATION_TEMPLATE_WORDS", constants.AUTOMATION_TEMPLATE_WORDS, 2),
     # RFC-0020: 5.4 DX setup-signals proxy method and minimum CI run count.
     ("DX_PROXY_MIN_N", constants.DX_PROXY_MIN_N, 0),
     ("METHOD_PROXY_DX_SETUP_SIGNALS", constants.METHOD_PROXY_DX_SETUP_SIGNALS, "proxy:setup_signals_only"),

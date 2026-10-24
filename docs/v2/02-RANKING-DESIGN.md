@@ -93,6 +93,13 @@ label changes and assignment do not count. Why: "thanks, will look" from a
 maintainer is a response; a bot's "CLA signed" is not; a drive-by comment from
 another outsider is not a maintainer decision signal.
 
+Amended 2026-10-24 (RFC-0025): a reply that follows an automated template does not count. A reply
+template (the first two words of a review or comment once links, `@mentions`, `#123` references and
+digits are removed) that one account posted on at least 20 PRs of the window, on at least 80% of them
+within 60 s of the PR opening, is automation running under a person's account (a ticket-link
+comment, a CLA notice, a CI summary): nobody answers 80% of 20 PRs inside a minute by hand. Only
+that template is dropped; the account's other replies still count.
+
 **D-IN-3 Eligible author.** For rate parameters (merge, decision, conversion,
 return) a PR author counts only if the account is ≥ 90 days old at PR creation
 and has ≥ 5 public events, mirroring StarScout's throwaway rule. Per-author cap:
