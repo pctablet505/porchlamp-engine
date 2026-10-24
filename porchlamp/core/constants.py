@@ -175,6 +175,15 @@ SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
 #: in the repository's PR window is treated as canned boilerplate rather than
 #: PR-specific substantive review.
 SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS: int = 3
+#: D-IN-1 (RFC-0025): an account that is no bot but runs automation. A reply template (the first
+#: ``AUTOMATION_TEMPLATE_WORDS`` words of a comment, names, numbers and links removed) that one account
+#: posted on at least ``AUTOMATION_MIN_PRS`` PRs of a window, on at least ``AUTOMATION_FAST_SHARE`` of them
+#: within ``AUTOMATION_FAST_SECONDS`` of the PR opening, is automation: it answers no PR. A person does not
+#: answer 80% of 20 PRs inside a minute by hand.
+AUTOMATION_MIN_PRS: int = 20
+AUTOMATION_FAST_SECONDS: int = 60
+AUTOMATION_FAST_SHARE: float = 0.80
+AUTOMATION_TEMPLATE_WORDS: int = 2
 #: D-GATE-6: horizon for a decided external PR.
 GATE6_DECISION_WINDOW_DAYS: int = 365
 #: D-GATE-6 review hand-off (RFC-0007): a repository whose own notices send
@@ -685,6 +694,10 @@ def constants_dict() -> dict[str, object]:
         "AI_POSTURE_VALUES": AI_POSTURE_VALUES,
         "AUTHOR_CAP_FRACTION": AUTHOR_CAP_FRACTION,
         "AUTHOR_UNMEASURED_MAX_FRACTION": AUTHOR_UNMEASURED_MAX_FRACTION,
+        "AUTOMATION_FAST_SECONDS": AUTOMATION_FAST_SECONDS,
+        "AUTOMATION_FAST_SHARE": AUTOMATION_FAST_SHARE,
+        "AUTOMATION_MIN_PRS": AUTOMATION_MIN_PRS,
+        "AUTOMATION_TEMPLATE_WORDS": AUTOMATION_TEMPLATE_WORDS,
         "BENCHMARK_VERSION": BENCHMARK_VERSION,
         "BOT_LOGINS": tuple(sorted(BOT_LOGINS)),
         "CAREER_CAPITAL_MIN_COVERAGE": CAREER_CAPITAL_MIN_COVERAGE,

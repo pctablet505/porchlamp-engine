@@ -430,7 +430,75 @@ def is_outside_pr(pr: object) -> bool:
     return not is_bot_actor_node(pr.get("author"))
 
 
-def maintainer_logins(prs: Iterable[object]) -> frozenset[str]:
+_TEMPLATE_WORD_RE = re.compile(r"[a-z]+")
+
+
+def reply_template(text: object) -> str:
+    """RFC-0025: the template a reply follows: its first
+    :data:`~porchlamp.core.constants.AUTOMATION_TEMPLATE_WORDS` lower-case words once
+    :func:`normalize_review_text` has removed links, ``@mentions``, ``#123`` references and
+    digits, so greetings that differ only by name or number share one template. ``""`` for a
+    text with fewer words (an empty review, "ok")."""
+    if not isinstance(text, str):
+        return ""
+    words = _TEMPLATE_WORD_RE.findall(normalize_review_text(text))[: constants.AUTOMATION_TEMPLATE_WORDS]
+    return " ".join(words) if len(words) == constants.AUTOMATION_TEMPLATE_WORDS else ""
+
+
+def automated_replies(prs: Iterable[object]) -> frozenset[tuple[str, str]]:
+    """RFC-0025: the ``(lower-cased login, template)`` pairs of one PR window that are automation.
+
+    A non-bot, non-author account's review or comment text is grouped by
+    :func:`reply_template`. A group is automation when the account posted that template on at
+    least :data:`~porchlamp.core.constants.AUTOMATION_MIN_PRS` distinct PRs and, taking its first
+    such reply on each PR, at least :data:`~porchlamp.core.constants.AUTOMATION_FAST_SHARE` of
+    them came within :data:`~porchlamp.core.constants.AUTOMATION_FAST_SECONDS` of the PR opening.
+    Only the template is automation: the same account's other replies stay its own. Bot accounts
+    (D-IN-1) are already excluded and are skipped here."""
+    first_delay: dict[tuple[str, str], dict[int, float]] = {}
+    for index, pr in enumerate(prs):
+        if not isinstance(pr, Mapping):
+            continue
+        created = _parse_iso_opt(pr.get("createdAt"))
+        if created is None:
+            continue
+        author = _node_login(pr.get("author"))
+        for source, text_field in (("reviews", "body"), ("comments", "bodyText")):
+            connection = pr.get(source)
+            nodes = connection.get("nodes") if isinstance(connection, Mapping) else None
+            for node in nodes if isinstance(nodes, list) else ():
+                if not isinstance(node, Mapping):
+                    continue
+                actor = node.get("author")
+                login = _node_login(actor)
+                if not login or login == author or is_bot_actor_node(actor):
+                    continue
+                template = reply_template(node.get(text_field))
+                when = _parse_iso_opt(node.get("createdAt"))
+                if not template or when is None:
+                    continue
+                delay = (when - created).total_seconds()
+                per_pr = first_delay.setdefault((login, template), {})
+                per_pr[index] = min(delay, per_pr.get(index, delay))
+    return frozenset(
+        group
+        for group, per_pr in first_delay.items()
+        if len(per_pr) >= constants.AUTOMATION_MIN_PRS
+        and sum(1 for delay in per_pr.values() if delay <= constants.AUTOMATION_FAST_SECONDS) / len(per_pr)
+        >= constants.AUTOMATION_FAST_SHARE
+    )
+
+
+class Maintainers(frozenset):
+    """The repository's own people in one PR window (:func:`maintainer_logins`), which also carries
+    the window's :func:`automated_replies` as ``automated``. Every reply measure takes the window's
+    maintainers, so the automation rule reaches each of them through this one object; a plain
+    ``frozenset`` of logins still works and means no automation."""
+
+    automated: frozenset[tuple[str, str]] = frozenset()
+
+
+def maintainer_logins(prs: Iterable[object]) -> Maintainers:
     """D-IN-2: the accounts a recorded PR window shows holding access to the
     repository, by lower-cased login. One merged a PR in the record
     (``mergedBy``; merging takes write access), or closed a PR another account
@@ -439,7 +507,12 @@ def maintainer_logins(prs: Iterable[object]) -> frozenset[str]:
     association GitHub shows: org membership can be private, and committers
     who land changes outside GitHub show as ``CONTRIBUTOR``). Bots (D-IN-1)
     never: the query records ``mergedBy`` with a login only, so a bot merger
-    is known by its login."""
+    is known by its login.
+
+    RFC-0025: the result also records the window's automated replies
+    (:func:`automated_replies`), which :func:`is_maintainer_response` does not
+    count."""
+    prs = list(prs)
     out: set[str] = set()
     for pr in prs:
         if not isinstance(pr, Mapping):
@@ -458,7 +531,9 @@ def maintainer_logins(prs: Iterable[object]) -> frozenset[str]:
             login = _node_login(actor)
             if login and login != author and not is_bot_actor_node(actor):
                 out.add(login)
-    return frozenset(out)
+    result = Maintainers(out)
+    result.automated = automated_replies(prs)
+    return result
 
 
 def is_maintainer_response(node: object, pr_author: str, maintainers: frozenset[str]) -> bool:
@@ -466,12 +541,16 @@ def is_maintainer_response(node: object, pr_author: str, maintainers: frozenset[
     (lower-cased login) was written by the repository's own people: not a bot
     (D-IN-1), not the PR's author, and a MEMBER, OWNER or COLLABORATOR
     association or a login in ``maintainers`` (:func:`maintainer_logins` of
-    the same window)."""
+    the same window). RFC-0025: not a reply that follows one of the window's
+    automated templates (:func:`automated_replies`)."""
     if not isinstance(node, Mapping):
         return False
     author = node.get("author")
     login = _node_login(author)
     if is_bot_actor_node(author) or (login and login == pr_author):
+        return False
+    automated = getattr(maintainers, "automated", ())
+    if automated and (login, reply_template(node.get("bodyText") or node.get("body"))) in automated:
         return False
     association = str(node.get("authorAssociation") or "").upper()
     return association in MAINTAINER_ASSOCIATIONS or (bool(login) and login in maintainers)
