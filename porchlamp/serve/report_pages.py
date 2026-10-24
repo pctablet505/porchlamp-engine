@@ -115,7 +115,9 @@ def pct0(numerator: int, denominator: int) -> str:
 
 
 def rho_text(rho: float) -> str:
-    return str(Decimal(str(rho)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    """Two places, half up; a value that rounds to zero is "0.00", never "-0.00"."""
+    rounded = Decimal(str(rho)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return str(abs(rounded)) if rounded == 0 else str(rounded)
 
 
 def long_date(day: date) -> str:
@@ -655,7 +657,7 @@ def report_jsonld(f: Facts, *, canonical: str, exported_on: date) -> dict:
     b1, b2, b3 = f.bands
     description = (
         f"{fmt_int(f.black_holes)} of {fmt_int(f.judged)} active open-source projects ({f.share_text}%) left most "
-        f"outside pull requests with no human reply, review or merge within {f.deadline_days} days, in Porchlamp's "
+        f"outside pull requests with no human reply, review, merge or close within {f.deadline_days} days or since, in Porchlamp's "
         f"{f.snapshot_id} snapshot. The share rises with stars: {pct0(b1.black_holes, b1.judged)}% at {b1.label} "
         f"stars, {pct0(b2.black_holes, b2.judged)}% at {b2.label}, {pct0(b3.black_holes, b3.judged)}% at {b3.label}. "
         f"Includes the {fmt_int(f.ranked)} ranked projects with rank, score, tier, coverage and quadrant."
@@ -693,8 +695,8 @@ def report_jsonld(f: Facts, *, canonical: str, exported_on: date) -> dict:
                 "temporalCoverage": f"{start}/{end}",
                 "measurementTechnique": (
                     f"Outside pull requests followed on GitHub; a project is a black hole when, with {f.ci_percent}% "
-                    f"confidence, more than half of its counted pull requests got no substantive reply, review or "
-                    f"merge within {f.deadline_days} days (methodology at {SITE}/methodology/)."
+                    f"confidence, more than half of its counted pull requests got no substantive reply, review, "
+                    f"merge or close within {f.deadline_days} days or since (methodology at {SITE}/methodology/)."
                 ),
                 "creator": {"@id": CREATOR_ID},
                 "distribution": [
@@ -794,7 +796,7 @@ def report_json(f: Facts) -> dict:
         )
     method.append(
         "It is a black hole when, with {ci_percent}% confidence, more than half of those pull requests got no "
-        "substantive reply, review or merge within {deadline_days} days."
+        "substantive reply, review, merge or close within {deadline_days} days or since."
     )
     not_charted = None
     if f.below_bands_judged:
@@ -816,8 +818,8 @@ def report_json(f: Facts) -> dict:
                 "id": "finding-share",
                 "lead": "More than 1 in {one_in}.",
                 "text": "In Porchlamp's {snapshot_id} snapshot, {black_holes} of {judged} active open-source projects "
-                "({share}%) left most outside pull requests with no human reply, review or merge within {deadline_days} "
-                "days.",
+                "({share}%) left most outside pull requests with no human reply, review, merge or close within {deadline_days} "
+                "days or since.",
             },
             {
                 "id": "finding-stars",

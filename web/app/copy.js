@@ -963,7 +963,7 @@ export const WHY_KICKERS = Object.freeze([
 //: "The Finding", a template: report.json's values fill the slots (views/leaderboard.js `fillFromReport`), each a hook of its own id.
 //: Without a report the paragraph is left out.
 export const WHY_FINDING_TEMPLATE =
-  "Stars do not review pull requests. In our measurements more than 1 in {one_in} active projects leave most pull requests from outside contributors without a human reply, review or merge for {deadline_days} days, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.";
+  "Stars do not review pull requests. In our measurements more than 1 in {one_in} active projects leave most pull requests from outside contributors without a human reply, review, merge or close within {deadline_days} days or since, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.";
 export const WHY_PARAGRAPHS = Object.freeze([
   "A porch lamp left on tells a visitor they are expected. Porchlamp ranks open-source projects the same way: by what happens to a stranger's pull request, not by how many stars the project has.",
   WHY_FINDING_TEMPLATE,
@@ -1182,7 +1182,7 @@ export const NOT_RANKED_LIST_PAGE_OF = " (page {page} of {pages})";
 /** The intro's first sentence where it is not the reason's own sentence (GATE_REASON_COPY, UNRATED_REASON_COPY): the
  *  black-hole one with the report's deadline in a slot, and the insufficient-evidence one without a row's coverage. */
 export const NOT_RANKED_LIST_REASONS = Object.freeze({
-  black_hole: "More than half of outside pull requests got no human reply, review or merge on GitHub within {deadline_days} days.",
+  black_hole: "More than half of outside pull requests got no human reply, review, merge or close on GitHub within {deadline_days} days or since.",
   insufficient_evidence: "Not enough measured evidence to rank.",
 });
 export const NOT_RANKED_LIST_COUNT = "{total} projects, A to Z, {page_size} a page.";
