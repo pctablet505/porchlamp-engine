@@ -849,6 +849,9 @@ def export(
             pages += stubs
             print(f"export: {len(stubs)} pages for projects no longer ranked; {gone} previously published addresses have no "
                   "project in this snapshot and get none", file=sys.stderr)
+        else:
+            print("export: no --previous-site: a project the last published site had a page for and this snapshot does not "
+                  "rank will have no page (404)", file=sys.stderr)
         (out / "check").mkdir()
         (out / "check" / "index.html").write_text(check_stub(), encoding="utf-8")
         _write_home(out, out / "data" / snapshot_id)

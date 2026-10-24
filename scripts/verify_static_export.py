@@ -2062,10 +2062,12 @@ def verify_projects(db: Path, site: Path, *, evidence_files: Any = None, previou
         methodology = api("/v1/porchlamp/methodology")
         found_dirs = {p.parent.relative_to(site).as_posix() for p in (site / "projects").rglob("index.html")} if (site / "projects").is_dir() else set()
         held: dict[str, list[tuple[str, str]]] = {}
-        for owner, name in sqlite3.connect(f"file:{copy}?mode=ro", uri=True).execute(
-            "SELECT owner, name FROM repositories WHERE snapshot_id = ?", (snapshot["snapshot_id"],)
-        ):
-            held.setdefault(f"projects/{owner.lower()}/{name.lower()}", []).append((owner, name))
+        names = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
+        try:
+            for owner, name in names.execute("SELECT owner, name FROM repositories WHERE snapshot_id = ?", (snapshot["snapshot_id"],)):
+                held.setdefault(f"projects/{owner.lower()}/{name.lower()}", []).append((owner, name))
+        finally:
+            names.close()
         boards = {}
         for lens in sorted(constants.PERSONA_PRESETS):
             collected, page_no = [], 1

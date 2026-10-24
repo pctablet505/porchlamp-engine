@@ -1784,6 +1784,12 @@ def test_previous_pages_without_stats_stop_the_export_instead_of_dropping_the_st
         export_static.export(db, tmp_path / "out", None, previous_site=previous)
 
 
+def test_an_export_without_previous_pages_says_that_projects_no_longer_ranked_get_no_page(built, tmp_path, capsys):
+    _site, db, stats_path, _stats, _holes = built
+    export_static.export(db, tmp_path / "out", stats_path, snapshot_dir=built[0].parent / "snapshot", data_dir=built[0].parent / "data")
+    assert "no --previous-site" in capsys.readouterr().err
+
+
 def test_the_stub_description_is_cut_at_a_word_and_never_into_the_name():
     long_name = "o" * 20 + "/" + "n" * 30
     short = project_pages.delisted_description("keras-team/keras", "Archived on GitHub — no active development to evaluate.")
