@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import errno
+import http.client
 import json
+import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -220,6 +224,67 @@ def test_a_streak_of_timeouts_makes_the_gate_wait_and_a_good_reply_resets_the_st
     blocked = rig.controls.block_reason("127.0.0.1", "collect")
     assert blocked is not None and blocked.code == "slow_network"
     assert rig.stats.errors_today() >= 2
+
+
+class _Raising:
+    """An opener that fails the way the network does."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+
+    def open(self, req, timeout=None):
+        raise self.exc
+
+
+NO_ANSWER = {
+    "dns": urllib.error.URLError(socket.gaierror(-2, "Name or service not known")),
+    "refused": urllib.error.URLError(ConnectionRefusedError(111, "Connection refused")),
+    "reset": ConnectionResetError(104, "Connection reset by peer"),
+    "dropped": http.client.RemoteDisconnected("Remote end closed connection without response"),
+    "no route": urllib.error.URLError(OSError(errno.ENETUNREACH, "Network is unreachable")),
+    "no host": urllib.error.URLError(OSError(errno.EHOSTUNREACH, "No route to host")),
+    "timeout": TimeoutError("timed out"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(NO_ANSWER))
+def test_a_request_the_network_never_answered_counts_toward_the_wait(tmp_path, name):
+    # 10-21: a few seconds of lost internet wrote off 90 to 350 projects a second because only timeouts counted
+    rig = Rig(tmp_path)
+    rig.settings.set({"timeout_streak": 2})
+    for _ in range(2):
+        with pytest.raises(type(NO_ANSWER[name])):
+            rig.gate.urlopen("http://127.0.0.1:9/x", 1, opener=_Raising(NO_ANSWER[name]))
+    assert rig.controls.timeout_streak == 2
+    blocked = rig.controls.block_reason("127.0.0.1", "collect")
+    assert blocked is not None and blocked.code == "slow_network"
+
+
+@pytest.mark.parametrize("exc", [
+    urllib.error.URLError("unknown url type: foo"),
+    ValueError("bad request"),
+    ssl.SSLCertVerificationError("certificate verify failed"),
+])
+def test_a_failure_that_is_not_a_missing_answer_is_not_counted(tmp_path, exc):
+    rig = Rig(tmp_path)
+    rig.settings.set({"timeout_streak": 2})
+    for _ in range(3):
+        with pytest.raises(type(exc)):
+            rig.gate.urlopen("http://127.0.0.1:9/x", 1, opener=_Raising(exc))
+    assert rig.controls.timeout_streak == 0 and rig.controls.block_reason("127.0.0.1", "collect") is None
+
+
+def test_a_server_that_answers_with_an_error_is_not_a_missing_answer(tmp_path):
+    gone = FakeHTTP(lambda req: (404, {}, b"not found"))
+    try:
+        rig = Rig(tmp_path)
+        rig.settings.set({"timeout_streak": 2})
+        for _ in range(3):
+            with pytest.raises(urllib.error.HTTPError):
+                rig.get(gone.url + "/gone")
+        assert rig.controls.timeout_streak == 0
+    finally:
+        gone.close()
 
 
 def test_stop_ends_a_rate_limit_wait_within_a_second(tmp_path):

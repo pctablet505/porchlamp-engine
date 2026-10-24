@@ -224,7 +224,7 @@ function ecosystemChip(ecosystem) {
   return `<a class="eco-chip project-eco" href="/${e(slug)}/">${e(pair[1])}</a>`;
 }
 
-function headBlock(rec, mode, opts) {
+function headBlock(rec, mode, opts, ranked) {
   const d = rec.detail;
   const key = `${d.owner}/${d.name}`;
   const tag = headings(mode).title;
@@ -245,7 +245,7 @@ function headBlock(rec, mode, opts) {
       : "";
   const lede =
     mode === "page"
-      ? `<p class="project-lede">${fill(copy.PROJECT_LEDE, { date: hook("detail.snapshot_date", longDate(d.snapshot_id)) })}</p>`
+      ? `<p class="project-lede">${fill(ranked ? copy.PROJECT_LEDE : copy.PROJECT_LEDE_NOT_RANKED, { date: hook("detail.snapshot_date", longDate(d.snapshot_id)) })}</p>`
       : "";
   const answer = rec.answer ? `<p class="project-answer" id="answer" data-v="answer">${e(rec.answer.join(" "))}</p>` : "";
   return (
@@ -632,7 +632,7 @@ export function renderProject(rec, opts = {}) {
   const ranked = kind === "rated";
   const badge = !ranked && opts.badgeHtml ? `<section class="project-card">${opts.badgeHtml}</section>` : "";
   const body =
-    headBlock(rec, mode, opts) +
+    headBlock(rec, mode, opts, ranked) +
     (ranked ? `<div class="project-card key-facts-card">${keyFactsBlock(rec)}</div>` + compositeBlock(rec, mode, opts) : bannerBlock(rec, kind, opts) + badge) +
     blackHoleBlock(rec, mode) +
     pillarsBlock(rec, mode) +

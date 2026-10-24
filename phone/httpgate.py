@@ -23,6 +23,7 @@ Bytes are counted at the HTTP level (request line, headers, body; status line, h
 from __future__ import annotations
 
 import contextlib
+import errno
 import io
 import socket
 import threading
@@ -94,6 +95,23 @@ class WouldBlock(Exception):
 def is_timeout(exc: BaseException) -> bool:
     reason = getattr(exc, "reason", None)
     return isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout))
+
+
+#: errno values of a network that is down or unreachable, not a fault of the request.
+_UNREACHABLE = frozenset({errno.ENETDOWN, errno.ENETUNREACH, errno.EHOSTUNREACH})
+
+
+def is_no_answer(exc: BaseException) -> bool:
+    """Whether a failed request never got an answer from the other end: a timeout, a name that did not resolve,
+    a refused, reset or dropped connection, or a network that is down or unreachable. These come in bursts when the
+    internet is lost for a moment, and each one counts toward the slow-network wait. A certificate failure, a bad URL
+    or a bug in our own code is not one: waiting would not cure it."""
+    if is_timeout(exc):
+        return True
+    cause = getattr(exc, "reason", exc)
+    if isinstance(cause, (socket.gaierror, ConnectionError)):
+        return True
+    return isinstance(cause, OSError) and cause.errno in _UNREACHABLE
 
 
 def _header_bytes(headers: Any) -> int:
@@ -440,7 +458,7 @@ class Gate:
         timeout = is_timeout(exc)
         self.log(f"{host}: {'timed out' if timeout else type(exc).__name__}")
         if self.controls is not None and scope == "collect":
-            self.controls.on_failure(host, timeout)
+            self.controls.on_failure(host, is_no_answer(exc))
 
     def _timed_out(self, host: str, scope: str = "collect") -> None:
         """A read timed out after the reply began."""
