@@ -927,6 +927,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--skip-ineligible", action="store_true",
                     help="skip archived, disabled, stale, unlicensed, non_software, and "
                          "no_external_workflow repos before running downstream collectors")
+    ap.add_argument("--refetch-cut", action="store_true",
+                    help="fetch again, and only, the stored records an older collector cut short "
+                         "(commits_365d at 1,000, author_history and pr_window at 500): the repos that have "
+                         "one, and of each only its cut collectors; --collectors narrows it further. "
+                         "A record cut at today's cap is left alone")
     ap.add_argument("--screen-ineligible", action="store_true",
                     help="before the first layer of a cycle: ask GitHub (the fingerprint pass) about each repo "
                          "whose selected collectors are not all done, and skip the archived, disabled and idle "
@@ -942,6 +947,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--cost-log", type=Path, default=None,
                     help="path to write cost accounting log JSONL")
     a = ap.parse_args(argv)
+    if a.refetch_cut and (a.force or a.dirty or a.fingerprint_only or a.screen_ineligible):
+        ap.error("--refetch-cut already picks the repos and the collectors: "
+                 "not with --force, --dirty, --fingerprint-only or --screen-ineligible")
     if a.screen_ineligible and (a.skip_ineligible or a.dirty or a.fingerprint_only):
         ap.error("--screen-ineligible is the screen before a cycle's first layer: "
                  "not with --skip-ineligible, --dirty or --fingerprint-only")
@@ -1018,6 +1026,12 @@ def _run_main(a: argparse.Namespace) -> int:
         if not screen:
             dirty_map = fp_result.dirty_by_repo
 
+    if a.refetch_cut:
+        from porchlamp.collect.cut_records import legacy_cut_collectors
+
+        dirty_map = {f"{owner}__{name}": legacy_cut_collectors(DATA, owner, name) for owner, name, _eco in repos}
+    clean_label = "no cut record" if a.refetch_cut else "clean fingerprint"
+
     ok = fail = 0
     print(f"collectors: {'all' if selected is None else ','.join(sorted(selected))}; repos: {len(repos)}")
     for i, (owner, name, eco) in enumerate(repos, 1):
@@ -1042,7 +1056,7 @@ def _run_main(a: argparse.Namespace) -> int:
             inv = dirty_map.get(key, ALL_GATHER_COLLECTORS)
             if not inv:
                 ok += 1
-                print(f"{owner}/{name} [{eco}]: SKIP (clean fingerprint)")
+                print(f"{owner}/{name} [{eco}]: SKIP ({clean_label})")
                 if i == n_first:
                     print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
                 continue
