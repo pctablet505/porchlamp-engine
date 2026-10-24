@@ -161,7 +161,19 @@
     },
     {
       "paths": [
+        "x/requirements.md"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [
         "x/requirements.txt"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "a/b/c/requirements.txt"
       ],
       "expected": false
     },

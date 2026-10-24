@@ -125,6 +125,34 @@ def test_has_manifest_recognised_set():
     assert ro_mod.has_manifest(["README.md", "docs/guide.md"]) is False
 
 
+#: Build and dependency files of real projects that the first list missed (2026-10-24): a Python project with only a
+#: requirements file, an autotools or xmake or premake C/C++ project, a Pipfile, a pixi project, a Rakefile, a
+#: Podfile, a TypeScript or Deno project without package.json, a pre-modules Go library.
+WIDENED_MANIFESTS = (
+    "requirements.txt", "Pipfile", "pixi.toml", "configure", "xmake.lua", "premake4.lua", "premake5.lua", "Rakefile",
+    "Podfile", "tsconfig.json", "deno.json", "deno.jsonc", "Gopkg.toml",
+)
+
+
+@pytest.mark.parametrize("name", WIDENED_MANIFESTS)
+def test_a_project_built_with_a_widened_manifest_is_not_gated_non_software(name):
+    from porchlamp.derive import gate_evidence
+
+    assert ro_mod.has_manifest([name]) is True
+    assert ro_mod.has_manifest([f"sub/{name}"]) is True
+    assert gate_evidence._has_recognized_manifest([f"sub/{name}"]) is True
+    assert gate_evidence._has_recognized_manifest([f"a/b/c/{name}"]) is False  # depth 3 is out of range
+    out = ro_mod.derive_eligibility(None, {"license_spdx": "MIT"}, {"paths": [name, "README.md"], "truncated": False})
+    assert out["non_software"][0] is False
+
+
+def test_lists_courses_and_paper_collections_stay_non_software():
+    paths = ["README.md", "docs/index.md", "images/figure1.png", "papers.md", "requirements.md", "configure.md", "notes/tsconfig.txt"]
+    assert ro_mod.has_manifest(paths) is False
+    out = ro_mod.derive_eligibility(None, {"license_spdx": "MIT"}, {"paths": paths, "truncated": False})
+    assert out["non_software"] == (True, "derived", "tree")
+
+
 def test_has_license_file():
     assert ro_mod.has_license_file(["LICENSE"]) is True
     assert ro_mod.has_license_file(["LICENSE.md", "src/app.py"]) is True
