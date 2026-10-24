@@ -2530,6 +2530,31 @@ test("error banners across views include retry buttons", () => {
   assert.ok(mdHtml.includes('data-methodology-retry="true"'));
 });
 
+test("black-hole card: shows the ignored count and says which counted PRs a maintainer touched later (RFC-0026)", () => {
+  const evidence = {
+    ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence,
+    ignored: 9,
+    ignored_share: 0.6,
+    wilson_lower_bound: 0.3871,
+    counted_prs: [
+      { number: 1, created_at: "2026-04-01T00:00:00Z", answered_within_14d: false, response_kind: "none", touched_ever: false },
+      { number: 2, created_at: "2026-04-02T00:00:00Z", answered_within_14d: false, response_kind: "none", touched_ever: true },
+      { number: 3, created_at: "2026-04-03T00:00:00Z", answered_within_14d: true, response_kind: "merged", touched_ever: true },
+    ],
+  };
+  const card = blackHoleCard({ ...FLAT_BLACK_HOLE_DETAIL, black_hole_evidence: evidence });
+  const html = textOf(card);
+  assert.ok(html.includes("9 of them (60.0%) had no maintainer reply, review, merge or close even after the 14 days"));
+  assert.ok(card.includes('data-v="bh.ignored"') && card.includes('data-v="bh.ignored_share"'), "both numbers carry a hook the verifier checks");
+  assert.ok(html.includes("No response, untouched when read"));
+  assert.ok(html.includes("No response within 14d, touched later"));
+  assert.ok(html.includes("Answered (merged)"));
+  assert.ok(html.includes(copy.BLACK_HOLE_RULE_TEXT) && copy.BLACK_HOLE_RULE_TEXT.includes("when the data was read"));
+  // a snapshot built before the count was recorded draws the old card
+  const old = textOf(blackHoleCard(FLAT_BLACK_HOLE_DETAIL));
+  assert.ok(!old.includes("of them (") && !old.includes("untouched when read"));
+});
+
 test("black-hole card: formats response_kind into human prose, and prints no share or Wilson bound the record lacks", () => {
   const card = blackHoleCard({
     ...FLAT_BLACK_HOLE_DETAIL,
@@ -3680,6 +3705,10 @@ function expectedProjectHooks(rec, mode) {
     add("bh.unanswered", String(ev.unanswered));
     add("bh.population_n", String(ev.population_n));
     add("bh.unanswered_share", testShare(ev.unanswered_share));
+    if (typeof ev.ignored === "number" && typeof ev.ignored_share === "number") {
+      add("bh.ignored", String(ev.ignored));
+      add("bh.ignored_share", testShare(ev.ignored_share));
+    }
     add("bh.wilson_lower_bound", testShare(ev.wilson_lower_bound));
     add("bh.threshold_share", testShare(ev.threshold_share));
     add("bh.min_n", String(ev.min_n));

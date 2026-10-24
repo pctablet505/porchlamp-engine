@@ -315,6 +315,11 @@ class GateEvidence:
     #: repository's whole PR history and none does, ``None`` otherwise (no
     #: opinion). See :func:`porchlamp.derive.gate_evidence._decided_external_pr_in`.
     decided_external_pr: bool | None = None
+    #: D-GATE-5 (RFC-0026): of the ``pr_ignored_n`` counted outside PRs, how many no maintainer reply, merge or
+    #: close ever touched (:attr:`Gate5WindowBreakdown.ignored`); ``None`` when no readable PR window gave counts,
+    #: and D-GATE-5 then judges the 14-day unanswered share alone, as before RFC-0026.
+    pr_ignored: int | None = None
+    pr_ignored_n: int | None = None
 
     def __post_init__(self) -> None:
         problems: list[str] = []
@@ -338,6 +343,14 @@ class GateEvidence:
                 f"vitality_commits_180d must be a non-negative int or None, "
                 f"got {self.vitality_commits_180d!r}"
             )
+        for name in ("pr_ignored", "pr_ignored_n"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+                problems.append(f"{name} must be a non-negative int or None, got {value!r}")
+        if (self.pr_ignored is None) != (self.pr_ignored_n is None):
+            problems.append("pr_ignored and pr_ignored_n are given together or not at all")
+        elif self.pr_ignored is not None and self.pr_ignored > self.pr_ignored_n:
+            problems.append(f"pr_ignored {self.pr_ignored} exceeds pr_ignored_n {self.pr_ignored_n}")
         if problems:
             raise ValueError("; ".join(problems))
 
@@ -1071,6 +1084,8 @@ class Gate5CountedPR:
     answered_within_14d: bool
     first_response_at: str | None
     response_kind: str  # "review_or_comment", "merged", "closed_by_maintainer", or "none"
+    #: RFC-0026: a maintainer reply, merge or close was recorded at any time, after the 14-day deadline too.
+    touched_ever: bool = False
 
 
 @dataclass(frozen=True)
@@ -1087,6 +1102,10 @@ class Gate5WindowBreakdown:
     excluded_bot: int
     excluded_internal: int
     excluded_under_14d: int
+    #: RFC-0026: counted PRs not answered within 14 days that no maintainer reply, merge or close ever touched.
+    ignored: int = 0
+    #: RFC-0026: the Wilson lower bound of ``ignored / population_n``, the share D-GATE-5 judges.
+    ignored_wilson_lower_bound: float = 0.0
 
 
 def evaluate_gate5_window(
@@ -1108,6 +1127,7 @@ def evaluate_gate5_window(
     min_account_age = timedelta(days=constants.MIN_ACCOUNT_AGE_DAYS)
 
     unanswered = 0
+    ignored = 0
     counted_prs: list[Gate5CountedPR] = []
     excluded_draft = 0
     excluded_self_closed = 0
@@ -1197,6 +1217,11 @@ def evaluate_gate5_window(
         if not answered_within_14d and pr.replies_cut:
             continue
 
+        touched_ever = (
+            pr.first_substantive_response_at is not None
+            or pr.merged_at is not None
+            or pr.closed_by_maintainer_at is not None
+        )
         counted_prs.append(
             Gate5CountedPR(
                 number=pr.number,
@@ -1205,15 +1230,20 @@ def evaluate_gate5_window(
                 answered_within_14d=answered_within_14d,
                 first_response_at=first_response_at,
                 response_kind=response_kind,
+                touched_ever=touched_ever,
             )
         )
         if not answered_within_14d:
             unanswered += 1
+        if not touched_ever:
+            ignored += 1
 
     population_n = len(counted_prs)
     unanswered_share = (unanswered / population_n) if population_n > 0 else None
     w_lb = wilson_lower_bound(unanswered, population_n)
-    is_bh = is_black_hole_counts(unanswered, population_n)
+    # RFC-0026: a black hole ignores outside PRs; a project that answers late is slow, not a black hole. The
+    # ignored share cannot exceed the unanswered one, so this test implies the 14-day one.
+    is_bh = is_black_hole_counts(ignored, population_n)
 
     return Gate5WindowBreakdown(
         unanswered=unanswered,
@@ -1228,6 +1258,8 @@ def evaluate_gate5_window(
         excluded_bot=excluded_bot,
         excluded_internal=excluded_internal,
         excluded_under_14d=excluded_under_14d,
+        ignored=ignored,
+        ignored_wilson_lower_bound=wilson_lower_bound(ignored, population_n),
     )
 
 
@@ -1276,17 +1308,13 @@ def _has_decided_external_pr(events: tuple[PRWindowEvent, ...], now: datetime) -
     return False
 
 
-def is_black_hole_bundle(bundle: FeatureBundle) -> bool:
-    """Return True iff ``bundle`` has a measured 1.4 GR_14 input that exceeds
-    the D-GATE-5 zero-response ceiling (:data:`GATE5_MAX_ZERO_RESPONSE_SHARE`)
-    under the Wilson lower confidence bound with at least :data:`GATE5_MIN_N`
-    qualifying external PRs."""
+def is_black_hole_bundle(bundle: FeatureBundle, evidence: GateEvidence | None = None) -> bool:
+    """Return True iff ``bundle`` has a measured 1.4 GR_14 input over at least :data:`GATE5_MIN_N` qualifying external
+    PRs and D-GATE-5 (:func:`_is_black_hole`, RFC-0026) calls the window ignored: the ceiling
+    (:data:`GATE5_MAX_ZERO_RESPONSE_SHARE`) is exceeded under the Wilson lower confidence bound by the share no
+    maintainer ever touched when ``evidence`` carries the counts, else by the 14-day unanswered share."""
     ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
-    return (
-        isinstance(ghost, Measured)
-        and ghost.n >= GATE5_MIN_N
-        and wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE
-    )
+    return isinstance(ghost, Measured) and ghost.n >= GATE5_MIN_N and _is_black_hole(evidence, ghost)
 
 
 def evaluate_gates(
@@ -1396,10 +1424,7 @@ def evaluate_gates(
         or ghost.n < GATE5_MIN_N
     ):
         undecided.append(GATE_5)
-    elif (
-        wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE
-        and not rank_black_holes
-    ):
+    elif not rank_black_holes and _is_black_hole(evidence, ghost):
         failures.append((5, REASON_BLACK_HOLE))
 
     # D-GATE-6: PR workflow (a review hand-off routes off-platform; else a
@@ -1419,6 +1444,16 @@ def evaluate_gates(
         _, reason = min(failures, key=lambda failure: failure[0])
         return GateResult(eligible=False, reason=reason, routed=None, undecided=tuple(undecided))
     return GateResult(eligible=True, reason=None, routed=routed, undecided=tuple(undecided))
+
+
+def _is_black_hole(evidence: GateEvidence | None, ghost: Measured) -> bool:
+    """D-GATE-5 (RFC-0026): whether the outside PRs the window counted were ignored: the Wilson lower bound of the
+    share no maintainer reply, merge or close ever touched exceeds :data:`GATE5_MAX_ZERO_RESPONSE_SHARE`. A project
+    that answers late is slow (its 1.4 GR_14 scores that), not a black hole. Without the counts
+    (``evidence`` absent or ``evidence.pr_ignored is None``) it judges the 14-day unanswered share ``ghost`` alone, as before RFC-0026."""
+    if evidence is None or evidence.pr_ignored is None:
+        return wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE
+    return is_black_hole_counts(evidence.pr_ignored, evidence.pr_ignored_n)
 
 
 def unmeasured_required_pillars(pillars: Mapping[str, PillarScore]) -> tuple[str, ...]:

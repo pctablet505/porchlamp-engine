@@ -1817,6 +1817,8 @@ def _black_hole_hooks(detail: dict) -> dict[str, str]:
     hooks = {"bh.unanswered": str(counts[0]), "bh.population_n": str(counts[1])}
     if isinstance(ev.get("unanswered_share"), (int, float)):
         hooks["bh.unanswered_share"] = _share(ev["unanswered_share"])
+    if isinstance(ev.get("ignored"), int) and isinstance(ev.get("ignored_share"), (int, float)):
+        hooks |= {"bh.ignored": str(ev["ignored"]), "bh.ignored_share": _share(ev["ignored_share"])}
     if all(isinstance(ev.get(key), (int, float)) for key in ("wilson_lower_bound", "threshold_share", "min_n")):
         hooks |= {"bh.wilson_lower_bound": _share(ev["wilson_lower_bound"]), "bh.threshold_share": _share(ev["threshold_share"]),
                   "bh.min_n": str(ev["min_n"])}

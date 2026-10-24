@@ -1090,6 +1090,21 @@ def _expected_hooks(record: dict, mode: str) -> dict[str, str]:
         record["detail"], record["evidence"], standings, record.get("similar"), answer, words, labels, mode=mode)
 
 
+def _holed(**evidence) -> dict:
+    return {"gate_reason": "black_hole", "black_hole_evidence": {
+        "unanswered": 12, "population_n": 15, "unanswered_share": 0.8, "wilson_lower_bound": 0.4, "threshold_share": 0.5,
+        "min_n": 10, **evidence}}
+
+
+def test_the_verifier_expects_the_ignored_count_and_share_hooks_only_when_the_evidence_has_them():
+    # RFC-0026: the card prints how many counted PRs no maintainer ever touched
+    hooks = verify_static_export._black_hole_hooks(_holed(ignored=9, ignored_share=0.6))
+    assert hooks["bh.ignored"] == "9" and hooks["bh.ignored_share"] == "60.0"
+    assert hooks["bh.wilson_lower_bound"] == "40.0"
+    assert "bh.ignored" not in verify_static_export._black_hole_hooks(_holed())
+    assert "bh.ignored" not in verify_static_export._black_hole_hooks(_holed(ignored=9))
+
+
 def test_the_project_view_prints_each_value_as_the_verifier_formats_it_in_page_and_panel_mode():
     drawn = _drawn_in_both_modes()
     assert {p.name for p in drawn} == {"vllm-project__vllm.json", "keras-team__keras.json", "3b1b__manim.json"}

@@ -516,6 +516,7 @@ def _build_black_hole_evidence(
                             answered_within_14d=pr.answered_within_14d,
                             first_response_at=pr.first_response_at,
                             response_kind=kind,
+                            touched_ever=pr.touched_ever,
                         )
                     )
             except (ValueError, TypeError):
@@ -525,7 +526,9 @@ def _build_black_hole_evidence(
         unanswered=breakdown.unanswered,
         population_n=breakdown.population_n,
         unanswered_share=breakdown.unanswered_share,
-        wilson_lower_bound=round(breakdown.wilson_lower_bound, 4),
+        ignored=breakdown.ignored,
+        ignored_share=breakdown.ignored / breakdown.population_n if breakdown.population_n else None,
+        wilson_lower_bound=round(breakdown.ignored_wilson_lower_bound, 4),
         threshold_share=0.50,
         min_n=10,
         window_start=(as_of - timedelta(days=constants.PR_WINDOW_DAYS)).isoformat(),

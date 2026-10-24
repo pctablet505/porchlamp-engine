@@ -383,6 +383,15 @@ function blackHoleBlock(rec, mode) {
     `<p class="black-hole-stat">${hook("bh.unanswered", String(ev.unanswered))} of ${hook("bh.population_n", String(ev.population_n))} ` +
     (typeof ev.unanswered_share === "number" ? `(${hook("bh.unanswered_share", shareText(ev.unanswered_share))}%) ` : "") +
     `${e(predicate)}</p>`;
+  const ignored =
+    typeof ev.ignored === "number" && typeof ev.ignored_share === "number"
+      ? note(
+          fill(copy.BLACK_HOLE_IGNORED_LINE, {
+            ignored: hook("bh.ignored", String(ev.ignored)),
+            share: hook("bh.ignored_share", shareText(ev.ignored_share)),
+          }),
+        )
+      : "";
   const wilson =
     typeof ev.wilson_lower_bound === "number" && typeof ev.threshold_share === "number" && typeof ev.min_n === "number"
       ? note(
@@ -414,7 +423,7 @@ function blackHoleBlock(rec, mode) {
       return (
         `<tr><th scope="row"><a href="${e(url)}" target="_blank" rel="noopener noreferrer">#${hook(`bh.counted_prs.${i}.number`, String(pr.number))}</a></th>` +
         `<td data-label="${e(col.opened)}">${pr.created_at ? hook(`bh.counted_prs.${i}.created_at`, longDate(pr.created_at)) : copy.MISSING_VALUE}</td>` +
-        `<td data-label="${e(col.pr_status)}">${e(copy.blackHolePrResponseText(Boolean(pr.answered_within_14d), pr.response_kind))}</td></tr>`
+        `<td data-label="${e(col.pr_status)}">${e(copy.blackHolePrResponseText(Boolean(pr.answered_within_14d), pr.response_kind, pr.touched_ever))}</td></tr>`
       );
     })
     .join("");
@@ -426,6 +435,7 @@ function blackHoleBlock(rec, mode) {
   return (
     open +
     stat +
+    ignored +
     wilson +
     window +
     source +

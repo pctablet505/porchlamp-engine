@@ -248,6 +248,9 @@ class BlackHoleCountedPR(StrictModel):
     answered_within_14d: bool
     first_response_at: str | None = None
     response_kind: Literal["review_or_comment", "merged", "closed_by_maintainer", "none"] = "none"
+    #: RFC-0026: a maintainer reply, merge or close was recorded at any time, after the 14-day deadline too;
+    #: absent (None) in a snapshot built before it was recorded.
+    touched_ever: bool | None = None
 
 
 class BlackHoleExcludedCounts(StrictModel):
@@ -265,6 +268,13 @@ class BlackHoleEvidence(StrictModel):
     unanswered: int
     population_n: int
     unanswered_share: float
+    #: RFC-0026: the counted PRs no maintainer reply, merge or close ever touched (a subset of ``unanswered``), and
+    #: their share. D-GATE-5 judges this share; absent (None) in a snapshot built before it was recorded, whose
+    #: verdict was judged on ``unanswered_share``.
+    ignored: int | None = None
+    ignored_share: float | None = None
+    #: The 95% one-sided Wilson lower bound of the share D-GATE-5 judged: ``ignored_share`` when ``ignored`` is
+    #: given, else ``unanswered_share``.
     wilson_lower_bound: float
     threshold_share: float = 0.50
     min_n: int = 10
