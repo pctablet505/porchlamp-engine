@@ -186,6 +186,10 @@ AUTOMATION_FAST_SHARE: float = 0.80
 AUTOMATION_TEMPLATE_WORDS: int = 2
 #: D-GATE-6: horizon for a decided external PR.
 GATE6_DECISION_WINDOW_DAYS: int = 365
+#: D-GATE-6 outside-traffic floor (RFC-0027): a repository whose complete PR window
+#: holds fewer than this many outside PRs (external, non-bot authors) in the trailing
+#: :data:`PR_WINDOW_DAYS` is not a place to contribute and is not rated.
+GATE6_MIN_OUTSIDE_PRS: int = 3
 #: D-GATE-6 review hand-off (RFC-0007): a repository whose own notices send
 #: outside PRs to another review system (Gerrit, a mailing list, an internal
 #: repository) hands review off, and is routed off-platform instead of being
@@ -726,6 +730,7 @@ def constants_dict() -> dict[str, object]:
         "GATE6_HANDOFF_MIN_SHARE": GATE6_HANDOFF_MIN_SHARE,
         "GATE6_HANDOFF_NOTICES": GATE6_HANDOFF_NOTICES,
         "GATE6_HANDOFF_RELAY_LOGIN_PREFIXES": GATE6_HANDOFF_RELAY_LOGIN_PREFIXES,
+        "GATE6_MIN_OUTSIDE_PRS": GATE6_MIN_OUTSIDE_PRS,
         "GATED_PERSONAS": GATED_PERSONAS,
         "GHOST_RATE_SLOPE": GHOST_RATE_SLOPE,
         "LANDING_LABELS": tuple(sorted(LANDING_LABELS)),

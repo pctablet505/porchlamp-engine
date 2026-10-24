@@ -113,6 +113,8 @@ GATE5_WILSON_Z: float = constants.GATE5_WILSON_Z
 GATE5_MAX_ZERO_RESPONSE_SHARE: float = constants.GATE5_MAX_ZERO_RESPONSE_SHARE
 #: D-GATE-6: horizon for a decided external PR.
 GATE6_DECISION_WINDOW_DAYS: int = constants.GATE6_DECISION_WINDOW_DAYS
+#: D-GATE-6 (RFC-0027): fewer outside PRs than this in a complete PR window is not a place to contribute.
+GATE6_MIN_OUTSIDE_PRS: int = constants.GATE6_MIN_OUTSIDE_PRS
 #: D-EVID-1: composite coverage threshold (D-MISS-3).
 EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
 #: D-EVID-1 (RFC-0024): pillars that must each have a measured parameter.
@@ -320,6 +322,10 @@ class GateEvidence:
     #: and D-GATE-5 then judges the 14-day unanswered share alone, as before RFC-0026.
     pr_ignored: int | None = None
     pr_ignored_n: int | None = None
+    #: D-GATE-6 (RFC-0027): outside PRs (external, non-bot authors) opened in the trailing
+    #: :data:`constants.PR_WINDOW_DAYS` of the recorded PR window; ``None`` when no readable window gave a count.
+    #: With ``pr_window_complete`` true it is the window's whole count, else only a lower bound.
+    outside_prs_180d: int | None = None
 
     def __post_init__(self) -> None:
         problems: list[str] = []
@@ -343,7 +349,7 @@ class GateEvidence:
                 f"vitality_commits_180d must be a non-negative int or None, "
                 f"got {self.vitality_commits_180d!r}"
             )
-        for name in ("pr_ignored", "pr_ignored_n"):
+        for name in ("pr_ignored", "pr_ignored_n", "outside_prs_180d"):
             value = getattr(self, name)
             if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
                 problems.append(f"{name} must be a non-negative int or None, got {value!r}")
@@ -1348,8 +1354,9 @@ def evaluate_gates(
     the window (``evidence.pr_window_cutoff``), and a share of the newest
     weeks is not the window's share. D-GATE-6 fails a
     repository only when ``evidence.decided_external_pr`` is ``False`` (a
-    complete PR record with no decided external PR); the v1 ``pr_events`` can
-    add a pass, never a failure. Gates 1-4 still decide as before."""
+    complete PR record with no decided external PR) or, RFC-0027, when its
+    complete PR window holds fewer than :data:`GATE6_MIN_OUTSIDE_PRS` outside
+    PRs; the v1 ``pr_events`` can add a pass, never a failure. Gates 1-4 still decide as before."""
     if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
         raise ValueError(f"now must be timezone-aware, got {now!r}")
     repo = bundle.repo
@@ -1429,13 +1436,21 @@ def evaluate_gates(
 
     # D-GATE-6: PR workflow (a review hand-off routes off-platform; else a
     # decided external PR, else off-platform routing, else unrated -- but only
-    # when a complete PR record shows no decided external PR).
+    # when a complete PR record shows no decided external PR). RFC-0027: a
+    # complete PR window with fewer than GATE6_MIN_OUTSIDE_PRS outside PRs is
+    # thin whatever was decided: not a place to contribute, so it is treated
+    # as having no workflow to measure.
+    thin = (
+        evidence.pr_window_complete is True
+        and evidence.outside_prs_180d is not None
+        and evidence.outside_prs_180d < GATE6_MIN_OUTSIDE_PRS
+    )
     if handoff:
         routed = ROUTED_OFF_PLATFORM
-    elif not (evidence.decided_external_pr is True or _has_decided_external_pr(events, now)):
+    elif thin or not (evidence.decided_external_pr is True or _has_decided_external_pr(events, now)):
         if evidence.off_platform_marker is True:
             routed = ROUTED_OFF_PLATFORM
-        elif evidence.off_platform_marker is False and evidence.decided_external_pr is False:
+        elif evidence.off_platform_marker is False and (thin or evidence.decided_external_pr is False):
             failures.append((6, REASON_NO_EXTERNAL_WORKFLOW))
         else:
             undecided.append(GATE_6)

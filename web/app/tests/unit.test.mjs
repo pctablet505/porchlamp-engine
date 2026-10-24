@@ -1583,7 +1583,7 @@ test("drawer: a project with no external workflow shows the sentence, not the re
     },
   };
   const html = renderDrawer(stateWithRepoDetail(noWorkflow));
-  assert.ok(html.includes(escapeHtml("No external contribution workflow was found to measure.")));
+  assert.ok(html.includes(escapeHtml("No outside contribution workflow to measure: fewer than 3 outside pull requests in 180 days, or none decided on GitHub.")));
   assert.ok(!html.includes("unrated: no_external_workflow"), "the drawer shows the raw reason code");
 });
 
@@ -5004,7 +5004,7 @@ test("not-ranked lists: each row is one plain sentence: the reason, the coverage
   const text = (row, report = REPORT_EXAMPLE) => nrView.reasonRowText({ owner: "acme", name: "widget", ecosystem: "go", gate_reason: null, unrated_reason: null, ...row }, report, NR_FLOOR);
   assert.equal(text({ gate_reason: "archived" }), "acme/widget (Go): Archived on GitHub — no active development to evaluate.");
   assert.equal(text({ unrated_reason: "unrated: insufficient_evidence", coverage: 0.42, ecosystem: "crates" }), "acme/widget (Rust): Not enough measured evidence to rank (coverage 42%, below the 60% floor).");
-  assert.equal(text({ unrated_reason: "no_external_workflow", ecosystem: "systems" }), "acme/widget (C and C++): No external contribution workflow was found to measure.");
+  assert.equal(text({ unrated_reason: "no_external_workflow", ecosystem: "systems" }), "acme/widget (C and C++): No outside contribution workflow to measure: fewer than 3 outside pull requests in 180 days, or none decided on GitHub.");
   assert.equal(
     nrView.reasonRowText({ owner: "3b1b", name: "manim", ecosystem: "pypi", gate_reason: "black_hole", unanswered: 26, counted: 41 }, REPORT_EXAMPLE),
     "3b1b/manim (Python): 26 of 41 counted outside pull requests got no human reply, review or merge within 14 days."

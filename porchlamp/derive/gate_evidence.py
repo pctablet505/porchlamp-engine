@@ -354,6 +354,17 @@ def outside_pr_authors(prs: Sequence[Any], *, start: datetime, end: datetime) ->
     return out
 
 
+def outside_pr_count_in(pr_window: Any, as_of: datetime | None) -> int | None:
+    """D-GATE-6 (RFC-0027): how many outside PRs the recorded ``pr_window`` holds for the
+    :data:`constants.PR_WINDOW_DAYS` ending at ``as_of`` (:func:`outside_pr_authors`); ``None`` (no opinion) without
+    a reference time or a ``prs`` list. The window's whole count only when :func:`pr_window_coverage_in` says it is
+    complete."""
+    prs = pr_window.get("prs") if isinstance(pr_window, Mapping) else None
+    if as_of is None or not isinstance(prs, list):
+        return None
+    return len(outside_pr_authors(prs, start=as_of - timedelta(days=constants.PR_WINDOW_DAYS), end=as_of))
+
+
 def pr_rule_inputs_recorded(prs: Sequence[Any]) -> bool:
     """Whether every recorded PR node carries the fields D-GATE-5's exclusion
     rules read: ``isDraft`` (the draft rule) and the ``timelineItems``
@@ -477,6 +488,7 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
         decided_external_pr=_decided_external_pr_in(pr_window, author_history, _pr_sample(raw_root, basename), as_of),
         pr_ignored=None if breakdown is None else breakdown.ignored,
         pr_ignored_n=None if breakdown is None else breakdown.population_n,
+        outside_prs_180d=outside_pr_count_in(pr_window, as_of),
     )
 
 

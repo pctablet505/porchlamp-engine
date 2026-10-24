@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "861c2259fbee531957b102e4dbfa11f5c5ab532d9cd75a3df21fe1e2c203fcf7"
+FROZEN_CONSTANTS_HASH = "de2c71c1d7bad01ff749cd81560974ce5199352075feeeda6d805a8d52dd2332"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -244,6 +244,8 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     ("AUTOMATION_FAST_SECONDS", constants.AUTOMATION_FAST_SECONDS, 60),
     ("AUTOMATION_FAST_SHARE", constants.AUTOMATION_FAST_SHARE, 0.80),
     ("AUTOMATION_TEMPLATE_WORDS", constants.AUTOMATION_TEMPLATE_WORDS, 2),
+    # RFC-0027: D-GATE-6 outside-traffic floor.
+    ("GATE6_MIN_OUTSIDE_PRS", constants.GATE6_MIN_OUTSIDE_PRS, 3),
     # RFC-0020: 5.4 DX setup-signals proxy method and minimum CI run count.
     ("DX_PROXY_MIN_N", constants.DX_PROXY_MIN_N, 0),
     ("METHOD_PROXY_DX_SETUP_SIGNALS", constants.METHOD_PROXY_DX_SETUP_SIGNALS, "proxy:setup_signals_only"),
