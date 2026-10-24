@@ -4348,6 +4348,11 @@ test("home: no digit is typed into the findings line or the Finding template", (
   assert.ok(copy.WHY_PARAGRAPHS.includes(copy.WHY_FINDING_TEMPLATE), "the paragraph is the template");
 });
 
+test("home: the Finding template says a project ignores pull requests only when none was replied to, reviewed, merged or closed (RFC-0026)", () => {
+  assert.match(copy.WHY_FINDING_TEMPLATE, /without a human reply, review, merge or close within \{deadline_days\} days or since/);
+  assert.match(copy.NOT_RANKED_LIST_REASONS.black_hole, /no human reply, review, merge or close on GitHub within \{deadline_days\} days or since/);
+});
+
 test("home: the lists are folded under one closed row, and every link stays inside the folded part", () => {
   const html = renderBrowseLinks(HOME_COUNTS.rated);
   assert.equal((html.match(/<details/g) || []).length, 1, "one fold, not one per line");
@@ -5052,7 +5057,7 @@ test("not-ranked lists: heading, intro and hooks; the description is the intro's
     archived: ["Archived on GitHub — no active development to evaluate. 624 projects, A to Z, 200 a page.", { "list.total": "624" }],
     insufficient_evidence: ["Not enough measured evidence to rank. 1,198 projects, A to Z, 200 a page.", { "list.total": "1,198" }],
     black_hole: [
-      "More than half of outside pull requests got no human reply, review or merge on GitHub within 14 days. 638 projects, A to Z, 200 a page. The test: more than half of at least 10 counted pull requests, at 95% confidence.",
+      "More than half of outside pull requests got no human reply, review, merge or close on GitHub within 14 days or since. 638 projects, A to Z, 200 a page. The test: more than half of at least 10 counted pull requests, at 95% confidence.",
       { "list.deadline_days": "14", "list.total": "638", "list.min_n": "10", "list.ci_percent": "95" },
     ],
     stale: [`${copy.gateReasonText("stale")} 2,479 projects, A to Z, 200 a page.`, { "list.total": "2,479" }],

@@ -751,7 +751,13 @@ PUBLISHED_REPORT = {
 }
 #: The owner's approved changes (2026-10-17): the intro ends at "nobody has replied." (the lead card states the
 #: figure), and every ecosystem carries its plain name from copy.js's one list.
+#: Approved with RFC-0026 (2026-10-24, merged as #75): a black hole ignores outside pull requests, so the sentences that
+#: count them say what is counted: no human reply, review, merge or close inside the deadline or since.
 APPROVED_CHANGES = {
+    "finding-share": "In Porchlamp's 2026-10-17 snapshot, 720 of 3,613 active open-source projects (19.9%) left most "
+    "outside pull requests with no human reply, review, merge or close within 14 days or since.",
+    "method 3": "It is a black hole when, with 95% confidence, more than half of those pull requests got no substantive "
+    "reply, review, merge or close within 14 days or since.",
     "intro": "You send a small fix to a project you use every day. Two weeks later, nobody has replied.",
     "ecosystems_answer": "Python and JavaScript projects go quiet more often than Rust, Go, Java or C and C++ projects.",
     "ecosystems_chart_summary": "Black-hole share by package ecosystem, highest first: Python 27.3% of 814; JavaScript "
@@ -825,6 +831,10 @@ def test_formatting_rounds_half_up_like_the_site():
     assert report_pages.pct0(467, 2190) == "21"
     assert report_pages.pct0(94, 244) == "39"
     assert report_pages.rho_text(0.1255) == "0.13"
+    assert report_pages.rho_text(-0.0024) == "0.00"       # a value that rounds to zero is not "-0.00"
+    assert report_pages.rho_text(-0.0049) == "0.00"
+    assert report_pages.rho_text(-0.005) == "-0.01"
+    assert report_pages.rho_text(-0.0856) == "-0.09"
     assert report_pages.band_range_text("[1000,10000)") == "1,000 to 10,000"
     assert report_pages.band_range_text("[50000,inf)") == "50,000 or more"
 
@@ -1628,6 +1638,34 @@ def test_the_verifier_words_the_cut_record_bullet_as_the_report_does(built):
         assert method == [_fill(t, record["values"]) for t in record["sentences"]["method"]], (cut, caps)
         assert any("could not judge" in sentence for sentence in method) == bool(cut)
         assert any("random sample" in sentence for sentence in method) == bool(sampled)
+
+
+@pytest.mark.parametrize("rho,printed", [(-0.0024, "0.00"), (0.0049, "0.00"), (-0.005, "-0.01"), (-0.0856, "-0.09"), (0.1255, "0.13")])
+def test_report_and_verifier_print_the_correlation_the_same_and_never_as_negative_zero(built, rho, printed):
+    inputs = _inputs(built)
+    inputs["stats"]["spearman"]["porchlamp"]["rho"] = rho
+    f = report_pages.build_facts(**inputs)
+    hooks = verify_static_export.report_hooks(
+        sid=f.snapshot_id, judged=f.judged, black_holes=f.black_holes, deadline=f.deadline_days, min_n=f.min_n,
+        confidence=f.ci_percent, bands=[(b.key, {"n": b.judged, "black_holes": b.black_holes}) for b in f.bands],
+        below=f.below_bands_judged, lowest=int(f.lowest_band_text.replace(",", "")),
+        top100_black_holes=f.top100_black_holes, top100_overlap=f.top100_overlap, ranked=f.ranked, rho=f.rho,
+        unanswered=f.unanswered, counted=f.counted,
+        corpus={"human_outside_prs": f.corpus_prs, "distinct_outside_authors": f.corpus_authors, "derived_repos": f.corpus_projects},
+        start=f.window_start, end=f.window_end, undecided=f.undecided_rule_inputs,
+        ecosystems=[(e.key, e.judged, e.black_holes) for e in f.ecosystems], names=dict(report_pages.ECOSYSTEM_NAMES),
+        constants_hash=f.constants_hash, db_sha="0" * 64,
+    )
+    assert report_pages.report_json(f)["values"]["rho"] == printed == hooks["rho"]
+
+
+def test_every_black_hole_sentence_says_a_close_counts_as_a_touch():
+    """RFC-0026: a project is a black hole when no maintainer replied, reviewed, merged or closed, so the sentences that
+    count black holes name all four."""
+    record = report_pages.report_json(_published_facts())
+    texts = [finding["text"] for finding in record["findings"] if finding["id"] == "finding-share"] + list(record["sentences"]["method"])
+    said = [text for text in texts if "black hole" in text or "left most" in text]
+    assert said and all("merge or close" in text for text in said), said
 
 
 # ---- a published project that is no longer ranked keeps its address, with a page that says why -------------------

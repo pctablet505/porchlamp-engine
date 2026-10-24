@@ -652,7 +652,7 @@ def report_hooks(
         "top100_black_holes": _thousands(top100_black_holes),
         "top100_overlap": _thousands(top100_overlap),
         "ranked": _thousands(ranked),
-        "rho": str(Decimal(str(rho)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+        "rho": ("0.00" if abs(Decimal(str(rho))) < Decimal("0.005") else str(Decimal(str(rho)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))),
         "unanswered": _thousands(unanswered),
         "counted": _thousands(counted),
         "corpus_prs": _thousands(corpus["human_outside_prs"]),
@@ -705,8 +705,8 @@ def _report_sentences(hooks: dict[str, str], names: dict[str, str]) -> dict[str,
         "finding-share": f"More than 1 in {v['one_in']}.",
         "finding-share text": (
             f"In Porchlamp's {v['snapshot_id']} snapshot, {v['black_holes']} of {v['judged']} active open-source projects "
-            f"({v['share']}%) left most outside pull requests with no human reply, review or merge within "
-            f"{v['deadline_days']} days."
+            f"({v['share']}%) left most outside pull requests with no human reply, review, merge or close within "
+            f"{v['deadline_days']} days or since."
         ),
         "finding-stars": "More stars, more silence.",
         "finding-stars text": (
@@ -761,7 +761,7 @@ def _report_sentences(hooks: dict[str, str], names: dict[str, str]) -> dict[str,
         ),
         "dataset": (
             f"{v['black_holes']} of {v['judged']} active open-source projects ({v['share']}%) left most outside pull "
-            f"requests with no human reply, review or merge within {v['deadline_days']} days, in Porchlamp's "
+            f"requests with no human reply, review, merge or close within {v['deadline_days']} days or since, in Porchlamp's "
             f"{v['snapshot_id']} snapshot. The share rises with stars: {v['band1_share']}% at {v['band1_label']} stars, "
             f"{v['band2_share']}% at {v['band2_label']}, {v['band3_share']}% at {v['band3_label']}. Includes the "
             f"{v['ranked']} ranked projects with rank, score, tier, coverage and quadrant."
@@ -793,7 +793,7 @@ def _report_sentences(hooks: dict[str, str], names: dict[str, str]) -> dict[str,
         )
     method.append(
         f"It is a black hole when, with {v['ci_percent']}% confidence, more than half of those pull requests got no "
-        f"substantive reply, review or merge within {v['deadline_days']} days."
+        f"substantive reply, review, merge or close within {v['deadline_days']} days or since."
     )
     out["method"] = method
     if "below_bands_judged" in v:
