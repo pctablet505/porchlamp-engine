@@ -639,7 +639,7 @@ def report_title(f: Facts, *, frozen: bool = False) -> str:
 
 def report_description(f: Facts) -> str:
     return (
-        f"{f.share_text}% of active open-source projects left most outside pull requests unanswered for two weeks. "
+        f"{f.share_text}% of active open-source projects left most outside pull requests with no human reply, review, merge or close within two weeks or since. "
         f"The share rises with stars. Data on {fmt_int(f.corpus_projects)} GitHub projects."
     )
 

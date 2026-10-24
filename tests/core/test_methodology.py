@@ -141,6 +141,23 @@ def test_gates_cover_the_six_gate_ids_plus_evidence_sufficiency() -> None:
     assert by_id["D-GATE-2"]["cutoffs"] == {}
 
 
+def test_gate5_methodology_states_the_automation_rule_with_its_constants() -> None:
+    """RFC-0025: the page that says what counts as a reply says a template posted by one account within a minute on
+    many PRs does not, with the frozen thresholds."""
+    criterion = {e["id"]: e for e in methodology_document()["gates"]}["D-GATE-5"]["criterion"]
+    assert "does not count as a reply (RFC-0025)" in criterion and "the same account's other replies still count" in criterion
+    assert f"first {constants.AUTOMATION_TEMPLATE_WORDS} words" in criterion
+    assert f"at least {constants.AUTOMATION_MIN_PRS} PRs of the window" in criterion
+    assert f"at least {constants.AUTOMATION_FAST_SHARE:.0%} of them within {constants.AUTOMATION_FAST_SECONDS} seconds" in criterion
+
+
+def test_gate5_and_gate6_methodology_state_the_rfc0026_and_rfc0027_rules() -> None:
+    by_id = {e["id"]: e for e in methodology_document()["gates"]}
+    assert "RFC-0026" in by_id["D-GATE-5"]["criterion"] and "ignored share" in by_id["D-GATE-5"]["criterion"]
+    assert by_id["D-GATE-6"]["cutoffs"]["min_outside_prs"] == constants.GATE6_MIN_OUTSIDE_PRS
+    assert f"fewer than {constants.GATE6_MIN_OUTSIDE_PRS} outside PRs" in by_id["D-GATE-6"]["criterion"]
+
+
 def test_gate6_methodology_states_the_handoff_rule() -> None:
     """D-GATE-6's published entry carries the review hand-off rule: both cutoffs and every
     notice phrase (the literals here are the frozen values; ``test_frozen`` pins the constants)."""
