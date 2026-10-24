@@ -203,8 +203,9 @@ def test_runner_diff_against_original_only_in_allowed_hunks():
 # ---- the engine runner's per-step argv: the black-hole stop goes to the deep steps only (A-2) ------------------------
 BASE = ["--all", "--graphql-bulk"]
 SKIP = "--skip-ineligible"
-LAYER_ARGV = {                       # all seven pinned: the flag is on L2, L3g, L3c, L4 and LK, and never anywhere else
-    "L1": [*BASE, "--collectors", "pr_window"],
+SCREEN = "--screen-ineligible"
+LAYER_ARGV = {                       # all seven pinned: SKIP on L2, L3g, L3c, L4 and LK, SCREEN on L1, nothing on L0
+    "L1": [*BASE, "--collectors", "pr_window", SCREEN],
     "L0": [*BASE, "--collectors", "github_meta,pr_events,pr_reviews,contributors,actions_runs,tree,commits_180d"],
     "L2": [*BASE, "--collectors", "repo_object,gfi,dependents,releases,runs", SKIP],
     "L3g": [*BASE, "--collectors", "governance", SKIP],

@@ -346,7 +346,8 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
           min_stars: int = 1000, out: Optional[Path] = None,
           existing: Optional[Path] = None,
           *,
-          prune_ineligible: bool = False) -> int:
+          prune_ineligible: bool = False,
+          search_filters: bool = True) -> int:
     """Run the universe build; return candidate count written.
 
     ``now`` is the D-IN-5 star-velocity audit's reference clock -- an
@@ -360,10 +361,13 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
     ``dry_run`` needs ``out``: it searches live, skips the audit and writes
     only ``out`` (checkpoint ``out + .checkpoint.json``, summary
     ``out + .summary.json``). ``existing`` is the current universe to carry
-    (default: ``CANDIDATES``). When ``prune_ineligible=True``, search queries
-    exclude archived/fork/mirror/stale repositories and carried candidates
-    already verified as ineligible (archived, disabled, stale, unlicensed,
-    non_software, no_external_workflow) are pruned before writing.
+    (default: ``CANDIDATES``). ``search_filters`` (on by default) makes the
+    search queries ask only for repositories that are not archived, forks or
+    mirrors and were pushed within the stale window, so GitHub never lists
+    the dead ones as new candidates. When ``prune_ineligible=True``, carried
+    candidates already verified as ineligible (archived, disabled, stale,
+    unlicensed, non_software, no_external_workflow) are also pruned before
+    writing; without it every carried candidate stays listed.
     """
     if dry_run and out is None:
         raise ValueError("--dry-run needs --out PATH (it writes nothing else)")
@@ -429,7 +433,7 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
 
     min_pushed_date = (
         (now - timedelta(days=STALE_PUSH_WINDOW_DAYS)).strftime("%Y-%m-%d")
-        if prune_ineligible
+        if search_filters
         else None
     )
     ecos = [
@@ -439,7 +443,7 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
                 (
                     q,
                     build_search_query(
-                        q, exclude_ineligible=prune_ineligible, min_pushed_date=min_pushed_date
+                        q, exclude_ineligible=search_filters, min_pushed_date=min_pushed_date
                     ),
                 )
                 for q in qs
@@ -561,13 +565,17 @@ def main() -> int:
     ap.add_argument("--existing", type=Path,
                     help="current universe to carry (default: data/raw/candidates.jsonl)")
     ap.add_argument("--prune-ineligible", action="store_true",
-                    help="exclude archived, stale, unlicensed, non_software, and "
-                         "no_external_workflow repos at universe build time")
+                    help="also drop carried candidates already verified as archived, disabled, "
+                         "stale, unlicensed, non_software or no_external_workflow")
+    ap.add_argument("--no-search-filters", dest="search_filters", action="store_false",
+                    help="search without the archived/fork/mirror/pushed qualifiers "
+                         "(by default only live repositories are listed as new candidates)")
     a = ap.parse_args()
     if a.dry_run and a.out is None:
         ap.error("--dry-run needs --out")
     build(a.max_per_criterion, a.max_total, a.only, a.dry_run, min_stars=a.min_stars,
-          out=a.out, existing=a.existing, prune_ineligible=a.prune_ineligible)
+          out=a.out, existing=a.existing, prune_ineligible=a.prune_ineligible,
+          search_filters=a.search_filters)
     return 0
 
 
