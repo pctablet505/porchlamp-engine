@@ -50,7 +50,7 @@ RECOGNIZED_MANIFEST_BASENAMES: frozenset[str] = frozenset({
     "pubspec.yaml", "Package.swift", "build.sbt", "project.clj", "deps.edn",
     "stack.yaml", "dune-project",
     # widened 2026-10-24: build and dependency files of real projects the list missed
-    "requirements.txt", "Pipfile", "pixi.toml", "configure", "xmake.lua", "premake4.lua", "premake5.lua", "Rakefile",
+    "requirements.txt", "Pipfile", "pixi.toml", "xmake.lua", "premake4.lua", "premake5.lua", "Rakefile",
     "Podfile", "tsconfig.json", "deno.json", "deno.jsonc", "Gopkg.toml",
 })
 RECOGNIZED_MANIFEST_PREFIXES: tuple[str, ...] = ("build.gradle",)
