@@ -8,6 +8,9 @@ place in each lens and its similar projects (:func:`record_extras`, from the lea
 (:func:`project_page`). The lens reasons are read from ``web/app/copy.js``, the single source the app uses
 (:func:`report_pages.copy_js_map`).
 
+A project that was published and is no longer ranked keeps its address: its page says it is not ranked, and why
+(:func:`delisted_reason`, :func:`delisted_description`, :func:`project_page` with the title of :func:`delisted_title`).
+
 A value that was not measured is said plainly; a reason this code does not know stops the export
 (:class:`report_pages.ReportError`) instead of printing a guess. ``scripts/verify_static_export.py`` recomputes
 every sentence and number on every page from the API and compares.
@@ -18,6 +21,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import date
+from functools import lru_cache
 from decimal import ROUND_HALF_UP, Decimal
 from html import escape
 from pathlib import Path
@@ -403,12 +407,54 @@ def project_title(owner: str, name: str) -> str:
     return f"{owner}/{name}: pull request response time and contributor experience | Porchlamp"
 
 
-def project_page(owner: str, name: str, description: str) -> str:
-    """A ranked project's page for ``web/prerender.mjs`` to draw the header, nav, footer and the project view into:
+def delisted_title(owner: str, name: str, snapshot_day: date) -> str:
+    return f"{owner}/{name}: not ranked in the Porchlamp snapshot of {long_date(snapshot_day)} | Porchlamp"
+
+
+@lru_cache(maxsize=1)
+def _reason_sentences() -> dict[str, str]:
+    """The sentence of each reason a project is not ranked for: copy.js's gate reasons and unrated reasons, the ones the
+    side panel's banner reads (``gateReasonText``)."""
+    return {**copy_js_map("UNRATED_REASON_COPY"), **copy_js_map("GATE_REASON_COPY")}
+
+
+def delisted_reason(detail: Mapping[str, Any]) -> str:
+    """The code a record is not ranked for: its gate reason or, without one, its unrated reason, without the engine's
+    ``"unrated: "`` prefix (copy.js ``bareUnratedReason``). A record that is not ranked and has none stops the export."""
+    code = (detail.get("gate_reason") or detail.get("unrated_reason") or "").removeprefix("unrated: ")
+    if not code:
+        raise ReportError(f"{detail['owner']}/{detail['name']} is not ranked and carries no reason; needs a ruling")
+    return code
+
+
+def delisted_reason_text(code: str) -> str:
+    """copy.js's sentence for a reason code; a code it has no wording for stops the export instead of printing a guess."""
+    sentences = _reason_sentences()
+    if code not in sentences:
+        raise ReportError(f"the reason {code!r} has no wording in copy.js (GATE_REASON_COPY, UNRATED_REASON_COPY)")
+    return sentences[code]
+
+
+def delisted_description(who: str, reason_text: str, limit: int = DESCRIPTION_LIMIT) -> str:
+    """The head's description of a project that is not ranked: its name, then its reason's sentence (``tencent/ncnn is not
+    ranked: more than half of outside pull requests got no human reply, review or merge on GitHub within 14 days.``), at
+    most ``limit`` characters: whole, else cut at a word with an ellipsis. The name is never cut."""
+    lead = f"{who} is not ranked: "
+    whole = lead + _lowercase_first(_sentence_end(reason_text))
+    if len(whole) <= limit:
+        return whole
+    if len(lead) + 1 > limit:
+        raise ReportError(f"{who}: the name alone is longer than {limit} characters; the description needs a ruling")
+    cut = whole[: limit - 1].rsplit(" ", 1)[0].rstrip(" ;,:.")
+    return f"{cut}\u2026" if len(cut) > len(lead.rstrip()) else lead.rstrip(" :")
+
+
+def project_page(owner: str, name: str, description: str, title: str | None = None) -> str:
+    """A project's page (``title`` is the default one of a ranked project) for ``web/prerender.mjs`` to draw the header, nav, footer and the project view into:
     the app's page with the project's head (title, description, canonical address, link previews, breadcrumb). The
     page's own script (``back-forward.js``) loads the app again when Back or Forward returns to one of its entries:
     the page's address is also the project's side panel in the app."""
-    title, canonical = project_title(owner, name), project_url(owner, name)
+    title, canonical = title or project_title(owner, name), project_url(owner, name)
     built = app_page(
         title=title, description=description, head=_article_head(title=title, description=description, canonical=canonical),
         scripts=PAGE_SCRIPTS["project"][1:],

@@ -35,7 +35,10 @@ files they link from the site root (``CARRIED_FROZEN_ASSETS``). Then one page pe
 project (``projects/<owner>/<name>/index.html``, lower case), with its head (``porchlamp/serve/project_pages.py``), which
 the prerender draws the project view into from the project's record, ``sitemap-projects.xml`` (every project page,
 in balanced-rank order), and ``check/index.html``, a stub that sends the address ``/check/`` on to the rankings
-(:func:`check_stub`; the header's search finds a project). The black-hole
+(:func:`check_stub`; the header's search finds a project). With ``--previous-site <the site as last published>`` a
+project that site has a page for, that this snapshot holds and no longer ranks, keeps its address: a page that says it is
+not ranked and why (:func:`_write_delisted_pages`), outside ``sitemap-projects.xml``. The next export reads this site as
+the previous one, so a page stays until its project is ranked again. The black-hole
 evidence the report sums is recomputed from the raw ``pr_window``
 envelopes the stored snapshot pinned: pass ``--snapshot-dir`` (the directory ``porchlamp.snapshot store`` read)
 and ``--data-dir`` (the data root holding ``raw/``); an envelope that changed since the store stops the export.
@@ -641,6 +644,58 @@ def _write_project_pages(
     return pages
 
 
+def previous_project_pages(previous_site: Path) -> set[tuple[str, str]]:
+    """The projects a published site has a page for: ``(owner, name)``, lower case, one per ``projects/<owner>/<name>/``
+    that holds an ``index.html``. A ranked project's page and an earlier stub count alike."""
+    root = previous_site / "projects"
+    if not root.is_dir():
+        raise SystemExit(f"export: {previous_site} holds no projects/ (the site the pages were published in)")
+    return {(page.parent.parent.name, page.parent.name) for page in root.glob("*/*/index.html")}
+
+
+def _write_delisted_pages(
+    out: Path, snapshot: dict, boards: dict[str, dict], buckets: dict[str, dict[str, dict]], previous_site: Path
+) -> tuple[list[dict], int]:
+    """A page at the address of every project the previously published site had a page for, that this snapshot holds and
+    does not rank: it says it is not ranked, and why (the project view's own banner for the reason). A project the
+    snapshot no longer holds gets none. Returns the pages for :func:`_prerender` and the number of previously published
+    addresses with no project in the snapshot. A stub stays until the project is ranked again, because the next export
+    reads this site as the previous one."""
+    from porchlamp.serve import project_pages as pp
+    from porchlamp.serve import report_pages
+
+    try:
+        ranked = {(row["owner"].lower(), row["name"].lower()) for row in boards[pp.BALANCED]["rows"]}
+        held: dict[tuple[str, str], list[dict]] = {}
+        for records in buckets.values():
+            for record in records.values():
+                detail = record["detail"]
+                held.setdefault((detail["owner"].lower(), detail["name"].lower()), []).append(detail)
+        snapshot_day = date.fromisoformat(snapshot["snapshot_id"][:10])
+        pages, gone = [], 0
+        for address in sorted(previous_project_pages(previous_site) - ranked):
+            details = held.get(address)
+            if not details:
+                gone += 1
+                continue
+            if len(details) > 1:
+                names = ", ".join(f"{d['owner']}/{d['name']}" for d in details)
+                raise report_pages.ReportError(f"{names} share the address {pp.project_path(*address)}; needs a ruling")
+            detail = details[0]
+            if detail["rated"]:
+                raise report_pages.ReportError(f"{detail['owner']}/{detail['name']} is rated but has no balanced rank; needs a ruling")
+            owner, name = detail["owner"], detail["name"]
+            description = pp.delisted_description(f"{owner}/{name}", pp.delisted_reason_text(pp.delisted_reason(detail)))
+            target = out / pp.project_path(owner, name)
+            target.mkdir(parents=True, exist_ok=True)
+            page = pp.project_page(owner, name, description, pp.delisted_title(owner, name, snapshot_day))
+            (target / "index.html").write_text(page, encoding="utf-8")
+            pages.append({"path": f"{pp.project_path(owner, name)}index.html", "nav": None, "project": f"{owner}/{name}", "stub": True})
+    except report_pages.ReportError as error:
+        raise SystemExit(f"export: {error}") from error
+    return pages, gone
+
+
 def check_stub() -> str:
     """``check/index.html``: the address ``/check/`` as a stub that sends a reader on to the rankings, at once (a meta
     refresh) and for a search engine (the canonical address), with the 404 page's link to them for a browser that does
@@ -695,7 +750,7 @@ def _sitemap_pages(out: Path, snapshot_id: str, as_of: str, listed: list[str]) -
 
 def export(
     db: Path, out: Path, stats_path: Optional[Path] = None, *,
-    snapshot_dir: Optional[Path] = None, data_dir: Optional[Path] = None,
+    snapshot_dir: Optional[Path] = None, data_dir: Optional[Path] = None, previous_site: Optional[Path] = None,
 ) -> dict:
     from porchlamp.core import constants
     from porchlamp.serve.app import PinnedEvidenceFiles, _current_snapshot_id, _open_v2_connection
@@ -705,6 +760,8 @@ def export(
     evidence_files = PinnedEvidenceFiles(snapshot_dir, data_dir) if snapshot_dir is not None else None
 
     stats = _load_stats(stats_path) if stats_path is not None else None
+    if previous_site is not None and stats is None:
+        raise SystemExit("export: --previous-site needs the stats file (--stats): the project pages are written with it")
 
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"export: {out} is not empty")
@@ -787,6 +844,11 @@ def export(
     if facts is not None:
         pages += _write_report_pages(out, facts, boards, manifest)
         pages += _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
+        if previous_site is not None:
+            stubs, gone = _write_delisted_pages(out, snapshot, boards, buckets, previous_site)
+            pages += stubs
+            print(f"export: {len(stubs)} pages for projects no longer ranked; {gone} previously published addresses have no "
+                  "project in this snapshot and get none", file=sys.stderr)
         (out / "check").mkdir()
         (out / "check" / "index.html").write_text(check_stub(), encoding="utf-8")
         _write_home(out, out / "data" / snapshot_id)
@@ -812,11 +874,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="the snapshot directory the database was stored from (pins each black hole's pr_window envelope)",
     )
     parser.add_argument("--data-dir", type=Path, default=None, help="the data root holding raw/pr_window/")
+    parser.add_argument(
+        "--previous-site", type=Path, default=None,
+        help="the site as last published (needs --stats): a project it has a page for that is no longer ranked keeps its address, "
+             "with a page that says why",
+    )
     args = parser.parse_args(argv)
     manifest = export(
         args.db.resolve(), args.out.resolve(), args.stats.resolve() if args.stats else None,
         snapshot_dir=args.snapshot_dir.resolve() if args.snapshot_dir else None,
         data_dir=args.data_dir.resolve() if args.data_dir else None,
+        previous_site=args.previous_site.resolve() if args.previous_site else None,
     )
     print(json.dumps({k: manifest[k] for k in ("snapshot_id", "counts", "repos", "bytes")}, indent=2))
     return 0
