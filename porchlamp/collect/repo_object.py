@@ -51,6 +51,9 @@ D_GATE1_MANIFEST_NAMES: frozenset[str] = frozenset({
     "vcpkg.json", "conanfile.py", "conanfile.txt", "composer.json",
     "pubspec.yaml", "Package.swift", "build.sbt", "project.clj", "deps.edn",
     "stack.yaml", "dune-project",
+    # widened 2026-10-24: build and dependency files of real projects the list missed
+    "requirements.txt", "Pipfile", "pixi.toml", "xmake.lua", "premake4.lua", "premake5.lua", "Rakefile",
+    "Podfile", "tsconfig.json", "deno.json", "deno.jsonc", "Gopkg.toml",
 })
 D_GATE1_MANIFEST_PREFIXES: tuple[str, ...] = ("build.gradle",)
 D_GATE1_MANIFEST_SUFFIXES: tuple[str, ...] = (
