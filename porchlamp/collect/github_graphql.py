@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from porchlamp.collect import ghcli, ledger
-from porchlamp.collect.envelope import read_envelope, sha256_hex, write_envelope
+from porchlamp.collect.envelope import COLLECTOR_VERSION, read_envelope, sha256_hex, write_envelope
 from porchlamp.collect.user_cache import UserCache
 from porchlamp.core import constants, gates, landing
 from porchlamp.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
@@ -188,6 +188,26 @@ PR_WINDOW_LIGHT_QUERY: str = (
 #: lack fields this one asks for; a refresh refetches it in full.
 PR_WINDOW_QUERY_SHA256: str = sha256_hex(PR_WINDOW_QUERY)
 
+#: RFC-0022: :data:`PR_WINDOW_QUERY_SHA256` as it stood before RFC-0022, the
+#: query the phone's cycles read with until engine 5dc23da. It is the current
+#: text with three edits: the timeline read ``last: 5`` events and neither
+#: reply list asked for ``totalCount`` or ``pageInfo``. Every other field is
+#: the same, so such a record needs only the PRs whose lists sat at those old
+#: sizes read again (:func:`repair_pr_window_replies`), not the whole window.
+LEGACY_PR_WINDOW_QUERY_SHA256: str = "4c7951ae11433034dbf7f8eec042d3ccabf87879fb1ca791d21242be8456b2a1"
+#: The sizes that query read: a list of this many nodes may have held more.
+LEGACY_REVIEWS_FIRST: int = 10
+LEGACY_COMMENTS_FIRST: int = 20
+LEGACY_TIMELINE_LAST: int = 5
+#: The timeline selection of :data:`PR_WINDOW_QUERY` and
+#: :data:`PR_WINDOW_LIGHT_QUERY`, read by PR number for a record that cut it.
+_TIMELINE_SELECTION: str = (
+    f"timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: {PR_REPLY_PAGE_SIZE}) {{"
+    " nodes { __typename ... on ReadyForReviewEvent { createdAt }"
+    " ... on ClosedEvent { createdAt actor { __typename login }"
+    " closer { __typename ... on Commit { oid } ... on PullRequest { number } } } } }"
+)
+
 
 def _pr_replies_batch_query(n: int) -> str:
     """Aliased ``pullRequest(number:)`` batch query for ``n`` sampled PRs.
@@ -206,6 +226,18 @@ def _pr_replies_batch_query(n: int) -> str:
     )
     return (
         f"query PrRepliesBatch($owner: String!, $name: String!, {var_decls}) {{"
+        f" rateLimit {{ cost }} r: repository(owner: $owner, name: $name) {{ {aliases} }} }}"
+    )
+
+
+def _pr_timeline_query(n: int) -> str:
+    """Aliased ``pullRequest(number:)`` query reading the timeline of ``n`` PRs
+    as :data:`PR_WINDOW_QUERY` does (:data:`_TIMELINE_SELECTION`): the repair of
+    a record that read ``last: 5`` events (:func:`repair_pr_window_replies`)."""
+    var_decls = ", ".join(f"$n{i}: Int!" for i in range(n))
+    aliases = " ".join(f"p{i}: pullRequest(number: $n{i}) {{ number {_TIMELINE_SELECTION} }}" for i in range(n))
+    return (
+        f"query PrTimeline($owner: String!, $name: String!, {var_decls}) {{"
         f" rateLimit {{ cost }} r: repository(owner: $owner, name: $name) {{ {aliases} }} }}"
     )
 
@@ -1258,6 +1290,133 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
         data["sample_size"] = sum(1 for pr in result.prs if pr.get(REPLIES_RECORDED_KEY) is not False)
     write_envelope(target, source="github-graphql:pr-window", data=data,
                    fetched_at=now.isoformat())
+    return "ok"
+
+
+def _at_legacy_size(connection: Any, size: int) -> bool:
+    """Whether a recorded reply list holds ``size`` nodes and no ``pageInfo``:
+    the shape of a list the query before RFC-0022 stopped at."""
+    if not isinstance(connection, Mapping) or "pageInfo" in connection:
+        return False
+    nodes = connection.get("nodes")
+    return isinstance(nodes, list) and len(nodes) >= size
+
+
+def legacy_reply_cuts(data: Any) -> tuple[list[int], list[int]]:
+    """RFC-0022: the PRs of a ``pr_window`` envelope ``data`` that the query
+    before RFC-0022 may have cut short, as ``(replies, timeline)`` PR numbers;
+    both empty for a record fetched by any other query (the current one is
+    whole, and an older one differs in more than these sizes).
+
+    ``replies`` are the PRs whose replies the record holds
+    (:data:`REPLIES_RECORDED_KEY` is not false) and whose reviews hold
+    :data:`LEGACY_REVIEWS_FIRST` nodes or whose comments hold
+    :data:`LEGACY_COMMENTS_FIRST`, with no ``pageInfo``: the list may have run
+    on. A list below its size was whole. ``timeline`` are the PRs whose
+    timeline holds :data:`LEGACY_TIMELINE_LAST` events, of every PR, since the
+    light query read it too."""
+    if not isinstance(data, Mapping) or data.get("query_sha256") != LEGACY_PR_WINDOW_QUERY_SHA256:
+        return [], []
+    prs = data.get("prs")
+    replies: list[int] = []
+    timeline: list[int] = []
+    for pr in prs if isinstance(prs, list) else []:
+        number = pr.get("number") if isinstance(pr, Mapping) else None
+        if not isinstance(number, int) or isinstance(number, bool):
+            continue
+        if pr.get(REPLIES_RECORDED_KEY) is not False and (
+                _at_legacy_size(pr.get("reviews"), LEGACY_REVIEWS_FIRST)
+                or _at_legacy_size(pr.get("comments"), LEGACY_COMMENTS_FIRST)):
+            replies.append(number)
+        if _at_legacy_size(pr.get("timelineItems"), LEGACY_TIMELINE_LAST):
+            timeline.append(number)
+    return replies, timeline
+
+
+def repair_pr_window_replies(raw_dir: Path, owner: str, name: str,
+                             now: Optional[datetime] = None,
+                             transport: Optional[GraphqlTransport] = None) -> str:
+    """RFC-0022: read again, by PR number, the PRs a stored ``pr_window``
+    record fetched by the query before RFC-0022 may have cut short
+    (:func:`legacy_reply_cuts`), and stamp the record with the current query.
+
+    Returns ``"skip"`` when there is no readable record, it was fetched by any
+    other query, or none of its lists sat at the old sizes; ``"ok"`` after the
+    record was rewritten. The re-read PRs take the current query's first pages
+    (``PrRepliesBatch``, then the follow-up reads of :func:`fetch_pr_window`,
+    so a long thread is whole up to :data:`PR_REPLY_NODE_CAP`) and their
+    timelines the current ``last: 100``; every other PR is already what the
+    current query would record. The record then differs from a fresh fetch only
+    in what happened since: a re-read thread may hold replies newer than the
+    record's ``window_anchor``, as a PR's replies did for the window's own
+    newest pages. ``replies_repaired`` records what was read again and its cost
+    (added to ``cost_points``). A PR GitHub no longer answers for fails the
+    repair, leaving the old record whole and unstamped, to be tried again.
+
+    Costs about a point per batch of :data:`PR_REPLIES_BATCH_SIZE` cut PRs
+    (against a point per page of 25 for refetching the window), which is why
+    the phone runs this and not a refetch for the record the old query cut.
+    """
+    key = f"{owner}__{name}"
+    target = raw_dir / "pr_window" / f"{key}.json"
+    try:
+        text = target.read_text(encoding="utf-8")
+    except OSError:
+        return "skip"
+    # A legacy record carries this exact pair (json.dumps escapes any quote a PR
+    # body holds), so a record of another query is passed over without parsing.
+    if f'"query_sha256": "{LEGACY_PR_WINDOW_QUERY_SHA256}"' not in text:
+        return "skip"
+    try:
+        document = json.loads(text)
+    except ValueError:
+        return "skip"
+    data = document.get("data") if isinstance(document, dict) else None
+    reply_numbers, timeline_numbers = legacy_reply_cuts(data)
+    if not reply_numbers and not timeline_numbers:
+        return "skip"
+    now = now or datetime.now(timezone.utc)
+    transport = transport or GhCliTransport()
+    prs = data["prs"]
+    by_number = {pr["number"]: pr for pr in prs if isinstance(pr, dict) and isinstance(pr.get("number"), int)}
+    cost = 0
+    if reply_numbers:
+        replies, spent = _fetch_pr_replies_batch(owner, name, reply_numbers, transport)
+        cost += spent
+        for number in reply_numbers:
+            by_number[number].update(replies[number])
+        cost += _fetch_reply_followups(owner, name, [by_number[number] for number in reply_numbers], transport)
+    if timeline_numbers:
+        def run(pool: Sequence[int]) -> tuple[dict[int, Mapping[str, Any]], list[int], int]:
+            return _run_aliased_pr_query(
+                transport, _pr_timeline_query(len(pool)),
+                {"owner": owner, "name": name, **{f"n{i}": int(number) for i, number in enumerate(pool)}}, pool)
+
+        timelines, spent = _in_aliased_batches(
+            timeline_numbers, run, PR_REPLIES_BATCH_SIZE, f"pr timeline re-read failed for {owner}/{name} PRs")
+        cost += spent
+        for number in timeline_numbers:
+            timeline = timelines[number].get("timelineItems")
+            if not isinstance(timeline, Mapping) or not isinstance(timeline.get("nodes"), list):
+                raise RuntimeError(f"pr timeline re-read for {owner}/{name} #{number} returned no events list")
+            by_number[number]["timelineItems"] = {"nodes": timeline["nodes"]}
+    repaired = {
+        **data,
+        "query_sha256": PR_WINDOW_QUERY_SHA256,
+        "cost_points": int(data.get("cost_points") or 0) + cost,
+        "derived": derive_pr_window(prs),
+        "replies_repaired": {
+            "from_query_sha256": LEGACY_PR_WINDOW_QUERY_SHA256,
+            "reply_prs": len(reply_numbers),
+            "timeline_prs": len(timeline_numbers),
+            "cost_points": cost,
+            "repaired_at": now.isoformat(),
+        },
+    }
+    write_envelope(target, source=document.get("source") or "github-graphql:pr-window", data=repaired,
+                   fetched_at=document.get("fetched_at") or now.isoformat(),
+                   http_status=document.get("http_status") or 200, etag=document.get("etag"),
+                   collector_version=document.get("collector_version") or COLLECTOR_VERSION)
     return "ok"
 
 

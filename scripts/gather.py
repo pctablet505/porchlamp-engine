@@ -895,6 +895,22 @@ def load_candidates(lines: list[str], limit: Optional[int]) -> list[tuple[str, s
     return repos
 
 
+def _repair_replies(owner: str, name: str, eco: str) -> bool:
+    """One repo of ``--repair-replies``: read again the PRs of its ``pr_window`` record that the query before RFC-0022
+    cut short (:func:`porchlamp.collect.github_graphql.repair_pr_window_replies`). Prints the repo line; False when it
+    failed, so the next run reads it again."""
+    from porchlamp.collect import github_graphql as prw_mod
+
+    try:
+        with _collector_scope(f"{owner}__{name}", "pr_window"):
+            repaired = prw_mod.repair_pr_window_replies(DATA, owner, name)
+    except Exception as e:  # review-ok: gate-network — isolate unexpected per-repo error during sweep
+        print(f"{owner}/{name} [{eco}]: FAIL {e}")
+        return False
+    print(f"{owner}/{name} [{eco}]: {'OK' if repaired == 'ok' else 'SKIP (no cut record)'}")
+    return True
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=10)
@@ -932,6 +948,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                          "(commits_365d at 1,000, author_history and pr_window at 500): the repos that have "
                          "one, and of each only its cut collectors; --collectors narrows it further. "
                          "A record cut at today's cap is left alone")
+    ap.add_argument("--repair-replies", action="store_true",
+                    help="read again, and only, the pull requests of each stored pr_window record whose reply lists "
+                         "or timeline the query before RFC-0022 stopped at its size (reviews 10, comments 20, "
+                         "timeline 5), by PR number, and stamp the record with the current query: about a point per "
+                         "25 pull requests, not a refetch of the window. A record of any other query is left alone")
     ap.add_argument("--screen-ineligible", action="store_true",
                     help="before the first layer of a cycle: ask GitHub (the fingerprint pass) about each repo "
                          "whose selected collectors are not all done, and skip the archived, disabled and idle "
@@ -950,6 +971,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     if a.refetch_cut and (a.force or a.dirty or a.fingerprint_only or a.screen_ineligible):
         ap.error("--refetch-cut already picks the repos and the collectors: "
                  "not with --force, --dirty, --fingerprint-only or --screen-ineligible")
+    if a.repair_replies and (a.force or a.dirty or a.fingerprint_only or a.screen_ineligible or a.skip_ineligible
+                             or a.refetch_cut or a.collectors or a.priority_keys):
+        ap.error("--repair-replies picks the repos and reads only pr_window: "
+                 "not with --force, --dirty, --fingerprint-only, --screen-ineligible, --skip-ineligible, "
+                 "--refetch-cut, --collectors or --priority-keys")
     if a.screen_ineligible and (a.skip_ineligible or a.dirty or a.fingerprint_only):
         ap.error("--screen-ineligible is the screen before a cycle's first layer: "
                  "not with --skip-ineligible, --dirty or --fingerprint-only")
@@ -1036,6 +1062,11 @@ def _run_main(a: argparse.Namespace) -> int:
     print(f"collectors: {'all' if selected is None else ','.join(sorted(selected))}; repos: {len(repos)}")
     for i, (owner, name, eco) in enumerate(repos, 1):
         key = f"{owner}__{name}"
+        if a.repair_replies:
+            repaired_ok = _repair_replies(owner, name, eco)
+            ok += repaired_ok
+            fail += not repaired_ok
+            continue
         if (a.skip_ineligible or screen) and not a.force:
             pruned_reason = (
                 fp_result.pruned_by_repo.get(key)
