@@ -896,6 +896,28 @@ def _has_decided_external_pr_in_raw(
     return None
 
 
+def _outside_prs_below_floor_in_raw(raw_dir: Path, owner: str, name: str, now: datetime) -> bool:
+    """RFC-0027: True when the recorded ``pr_window`` reaches back to the start of the window ending at ``now`` and
+    holds fewer than :data:`constants.GATE6_MIN_OUTSIDE_PRS` outside PRs (external, non-bot authors) opened in it. A
+    window that stops short, or none, says nothing: False."""
+    doc = _read_envelope_doc(envelope_path(raw_dir, "pr_window", owner, name))
+    data = doc.get("data") if isinstance(doc, Mapping) else None
+    prs = data.get("prs") if isinstance(data, Mapping) else None
+    if not isinstance(prs, list):
+        return False
+    start = now - timedelta(days=constants.PR_WINDOW_DAYS)
+    fetched = doc.get("fetched_at")
+    covered, _ = gates.pr_window_coverage(data, start, fetched_at=fetched if isinstance(fetched, str) else None)
+    if not covered:
+        return False
+    outside = 0
+    for pr in prs:
+        created = _parse_iso(pr.get("createdAt")) if isinstance(pr, Mapping) and isinstance(pr.get("createdAt"), str) else None
+        if created is not None and start <= created <= now and gates.is_outside_pr(pr):
+            outside += 1
+    return outside < constants.GATE6_MIN_OUTSIDE_PRS
+
+
 def _has_human_commit_180d(
     raw_dir: Path, owner: str, name: str, now: datetime
 ) -> Optional[bool]:
@@ -1184,6 +1206,8 @@ def classify_prune_reason(
                     return "no_external_workflow"
                 has_decided = _has_decided_external_pr_in_raw(raw_dir, owner, name, now)
                 if has_decided is False:
+                    return "no_external_workflow"
+                if _outside_prs_below_floor_in_raw(raw_dir, owner, name, now):
                     return "no_external_workflow"
 
         if _has_human_commit_180d(raw_dir, owner, name, now) is False:

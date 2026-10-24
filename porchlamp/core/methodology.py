@@ -434,7 +434,12 @@ def _gate_entries() -> list[GateEntry]:
                 "repository's whole PR history (the 30 newest were fewer than 30, and no "
                 "window or history read beside them is truncated): otherwise the gate is "
                 "UNDECIDED, because a PR opened before the records may have been decided "
-                "inside the window. Each record shows decisions up to its own fetch. A "
+                "inside the window. Each record shows decisions up to its own fetch. "
+                "RFC-0027: a repository whose complete PR window holds fewer than "
+                f"{constants.GATE6_MIN_OUTSIDE_PRS} outside PRs (external, non-bot authors) opened in the trailing "
+                f"{constants.PR_WINDOW_DAYS} days is also unrated: no_external_workflow, whatever it decided, "
+                "because there is too little outside traffic to contribute to or to measure "
+                "(routed instead when it works off-platform; UNDECIDED when that is unknown). A "
                 "repository also routes "
                 "off-platform, whatever its decided PRs, when it hands review off: "
                 "among its outside PRs (external, non-bot authors in the recorded "
@@ -449,6 +454,7 @@ def _gate_entries() -> list[GateEntry]:
             "reasons": (_gates.REASON_NO_EXTERNAL_WORKFLOW,),
             "cutoffs": {
                 "decision_window_days": constants.GATE6_DECISION_WINDOW_DAYS,
+                "min_outside_prs": constants.GATE6_MIN_OUTSIDE_PRS,
                 "handoff_min_prs": constants.GATE6_HANDOFF_MIN_PRS,
                 "handoff_min_share": constants.GATE6_HANDOFF_MIN_SHARE,
             },

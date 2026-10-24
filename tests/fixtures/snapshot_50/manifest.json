@@ -10,9 +10,9 @@
   ],
   "as_of": "2026-09-12T05:26:57.089407+00:00",
   "benchmark_version": "2.0.0-rc1",
-  "constants_hash": "861c2259fbee531957b102e4dbfa11f5c5ab532d9cd75a3df21fe1e2c203fcf7",
+  "constants_hash": "de2c71c1d7bad01ff749cd81560974ce5199352075feeeda6d805a8d52dd2332",
   "document": "porchlamp-fixture-snapshot-manifest",
-  "merkle_root": "3ae40b8b6c10fd885fc0c4bb30fa0ddff7b802fcc2a224526a8cbc6ee9ecabb5",
+  "merkle_root": "ed9ea2f1b7058ea01ed27fd43f0e95c5751bfe8516e7a25914195f0dc0964600",
   "population_fallback_params": [],
   "repo_count": 50,
   "repos": [

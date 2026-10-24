@@ -201,7 +201,7 @@ export function gateReasonText(reason) {
 
 const UNRATED_REASON_COPY = Object.freeze({
   insufficient_evidence: "Not enough measured evidence to rank",
-  no_external_workflow: "No external contribution workflow was found to measure.",
+  no_external_workflow: "No outside contribution workflow to measure: fewer than 3 outside pull requests in 180 days, or none decided on GitHub.",
   off_platform_routed:
     "Contribution activity happens off-platform and cannot be measured here.",
 });
