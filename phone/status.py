@@ -518,7 +518,7 @@ def _words(e: Any, *, now: float, reason: Any, layer: str | None, idx: int, n_st
         if reason.state == "retrying":
             left = max(0.0, (reason.resume_at or now) - now)
             return ("retrying", "slow_network", "The network is slow",
-                    f"{plural(s['timeout_streak'], 'request')} in a row timed out. "
+                    f"{plural(s['timeout_streak'], 'request')} in a row got no answer from the network. "
                     f"Trying again in {span_text(left)}.", reason.text)
         if reason.state == "attention":
             return _token_words(reason)

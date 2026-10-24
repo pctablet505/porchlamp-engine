@@ -477,8 +477,10 @@ class Controls:
             self._say("err", "GitHub rejected the token", "Three tries in a row were refused (status 401).", "network")
             self.evaluate(force=True)
 
-    def on_failure(self, host: str, timeout: bool) -> None:
-        if not timeout:
+    def on_failure(self, host: str, no_answer: bool) -> None:
+        """A request failed. One that never got an answer (``no_answer``: a timeout, an unresolved name, a refused or
+        dropped connection, an unreachable network) counts toward the slow-network wait; any other failure does not."""
+        if not no_answer:
             return
         started = False
         with self._lock:
@@ -486,12 +488,12 @@ class Controls:
             limit = self.settings.value("timeout_streak")
             if self._streak >= limit and self._retry_until is None:
                 self._retry_until = self._clock() + RETRY_WAIT_S
-                self.last_error = {"t": self._clock(), "text": f"{self._streak} requests in a row timed out",
+                self.last_error = {"t": self._clock(), "text": f"{self._streak} requests in a row got no answer from the network",
                                    "action": f"It waits {RETRY_WAIT_S // 60} minutes, then tries again."}
                 self._dirty = True
                 started = True
         if started:
-            self._say("warn", "The network is slow", f"{self._streak} requests in a row timed out. "
+            self._say("warn", "The network is slow", f"{self._streak} requests in a row got no answer from the network. "
                       f"Trying again in {RETRY_WAIT_S // 60} minutes.", "network")
             self.evaluate(force=True)
 
