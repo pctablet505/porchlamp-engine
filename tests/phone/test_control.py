@@ -237,18 +237,18 @@ def test_the_owners_own_acts_wait_only_for_the_network(tmp_path):
     assert r.controls.block_reason("api.github.com", "token_test").code == "no_wifi"
 
 
-def test_a_streak_of_timeouts_holds_requests_for_ten_minutes_then_lets_them_go(tmp_path):
+def test_a_streak_of_unanswered_requests_holds_requests_for_ten_minutes_then_lets_them_go(tmp_path):
     r = Rules(tmp_path)
     r.settings.set({"timeout_streak": 3})
-    r.controls.on_failure("deps.dev", timeout=True)
-    r.controls.on_failure("deps.dev", timeout=False)                              # not a timeout: not counted
-    r.controls.on_failure("deps.dev", timeout=True)
+    r.controls.on_failure("deps.dev", no_answer=True)
+    r.controls.on_failure("deps.dev", no_answer=False)                            # it answered, or failed locally: not counted
+    r.controls.on_failure("deps.dev", no_answer=True)
     assert r.reason() is None
     r.controls.on_response("deps.dev", 200, False)                                 # a good reply: the streak restarts
-    r.controls.on_failure("deps.dev", timeout=True)
-    r.controls.on_failure("deps.dev", timeout=True)
+    r.controls.on_failure("deps.dev", no_answer=True)
+    r.controls.on_failure("deps.dev", no_answer=True)
     assert r.reason() is None
-    r.controls.on_failure("deps.dev", timeout=True)
+    r.controls.on_failure("deps.dev", no_answer=True)
     held = r.controls.block_reason("deps.dev")
     assert held.code == "slow_network" and held.state == "retrying" and held.resume_at == r.clock() + 600
     r.clock.advance(599)

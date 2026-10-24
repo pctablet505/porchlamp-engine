@@ -49,6 +49,9 @@ RECOGNIZED_MANIFEST_BASENAMES: frozenset[str] = frozenset({
     "vcpkg.json", "conanfile.py", "conanfile.txt", "composer.json",
     "pubspec.yaml", "Package.swift", "build.sbt", "project.clj", "deps.edn",
     "stack.yaml", "dune-project",
+    # widened 2026-10-24: build and dependency files of real projects the list missed
+    "requirements.txt", "Pipfile", "pixi.toml", "xmake.lua", "premake4.lua", "premake5.lua", "Rakefile",
+    "Podfile", "tsconfig.json", "deno.json", "deno.jsonc", "Gopkg.toml",
 })
 RECOGNIZED_MANIFEST_PREFIXES: tuple[str, ...] = ("build.gradle",)
 RECOGNIZED_MANIFEST_SUFFIXES: tuple[str, ...] = (
@@ -354,6 +357,17 @@ def outside_pr_authors(prs: Sequence[Any], *, start: datetime, end: datetime) ->
     return out
 
 
+def outside_pr_count_in(pr_window: Any, as_of: datetime | None) -> int | None:
+    """D-GATE-6 (RFC-0027): how many outside PRs the recorded ``pr_window`` holds for the
+    :data:`constants.PR_WINDOW_DAYS` ending at ``as_of`` (:func:`outside_pr_authors`); ``None`` (no opinion) without
+    a reference time or a ``prs`` list. The window's whole count only when :func:`pr_window_coverage_in` says it is
+    complete."""
+    prs = pr_window.get("prs") if isinstance(pr_window, Mapping) else None
+    if as_of is None or not isinstance(prs, list):
+        return None
+    return len(outside_pr_authors(prs, start=as_of - timedelta(days=constants.PR_WINDOW_DAYS), end=as_of))
+
+
 def pr_rule_inputs_recorded(prs: Sequence[Any]) -> bool:
     """Whether every recorded PR node carries the fields D-GATE-5's exclusion
     rules read: ``isDraft`` (the draft rule) and the ``timelineItems``
@@ -462,6 +476,7 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
     pr_window = _document_data(window_document)
     window_complete, window_cutoff = pr_window_coverage_in(window_document, as_of)
     author_history = _envelope_data(raw_root, "author_history", basename)
+    breakdown = black_hole_window_breakdown_in(window_document, as_of) if as_of is not None else None
     return GateEvidence(
         manifest_found=None if paths is None else _tree_flag(_has_recognized_manifest(paths), truncated),
         is_curated_anchor=False,
@@ -474,6 +489,9 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
         pr_window_complete=window_complete,
         pr_window_cutoff=window_cutoff,
         decided_external_pr=_decided_external_pr_in(pr_window, author_history, _pr_sample(raw_root, basename), as_of),
+        pr_ignored=None if breakdown is None else breakdown.ignored,
+        pr_ignored_n=None if breakdown is None else breakdown.population_n,
+        outside_prs_180d=outside_pr_count_in(pr_window, as_of),
     )
 
 
@@ -628,6 +646,14 @@ def black_hole_window_breakdown_from_raw(
         document = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, OSError):
         return None
+    return black_hole_window_breakdown_in(document, now)
+
+
+def black_hole_window_breakdown_in(
+    document: Mapping[str, Any] | None,
+    now: datetime | None = None,
+) -> Gate5WindowBreakdown | None:
+    """Evaluate D-GATE-5 window breakdown from a ``pr_window`` envelope document already read."""
     if not isinstance(document, Mapping):
         return None
     data = document.get("data")

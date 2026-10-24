@@ -30,7 +30,7 @@
 // the app to take over; the report's frozen copy is {"path": "black-holes/<sid>/index.html", "view": "report",
 // "frozen": true}; any other page the nav entry it belongs to, or null: {"path": "check/index.html", "nav": null}; a
 // project's page names the project too: {"path": "projects/<owner>/<name>/index.html", "nav": null, "project":
-// "<owner>/<name>"}.
+// "<owner>/<name>"}; the page of a project that is no longer ranked adds "stub": true.
 // Each page must still have the empty frame of web/app/404.html.
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -254,10 +254,12 @@ export async function loadData(site) {
 }
 
 /**
- * A ranked project's record, "owner/name" (`key`), as the app's side panel loads it: the API's detail and evidence,
- * and the answer, lens standings and similar projects the export wrote beside them; with its record file.
+ * A project's record, "owner/name" (`key`), as the app's side panel loads it: the API's detail and evidence, and for a
+ * ranked project the answer, lens standings and similar projects the export wrote beside them; with its record file. A
+ * `stub` is the page of a project that is no longer ranked: its record has none of those, and one that has them is not
+ * a stub.
  */
-export async function loadProject(site, key) {
+export async function loadProject(site, key, { stub = false } = {}) {
   const api = await siteApi(site);
   const [owner, name] = key.split("/");
   const [detail, evidence, extras] = await Promise.all([
@@ -266,7 +268,9 @@ export async function loadProject(site, key) {
   for (const [what, answer] of [["record", detail], ["evidence", evidence], ["answer and standings", extras]]) {
     if (!answer.ok) throw new Error(`the site's api.js could not load ${key}'s ${what}: ${answer.error && answer.error.message}`);
   }
-  if (!extras.data || !extras.data.answer) throw new Error(`${key} has a page, but its record has no rank`);
+  const ranked = Boolean(extras.data && extras.data.answer);
+  if (stub && ranked) throw new Error(`${key} is drawn as a stub, but its record has a rank`);
+  if (!stub && !ranked) throw new Error(`${key} has a page, but its record has no rank`);
   const { recordFile, ...rest } = extras.data;
   return { record: { detail: detail.data, evidence: evidence.data, ...rest }, recordFile };
 }
@@ -294,7 +298,7 @@ async function main(argv) {
   };
   for (const page of job.pages) {
     const file = path.join(site, page.path);
-    let pageData = page.project ? { ...data, project: await loadProject(site, page.project) } : data;
+    let pageData = page.project ? { ...data, project: await loadProject(site, page.project, { stub: page.stub === true }) } : data;
     if (page.view === "ranked" && page.address) {
       const state = stateForAddress(page.address);
       const answer = await api.fetchLeaderboard(leaderboardParams(state));

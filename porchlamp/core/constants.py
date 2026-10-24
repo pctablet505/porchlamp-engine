@@ -175,8 +175,21 @@ SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
 #: in the repository's PR window is treated as canned boilerplate rather than
 #: PR-specific substantive review.
 SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS: int = 3
+#: D-IN-1 (RFC-0025): an account that is no bot but runs automation. A reply template (the first
+#: ``AUTOMATION_TEMPLATE_WORDS`` words of a comment, names, numbers and links removed) that one account
+#: posted on at least ``AUTOMATION_MIN_PRS`` PRs of a window, on at least ``AUTOMATION_FAST_SHARE`` of them
+#: within ``AUTOMATION_FAST_SECONDS`` of the PR opening, is automation: it answers no PR. A person does not
+#: answer 80% of 20 PRs inside a minute by hand.
+AUTOMATION_MIN_PRS: int = 20
+AUTOMATION_FAST_SECONDS: int = 60
+AUTOMATION_FAST_SHARE: float = 0.80
+AUTOMATION_TEMPLATE_WORDS: int = 2
 #: D-GATE-6: horizon for a decided external PR.
 GATE6_DECISION_WINDOW_DAYS: int = 365
+#: D-GATE-6 outside-traffic floor (RFC-0027): a repository whose complete PR window
+#: holds fewer than this many outside PRs (external, non-bot authors) in the trailing
+#: :data:`PR_WINDOW_DAYS` is not a place to contribute and is not rated.
+GATE6_MIN_OUTSIDE_PRS: int = 3
 #: D-GATE-6 review hand-off (RFC-0007): a repository whose own notices send
 #: outside PRs to another review system (Gerrit, a mailing list, an internal
 #: repository) hands review off, and is routed off-platform instead of being
@@ -685,6 +698,10 @@ def constants_dict() -> dict[str, object]:
         "AI_POSTURE_VALUES": AI_POSTURE_VALUES,
         "AUTHOR_CAP_FRACTION": AUTHOR_CAP_FRACTION,
         "AUTHOR_UNMEASURED_MAX_FRACTION": AUTHOR_UNMEASURED_MAX_FRACTION,
+        "AUTOMATION_FAST_SECONDS": AUTOMATION_FAST_SECONDS,
+        "AUTOMATION_FAST_SHARE": AUTOMATION_FAST_SHARE,
+        "AUTOMATION_MIN_PRS": AUTOMATION_MIN_PRS,
+        "AUTOMATION_TEMPLATE_WORDS": AUTOMATION_TEMPLATE_WORDS,
         "BENCHMARK_VERSION": BENCHMARK_VERSION,
         "BOT_LOGINS": tuple(sorted(BOT_LOGINS)),
         "CAREER_CAPITAL_MIN_COVERAGE": CAREER_CAPITAL_MIN_COVERAGE,
@@ -713,6 +730,7 @@ def constants_dict() -> dict[str, object]:
         "GATE6_HANDOFF_MIN_SHARE": GATE6_HANDOFF_MIN_SHARE,
         "GATE6_HANDOFF_NOTICES": GATE6_HANDOFF_NOTICES,
         "GATE6_HANDOFF_RELAY_LOGIN_PREFIXES": GATE6_HANDOFF_RELAY_LOGIN_PREFIXES,
+        "GATE6_MIN_OUTSIDE_PRS": GATE6_MIN_OUTSIDE_PRS,
         "GATED_PERSONAS": GATED_PERSONAS,
         "GHOST_RATE_SLOPE": GHOST_RATE_SLOPE,
         "LANDING_LABELS": tuple(sorted(LANDING_LABELS)),

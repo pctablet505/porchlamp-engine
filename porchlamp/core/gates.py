@@ -113,6 +113,8 @@ GATE5_WILSON_Z: float = constants.GATE5_WILSON_Z
 GATE5_MAX_ZERO_RESPONSE_SHARE: float = constants.GATE5_MAX_ZERO_RESPONSE_SHARE
 #: D-GATE-6: horizon for a decided external PR.
 GATE6_DECISION_WINDOW_DAYS: int = constants.GATE6_DECISION_WINDOW_DAYS
+#: D-GATE-6 (RFC-0027): fewer outside PRs than this in a complete PR window is not a place to contribute.
+GATE6_MIN_OUTSIDE_PRS: int = constants.GATE6_MIN_OUTSIDE_PRS
 #: D-EVID-1: composite coverage threshold (D-MISS-3).
 EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
 #: D-EVID-1 (RFC-0024): pillars that must each have a measured parameter.
@@ -315,6 +317,15 @@ class GateEvidence:
     #: repository's whole PR history and none does, ``None`` otherwise (no
     #: opinion). See :func:`porchlamp.derive.gate_evidence._decided_external_pr_in`.
     decided_external_pr: bool | None = None
+    #: D-GATE-5 (RFC-0026): of the ``pr_ignored_n`` counted outside PRs, how many no maintainer reply, merge or
+    #: close ever touched (:attr:`Gate5WindowBreakdown.ignored`); ``None`` when no readable PR window gave counts,
+    #: and D-GATE-5 then judges the 14-day unanswered share alone, as before RFC-0026.
+    pr_ignored: int | None = None
+    pr_ignored_n: int | None = None
+    #: D-GATE-6 (RFC-0027): outside PRs (external, non-bot authors) opened in the trailing
+    #: :data:`constants.PR_WINDOW_DAYS` of the recorded PR window; ``None`` when no readable window gave a count.
+    #: With ``pr_window_complete`` true it is the window's whole count, else only a lower bound.
+    outside_prs_180d: int | None = None
 
     def __post_init__(self) -> None:
         problems: list[str] = []
@@ -338,6 +349,14 @@ class GateEvidence:
                 f"vitality_commits_180d must be a non-negative int or None, "
                 f"got {self.vitality_commits_180d!r}"
             )
+        for name in ("pr_ignored", "pr_ignored_n", "outside_prs_180d"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+                problems.append(f"{name} must be a non-negative int or None, got {value!r}")
+        if (self.pr_ignored is None) != (self.pr_ignored_n is None):
+            problems.append("pr_ignored and pr_ignored_n are given together or not at all")
+        elif self.pr_ignored is not None and self.pr_ignored > self.pr_ignored_n:
+            problems.append(f"pr_ignored {self.pr_ignored} exceeds pr_ignored_n {self.pr_ignored_n}")
         if problems:
             raise ValueError("; ".join(problems))
 
@@ -430,7 +449,75 @@ def is_outside_pr(pr: object) -> bool:
     return not is_bot_actor_node(pr.get("author"))
 
 
-def maintainer_logins(prs: Iterable[object]) -> frozenset[str]:
+_TEMPLATE_WORD_RE = re.compile(r"[a-z]+")
+
+
+def reply_template(text: object) -> str:
+    """RFC-0025: the template a reply follows: its first
+    :data:`~porchlamp.core.constants.AUTOMATION_TEMPLATE_WORDS` lower-case words once
+    :func:`normalize_review_text` has removed links, ``@mentions``, ``#123`` references and
+    digits, so greetings that differ only by name or number share one template. ``""`` for a
+    text with fewer words (an empty review, "ok")."""
+    if not isinstance(text, str):
+        return ""
+    words = _TEMPLATE_WORD_RE.findall(normalize_review_text(text))[: constants.AUTOMATION_TEMPLATE_WORDS]
+    return " ".join(words) if len(words) == constants.AUTOMATION_TEMPLATE_WORDS else ""
+
+
+def automated_replies(prs: Iterable[object]) -> frozenset[tuple[str, str]]:
+    """RFC-0025: the ``(lower-cased login, template)`` pairs of one PR window that are automation.
+
+    A non-bot, non-author account's review or comment text is grouped by
+    :func:`reply_template`. A group is automation when the account posted that template on at
+    least :data:`~porchlamp.core.constants.AUTOMATION_MIN_PRS` distinct PRs and, taking its first
+    such reply on each PR, at least :data:`~porchlamp.core.constants.AUTOMATION_FAST_SHARE` of
+    them came within :data:`~porchlamp.core.constants.AUTOMATION_FAST_SECONDS` of the PR opening.
+    Only the template is automation: the same account's other replies stay its own. Bot accounts
+    (D-IN-1) are already excluded and are skipped here."""
+    first_delay: dict[tuple[str, str], dict[int, float]] = {}
+    for index, pr in enumerate(prs):
+        if not isinstance(pr, Mapping):
+            continue
+        created = _parse_iso_opt(pr.get("createdAt"))
+        if created is None:
+            continue
+        author = _node_login(pr.get("author"))
+        for source, text_field in (("reviews", "body"), ("comments", "bodyText")):
+            connection = pr.get(source)
+            nodes = connection.get("nodes") if isinstance(connection, Mapping) else None
+            for node in nodes if isinstance(nodes, list) else ():
+                if not isinstance(node, Mapping):
+                    continue
+                actor = node.get("author")
+                login = _node_login(actor)
+                if not login or login == author or is_bot_actor_node(actor):
+                    continue
+                template = reply_template(node.get(text_field))
+                when = _parse_iso_opt(node.get("createdAt"))
+                if not template or when is None:
+                    continue
+                delay = (when - created).total_seconds()
+                per_pr = first_delay.setdefault((login, template), {})
+                per_pr[index] = min(delay, per_pr.get(index, delay))
+    return frozenset(
+        group
+        for group, per_pr in first_delay.items()
+        if len(per_pr) >= constants.AUTOMATION_MIN_PRS
+        and sum(1 for delay in per_pr.values() if delay <= constants.AUTOMATION_FAST_SECONDS) / len(per_pr)
+        >= constants.AUTOMATION_FAST_SHARE
+    )
+
+
+class Maintainers(frozenset):
+    """The repository's own people in one PR window (:func:`maintainer_logins`), which also carries
+    the window's :func:`automated_replies` as ``automated``. Every reply measure takes the window's
+    maintainers, so the automation rule reaches each of them through this one object; a plain
+    ``frozenset`` of logins still works and means no automation."""
+
+    automated: frozenset[tuple[str, str]] = frozenset()
+
+
+def maintainer_logins(prs: Iterable[object]) -> Maintainers:
     """D-IN-2: the accounts a recorded PR window shows holding access to the
     repository, by lower-cased login. One merged a PR in the record
     (``mergedBy``; merging takes write access), or closed a PR another account
@@ -439,7 +526,12 @@ def maintainer_logins(prs: Iterable[object]) -> frozenset[str]:
     association GitHub shows: org membership can be private, and committers
     who land changes outside GitHub show as ``CONTRIBUTOR``). Bots (D-IN-1)
     never: the query records ``mergedBy`` with a login only, so a bot merger
-    is known by its login."""
+    is known by its login.
+
+    RFC-0025: the result also records the window's automated replies
+    (:func:`automated_replies`), which :func:`is_maintainer_response` does not
+    count."""
+    prs = list(prs)
     out: set[str] = set()
     for pr in prs:
         if not isinstance(pr, Mapping):
@@ -458,7 +550,9 @@ def maintainer_logins(prs: Iterable[object]) -> frozenset[str]:
             login = _node_login(actor)
             if login and login != author and not is_bot_actor_node(actor):
                 out.add(login)
-    return frozenset(out)
+    result = Maintainers(out)
+    result.automated = automated_replies(prs)
+    return result
 
 
 def is_maintainer_response(node: object, pr_author: str, maintainers: frozenset[str]) -> bool:
@@ -466,12 +560,16 @@ def is_maintainer_response(node: object, pr_author: str, maintainers: frozenset[
     (lower-cased login) was written by the repository's own people: not a bot
     (D-IN-1), not the PR's author, and a MEMBER, OWNER or COLLABORATOR
     association or a login in ``maintainers`` (:func:`maintainer_logins` of
-    the same window)."""
+    the same window). RFC-0025: not a reply that follows one of the window's
+    automated templates (:func:`automated_replies`)."""
     if not isinstance(node, Mapping):
         return False
     author = node.get("author")
     login = _node_login(author)
     if is_bot_actor_node(author) or (login and login == pr_author):
+        return False
+    automated = getattr(maintainers, "automated", ())
+    if automated and (login, reply_template(node.get("bodyText") or node.get("body"))) in automated:
         return False
     association = str(node.get("authorAssociation") or "").upper()
     return association in MAINTAINER_ASSOCIATIONS or (bool(login) and login in maintainers)
@@ -992,6 +1090,8 @@ class Gate5CountedPR:
     answered_within_14d: bool
     first_response_at: str | None
     response_kind: str  # "review_or_comment", "merged", "closed_by_maintainer", or "none"
+    #: RFC-0026: a maintainer reply, merge or close was recorded at any time, after the 14-day deadline too.
+    touched_ever: bool = False
 
 
 @dataclass(frozen=True)
@@ -1008,6 +1108,10 @@ class Gate5WindowBreakdown:
     excluded_bot: int
     excluded_internal: int
     excluded_under_14d: int
+    #: RFC-0026: counted PRs not answered within 14 days that no maintainer reply, merge or close ever touched.
+    ignored: int = 0
+    #: RFC-0026: the Wilson lower bound of ``ignored / population_n``, the share D-GATE-5 judges.
+    ignored_wilson_lower_bound: float = 0.0
 
 
 def evaluate_gate5_window(
@@ -1029,6 +1133,7 @@ def evaluate_gate5_window(
     min_account_age = timedelta(days=constants.MIN_ACCOUNT_AGE_DAYS)
 
     unanswered = 0
+    ignored = 0
     counted_prs: list[Gate5CountedPR] = []
     excluded_draft = 0
     excluded_self_closed = 0
@@ -1118,6 +1223,11 @@ def evaluate_gate5_window(
         if not answered_within_14d and pr.replies_cut:
             continue
 
+        touched_ever = (
+            pr.first_substantive_response_at is not None
+            or pr.merged_at is not None
+            or pr.closed_by_maintainer_at is not None
+        )
         counted_prs.append(
             Gate5CountedPR(
                 number=pr.number,
@@ -1126,15 +1236,20 @@ def evaluate_gate5_window(
                 answered_within_14d=answered_within_14d,
                 first_response_at=first_response_at,
                 response_kind=response_kind,
+                touched_ever=touched_ever,
             )
         )
         if not answered_within_14d:
             unanswered += 1
+        if not touched_ever:
+            ignored += 1
 
     population_n = len(counted_prs)
     unanswered_share = (unanswered / population_n) if population_n > 0 else None
     w_lb = wilson_lower_bound(unanswered, population_n)
-    is_bh = is_black_hole_counts(unanswered, population_n)
+    # RFC-0026: a black hole ignores outside PRs; a project that answers late is slow, not a black hole. The
+    # ignored share cannot exceed the unanswered one, so this test implies the 14-day one.
+    is_bh = is_black_hole_counts(ignored, population_n)
 
     return Gate5WindowBreakdown(
         unanswered=unanswered,
@@ -1149,6 +1264,8 @@ def evaluate_gate5_window(
         excluded_bot=excluded_bot,
         excluded_internal=excluded_internal,
         excluded_under_14d=excluded_under_14d,
+        ignored=ignored,
+        ignored_wilson_lower_bound=wilson_lower_bound(ignored, population_n),
     )
 
 
@@ -1197,17 +1314,13 @@ def _has_decided_external_pr(events: tuple[PRWindowEvent, ...], now: datetime) -
     return False
 
 
-def is_black_hole_bundle(bundle: FeatureBundle) -> bool:
-    """Return True iff ``bundle`` has a measured 1.4 GR_14 input that exceeds
-    the D-GATE-5 zero-response ceiling (:data:`GATE5_MAX_ZERO_RESPONSE_SHARE`)
-    under the Wilson lower confidence bound with at least :data:`GATE5_MIN_N`
-    qualifying external PRs."""
+def is_black_hole_bundle(bundle: FeatureBundle, evidence: GateEvidence | None = None) -> bool:
+    """Return True iff ``bundle`` has a measured 1.4 GR_14 input over at least :data:`GATE5_MIN_N` qualifying external
+    PRs and D-GATE-5 (:func:`_is_black_hole`, RFC-0026) calls the window ignored: the ceiling
+    (:data:`GATE5_MAX_ZERO_RESPONSE_SHARE`) is exceeded under the Wilson lower confidence bound by the share no
+    maintainer ever touched when ``evidence`` carries the counts, else by the 14-day unanswered share."""
     ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
-    return (
-        isinstance(ghost, Measured)
-        and ghost.n >= GATE5_MIN_N
-        and wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE
-    )
+    return isinstance(ghost, Measured) and ghost.n >= GATE5_MIN_N and _is_black_hole(evidence, ghost)
 
 
 def evaluate_gates(
@@ -1241,8 +1354,9 @@ def evaluate_gates(
     the window (``evidence.pr_window_cutoff``), and a share of the newest
     weeks is not the window's share. D-GATE-6 fails a
     repository only when ``evidence.decided_external_pr`` is ``False`` (a
-    complete PR record with no decided external PR); the v1 ``pr_events`` can
-    add a pass, never a failure. Gates 1-4 still decide as before."""
+    complete PR record with no decided external PR) or, RFC-0027, when its
+    complete PR window holds fewer than :data:`GATE6_MIN_OUTSIDE_PRS` outside
+    PRs; the v1 ``pr_events`` can add a pass, never a failure. Gates 1-4 still decide as before."""
     if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
         raise ValueError(f"now must be timezone-aware, got {now!r}")
     repo = bundle.repo
@@ -1317,21 +1431,26 @@ def evaluate_gates(
         or ghost.n < GATE5_MIN_N
     ):
         undecided.append(GATE_5)
-    elif (
-        wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE
-        and not rank_black_holes
-    ):
+    elif not rank_black_holes and _is_black_hole(evidence, ghost):
         failures.append((5, REASON_BLACK_HOLE))
 
     # D-GATE-6: PR workflow (a review hand-off routes off-platform; else a
     # decided external PR, else off-platform routing, else unrated -- but only
-    # when a complete PR record shows no decided external PR).
+    # when a complete PR record shows no decided external PR). RFC-0027: a
+    # complete PR window with fewer than GATE6_MIN_OUTSIDE_PRS outside PRs is
+    # thin whatever was decided: not a place to contribute, so it is treated
+    # as having no workflow to measure.
+    thin = (
+        evidence.pr_window_complete is True
+        and evidence.outside_prs_180d is not None
+        and evidence.outside_prs_180d < GATE6_MIN_OUTSIDE_PRS
+    )
     if handoff:
         routed = ROUTED_OFF_PLATFORM
-    elif not (evidence.decided_external_pr is True or _has_decided_external_pr(events, now)):
+    elif thin or not (evidence.decided_external_pr is True or _has_decided_external_pr(events, now)):
         if evidence.off_platform_marker is True:
             routed = ROUTED_OFF_PLATFORM
-        elif evidence.off_platform_marker is False and evidence.decided_external_pr is False:
+        elif evidence.off_platform_marker is False and (thin or evidence.decided_external_pr is False):
             failures.append((6, REASON_NO_EXTERNAL_WORKFLOW))
         else:
             undecided.append(GATE_6)
@@ -1340,6 +1459,16 @@ def evaluate_gates(
         _, reason = min(failures, key=lambda failure: failure[0])
         return GateResult(eligible=False, reason=reason, routed=None, undecided=tuple(undecided))
     return GateResult(eligible=True, reason=None, routed=routed, undecided=tuple(undecided))
+
+
+def _is_black_hole(evidence: GateEvidence | None, ghost: Measured) -> bool:
+    """D-GATE-5 (RFC-0026): whether the outside PRs the window counted were ignored: the Wilson lower bound of the
+    share no maintainer reply, merge or close ever touched exceeds :data:`GATE5_MAX_ZERO_RESPONSE_SHARE`. A project
+    that answers late is slow (its 1.4 GR_14 scores that), not a black hole. Without the counts
+    (``evidence`` absent or ``evidence.pr_ignored is None``) it judges the 14-day unanswered share ``ghost`` alone, as before RFC-0026."""
+    if evidence is None or evidence.pr_ignored is None:
+        return wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE
+    return is_black_hole_counts(evidence.pr_ignored, evidence.pr_ignored_n)
 
 
 def unmeasured_required_pillars(pillars: Mapping[str, PillarScore]) -> tuple[str, ...]:

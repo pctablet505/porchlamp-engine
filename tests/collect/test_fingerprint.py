@@ -48,6 +48,7 @@ from porchlamp.collect.fingerprint import (
     append_fingerprints,
     build_fingerprint_batch_query,
     classify_cadence_tier,
+    classify_prune_reason,
     dirty_collectors,
     fetch_fingerprint_batch,
     fetch_fingerprints_resilient,
@@ -745,6 +746,81 @@ def test_is_confirmed_black_hole_in_raw_confirmed_black_hole_returns_true(tmp_pa
     ]
     _make_pr_window_envelope(raw_dir, owner, name, prs, NOW.isoformat())
     assert is_confirmed_black_hole_in_raw(raw_dir, owner, name, now=NOW) is True
+
+
+def _thin_repo(raw_dir: Path, name: str, *, outside: int, insiders: int = 3, off_platform: bool = False,
+               truncated: bool = False) -> None:
+    """A repository whose recorded window holds ``outside`` outside PRs (all merged, so D-GATE-6's decided-PR test
+    passes) and ``insiders`` PRs by its own members."""
+    write_envelope(
+        raw_dir / "repo_object" / f"org__{name}.json", source="test", fetched_at=NOW.isoformat(),
+        data={
+            "archived": False, "mirror_url": None, "fork": False, "license_spdx_id": "MIT",
+            "pull_requests_total": outside + insiders, "tree_paths_le2": ["pyproject.toml", "LICENSE", "README.md"],
+            "tree_truncated": False,
+            "offplatform_paths": ["Documentation/process/submitting-patches.rst"] if off_platform else [],
+            "maintainers_has_l_lines": off_platform, "readme_off_platform_hits": ["mailing_list"] if off_platform else [],
+        })
+    prs = []
+    for i in range(1, outside + insiders + 1):
+        is_outside = i <= outside
+        created = NOW - timedelta(days=30 + i)
+        prs.append({
+            "number": i, "createdAt": created.isoformat(), "mergedAt": (created + timedelta(days=2)).isoformat(),
+            "authorAssociation": "NONE" if is_outside else "MEMBER",
+            "author": {"login": f"user{i}", "__typename": "User"}, "comments": [], "reviews": {"nodes": []},
+        })
+    _make_pr_window_envelope(raw_dir, "org", name, prs, NOW.isoformat(), truncated=truncated)
+
+
+def test_classify_prune_reason_prunes_a_project_with_fewer_than_three_outside_prs(tmp_path: Path):
+    """RFC-0027: two outside PRs, both merged, are a decided workflow but too little outside traffic to collect on."""
+    _thin_repo(tmp_path, "thin", outside=2)
+    assert classify_prune_reason(None, raw_dir=tmp_path, owner="org", name="thin", now=NOW) == "no_external_workflow"
+
+
+def test_classify_prune_reason_keeps_a_project_with_three_outside_prs(tmp_path: Path):
+    _thin_repo(tmp_path, "enough", outside=3)
+    assert classify_prune_reason(None, raw_dir=tmp_path, owner="org", name="enough", now=NOW) is None
+
+
+def test_classify_prune_reason_keeps_a_thin_project_whose_record_stops_short_of_the_window(tmp_path: Path):
+    _thin_repo(tmp_path, "cut", outside=1, truncated=True)
+    assert classify_prune_reason(None, raw_dir=tmp_path, owner="org", name="cut", now=NOW) is None
+
+
+def test_classify_prune_reason_keeps_a_thin_project_that_works_off_platform(tmp_path: Path):
+    _thin_repo(tmp_path, "list", outside=1, off_platform=True)
+    assert classify_prune_reason(None, raw_dir=tmp_path, owner="org", name="list", now=NOW) is None
+
+
+def test_classify_prune_reason_keeps_a_project_with_no_pr_window_yet(tmp_path: Path):
+    _thin_repo(tmp_path, "fresh", outside=0)
+    (tmp_path / "pr_window" / "org__fresh.json").unlink()
+    # no decided external PR recorded and no window: nothing to prune on but the older rule, which finds none
+    assert classify_prune_reason(None, raw_dir=tmp_path, owner="org", name="fresh", now=NOW) is None
+
+
+def test_is_confirmed_black_hole_in_raw_leaves_a_slow_project_alone(tmp_path: Path):
+    """RFC-0026: the same 15 PRs unanswered for 14 days but merged by a maintainer 25 days after opening
+    are a slow project, not a black hole; the collector must keep collecting it."""
+    from porchlamp.collect.fingerprint import is_confirmed_black_hole_in_raw
+    raw_dir = tmp_path / "raw"
+    owner, name = "slow", "project"
+    prs = []
+    for i in range(1, 16):
+        created = NOW - timedelta(days=40 + i)
+        prs.append({
+            "number": i,
+            "createdAt": created.isoformat(),
+            "mergedAt": (created + timedelta(days=25)).isoformat(),
+            "authorAssociation": "NONE",
+            "author": {"login": f"user{i}", "__typename": "User"},
+            "comments": [],
+            "reviews": {"nodes": []},
+        })
+    _make_pr_window_envelope(raw_dir, owner, name, prs, NOW.isoformat())
+    assert is_confirmed_black_hole_in_raw(raw_dir, owner, name, now=NOW) is False
 
 
 def test_is_confirmed_black_hole_in_raw_refuses_a_record_cut_at_the_pr_cap(tmp_path: Path):

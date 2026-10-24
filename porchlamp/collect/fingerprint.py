@@ -896,6 +896,28 @@ def _has_decided_external_pr_in_raw(
     return None
 
 
+def _outside_prs_below_floor_in_raw(raw_dir: Path, owner: str, name: str, now: datetime) -> bool:
+    """RFC-0027: True when the recorded ``pr_window`` reaches back to the start of the window ending at ``now`` and
+    holds fewer than :data:`constants.GATE6_MIN_OUTSIDE_PRS` outside PRs (external, non-bot authors) opened in it. A
+    window that stops short, or none, says nothing: False."""
+    doc = _read_envelope_doc(envelope_path(raw_dir, "pr_window", owner, name))
+    data = doc.get("data") if isinstance(doc, Mapping) else None
+    prs = data.get("prs") if isinstance(data, Mapping) else None
+    if not isinstance(prs, list):
+        return False
+    start = now - timedelta(days=constants.PR_WINDOW_DAYS)
+    fetched = doc.get("fetched_at")
+    covered, _ = gates.pr_window_coverage(data, start, fetched_at=fetched if isinstance(fetched, str) else None)
+    if not covered:
+        return False
+    outside = 0
+    for pr in prs:
+        created = _parse_iso(pr.get("createdAt")) if isinstance(pr, Mapping) and isinstance(pr.get("createdAt"), str) else None
+        if created is not None and start <= created <= now and gates.is_outside_pr(pr):
+            outside += 1
+    return outside < constants.GATE6_MIN_OUTSIDE_PRS
+
+
 def _has_human_commit_180d(
     raw_dir: Path, owner: str, name: str, now: datetime
 ) -> Optional[bool]:
@@ -997,7 +1019,8 @@ def is_confirmed_black_hole_in_raw(
     Returns False for review-handoff or off-platform repositories (which are routed
     off-platform), when pr_window is missing/unreadable, when it stops short of the
     window (:func:`porchlamp.core.gates.pr_window_coverage`: D-GATE-5 is undecided on
-    it), or when the 14-day zero-response count does not satisfy the black-hole threshold.
+    it), or when the share of outside PRs no maintainer ever touched (RFC-0026) does not satisfy the black-hole
+    threshold: a project that answers late is slow, not a black hole, and is collected.
     """
     key = f"{owner}__{name}"
     if _review_handoff(raw_dir, key) is True:
@@ -1103,20 +1126,7 @@ def is_confirmed_black_hole_in_raw(
         filtered_kwargs = {k: v for k, v in kwargs.items() if k in field_names}
         records.append(gates.GhostRatePR(**filtered_kwargs))
 
-    unanswered, gr_n = gates.zero_response_counts(records, ref_now, observed_at=observed_at)
-    if hasattr(gates, "is_black_hole_counts"):
-        return bool(gates.is_black_hole_counts(unanswered, gr_n))
-    min_n = getattr(constants, "GATE5_MIN_N", 10)
-    if gr_n < min_n:
-        return False
-    p_hat = unanswered / gr_n
-    z = float(getattr(constants, "GATE5_WILSON_Z", 1.6448536269514722))
-    denominator = 1.0 + (z * z) / gr_n
-    center = p_hat + (z * z) / (2.0 * gr_n)
-    spread = z * ((p_hat * (1.0 - p_hat) / gr_n + (z * z) / (4.0 * gr_n * gr_n)) ** 0.5)
-    wilson_lower = (center - spread) / denominator
-    max_share = float(getattr(constants, "GATE5_MAX_ZERO_RESPONSE_SHARE", 0.50))
-    return wilson_lower > max_share
+    return gates.evaluate_gate5_window(records, ref_now, observed_at=observed_at).is_black_hole
 
 
 def classify_prune_reason(
@@ -1206,6 +1216,8 @@ def classify_prune_reason(
                     return "no_external_workflow"
                 has_decided = _has_decided_external_pr_in_raw(raw_dir, owner, name, now)
                 if has_decided is False:
+                    return "no_external_workflow"
+                if _outside_prs_below_floor_in_raw(raw_dir, owner, name, now):
                     return "no_external_workflow"
 
         if not fresh_only and _has_human_commit_180d(raw_dir, owner, name, now) is False:

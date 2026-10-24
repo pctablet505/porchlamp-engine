@@ -373,7 +373,11 @@ def _gate_entries() -> list[GateEntry]:
                 "over external PRs by non-bot authors (D-IN-1) opened in the "
                 "trailing PR window and at least the minimum age, the 95% one-sided "
                 f"Wilson lower confidence bound (z = {constants.GATE5_WILSON_Z}) on the "
-                "zero-response share must not exceed the ceiling (a minimum population of "
+                "ignored share must not exceed the ceiling (RFC-0026: the ignored share is the "
+                "share of those PRs that no maintainer reply, review, merge or close touched, "
+                "within the deadline or since, when the data was read; a project that answers "
+                "late is slow, not a black hole, and its 14-day unanswered share is scored by "
+                "1.4 GR_14, not gated) (a minimum population of "
                 f"{constants.GATE5_MIN_N} is required, else the gate is UNDECIDED rather "
                 "than failed, and a repository whose PR records lack the fields the exclusions "
                 "below read is UNDECIDED, neither passed nor failed: the missing fields move the "
@@ -430,7 +434,12 @@ def _gate_entries() -> list[GateEntry]:
                 "repository's whole PR history (the 30 newest were fewer than 30, and no "
                 "window or history read beside them is truncated): otherwise the gate is "
                 "UNDECIDED, because a PR opened before the records may have been decided "
-                "inside the window. Each record shows decisions up to its own fetch. A "
+                "inside the window. Each record shows decisions up to its own fetch. "
+                "RFC-0027: a repository whose complete PR window holds fewer than "
+                f"{constants.GATE6_MIN_OUTSIDE_PRS} outside PRs (external, non-bot authors) opened in the trailing "
+                f"{constants.PR_WINDOW_DAYS} days is also unrated: no_external_workflow, whatever it decided, "
+                "because there is too little outside traffic to contribute to or to measure "
+                "(routed instead when it works off-platform; UNDECIDED when that is unknown). A "
                 "repository also routes "
                 "off-platform, whatever its decided PRs, when it hands review off: "
                 "among its outside PRs (external, non-bot authors in the recorded "
@@ -445,6 +454,7 @@ def _gate_entries() -> list[GateEntry]:
             "reasons": (_gates.REASON_NO_EXTERNAL_WORKFLOW,),
             "cutoffs": {
                 "decision_window_days": constants.GATE6_DECISION_WINDOW_DAYS,
+                "min_outside_prs": constants.GATE6_MIN_OUTSIDE_PRS,
                 "handoff_min_prs": constants.GATE6_HANDOFF_MIN_PRS,
                 "handoff_min_share": constants.GATE6_HANDOFF_MIN_SHARE,
             },
