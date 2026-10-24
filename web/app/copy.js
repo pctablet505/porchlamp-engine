@@ -183,7 +183,7 @@ const GATE_REASON_COPY = Object.freeze({
   unlicensed: "No open-source license — contribution and reuse are not legally clear.",
   stale: "No qualifying human activity in the scoring window.",
   black_hole:
-    "More than half of outside pull requests got no human reply, review or merge on GitHub within 14 days.",
+    "More than half of outside pull requests had no human reply, review, merge or close on GitHub within 14 days, and none by the time we looked.",
   non_software: "Not a software repository (docs, data, or list only).",
   fork: "A fork of another repository, not an independent project.",
 });
@@ -379,7 +379,7 @@ export const LOADING_ROW_SR_TEXT = "Loading repositories…";
 
 const SUSPICION_FLAG_COPY = Object.freeze({
   black_hole:
-    "Black hole (>50% of external non-bot PRs received zero response within 14 days and 95% one-sided Wilson lower confidence bound > 50% over n >= 10 external PRs)",
+    "Black hole (>50% of external non-bot PRs had received no maintainer reply, review, merge or close when the data was read, and 95% one-sided Wilson lower confidence bound > 50% over n >= 10 external PRs)",
 });
 export const SUSPICION_LABEL = "Suspicion flags";
 export function suspicionTooltip(flags) {
@@ -390,7 +390,7 @@ export function suspicionTooltip(flags) {
 
 export const BLACK_HOLE_EVIDENCE_HEADING = "How this Black hole status was determined";
 export const BLACK_HOLE_RULE_TEXT =
-  "Black hole rule: A repository is classified as a Black hole only when at least 10 eligible external non-bot PRs were observed for 14+ days in the 180-day window and the 95% one-sided Wilson lower confidence bound on the 14-day unanswered share exceeds 50%.";
+  "Black hole rule: A repository is classified as a Black hole only when at least 10 eligible external non-bot PRs were observed for 14+ days in the 180-day window and the 95% one-sided Wilson lower confidence bound on the share of them that no maintainer had replied to, reviewed, merged or closed when the data was read exceeds 50%. A project that answers late is slow, not a black hole: its 14-day unanswered share lowers its responsiveness score instead.";
 export const BLACK_HOLE_EXCLUSIONS_TEXT =
   "False-positive protections: Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
 /** What the "no response" count counted, ending the sentence that starts with "N of M (P%)". */
@@ -399,6 +399,9 @@ export const BLACK_HOLE_STAT_PREDICATE =
 /** The same, when this snapshot did not record a maintainer close: only a review, comment or merge was counted. */
 export const BLACK_HOLE_STAT_PREDICATE_CLOSE_NOT_COUNTED =
   "external non-bot PRs had no maintainer review, comment or merge within 14 days (a close by a maintainer was not counted)";
+/** The stat line for the share the rule judges, after the 14-day stat: "{ignored} of them ({share}%) ...". */
+export const BLACK_HOLE_IGNORED_LINE =
+  "{ignored} of them ({share}%) had no maintainer reply, review, merge or close even after the 14 days, when the data was read.";
 export const BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT =
   "The data of this snapshot was collected before drafts, self-closed pull requests and closes by a maintainer were recorded, so those two exclusions were not applied and a maintainer close was not counted as a response.";
 export const BLACK_HOLE_RECHECK_TEXT =
@@ -410,8 +413,11 @@ const BLACK_HOLE_RESPONSE_KIND_LABELS = Object.freeze({
   closed_by_maintainer: "closed by maintainer",
 });
 
-export function blackHolePrResponseText(answeredWithin14d, responseKind) {
-  if (!answeredWithin14d) return "No response within 14d";
+export function blackHolePrResponseText(answeredWithin14d, responseKind, touchedEver) {
+  if (!answeredWithin14d) {
+    if (touchedEver === true) return "No response within 14d, touched later";
+    return touchedEver === false ? "No response, untouched when read" : "No response within 14d";
+  }
   if (!responseKind || responseKind === "none") return "Answered";
   const label = BLACK_HOLE_RESPONSE_KIND_LABELS[responseKind] || String(responseKind).replace(/_/g, " ");
   return `Answered (${label})`;

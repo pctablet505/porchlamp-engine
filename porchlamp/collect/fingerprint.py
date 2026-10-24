@@ -997,7 +997,8 @@ def is_confirmed_black_hole_in_raw(
     Returns False for review-handoff or off-platform repositories (which are routed
     off-platform), when pr_window is missing/unreadable, when it stops short of the
     window (:func:`porchlamp.core.gates.pr_window_coverage`: D-GATE-5 is undecided on
-    it), or when the 14-day zero-response count does not satisfy the black-hole threshold.
+    it), or when the share of outside PRs no maintainer ever touched (RFC-0026) does not satisfy the black-hole
+    threshold: a project that answers late is slow, not a black hole, and is collected.
     """
     key = f"{owner}__{name}"
     if _review_handoff(raw_dir, key) is True:
@@ -1103,20 +1104,7 @@ def is_confirmed_black_hole_in_raw(
         filtered_kwargs = {k: v for k, v in kwargs.items() if k in field_names}
         records.append(gates.GhostRatePR(**filtered_kwargs))
 
-    unanswered, gr_n = gates.zero_response_counts(records, ref_now, observed_at=observed_at)
-    if hasattr(gates, "is_black_hole_counts"):
-        return bool(gates.is_black_hole_counts(unanswered, gr_n))
-    min_n = getattr(constants, "GATE5_MIN_N", 10)
-    if gr_n < min_n:
-        return False
-    p_hat = unanswered / gr_n
-    z = float(getattr(constants, "GATE5_WILSON_Z", 1.6448536269514722))
-    denominator = 1.0 + (z * z) / gr_n
-    center = p_hat + (z * z) / (2.0 * gr_n)
-    spread = z * ((p_hat * (1.0 - p_hat) / gr_n + (z * z) / (4.0 * gr_n * gr_n)) ** 0.5)
-    wilson_lower = (center - spread) / denominator
-    max_share = float(getattr(constants, "GATE5_MAX_ZERO_RESPONSE_SHARE", 0.50))
-    return wilson_lower > max_share
+    return gates.evaluate_gate5_window(records, ref_now, observed_at=observed_at).is_black_hole
 
 
 def classify_prune_reason(

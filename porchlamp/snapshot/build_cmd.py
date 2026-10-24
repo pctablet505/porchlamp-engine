@@ -228,6 +228,8 @@ def build_snapshot_dir(
                 "pr_window_complete": gate_evidence[repo_key(bundle)].pr_window_complete,
                 "pr_window_cutoff": gate_evidence[repo_key(bundle)].pr_window_cutoff,
                 "decided_external_pr": gate_evidence[repo_key(bundle)].decided_external_pr,
+                "pr_ignored": gate_evidence[repo_key(bundle)].pr_ignored,
+                "pr_ignored_n": gate_evidence[repo_key(bundle)].pr_ignored_n,
             },
         }
         for bundle in sorted(bundles, key=lambda b: (b.repo.owner.lower(), b.repo.name.lower()))

@@ -747,6 +747,28 @@ def test_is_confirmed_black_hole_in_raw_confirmed_black_hole_returns_true(tmp_pa
     assert is_confirmed_black_hole_in_raw(raw_dir, owner, name, now=NOW) is True
 
 
+def test_is_confirmed_black_hole_in_raw_leaves_a_slow_project_alone(tmp_path: Path):
+    """RFC-0026: the same 15 PRs unanswered for 14 days but merged by a maintainer 25 days after opening
+    are a slow project, not a black hole; the collector must keep collecting it."""
+    from porchlamp.collect.fingerprint import is_confirmed_black_hole_in_raw
+    raw_dir = tmp_path / "raw"
+    owner, name = "slow", "project"
+    prs = []
+    for i in range(1, 16):
+        created = NOW - timedelta(days=40 + i)
+        prs.append({
+            "number": i,
+            "createdAt": created.isoformat(),
+            "mergedAt": (created + timedelta(days=25)).isoformat(),
+            "authorAssociation": "NONE",
+            "author": {"login": f"user{i}", "__typename": "User"},
+            "comments": [],
+            "reviews": {"nodes": []},
+        })
+    _make_pr_window_envelope(raw_dir, owner, name, prs, NOW.isoformat())
+    assert is_confirmed_black_hole_in_raw(raw_dir, owner, name, now=NOW) is False
+
+
 def test_is_confirmed_black_hole_in_raw_refuses_a_record_cut_at_the_pr_cap(tmp_path: Path):
     """The same silent PRs in a record the collector cut at its PR cap: D-GATE-5 is
     undecided on a record that does not reach back to the window's start (RFC-0011), so
