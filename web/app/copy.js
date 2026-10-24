@@ -1366,6 +1366,8 @@ export const PARAM_MEANINGS = Object.freeze({
 
 /** The page's lede; {date} is the snapshot date. */
 export const PROJECT_LEDE = "What happens to a stranger's pull request here, in the Porchlamp snapshot of {date}.";
+/** The lede of a project the snapshot does not rank (its page stays at its address); {date} is the snapshot date. */
+export const PROJECT_LEDE_NOT_RANKED = "Not ranked in the Porchlamp snapshot of {date}.";
 
 export const PROJECT_PILLARS_HEADING = "Five pillars";
 export const PROJECT_PILLARS_CAPTION = "Score out of 100, and how much of the pillar was measured";

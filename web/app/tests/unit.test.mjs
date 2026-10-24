@@ -3554,6 +3554,26 @@ const PROJECT_STEMS = ["vllm-project__vllm", "keras-team__keras", "3b1b__manim"]
 const PROJECT_RECORDS = Object.fromEntries(PROJECT_STEMS.map((stem) => [stem, projectRecord(stem)]));
 const projectHtml = (rec, mode, extra = {}) => renderProject(rec, { mode, recordFile: rec.recordFile, ...extra });
 
+test("project page: a project that is not ranked says so in its lede, prints its reason and no answer, key facts or rating", () => {
+  const base = PROJECT_RECORDS["keras-team__keras"];
+  const notRanked = {
+    ...base,
+    detail: { ...base.detail, eligible: false, rated: false, rank: null, porchlamp: null, gate_reason: "archived" },
+    answer: null,
+    standings: null,
+    similar: null,
+  };
+  const page = projectHtml(notRanked, "page");
+  const date = dayText(base.detail.snapshot_id);
+  assert.ok(page.includes(`<p class="project-lede">Not ranked in the Porchlamp snapshot of <span data-v="detail.snapshot_date">${date}</span>.</p>`));
+  assert.ok(page.includes(`<p class="gate-banner project-gate">${escapeHtml(copy.gateReasonText("archived"))}</p>`));
+  assert.ok(!page.includes("project-answer") && !page.includes("key-facts-card") && !page.includes("What happens to a stranger"));
+  const ranked = projectHtml(base, "page");
+  assert.ok(ranked.includes(escapeHtml(copy.PROJECT_LEDE.split("{date}")[0])), "a ranked project keeps its lede");
+  assert.ok(!ranked.includes("Not ranked in the Porchlamp snapshot"));
+  assert.ok(!projectHtml(notRanked, "panel").includes("Not ranked in the Porchlamp snapshot"), "the panel has no lede");
+});
+
 const PROJECT_HOOK = /<(span|p)\b[^>]*\bdata-v="([^"]+)"[^>]*>([^<]*)<\/\1>/g;
 const projectHooks = (html) => [...html.matchAll(PROJECT_HOOK)].map((m) => ({ id: m[2], text: unescapeHtml(m[3]) }));
 const VOID_TAGS = new Set(["img", "br", "hr", "input", "meta", "link", "circle", "line", "polygon", "polyline", "path"]);

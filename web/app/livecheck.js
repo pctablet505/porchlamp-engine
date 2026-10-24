@@ -56,6 +56,8 @@ export const MANIFEST_BASENAMES = Object.freeze([
   "conanfile.txt", "configure.ac", "default.nix", "deps.edn", "dune-project", "flake.nix",
   "go.mod", "meson.build", "mix.exs", "package.json", "pom.xml", "project.clj",
   "pubspec.yaml", "pyproject.toml", "setup.cfg", "setup.py", "stack.yaml", "vcpkg.json",
+  "Gopkg.toml", "Pipfile", "Podfile", "Rakefile", "deno.json", "deno.jsonc",
+  "pixi.toml", "premake4.lua", "premake5.lua", "requirements.txt", "tsconfig.json", "xmake.lua",
 ]);
 //: porchlamp.derive.gate_evidence.RECOGNIZED_MANIFEST_PREFIXES.
 export const MANIFEST_PREFIXES = Object.freeze(["build.gradle"]);
