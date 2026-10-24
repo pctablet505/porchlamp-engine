@@ -346,7 +346,7 @@ def test_no_wifi_from_the_start_and_data_saver_have_their_own_words(tmp_path):
     assert r.status()["headline"] == "Waiting for a network"
 
 
-def test_a_streak_of_timeouts_is_retrying_with_the_time_it_tries_again(rig):
+def test_a_streak_of_unanswered_requests_is_retrying_with_the_time_it_tries_again(rig):
     rig.run_on("L1")
     rig.eng.settings.set({"timeout_streak": 2})
     rig.eng.controls.on_failure("deps.dev", True)
@@ -354,9 +354,9 @@ def test_a_streak_of_timeouts_is_retrying_with_the_time_it_tries_again(rig):
     s = rig.status()
     assert s["state"] == "retrying" and s["reason"]["code"] == "slow_network"
     assert s["headline"] == "The network is slow"
-    assert s["detail"] == "2 requests in a row timed out. Trying again in 10 minutes."
+    assert s["detail"] == "2 requests in a row got no answer from the network. Trying again in 10 minutes."
     assert datetime.fromisoformat(s["reason"]["resume_at"]).timestamp() == pytest.approx(T0 + 600, abs=1)
-    assert s["health"]["last_error"]["text"] == "2 requests in a row timed out"
+    assert s["health"]["last_error"]["text"] == "2 requests in a row got no answer from the network"
     assert s["health"]["last_error"]["action"].startswith("It waits 10 minutes")
     rig.clock.advance(601)
     assert rig.status()["state"] == "working"
