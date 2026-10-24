@@ -83,8 +83,10 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: moving ScoreRecord.constants_hash); no other field of any record moved.
 #: Regenerated 2026-10-23 (was 27b0ef6f...) for RFC-0016..0024
 #: (moving ScoreRecord.constants_hash); no other field of any record moved.
+#: Regenerated 2026-10-24 (was b8e2f5b3...) for RFC-0027 (GATE6_MIN_OUTSIDE_PRS,
+#: moving ScoreRecord.constants_hash); no other field of any record moved.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "aebc001b33f82296df3c8b1d166faf9496b84d7babf207856f9f05a4f8a1c910"
+    "6fa702d8e7a1796fc586050fa603420bcb27f9b45e4a405cff8981f90624ae50"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #

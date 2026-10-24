@@ -30,13 +30,16 @@ grid. Whatever the flags, every ``<loc>`` of ``sitemap.xml`` (and, for a sitemap
 names) must have a page in the site.
 
 ``verify_projects`` (also run by ``--stats``) proves the project pages and the /check/ stub: every ranked project has its page
-at ``projects/<owner>/<name>/`` and no other page exists; every value each page prints (a ``data-v`` hook: the answer
+at ``projects/<owner>/<name>/`` and no other page exists but a not-ranked project's; every value each page prints (a ``data-v`` hook: the answer
 sentences, the key facts, the rating, the five pillars and their coverage, each parameter's value with its unit, score,
 count and window, each lens rank, the similar projects, the record's identity) is recomputed from the API with this
 file's own formatters and compared; so are the head (the title, and a description that names the project and its rank in
 at most 155 characters), the outline (one h1, no skipped level, nothing collapsed, the anchors), and the links;
 ``sitemap-projects.xml`` lists every ranked project in balanced-rank order; ``/check/`` is a stub that sends the address
-on to ``/`` (a meta refresh and the canonical address ``/``), with no script and no place in the sitemap.
+on to ``/`` (a meta refresh and the canonical address ``/``), with no script and no place in the sitemap. Any other page
+under ``projects/`` must be the page of a project the snapshot holds and does not rank, which says it is not ranked and
+why (a head from the reason's sentence, the banner, the same values and links); with ``--previous-site`` (the site as
+last published) every project that site had a page for still has one.
 
 Whatever the flags, ``verify_chrome`` proves every page carries the one header, nav and footer
 (``web/app/components/chrome.js``, drawn at export by ``web/prerender.mjs``), one Content-Security-Policy and only the
@@ -1814,6 +1817,8 @@ def _black_hole_hooks(detail: dict) -> dict[str, str]:
     hooks = {"bh.unanswered": str(counts[0]), "bh.population_n": str(counts[1])}
     if isinstance(ev.get("unanswered_share"), (int, float)):
         hooks["bh.unanswered_share"] = _share(ev["unanswered_share"])
+    if isinstance(ev.get("ignored"), int) and isinstance(ev.get("ignored_share"), (int, float)):
+        hooks |= {"bh.ignored": str(ev["ignored"]), "bh.ignored_share": _share(ev["ignored_share"])}
     if all(isinstance(ev.get(key), (int, float)) for key in ("wilson_lower_bound", "threshold_share", "min_n")):
         hooks |= {"bh.wilson_lower_bound": _share(ev["wilson_lower_bound"]), "bh.threshold_share": _share(ev["threshold_share"]),
                   "bh.min_n": str(ev["min_n"])}
@@ -1929,10 +1934,108 @@ def check_sitemap_files(site: Path) -> list[str]:
     return problems
 
 
-def verify_projects(db: Path, site: Path, *, log=print) -> dict:
+def _expected_banner(detail: dict, floor: Any, gate_copy: dict[str, str], unrated_copy: dict[str, str]) -> str:
+    """The sentence the project view's banner prints for a project that is not ranked (copy.js ``gateReasonText`` for a
+    project disqualified before scoring, ``unratedReasonText`` for one unrated), from the API's record and the
+    methodology's coverage floor (None where it states none)."""
+    from porchlamp.serve import report_pages as rp
+
+    gate, unrated = detail.get("gate_reason") or "", detail.get("unrated_reason") or ""
+    if not detail["eligible"] and not gate.startswith("unrated:"):
+        return gate_copy.get(gate) or unrated_copy.get(gate.removeprefix("unrated: ")) or gate
+    reason = unrated or gate
+    bare = reason.removeprefix("unrated: ")
+    if bare != "insufficient_evidence":
+        return unrated_copy.get(bare) or reason
+    if not isinstance(floor, (int, float)) or isinstance(floor, bool):
+        return rp.copy_js_map("NOT_RANKED_LIST_REASONS")["insufficient_evidence"]
+    coverage = detail["coverage"]
+    clause = rp.copy_js_string("UNRATED_NO_RESPONSIVENESS" if coverage >= floor else "UNRATED_COVERAGE_BELOW_FLOOR")
+    whole = lambda share: f"{math.floor(share * 100 + 0.5)}%"  # noqa: E731
+    return f"{unrated_copy[bare]} " + clause.replace("{coverage}", whole(coverage)).replace("{floor}", whole(floor))
+
+
+def _expected_stub_description(who: str, sentence: str) -> str:
+    """The head's description of a project that is not ranked: its name, then its reason's sentence with a lower-case first
+    letter; at most 155 characters: whole, else cut at a word with an ellipsis, never into the name."""
+    lead = f"{who} is not ranked: "
+    whole = lead + sentence.rstrip(".")[:1].lower() + sentence.rstrip(".")[1:] + "."
+    if len(whole) <= _DESCRIPTION_LIMIT:
+        return whole
+    cut = whole[: _DESCRIPTION_LIMIT - 1].rsplit(" ", 1)[0].rstrip(" ;,:.")
+    return f"{cut}\u2026" if len(cut) > len(lead.rstrip()) else lead.rstrip(" :")
+
+
+def _verify_stub(
+    ledger: "_Ledger", site: Path, sid: str, detail: dict, evidence: list[dict], context: dict[str, Any],
+) -> tuple[str, str, str]:
+    """The page at a not-ranked project's address, which says it is not ranked and why: its head (title with the snapshot's
+    date, self canonical, description and previews from the reason's sentence), the banner, no rank or answer, the black-hole
+    card and every value the view prints (hooks), the outline and the links. Returns ``(title, canonical, description)``."""
+    owner, name = detail["owner"], detail["name"]
+    key, rel = f"{owner}/{name}", f"projects/{owner.lower()}/{name.lower()}/index.html"
+    text = (site / rel).read_text(encoding="utf-8")
+    main = _report_main(text)
+    if main is None:
+        ledger.errors.append(f"{rel}: the page has no <main> the project view drew into")
+        return "", "", ""
+    page = read_page(main)
+    ledger.equal(f"{rel} is not a rated project's record", detail["rated"] or detail["rank"] is not None, False)
+    canonical = re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1)
+    ledger.equal(f"{rel} canonical", canonical, f"{SITE_ORIGIN}/projects/{owner.lower()}/{name.lower()}/")
+    title = html.unescape(re.search(r"<title>(.*?)</title>", text, re.S).group(1))
+    ledger.equal(f"{rel} <title>", title, f"{key}: not ranked in the Porchlamp snapshot of {_long_date(sid)} | Porchlamp")
+    code = (detail.get("gate_reason") or detail.get("unrated_reason") or "").removeprefix("unrated: ")
+    gate_copy, unrated_copy = context["gate_copy"], context["unrated_copy"]
+    sentence = gate_copy.get(code) or unrated_copy.get(code)
+    if sentence is None:
+        ledger.errors.append(f"{rel}: the reason {code!r} has no wording in copy.js")
+        return title, canonical, ""
+    description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1))
+    ledger.equal(f"{rel} meta description", description, _expected_stub_description(key, sentence))
+    for tag in ('property="og:description"', 'name="twitter:description"'):
+        found = re.search(rf'<meta {tag} content="([^"]*)"', text)
+        ledger.equal(f"{rel} <meta {tag}>", html.unescape(found.group(1)) if found else None, description)
+    ledger.equal(f"{rel} robots", 'content="index, follow' in text, True)
+
+    banner = re.findall(r'<p class="gate-banner project-gate">(.*?)</p>', main, re.S)
+    ledger.equal(f"{rel} reason banner", [html.unescape(b) for b in banner], [_expected_banner(detail, context["floor"], gate_copy, unrated_copy)])
+    ledger.equal(f"{rel} says it is not ranked, with the snapshot's date", re.findall(r'<p class="project-lede">(.*?)</p>', main, re.S),
+                 [f'{context["lede"]}'.replace("{date}", f'<span data-v="detail.snapshot_date">{_long_date(sid)}</span>')])
+    ledger.equal(f"{rel} prints no rank, answer or rating", [m for m in ("project-answer", "key-facts-card", 'id="rating"', 'id="similar"') if m in main], [])
+    before = ledger.checked
+    _compare_hooks(ledger, rel, page.hooks, _expected_project_hooks(detail, evidence, None, None, None, context["words"], context["labels"]))
+    found_bad = _BAD_TEXT.search(_plain(main).replace(key, "").replace(name, ""))
+    if found_bad:
+        ledger.errors.append(f"{rel}: the page prints {found_bad.group(0)!r}")
+    ledger.equal(f"{rel} h1", [heading for tag, heading in page.headings if tag == "h1"], [key])
+    levels = [int(tag[1]) for tag, _ in page.headings]
+    ledger.equal(f"{rel} no heading level skipped", all(b <= a + 1 for a, b in zip(levels, levels[1:])), True)
+    ledger.equal(f"{rel} no collapsed section", "<details" in main, False)
+    for missing in sorted({"evidence", "correction"} - page.ids):
+        ledger.errors.append(f"{rel}: no element with id {missing!r}")
+    bucket = _export_static().bucket_of(owner, name)
+    for link in (
+        "/", f"https://github.com/{quote(owner, safe='')}/{quote(name, safe='')}", f"/compare/?cmp={quote(key, safe='')}",
+        f"/data/{sid}/repos/{bucket}.json", "/methodology/", context["issue_base"] + quote(context["issue_prefix"] + key, safe="!*'()"),
+    ):
+        ledger.equal(f"{rel} links to {link}", link in page.links, True)
+    ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
+    ledger.equal(f"{rel} breadcrumb", ld, {
+        "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Porchlamp", "item": f"{SITE_ORIGIN}/"},
+            {"@type": "ListItem", "position": 2, "name": key, "item": canonical}]})
+    context["hooks_checked"] += ledger.checked - before
+    return title, canonical, description
+
+
+def verify_projects(db: Path, site: Path, *, evidence_files: Any = None, previous_site: Optional[Path] = None, log=print) -> dict:
     """Recompute every value on every project page from the API (the leaderboards, ``/repos/{owner}/{name}`` and its
     ``/evidence``) and compare with what the page prints (its ``data-v`` hooks) and its head; check the page set, the
-    sitemaps and the /check/ stub.
+    sitemaps and the /check/ stub. A page at the address of a project that is not ranked must be that project's stub (the
+    title, description, reason banner and values of :func:`_verify_stub`); with ``previous_site`` (the site as last
+    published) every project it had a page for must still have one, ranked or stub, unless the snapshot no longer holds
+    it. ``evidence_files`` are the files the export read (a black hole's counts come from them).
     ``{"checked": n, "pages": m, "errors": [...]}``."""
     from fastapi.testclient import TestClient
 
@@ -1949,7 +2052,7 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
         source.backup(target)
         source.close()
         target.close()
-        client = TestClient(create_app(str(copy), web_dir=str(Path(tmp) / "__no_web__")))
+        client = TestClient(create_app(str(copy), web_dir=str(Path(tmp) / "__no_web__"), evidence_files=evidence_files))
 
         def api(path: str, **params: Any) -> Any:
             response = client.get(path, params=params)
@@ -1959,6 +2062,14 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
 
         snapshot = api("/v1/porchlamp/snapshot")
         methodology = api("/v1/porchlamp/methodology")
+        found_dirs = {p.parent.relative_to(site).as_posix() for p in (site / "projects").rglob("index.html")} if (site / "projects").is_dir() else set()
+        held: dict[str, list[tuple[str, str]]] = {}
+        names = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
+        try:
+            for owner, name in names.execute("SELECT owner, name FROM repositories WHERE snapshot_id = ?", (snapshot["snapshot_id"],)):
+                held.setdefault(f"projects/{owner.lower()}/{name.lower()}", []).append((owner, name))
+        finally:
+            names.close()
         boards = {}
         for lens in sorted(constants.PERSONA_PRESETS):
             collected, page_no = [], 1
@@ -1973,6 +2084,13 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
         for row in boards["balanced"][0]:
             path = f"/v1/porchlamp/repos/{quote(row['owner'], safe='')}/{quote(row['name'], safe='')}"
             records[(row["owner"], row["name"])] = (api(path), api(path + "/evidence"))
+        ranked_dirs = {f"projects/{r['owner'].lower()}/{r['name'].lower()}" for r in boards["balanced"][0]}
+        stub_records = {}
+        for directory in sorted(found_dirs - ranked_dirs):
+            if len(held.get(directory, [])) == 1:
+                owner, name = held[directory][0]
+                path = f"/v1/porchlamp/repos/{quote(owner, safe='')}/{quote(name, safe='')}"
+                stub_records[(owner, name)] = (api(path), api(path + "/evidence"))
 
     sid, ranked = snapshot["snapshot_id"], boards["balanced"][0]
     as_of = snapshot["as_of"][:10]
@@ -1994,12 +2112,18 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     expected_dirs = {f"projects/{o.lower()}/{n.lower()}" for o, n in rank_of}
     ledger.equal("ranked projects equal the balanced leaderboard total", len(rank_of), lens_total["balanced"])
     ledger.equal("no two ranked projects share a lower-case address", len(expected_dirs), len(rank_of))
-    found_dirs = {p.parent.relative_to(site).as_posix() for p in (site / "projects").rglob("index.html")} if (site / "projects").is_dir() else set()
-    ledger.equal("project pages in the export", len(found_dirs), len(expected_dirs))
+    ledger.equal("project pages in the export", len(found_dirs & expected_dirs), len(expected_dirs))
     for missing in sorted(expected_dirs - found_dirs)[:5]:
         ledger.errors.append(f"project page {missing}/ is missing")
-    for extra in sorted(found_dirs - expected_dirs)[:5]:
-        ledger.errors.append(f"project page {extra}/ is not a ranked project")
+    for extra in sorted(found_dirs - expected_dirs):
+        if len(held.get(extra, [])) != 1:
+            ledger.errors.append(f"project page {extra}/ is not a ranked project and is not a project in the snapshot")
+    if previous_site is not None:
+        for owner, name in sorted(export_static.previous_project_pages(previous_site)):
+            directory = f"projects/{owner}/{name}"
+            if directory not in found_dirs and held.get(directory):
+                ledger.errors.append(f"project page {directory}/ was published before and the snapshot holds the project, "
+                                     "but the export has no page for it")
 
     titles, canonicals, descriptions, hooks_checked = [], [], [], 0
     for (owner, name), (detail, evidence) in records.items():
@@ -2092,6 +2216,18 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
             "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
                 {"@type": "ListItem", "position": 1, "name": "Porchlamp", "item": f"{SITE_ORIGIN}/"},
                 {"@type": "ListItem", "position": 2, "name": key, "item": canonical}]})
+    context = {
+        "gate_copy": rp.copy_js_map("GATE_REASON_COPY"), "unrated_copy": rp.copy_js_map("UNRATED_REASON_COPY"),
+        "floor": ((methodology.get("missingness") or {}).get("coverage_thresholds") or {}).get("unrated_below"),
+        "lede": rp.copy_js_string("PROJECT_LEDE_NOT_RANKED"), "words": words, "labels": labels,
+        "issue_base": issue_base, "issue_prefix": issue_prefix, "hooks_checked": 0,
+    }
+    for (_owner, _name), (detail, evidence) in sorted(stub_records.items()):
+        stub_title, stub_canonical, stub_description = _verify_stub(ledger, site, sid, detail, evidence, context)
+        titles.append(stub_title)
+        canonicals.append(stub_canonical)
+        descriptions.append(stub_description)
+    hooks_checked += context["hooks_checked"]
     ledger.equal("project page titles are all different", len(set(titles)), len(titles))
     ledger.equal("project page canonicals are all different", len(set(canonicals)), len(canonicals))
 
@@ -2123,12 +2259,12 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     ledger.equal("check search files are gone", [rel for rel in ("check/projects.json", "check.js") if (site / rel).exists()], [])
 
     log(f"verify: project pages: checked {hooks_checked} printed values (data-v hooks) and {ledger.checked - hooks_checked} other "
-        f"values on {len(found_dirs & expected_dirs)} of {len(expected_dirs)} pages")
-    log(f"verify: project heads: {len(descriptions)} descriptions, each names the project and its rank; the longest is "
+        f"values on {len(found_dirs & expected_dirs)} of {len(expected_dirs)} ranked pages and {len(stub_records)} pages of projects no longer ranked")
+    log(f"verify: project heads: {len(descriptions)} descriptions, each names the project (a ranked project's also its rank); the longest is "
         f"{max(map(len, descriptions), default=0)} characters (at most {_DESCRIPTION_LIMIT}); "
         f"{sum(d == boilerplate for d in descriptions)} are the site's boilerplate")
     _log_mismatches(log, "PROJECT", ledger.errors)
-    return {"checked": ledger.checked, "pages": len(found_dirs & expected_dirs), "errors": ledger.errors}
+    return {"checked": ledger.checked, "pages": len(found_dirs & expected_dirs) + len(stub_records), "errors": ledger.errors}
 
 
 # --------------------------------------------------------------------------- #
@@ -2793,6 +2929,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="the snapshot directory the database was stored from, as given to the export (black-hole evidence)",
     )
     parser.add_argument("--data-dir", type=Path, default=None, help="the data root the export read raw/ from")
+    parser.add_argument(
+        "--previous-site", type=Path, default=None,
+        help="the site as last published, as given to the export: every project it had a page for must still have one",
+    )
     args = parser.parse_args(argv)
     site = args.site.resolve()
     if args.report_only and args.stats is None:
@@ -2823,7 +2963,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     not_ranked = verify_not_ranked_lists(args.db.resolve(), site, report=record, numbers=numbers, stats=stats)
     ok = not lists["errors"] and not not_ranked["errors"] and ok
     if args.stats is not None:
-        ok = not verify_projects(args.db.resolve(), site)["errors"] and ok
+        ok = not verify_projects(args.db.resolve(), site, evidence_files=evidence_files,
+                                 previous_site=args.previous_site.resolve() if args.previous_site else None)["errors"] and ok
         ok = not verify_home(args.db.resolve(), site, report=record)["errors"] and ok
         ok = not verify_crawl(args.db.resolve(), site, lists=lists["addresses"], not_ranked=not_ranked["addresses"])["errors"] and ok
     print("PASS" if ok else "FAIL")

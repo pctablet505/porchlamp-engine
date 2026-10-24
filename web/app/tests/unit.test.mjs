@@ -1583,7 +1583,7 @@ test("drawer: a project with no external workflow shows the sentence, not the re
     },
   };
   const html = renderDrawer(stateWithRepoDetail(noWorkflow));
-  assert.ok(html.includes(escapeHtml("No external contribution workflow was found to measure.")));
+  assert.ok(html.includes(escapeHtml("No outside contribution workflow to measure: fewer than 3 outside pull requests in 180 days, or none decided on GitHub.")));
   assert.ok(!html.includes("unrated: no_external_workflow"), "the drawer shows the raw reason code");
 });
 
@@ -2528,6 +2528,31 @@ test("error banners across views include retry buttons", () => {
 
   const mdHtml = renderMethodologyShell({ ...defaultState(), methodologyError: err });
   assert.ok(mdHtml.includes('data-methodology-retry="true"'));
+});
+
+test("black-hole card: shows the ignored count and says which counted PRs a maintainer touched later (RFC-0026)", () => {
+  const evidence = {
+    ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence,
+    ignored: 9,
+    ignored_share: 0.6,
+    wilson_lower_bound: 0.3871,
+    counted_prs: [
+      { number: 1, created_at: "2026-04-01T00:00:00Z", answered_within_14d: false, response_kind: "none", touched_ever: false },
+      { number: 2, created_at: "2026-04-02T00:00:00Z", answered_within_14d: false, response_kind: "none", touched_ever: true },
+      { number: 3, created_at: "2026-04-03T00:00:00Z", answered_within_14d: true, response_kind: "merged", touched_ever: true },
+    ],
+  };
+  const card = blackHoleCard({ ...FLAT_BLACK_HOLE_DETAIL, black_hole_evidence: evidence });
+  const html = textOf(card);
+  assert.ok(html.includes("9 of them (60.0%) had no maintainer reply, review, merge or close even after the 14 days"));
+  assert.ok(card.includes('data-v="bh.ignored"') && card.includes('data-v="bh.ignored_share"'), "both numbers carry a hook the verifier checks");
+  assert.ok(html.includes("No response, untouched when read"));
+  assert.ok(html.includes("No response within 14d, touched later"));
+  assert.ok(html.includes("Answered (merged)"));
+  assert.ok(html.includes(copy.BLACK_HOLE_RULE_TEXT) && copy.BLACK_HOLE_RULE_TEXT.includes("when the data was read"));
+  // a snapshot built before the count was recorded draws the old card
+  const old = textOf(blackHoleCard(FLAT_BLACK_HOLE_DETAIL));
+  assert.ok(!old.includes("of them (") && !old.includes("untouched when read"));
 });
 
 test("black-hole card: formats response_kind into human prose, and prints no share or Wilson bound the record lacks", () => {
@@ -3529,6 +3554,26 @@ const PROJECT_STEMS = ["vllm-project__vllm", "keras-team__keras", "3b1b__manim"]
 const PROJECT_RECORDS = Object.fromEntries(PROJECT_STEMS.map((stem) => [stem, projectRecord(stem)]));
 const projectHtml = (rec, mode, extra = {}) => renderProject(rec, { mode, recordFile: rec.recordFile, ...extra });
 
+test("project page: a project that is not ranked says so in its lede, prints its reason and no answer, key facts or rating", () => {
+  const base = PROJECT_RECORDS["keras-team__keras"];
+  const notRanked = {
+    ...base,
+    detail: { ...base.detail, eligible: false, rated: false, rank: null, porchlamp: null, gate_reason: "archived" },
+    answer: null,
+    standings: null,
+    similar: null,
+  };
+  const page = projectHtml(notRanked, "page");
+  const date = dayText(base.detail.snapshot_id);
+  assert.ok(page.includes(`<p class="project-lede">Not ranked in the Porchlamp snapshot of <span data-v="detail.snapshot_date">${date}</span>.</p>`));
+  assert.ok(page.includes(`<p class="gate-banner project-gate">${escapeHtml(copy.gateReasonText("archived"))}</p>`));
+  assert.ok(!page.includes("project-answer") && !page.includes("key-facts-card") && !page.includes("What happens to a stranger"));
+  const ranked = projectHtml(base, "page");
+  assert.ok(ranked.includes(escapeHtml(copy.PROJECT_LEDE.split("{date}")[0])), "a ranked project keeps its lede");
+  assert.ok(!ranked.includes("Not ranked in the Porchlamp snapshot"));
+  assert.ok(!projectHtml(notRanked, "panel").includes("Not ranked in the Porchlamp snapshot"), "the panel has no lede");
+});
+
 const PROJECT_HOOK = /<(span|p)\b[^>]*\bdata-v="([^"]+)"[^>]*>([^<]*)<\/\1>/g;
 const projectHooks = (html) => [...html.matchAll(PROJECT_HOOK)].map((m) => ({ id: m[2], text: unescapeHtml(m[3]) }));
 const VOID_TAGS = new Set(["img", "br", "hr", "input", "meta", "link", "circle", "line", "polygon", "polyline", "path"]);
@@ -3660,6 +3705,10 @@ function expectedProjectHooks(rec, mode) {
     add("bh.unanswered", String(ev.unanswered));
     add("bh.population_n", String(ev.population_n));
     add("bh.unanswered_share", testShare(ev.unanswered_share));
+    if (typeof ev.ignored === "number" && typeof ev.ignored_share === "number") {
+      add("bh.ignored", String(ev.ignored));
+      add("bh.ignored_share", testShare(ev.ignored_share));
+    }
     add("bh.wilson_lower_bound", testShare(ev.wilson_lower_bound));
     add("bh.threshold_share", testShare(ev.threshold_share));
     add("bh.min_n", String(ev.min_n));
@@ -4975,7 +5024,7 @@ test("not-ranked lists: each row is one plain sentence: the reason, the coverage
   const text = (row, report = REPORT_EXAMPLE) => nrView.reasonRowText({ owner: "acme", name: "widget", ecosystem: "go", gate_reason: null, unrated_reason: null, ...row }, report, NR_FLOOR);
   assert.equal(text({ gate_reason: "archived" }), "acme/widget (Go): Archived on GitHub — no active development to evaluate.");
   assert.equal(text({ unrated_reason: "unrated: insufficient_evidence", coverage: 0.42, ecosystem: "crates" }), "acme/widget (Rust): Not enough measured evidence to rank (coverage 42%, below the 60% floor).");
-  assert.equal(text({ unrated_reason: "no_external_workflow", ecosystem: "systems" }), "acme/widget (C and C++): No external contribution workflow was found to measure.");
+  assert.equal(text({ unrated_reason: "no_external_workflow", ecosystem: "systems" }), "acme/widget (C and C++): No outside contribution workflow to measure: fewer than 3 outside pull requests in 180 days, or none decided on GitHub.");
   assert.equal(
     nrView.reasonRowText({ owner: "3b1b", name: "manim", ecosystem: "pypi", gate_reason: "black_hole", unanswered: 26, counted: 41 }, REPORT_EXAMPLE),
     "3b1b/manim (Python): 26 of 41 counted outside pull requests got no human reply, review or merge within 14 days."

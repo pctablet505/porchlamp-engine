@@ -1090,6 +1090,21 @@ def _expected_hooks(record: dict, mode: str) -> dict[str, str]:
         record["detail"], record["evidence"], standings, record.get("similar"), answer, words, labels, mode=mode)
 
 
+def _holed(**evidence) -> dict:
+    return {"gate_reason": "black_hole", "black_hole_evidence": {
+        "unanswered": 12, "population_n": 15, "unanswered_share": 0.8, "wilson_lower_bound": 0.4, "threshold_share": 0.5,
+        "min_n": 10, **evidence}}
+
+
+def test_the_verifier_expects_the_ignored_count_and_share_hooks_only_when_the_evidence_has_them():
+    # RFC-0026: the card prints how many counted PRs no maintainer ever touched
+    hooks = verify_static_export._black_hole_hooks(_holed(ignored=9, ignored_share=0.6))
+    assert hooks["bh.ignored"] == "9" and hooks["bh.ignored_share"] == "60.0"
+    assert hooks["bh.wilson_lower_bound"] == "40.0"
+    assert "bh.ignored" not in verify_static_export._black_hole_hooks(_holed())
+    assert "bh.ignored" not in verify_static_export._black_hole_hooks(_holed(ignored=9))
+
+
 def test_the_project_view_prints_each_value_as_the_verifier_formats_it_in_page_and_panel_mode():
     drawn = _drawn_in_both_modes()
     assert {p.name for p in drawn} == {"vllm-project__vllm.json", "keras-team__keras.json", "3b1b__manim.json"}
@@ -1613,3 +1628,197 @@ def test_the_verifier_words_the_cut_record_bullet_as_the_report_does(built):
         assert method == [_fill(t, record["values"]) for t in record["sentences"]["method"]], (cut, caps)
         assert any("could not judge" in sentence for sentence in method) == bool(cut)
         assert any("random sample" in sentence for sentence in method) == bool(sampled)
+
+
+# ---- a published project that is no longer ranked keeps its address, with a page that says why -------------------
+
+#: Projects of the fixture that no leaderboard ranks: an archived one, an unrated one, and a black hole.
+STUBBED = (("gated-org", "gated-archived"), ("unrated-org", "unrated-plain-0"), ("bh-org", "hole-pypi-0"))
+#: A page a past export wrote for a project this snapshot does not hold at all, and for one it still ranks.
+GONE = ("ghost-org", "gone-repo")
+
+
+def _previously_published(root: Path, keys) -> Path:
+    for owner, name in keys:
+        page = root / "projects" / owner.lower() / name.lower() / "index.html"
+        page.parent.mkdir(parents=True)
+        page.write_text("<!doctype html><title>published before</title>", encoding="utf-8")
+    return root
+
+
+@pytest.fixture(scope="module")
+def delisted(built, tmp_path_factory):
+    """``(site, previous site, ranked project that was published before)``: the fixture exported again with the pages a
+    past export wrote for the three STUBBED projects, a project the snapshot does not hold, and a ranked one."""
+    _site, db, stats_path, _stats, _holes = built
+    tmp = tmp_path_factory.mktemp("delisted")
+    ranked = _ranked(db)[0]
+    previous = _previously_published(tmp / "previous", [*STUBBED, GONE, ranked])
+    out = tmp / "site"
+    export_static.export(
+        db, out, stats_path, snapshot_dir=built[0].parent / "snapshot", data_dir=built[0].parent / "data", previous_site=previous,
+    )
+    return out, previous, ranked
+
+
+def _stub_path(site: Path, key) -> Path:
+    return site / "projects" / key[0].lower() / key[1].lower() / "index.html"
+
+
+def test_a_published_project_that_is_no_longer_ranked_keeps_its_address_with_a_page_that_says_why(delisted):
+    site, _previous, ranked = delisted
+    for key in STUBBED:
+        assert _stub_path(site, key).is_file(), key
+    assert not _stub_path(site, GONE).exists(), "a project the snapshot does not hold gets no page"
+    full = _stub_path(site, ranked).read_text(encoding="utf-8")
+    assert "It ranks" in full and "not ranked in the Porchlamp snapshot" not in full, "a ranked project keeps its full page"
+    archived = _stub_path(site, STUBBED[0]).read_text(encoding="utf-8")
+    assert '<p class="gate-banner project-gate">Archived on GitHub — no active development to evaluate.</p>' in archived
+    assert 'id="project-title"' in archived and "gated-archived" in archived
+    assert 'class="project-answer"' not in archived and "It ranks" not in archived
+    assert 'Not ranked in the Porchlamp snapshot of <span data-v="detail.snapshot_date">14 October 2026</span>.' in archived
+
+
+def test_a_stub_head_names_the_project_the_reason_and_the_snapshot_and_is_indexable(delisted):
+    site, _previous, _ranked_key = delisted
+    for key, reason in zip(STUBBED, ("archived on GitHub — no active development to evaluate.",
+                                     "not enough measured evidence to rank.", None)):
+        text = _stub_path(site, key).read_text(encoding="utf-8")
+        who = f"{key[0]}/{key[1]}"
+        assert re.search(r"<title>(.*?)</title>", text).group(1) == f"{who}: not ranked in the Porchlamp snapshot of 14 October 2026 | Porchlamp"
+        assert f'<link rel="canonical" href="https://porchlamp.org/projects/{key[0].lower()}/{key[1].lower()}/">' in text
+        assert 'content="index, follow' in text
+        description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1))
+        assert description.startswith(f"{who} is not ranked: ") and len(description) <= 155
+        if reason:
+            assert description == f"{who} is not ranked: {reason}"
+        assert f'<meta property="og:description" content="{html.escape(description)}">' in text
+
+
+def test_a_stub_is_not_in_the_project_sitemap_and_the_ranked_pages_stay_exactly_the_ranked_projects(built, delisted):
+    site, _previous, _ranked_key = delisted
+    sitemap = (site / "sitemap-projects.xml").read_text(encoding="utf-8")
+    for key in STUBBED:
+        assert f"/projects/{key[0].lower()}/{key[1].lower()}/" not in sitemap
+    assert sitemap.count("<loc>") == len(_ranked(built[1]))
+
+
+def test_a_black_hole_stub_prints_its_counted_evidence_and_an_unrated_one_its_coverage(delisted):
+    site, _previous, _ranked_key = delisted
+    hole = _stub_path(site, STUBBED[2]).read_text(encoding="utf-8")
+    assert 'data-black-hole-evidence="true"' in hole and 'data-v="bh.unanswered"' in hole and 'data-v="bh.population_n"' in hole
+    unrated = _stub_path(site, STUBBED[1]).read_text(encoding="utf-8")
+    assert re.search(r'<p class="gate-banner project-gate">Not enough measured evidence to rank \(coverage \d+%, ', unrated)
+
+
+def _verify_stubs(built, site, previous, **kwargs):
+    return verify_static_export.verify_projects(
+        built[1], site, evidence_files=_evidence_files(built), previous_site=previous, log=lambda _line: None, **kwargs)
+
+
+def test_verify_projects_proves_every_stub_and_counts_it_beside_the_ranked_pages(built, delisted):
+    site, previous, _ranked_key = delisted
+    result = _verify_stubs(built, site, previous)
+    assert result["errors"] == []
+    assert result["pages"] == len(_ranked(built[1])) + len(STUBBED)
+
+
+def _plant(site: Path, tmp_path: Path) -> Path:
+    return _copy_site(site, tmp_path)
+
+
+def test_a_missing_stub_fails_verification_by_the_path_a_past_export_published(built, delisted, tmp_path):
+    site, previous, _ranked_key = delisted
+    copy_dir = _plant(site, tmp_path)
+    _stub_path(copy_dir, STUBBED[0]).unlink()
+    errors = _verify_stubs(built, copy_dir, previous)["errors"]
+    assert any("projects/gated-org/gated-archived" in e and "published before" in e for e in errors), errors[:3]
+
+
+def test_a_stub_for_a_project_the_snapshot_does_not_hold_or_a_ranked_one_fails_verification(built, delisted, tmp_path):
+    site, previous, ranked = delisted
+    copy_dir = _plant(site, tmp_path)
+    stub = _stub_path(copy_dir, STUBBED[0]).read_text(encoding="utf-8")
+    ghost = _stub_path(copy_dir, GONE)
+    ghost.parent.mkdir(parents=True)
+    ghost.write_text(stub, encoding="utf-8")
+    assert any("ghost-org/gone-repo" in e and "not a project in the snapshot" in e for e in _verify_stubs(built, copy_dir, previous)["errors"])
+    ghost.unlink()
+    ranked_page = _stub_path(copy_dir, ranked)
+    saved = ranked_page.read_text(encoding="utf-8")
+    ranked_page.write_text(stub, encoding="utf-8")
+    assert any(f"projects/{ranked[0].lower()}/{ranked[1].lower()}" in e for e in _verify_stubs(built, copy_dir, previous)["errors"])
+    ranked_page.write_text(saved, encoding="utf-8")
+    assert _verify_stubs(built, copy_dir, previous)["errors"] == []
+
+
+@pytest.mark.parametrize("old,new,what", [
+    ("Archived on GitHub — no active development to evaluate.", "Archived on GitHub.", "banner"),
+    ("is not ranked: archived on GitHub", "is not ranked: a fine project", "description"),
+    ("14 October 2026 | Porchlamp</title>", "15 October 2026 | Porchlamp</title>", "title"),
+])
+def test_a_planted_wrong_reason_or_head_on_a_stub_fails_verification_by_page(built, delisted, tmp_path, old, new, what):
+    site, previous, _ranked_key = delisted
+    copy_dir = _plant(site, tmp_path)
+    path = _stub_path(copy_dir, STUBBED[0])
+    text = path.read_text(encoding="utf-8")
+    assert old in text, what
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    errors = _verify_stubs(built, copy_dir, previous)["errors"]
+    assert any("projects/gated-org/gated-archived" in e for e in errors), (what, errors[:3])
+    path.write_text(text, encoding="utf-8")
+    assert _verify_stubs(built, copy_dir, previous)["errors"] == []
+
+
+def test_a_planted_wrong_number_on_a_stub_fails_verification_naming_page_and_hook(built, delisted, tmp_path):
+    site, previous, _ranked_key = delisted
+    copy_dir = _plant(site, tmp_path)
+    path = _stub_path(copy_dir, STUBBED[2])
+    text = path.read_text(encoding="utf-8")
+    shown = re.search(r'<span data-v="bh.unanswered">(\d+)</span>', text).group(1)
+    path.write_text(text.replace(f'data-v="bh.unanswered">{shown}<', f'data-v="bh.unanswered">{int(shown) + 1}<', 1), encoding="utf-8")
+    errors = _verify_stubs(built, copy_dir, previous)["errors"]
+    assert any("projects/bh-org/hole-pypi-0" in e and "bh.unanswered" in e for e in errors), errors[:3]
+    path.write_text(text, encoding="utf-8")
+    assert _verify_stubs(built, copy_dir, previous)["errors"] == []
+
+
+def test_a_stub_in_the_project_sitemap_fails_verification(built, delisted, tmp_path):
+    site, previous, _ranked_key = delisted
+    copy_dir = _plant(site, tmp_path)
+    sitemap = copy_dir / "sitemap-projects.xml"
+    sitemap.write_text(sitemap.read_text(encoding="utf-8").replace(
+        "</urlset>", "  <url><loc>https://porchlamp.org/projects/gated-org/gated-archived/</loc></url>\n</urlset>"), encoding="utf-8")
+    assert any("sitemap-projects.xml lists" in e for e in _verify_stubs(built, copy_dir, previous)["errors"])
+
+
+def test_previous_pages_without_stats_stop_the_export_instead_of_dropping_the_stubs(built, tmp_path):
+    _site, db, _stats_path, _stats, _holes = built
+    previous = _previously_published(tmp_path / "previous", [STUBBED[0]])
+    with pytest.raises(SystemExit, match="previous-site needs the stats"):
+        export_static.export(db, tmp_path / "out", None, previous_site=previous)
+
+
+def test_an_export_without_previous_pages_says_that_projects_no_longer_ranked_get_no_page(built, tmp_path, capsys):
+    _site, db, stats_path, _stats, _holes = built
+    export_static.export(db, tmp_path / "out", stats_path, snapshot_dir=built[0].parent / "snapshot", data_dir=built[0].parent / "data")
+    assert "no --previous-site" in capsys.readouterr().err
+
+
+def test_the_stub_description_is_cut_at_a_word_and_never_into_the_name():
+    long_name = "o" * 20 + "/" + "n" * 30
+    short = project_pages.delisted_description("keras-team/keras", "Archived on GitHub — no active development to evaluate.")
+    assert short == "keras-team/keras is not ranked: archived on GitHub — no active development to evaluate."
+    cut = project_pages.delisted_description(long_name, "More than half of outside pull requests got no human reply, review or merge on GitHub within 14 days.")
+    assert len(cut) <= 155 and cut.startswith(f"{long_name} is not ranked: more than half") and cut.endswith("…")
+    assert cut[:-1].rsplit(" ", 1)[0] != cut[:-1], "cut at a word"
+    with pytest.raises(report_pages.ReportError, match="needs a ruling"):
+        project_pages.delisted_description("o" * 80 + "/" + "n" * 80, "x")
+
+
+def test_every_reason_a_project_is_not_ranked_for_has_a_sentence_and_an_unknown_one_stops_the_export():
+    for code in ("mirror", "archived", "unlicensed", "stale", "black_hole", "non_software", "fork", "no_external_workflow",
+                 "insufficient_evidence", "off_platform_routed"):
+        assert project_pages.delisted_reason_text(code), code
+    with pytest.raises(report_pages.ReportError, match="has no wording"):
+        project_pages.delisted_reason_text("made_up")
