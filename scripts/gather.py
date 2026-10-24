@@ -927,6 +927,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--skip-ineligible", action="store_true",
                     help="skip archived, disabled, stale, unlicensed, non_software, and "
                          "no_external_workflow repos before running downstream collectors")
+    ap.add_argument("--screen-ineligible", action="store_true",
+                    help="before the first layer of a cycle: ask GitHub (the fingerprint pass) about each repo "
+                         "whose selected collectors are not all done, and skip the archived, disabled and idle "
+                         "ones, and those the slow facts of the last cycle rule out (unlicensed, non_software, "
+                         "mirror). Never prunes on last cycle's commits or pull requests; "
+                         "--skip-ineligible is for the layers after this one")
     ap.add_argument("--incremental-ledgers", action="store_true",
                     help=EXPERIMENTAL + " Merge delta PRs and commits into existing envelopes (W6-3/W6-4)")
     ap.add_argument("--light-author-history", action="store_true",
@@ -936,6 +942,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--cost-log", type=Path, default=None,
                     help="path to write cost accounting log JSONL")
     a = ap.parse_args(argv)
+    if a.screen_ineligible and (a.skip_ineligible or a.dirty or a.fingerprint_only):
+        ap.error("--screen-ineligible is the screen before a cycle's first layer: "
+                 "not with --skip-ineligible, --dirty or --fingerprint-only")
     import os as _os
     _prev_gh_env = _os.environ.get("PORCHLAMP_GH")
     if not a.gh_cli and _prev_gh_env is None:
@@ -971,15 +980,23 @@ def _run_main(a: argparse.Namespace) -> int:
 
     dirty_map: Optional[dict[str, frozenset[str]]] = None
     fp_result: Any = None
-    if a.dirty or a.fingerprint_only:
-        from porchlamp.collect.fingerprint import run_fingerprint_pass
+    screen = a.screen_ineligible and not a.force
+    if a.dirty or a.fingerprint_only or screen:
+        from porchlamp.collect import fingerprint as _fingerprint
 
-        fp_result = run_fingerprint_pass(
-            [(owner, name) for owner, name, _eco in repos],
+        fp_repos = [(owner, name) for owner, name, _eco in repos]
+        if screen:
+            fp_repos = [
+                (owner, name) for owner, name in fp_repos
+                if selected is None or not all(_done(c, f"{owner}__{name}", False) for c in selected)
+            ]
+        fp_result = _fingerprint.run_fingerprint_pass(
+            fp_repos,
             state_file=_fingerprint_state(),
             raw_dir=DATA,
             ecosystems={f"{owner}__{name}": eco for owner, name, eco in repos},
-            prune_ineligible=a.skip_ineligible,
+            prune_ineligible=a.skip_ineligible or screen,
+            prune_fresh_only=screen,
         )
         dirty_count = sum(1 for inv in fp_result.dirty_by_repo.values() if inv)
         pruned_suffix = (
@@ -998,13 +1015,14 @@ def _run_main(a: argparse.Namespace) -> int:
             print(f"  UNRESOLVED {key}")
         if a.fingerprint_only:
             return 0
-        dirty_map = fp_result.dirty_by_repo
+        if not screen:
+            dirty_map = fp_result.dirty_by_repo
 
     ok = fail = 0
     print(f"collectors: {'all' if selected is None else ','.join(sorted(selected))}; repos: {len(repos)}")
     for i, (owner, name, eco) in enumerate(repos, 1):
         key = f"{owner}__{name}"
-        if a.skip_ineligible and not a.force:
+        if (a.skip_ineligible or screen) and not a.force:
             pruned_reason = (
                 fp_result.pruned_by_repo.get(key)
                 if fp_result is not None
@@ -1065,7 +1083,7 @@ def _run_main(a: argparse.Namespace) -> int:
                 print(f"{owner}/{name} [{eco}]: OK (stopped at black_hole)")
             else:
                 print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
-            if fp_result is not None and selected is None:
+            if fp_result is not None and not screen and selected is None:
                 _persist_fingerprint(fp_result, owner, name, eco, st, started,
                                      refetched=ALL_GATHER_COLLECTORS if a.force
                                      else repo_collectors)

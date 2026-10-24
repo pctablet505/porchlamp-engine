@@ -1126,6 +1126,7 @@ def classify_prune_reason(
     owner: str,
     name: str,
     now: datetime,
+    fresh_only: bool = False,
 ) -> Optional[str]:
     """Classify whether ``owner/name`` should be pruned before running the
     20-collector gather pipeline.
@@ -1141,6 +1142,15 @@ def classify_prune_reason(
     :data:`DEEP_COLLECTORS_SKIPPED_ON_BLACK_HOLE` while keeping ``pr_window``
     active on future fingerprint moves (allowing a recovering repo to exit the
     black-hole state).
+
+    ``fresh_only`` is the rule for a screen that runs before this cycle's own
+    metadata, commits and pull requests are collected (the pull-request layer
+    comes first): it prunes only on the fingerprint, which is fresh (archived,
+    disabled, pushed), and on the facts that change slowly in the envelopes
+    stored the cycle before (archived, mirror, license, file tree). It never
+    prunes on those envelopes' commit list or pull requests, which a project
+    that woke up since has outgrown (``stale`` by commits, ``no_external_workflow``),
+    nor on a stored push date when the fingerprint could not be read.
     """
     if fp is not None:
         if fp.is_archived:
@@ -1169,7 +1179,7 @@ def classify_prune_reason(
                 return "archived"
             if elig["mirror"][0]:
                 return "mirror"
-            if fp is None and meta_data is not None:
+            if fp is None and meta_data is not None and not fresh_only:
                 meta_pushed = _parse_iso(meta_data.get("pushed_at"))
                 if meta_pushed is not None and (now - meta_pushed) > timedelta(days=STALE_PUSH_WINDOW_DAYS):
                     return "stale"
@@ -1191,14 +1201,14 @@ def classify_prune_reason(
                 return "non_software"
             off_val, off_conf, off_src = elig["off_platform"]
             handoff = _review_handoff(raw_dir, f"{owner}__{name}") is True
-            if not off_val and not handoff and off_src == "repo_object":
+            if not fresh_only and not off_val and not handoff and off_src == "repo_object":
                 if elig["no_prs_ever"][0]:
                     return "no_external_workflow"
                 has_decided = _has_decided_external_pr_in_raw(raw_dir, owner, name, now)
                 if has_decided is False:
                     return "no_external_workflow"
 
-        if _has_human_commit_180d(raw_dir, owner, name, now) is False:
+        if not fresh_only and _has_human_commit_180d(raw_dir, owner, name, now) is False:
             return "stale"
 
     return None
@@ -1215,6 +1225,7 @@ def run_fingerprint_pass(
     ecosystems: Optional[Mapping[str, str]] = None,
     sleep: Callable[[float], None] = time.sleep,
     prune_ineligible: bool = False,
+    prune_fresh_only: bool = False,
 ) -> FingerprintSweepResult:
     """Run the D-COL-1 bulk fingerprint pass over ``repos``. Writes nothing.
 
@@ -1229,7 +1240,10 @@ def run_fingerprint_pass(
        :func:`classify_prune_reason` as ``archived``, ``disabled``, ``stale``,
        ``unlicensed``, ``non_software``, or ``no_external_workflow`` is recorded
        in ``pruned_by_repo`` and assigned an empty ``dirty_by_repo`` set so zero
-       downstream collectors waste rate limits on it.
+       downstream collectors waste rate limits on it. ``prune_fresh_only`` prunes by
+       :func:`classify_prune_reason`'s ``fresh_only`` rule; a repository the pass could
+       not resolve is then judged on the stored slow facts alone, not on its previous
+       fingerprint.
 
     The pass neither appends to ``state_file`` nor touches envelopes: the caller
     persists a repo's fingerprint with :func:`fingerprint_to_persist` after its
@@ -1278,7 +1292,7 @@ def run_fingerprint_pass(
         tiers_by_repo[key] = classify_cadence_tier(fp, now)
         if prune_ineligible:
             reason = classify_prune_reason(
-                fp, raw_dir=raw_dir, owner=fp.owner, name=fp.name, now=now
+                fp, raw_dir=raw_dir, owner=fp.owner, name=fp.name, now=now, fresh_only=prune_fresh_only
             )
             if reason is not None:
                 pruned_by_repo[key] = reason
@@ -1304,7 +1318,8 @@ def run_fingerprint_pass(
         owner, name = pair_by_key[key]
         if prune_ineligible:
             reason = classify_prune_reason(
-                previous.get(key), raw_dir=raw_dir, owner=owner, name=name, now=now
+                None if prune_fresh_only else previous.get(key),
+                raw_dir=raw_dir, owner=owner, name=name, now=now, fresh_only=prune_fresh_only,
             )
             if reason is not None:
                 pruned_by_repo[key] = reason

@@ -53,9 +53,13 @@ KEYLESS_LAYER = ("LK", "depsdev,scorecard,downloads")
 
 #: Extra gather.py flags per step. ``--skip-ineligible`` prunes ineligible repos and stops a confirmed black hole after
 #: its pull-request fetch; it reads github_meta and tree (L0), pr_window (L1) and repo_object (L2) from disk, so it goes
-#: only on the steps after those were refreshed in the same cycle. Never ``--dirty``: under ``--collectors`` it forces
+#: only on the steps after those were refreshed in the same cycle. The pull-request layer comes first, before any of
+#: those is fresh: it gets ``--screen-ineligible`` instead, which asks GitHub (25 repos a point) whether a repo is
+#: archived, disabled or idle and prunes on that and on the slow facts of the cycle before, never on last cycle's commits
+#: or pull requests. L0 is left alone: it is how a repo that woke up is found. Never ``--dirty``: under ``--collectors`` it forces
 #: every repo on every run.
 LAYER_FLAGS: dict[str, tuple[str, ...]] = {
+    "L1": ("--screen-ineligible",),
     "L2": ("--skip-ineligible",),
     "L3g": ("--skip-ineligible",),
     "L3c": ("--skip-ineligible",),
