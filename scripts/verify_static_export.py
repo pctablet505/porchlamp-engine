@@ -756,7 +756,7 @@ def _report_sentences(hooks: dict[str, str], names: dict[str, str]) -> dict[str,
             f"{v['constants_hash']}."
         ),
         "description": (
-            f"{v['share']}% of active open-source projects left most outside pull requests unanswered for two weeks. The "
+            f"{v['share']}% of active open-source projects left most outside pull requests with no human reply, review, merge or close within two weeks or since. The "
             f"share rises with stars. Data on {v['corpus_projects']} GitHub projects."
         ),
         "dataset": (

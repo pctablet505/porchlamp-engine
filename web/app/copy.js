@@ -392,7 +392,7 @@ export const BLACK_HOLE_EVIDENCE_HEADING = "How this Black hole status was deter
 export const BLACK_HOLE_RULE_TEXT =
   "Black hole rule: A repository is classified as a Black hole only when at least 10 eligible external non-bot PRs were observed for 14+ days in the 180-day window and the 95% one-sided Wilson lower confidence bound on the share of them that no maintainer had replied to, reviewed, merged or closed when the data was read exceeds 50%. A project that answers late is slow, not a black hole: its 14-day unanswered share lowers its responsiveness score instead.";
 export const BLACK_HOLE_EXCLUSIONS_TEXT =
-  "False-positive protections: Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
+  "False-positive protections: Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response; a comment an automated tool posts under a person's account (the same words on many pull requests within a minute of each opening) does not.";
 /** What the "no response" count counted, ending the sentence that starts with "N of M (P%)". */
 export const BLACK_HOLE_STAT_PREDICATE =
   "external non-bot PRs had no maintainer response, merge, or close within 14 days";
@@ -1110,7 +1110,7 @@ export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
 // is in routes.js.)
 //: A template: report.json's values fill the slots, each a hook of its own id (views/leaderboard.js `fillFromReport`).
 //: Without a report the line is left out and only the link below it is drawn.
-export const FINDINGS_LINE = "More than 1 in {one_in} active projects leave most strangers' pull requests unanswered for {deadline_days} days.";
+export const FINDINGS_LINE = "More than 1 in {one_in} active projects leave most strangers' pull requests with no human reply, review, merge or close within {deadline_days} days or since.";
 export const FINDINGS_LINK_LABEL = "Read the findings";
 /** The home's links to the lists (views/leaderboard.js `renderBrowseLinks`): the nav's name and its lines' labels. */
 export const HOME_BROWSE_LABEL = "Browse";
@@ -1141,7 +1141,7 @@ export const LIST_INTRO_RANKINGS =
   "Open-source projects ranked {first} to {last} of {total} by what happens to a stranger's pull request, each with its median first reply.";
 export const LIST_INTRO_ECOSYSTEM = "Porchlamp ranks {total} {ecosystem} projects by what happens to a stranger's pull request.";
 export const LIST_INTRO_ECOSYSTEM_REPORT =
-  "Among the {judged} judged {ecosystem} projects, {eco_share}% left most outside pull requests unanswered for {deadline_days} days, against {share}% across all {ecosystems_word} ecosystems.";
+  "Among the {judged} judged {ecosystem} projects, {eco_share}% left most outside pull requests with no human reply, review, merge or close within {deadline_days} days or since, against {share}% across all {ecosystems_word} ecosystems.";
 export const LIST_INTRO_LENS = "This view ranks {total} projects for {lens}.";
 export const LIST_INTRO_ECOSYSTEM_LENS = "This view ranks {total} {ecosystem} projects for {lens}.";
 export const LIST_INTRO_WEIGHS = "It weighs {weights}.";
@@ -1235,7 +1235,7 @@ export const REPORT_ECOSYSTEMS_CAVEAT =
   "Size is not controlled for. Bigger projects go quiet more often in general, so part of a gap can come from size.";
 export const REPORT_METHOD_HEADING = "How we measured";
 export const REPORT_METHOD_EXCLUSIONS =
-  "Bots, drafts, pull requests their authors closed, brand-new accounts and the project's own members are not counted.";
+  "Bots, drafts, pull requests their authors closed, brand-new accounts and the project's own members are not counted. A comment an automated tool posts under a person's account, the same words on many pull requests within a minute of each opening, is not a reply.";
 export const REPORT_METHOD_LINK_LEAD = "Every parameter, gate and weight:";
 export const REPORT_METHOD_LINK_LABEL = "Porchlamp methodology";
 export const REPORT_LIMITS_HEADING = "What this is not";

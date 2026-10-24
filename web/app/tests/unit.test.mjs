@@ -4351,6 +4351,14 @@ test("home: no digit is typed into the findings line or the Finding template", (
 test("home: the Finding template says a project ignores pull requests only when none was replied to, reviewed, merged or closed (RFC-0026)", () => {
   assert.match(copy.WHY_FINDING_TEMPLATE, /without a human reply, review, merge or close within \{deadline_days\} days or since/);
   assert.match(copy.NOT_RANKED_LIST_REASONS.black_hole, /no human reply, review, merge or close on GitHub within \{deadline_days\} days or since/);
+  assert.match(copy.FINDINGS_LINE, /with no human reply, review, merge or close within \{deadline_days\} days or since/);
+  assert.match(copy.LIST_INTRO_ECOSYSTEM_REPORT, /with no human reply, review, merge or close within \{deadline_days\} days or since/);
+  assert.doesNotMatch(copy.FINDINGS_LINE + copy.LIST_INTRO_ECOSYSTEM_REPORT, /unanswered for/);
+});
+
+test("black hole pages: the exclusions say an automated comment under a person's account is not a reply (RFC-0025)", () => {
+  assert.match(copy.BLACK_HOLE_EXCLUSIONS_TEXT, /automated tool posts under a person's account/);
+  assert.match(copy.REPORT_METHOD_EXCLUSIONS, /automated tool posts under a person's account/);
 });
 
 test("home: the lists are folded under one closed row, and every link stays inside the folded part", () => {
@@ -4624,7 +4632,7 @@ test("lists: each list's heading and intro, with every number a hook, and its de
       { "list.first": "101", "list.last": "200", "list.total": "4,402" }, null],
     ["/rust/", { total: 474 },
       "Rust projects that answer outside pull requests",
-      "Porchlamp ranks 474 Rust projects by what happens to a stranger's pull request. Among the 488 judged Rust projects, 16.6% left most outside pull requests unanswered for 14 days, against 19.9% across all six ecosystems.",
+      "Porchlamp ranks 474 Rust projects by what happens to a stranger's pull request. Among the 488 judged Rust projects, 16.6% left most outside pull requests with no human reply, review, merge or close within 14 days or since, against 19.9% across all six ecosystems.",
       { "list.total": "474", "list.judged": "488", "list.eco_share": "16.6", "list.deadline_days": "14", "list.share": "19.9", "list.ecosystems_word": "six" }, null],
     ["/first-timers/", { total: 1234 },
       "Open-source projects for first-time contributors",

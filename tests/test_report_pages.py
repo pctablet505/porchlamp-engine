@@ -1659,6 +1659,12 @@ def test_report_and_verifier_print_the_correlation_the_same_and_never_as_negativ
     assert report_pages.report_json(f)["values"]["rho"] == printed == hooks["rho"]
 
 
+def test_the_report_meta_description_says_what_is_counted_not_unanswered_for_two_weeks():
+    description = report_pages.report_description(_published_facts())
+    assert "no human reply, review, merge or close within two weeks or since" in description
+    assert "unanswered for" not in description
+
+
 def test_every_black_hole_sentence_says_a_close_counts_as_a_touch():
     """RFC-0026: a project is a black hole when no maintainer replied, reviewed, merged or closed, so the sentences that
     count black holes name all four."""
