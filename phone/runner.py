@@ -67,12 +67,17 @@ LAYER_FLAGS: dict[str, tuple[str, ...]] = {
     "LK": ("--skip-ineligible",),
 }
 
+#: Written when the repair after step 1 is done in this cycle (:func:`run_repair`).
+REPAIR_MARKER = "L1.repaired"
+
 PAGE = 25
 _DONE = re.compile(r"done: (\d+) clean, (\d+) with failures")
 #: The one line gather.main prints per repo (the prefix is ``phone.entry.REPO_LINE``) and the run's size line.
 _OUTCOME = re.compile(r"^[\w.-]+/[\w.-]+ \[[^\]]*\]: (?:(?P<stopped>OK \(stopped at black_hole\))|(?P<ok>OK)"
                       r"|(?P<pruned>SKIP \(ineligible: [^)]+\))"
-                      r"|(?P<clean>SKIP \((?:clean fingerprint|selected collectors clean)\))|(?P<failed>FAIL .*))$")
+                      r"|(?P<clean>SKIP \((?:clean fingerprint|selected collectors clean|no cut record)\))|(?P<failed>FAIL .*))$")
+#: The repo line of a record ``--repair-replies`` rewrote.
+_REPAIRED = re.compile(r"(?m)^[\w.-]+/[\w.-]+ \[[^\]]*\]: OK$")
 _REPOS = re.compile(r"^collectors: .*; repos: (\d+)$")
 _GATHER_CACHE: dict[str, ModuleType] = {}
 
@@ -335,6 +340,91 @@ def run_layer(
     return 2
 
 
+def run_repair(
+    home,
+    gather_main: GatherMain,
+    *,
+    max_runs: int = 60,
+    min_free_gb: float = 2.0,
+    free_gb: Callable[[Path], float] = shutil_free,
+    log: Callable[[str], object] = print,
+    now: Callable[[], float] = time.time,
+    state: RunState | None = None,
+    notify: Notify | None = None,
+) -> int:
+    """After step 1: read again the pull requests that the query before RFC-0022 cut short in its records.
+
+    A cycle that was open when the engine changed keeps the records it already wrote (an envelope on disk counts as
+    done), so its pull-request step can hold records of the old query: reply lists stopped at 10 reviews and 20
+    comments and a timeline at 5 events, with no sign that more existed. ``gather --repair-replies`` reads exactly
+    those pull requests again, by number, and stamps the record with the current query. A cycle that fetched the
+    whole step with the current query has nothing to repair, and the run only looks. Runs until one run has no
+    failure or two agree; ``state/refresh/L1.repaired`` then tells later starts of this cycle to skip it. When a
+    record changed, ``L1.complete`` is written again, so the step's archive is built again for the pull.
+
+    Returns 0 done; 2 not confirmed after max_runs; 3 the gatherer raised; 4 a run printed no done line; 6 free disk
+    under min_free_gb.
+    """
+    home = Path(home)
+    marker_dir = home / "state" / "refresh"
+    if (marker_dir / REPAIR_MARKER).exists():
+        log("L1: replies already repaired -- skipping")
+        return 0
+    layer = "L1"
+    if state is not None:
+        state.layer, state.collectors, state.run, state.max_runs = layer, ("pr_window",), 0, max_runs
+        state.checked = state.stopped = state.pruned = state.failed = state.total = 0
+    _note(notify, "repair_start", layer=layer)
+
+    def counted(line: str) -> None:
+        if state is not None:
+            count_line(state, line)
+        log(line)
+
+    prev: int | None = None
+    repaired = 0
+    for run in range(1, max_runs + 1):
+        if state is not None:
+            state.run = run
+            state.checked = state.stopped = state.pruned = state.failed = state.total = 0
+        free = free_gb(home)
+        if free < min_free_gb:
+            log(f"{layer}: BLOCKED free disk {free:.1f} GB under {min_free_gb} GB")
+            return 6
+        log(f"{layer}: === repair run {run} of {max_runs} (pr_window) ===")
+        tee = _Tee(counted)
+        try:
+            with contextlib.redirect_stdout(tee):  # type: ignore[arg-type]
+                gather_main(["--all", "--repair-replies"])
+        except (Exception, SystemExit):
+            tee.finish()
+            log(f"{layer}: repair raised in run {run}")
+            log(traceback.format_exc())
+            return 3
+        tee.finish()
+        found = _DONE.findall(tee.text())
+        if not found:
+            log(f"{layer}: repair run {run} printed no done line")
+            return 4
+        fail = int(found[-1][1])
+        repaired += len(_REPAIRED.findall(tee.text()))
+        log(f"{layer}: repair run {run} summary: {found[-1][0]} clean, {fail} with failures")
+        if fail == 0 or (prev is not None and fail == prev):
+            _write_marker(marker_dir / REPAIR_MARKER, now)
+            log(f"{layer}: repair COMPLETE, {repaired} records read again, {fail} failures")
+            if repaired:
+                _write_marker(marker_dir / f"{layer}.complete", now)
+                try:
+                    archive.build_archive(home, layer)
+                except OSError as exc:
+                    log(f"archive for {layer} not built: {exc}; the pull builds it")
+            _note(notify, "repair_done", layer=layer, repaired=repaired)
+            return 0
+        prev = fail
+    log(f"{layer}: repair NOT confirmed after {max_runs} runs")
+    return 2
+
+
 def run_cycle(
     home,
     gather_main: GatherMain,
@@ -376,6 +466,11 @@ def run_cycle(
         if rc:
             log(f"cycle stopped at {layer} with rc {rc}")
             return rc
+        if layer == "L1":
+            rc = run_repair(home, gather_main, **kw)
+            if rc:
+                log(f"cycle stopped at {layer} repair with rc {rc}")
+                return rc
     main_done = home / "state" / "refresh" / "MAIN.done"
     if not main_done.is_file():  # a keyless resume must not re-stamp the MAIN time
         _write_marker(main_done, now)
@@ -420,7 +515,7 @@ def _retire_markers(home: Path, now: Callable[[], float], log: Callable[[str], o
     prev = home / "state" / "refresh-prev"
     stamp = datetime.fromtimestamp(now(), timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     for p in sorted(state.glob("*")):
-        if not p.is_file() or not (p.suffix in (".complete", ".staged") or p.name == "MAIN.done"):
+        if not p.is_file() or not (p.suffix in (".complete", ".staged", ".repaired") or p.name == "MAIN.done"):
             continue
         prev.mkdir(parents=True, exist_ok=True)
         target = prev / p.name

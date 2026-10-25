@@ -41,7 +41,7 @@ class Gather:
         self.rule, self.before, self.calls, self.counts = rule, before, [], {}
 
     def __call__(self, argv):
-        cols = argv[3]
+        cols = "repair" if "--repair-replies" in argv else argv[3]
         n = self.counts[cols] = self.counts.get(cols, 0) + 1
         self.calls.append(cols)
         if self.before:
@@ -270,7 +270,7 @@ def test_main_order_l1_l0_l2_l3g_l3c_l4(home, kw):
     g = Gather()
     assert R.run_cycle(home, g, **kw) == 0
     order = [c for i, c in enumerate(g.calls) if i == 0 or g.calls[i - 1] != c]
-    assert order == [PR, L0, L2, "governance", "commits_365d,issues_counts", L4, KEYLESS]
+    assert order == [PR, "repair", L0, L2, "governance", "commits_365d,issues_counts", L4, KEYLESS]  # the repair follows step 1
 
 
 def test_cycle_stops_at_first_failing_layer_and_no_main_done(home, kw):
@@ -422,6 +422,7 @@ def test_restart_during_keyless_layer_with_main_done_present_resumes_the_keyless
     for layer, _cols in R.MAIN_LAYERS:
         _mark(home, f"{layer}.staged")
         _mark(home, f"{layer}.complete")
+    _mark(home, "L1.repaired")
     _mark(home, "MAIN.done", FRESH)
     _mark(home, "LK.staged", FRESH)
     _mark(home, OPEN, FRESH)

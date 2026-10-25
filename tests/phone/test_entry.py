@@ -40,7 +40,7 @@ def wait_until(predicate, seconds: float = 10.0, step: float = 0.05) -> bool:
 def stub_gather(calls: list[str] | None = None):
     def main(argv: list[str]) -> int:
         if calls is not None:
-            calls.append(argv[3])
+            calls.append("repair" if "--repair-replies" in argv else argv[3])
         print(DONE_LINE)
         return 0
     return main

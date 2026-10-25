@@ -402,6 +402,13 @@ class Engine:
             detail = "" if checked is None else (f"{checked:,} projects checked"
                                                  f"{status_mod.stopped_note(info.get('stopped', 0))}")
             self.event("ok", f"Finished step {where}: {runner.STEP_NAMES.get(layer, str(layer))}", detail)
+        elif name == "repair_start":
+            self.event("info", "Repairing pull-request records",
+                       "It reads again the long discussions that an earlier version of the query cut short.")
+        elif name == "repair_done":
+            repaired = info.get("repaired") or 0
+            self.event("ok", "Pull-request records repaired",
+                       f"{repaired:,} projects had records read again." if repaired else "No record needed it.")
         elif name == "cycle_done":
             self.controls.cycle_boundary()
             self.event("ok", "Cycle finished", f"{len(steps)} of {len(steps)} steps. The data is ready to pull.")

@@ -48,7 +48,7 @@ class Gather:
         self.state, self.fails, self.counts = state, fails, {}
 
     def __call__(self, argv):
-        cols = argv[3]
+        cols = "repair" if "--repair-replies" in argv else argv[3]
         n = self.counts[cols] = self.counts.get(cols, 0) + 1
         self.calls.append(cols)
         if self.state is not None:
@@ -131,7 +131,7 @@ def test_a_layer_deselected_mid_cycle_is_skipped_at_the_next_boundary(home):
     class Switching(Gather):
         def __call__(self, argv):
             out = super().__call__(argv)
-            if argv[3] == "pr_window" and self.counts["pr_window"] == 2:
+            if argv[3:4] == ["pr_window"] and self.counts["pr_window"] == 2:
                 chosen[0] = ["L1", "LK"]                       # L1 just completed: now drop L0
             return out
 
@@ -146,6 +146,7 @@ def test_the_state_shows_the_step_its_collectors_and_the_pass_while_the_gatherer
     g = Gather(state)
     run(home, g, state=state, layers=lambda: ["L1", "LK"])
     assert g.seen_state == [("L1", ("pr_window",), 1), ("L1", ("pr_window",), 2),
+                           ("L1", ("pr_window",), 1),                      # the repair after step 1: one clean run
                            ("LK", ("depsdev", "scorecard", "downloads"), 1),
                            ("LK", ("depsdev", "scorecard", "downloads"), 2)]
     assert state.failures == 0 and state.last_rc == 0 and state.finished_at == NOW
@@ -156,8 +157,8 @@ def test_the_notifications_follow_the_cycle_in_order(home):
     told: list[str] = []
     run(home, Gather(), layers=lambda: ["L1", "LK"], notify=lambda name, **info: told.append(
         name + (":" + info["layer"] if "layer" in info else "")))
-    assert told == ["cycle_start", "step_start:L1", "step_done:L1", "step_start:LK", "step_done:LK", "cycle_done",
-                    "idle"]
+    assert told == ["cycle_start", "step_start:L1", "step_done:L1", "repair_start:L1", "repair_done:L1",
+                    "step_start:LK", "step_done:LK", "cycle_done", "idle"]
 
 
 def test_a_failed_cycle_counts_the_failures_in_a_row_and_tells_so(home):
