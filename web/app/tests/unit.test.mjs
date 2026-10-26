@@ -1407,7 +1407,7 @@ test('SEO: "Porchlamp" leads the title, description and the leaderboard heading'
   const description = html.match(/<meta name="description" content="([^"]*)"/)[1];
   assert.match(title, /^Porchlamp: .*Rankings$/);
   assert.ok(title.length <= 65, `title is ${title.length} chars, search results cut it near 60`);
-  assert.match(description, /^Porchlamp ranks /);
+  assert.match(description, /^Porchlamp measures /);
   assert.ok(description.length <= 160, `description is ${description.length} chars`);
   assert.equal(copy.LEADERBOARD_HEADING, "Porchlamp rankings");
   const view = readFileSync(path.join(here, "..", "views", "leaderboard.js"), "utf8");
