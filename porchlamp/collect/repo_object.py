@@ -150,6 +150,8 @@ def has_manifest(paths: list[str]) -> bool:
     for p in paths:
         if p in D_GATE1_ROOT_MANIFEST_NAMES:
             return True
+        if tree_depth(p) > D_GATE1_MAX_DEPTH:
+            continue
         base = p.rsplit("/", 1)[-1]
         if (base in D_GATE1_MANIFEST_NAMES
                 or any(base.startswith(x) for x in D_GATE1_MANIFEST_PREFIXES)

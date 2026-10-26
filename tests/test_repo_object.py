@@ -141,6 +141,7 @@ def test_a_project_built_with_a_widened_manifest_is_not_gated_non_software(name)
 
     assert ro_mod.has_manifest([name]) is True
     assert ro_mod.has_manifest([f"sub/{name}"]) is True
+    assert ro_mod.has_manifest([f"a/b/c/{name}"]) is False  # depth 3 is out of range
     assert gate_evidence._has_recognized_manifest([f"sub/{name}"]) is True
     assert gate_evidence._has_recognized_manifest([f"a/b/c/{name}"]) is False  # depth 3 is out of range
     out = ro_mod.derive_eligibility(None, {"license_spdx": "MIT"}, {"paths": [name, "README.md"], "truncated": False})
