@@ -56,7 +56,6 @@ from porchlamp.derive.bundle import dump_bundle, load_bundle, write_bundle
 from porchlamp.derive.gate_evidence import (  # noqa: F401
     MANIFEST_MAX_DEPTH,
     RECOGNIZED_MANIFEST_BASENAMES,
-    RECOGNIZED_ROOT_MANIFEST_BASENAMES,
     _has_license_file,
     _has_off_platform_marker,
     _has_recognized_manifest,
