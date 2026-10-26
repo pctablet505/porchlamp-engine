@@ -614,7 +614,7 @@ def test_each_page_is_its_own_canonical_and_the_titles_differ(built):
         assert re.findall(r'<link rel="canonical" href="([^"]*)"', page) == [canonical]
         titles.append(re.search(r"<title>(.*?)</title>", page).group(1))
     assert len(set(titles)) == 3
-    assert titles[0] == "Open-source black holes: how many projects ignore outside pull requests (October 2026) | Porchlamp"
+    assert titles[0] == "Open-source black holes: do projects answer pull requests? (2026 data) | Porchlamp"
     assert titles[2] == "Porchlamp methodology: how open-source projects are measured and ranked | Porchlamp"
 
 

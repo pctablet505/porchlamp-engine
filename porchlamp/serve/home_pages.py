@@ -182,7 +182,7 @@ def _parameter_count(f: HomeFacts) -> int:
 # --------------------------------------------------------------------------- #
 def home_description(f: HomeFacts) -> str:
     return (
-        f"Porchlamp rankings: {fmt_int(f.total)} open-source projects ranked by what happens to a stranger's pull "
+        f"Porchlamp ranks {fmt_int(f.total)} open-source projects by whether they reply, review or merge a stranger's pull "
         "request, not by stars. Find the projects that leave the light on."
     )
 

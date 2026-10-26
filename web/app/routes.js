@@ -33,7 +33,7 @@
 
 export const ROUTES = deepFreeze([
   // routes:begin
-  {"id": "ranked", "path": "/", "title": "Porchlamp rankings: find the projects that leave the light on", "query": ["persona", "eco", "q", "sort", "page", "page_size"], "shell": true},
+  {"id": "ranked", "path": "/", "title": "Porchlamp: do open-source projects answer pull requests? Rankings", "query": ["persona", "eco", "q", "sort", "page", "page_size"], "shell": true},
   {"id": "rankings", "view": "ranked", "path": "/rankings/{page}/", "title": "Open-source projects ranked {first} to {last} of {total} | Porchlamp", "query": [], "fixed": {"persona": "balanced", "eco": null, "q": null, "sort": "rank", "page_size": 100}, "shell": true},
   {"id": "rust", "view": "ranked", "path": "/rust/", "title": "{ecosystem} projects that answer outside pull requests | Porchlamp", "query": ["persona", "sort", "page", "page_size", "q"], "fixed": {"eco": "crates"}, "defaults": {"page_size": 50}, "shell": true},
   {"id": "python", "view": "ranked", "path": "/python/", "title": "{ecosystem} projects that answer outside pull requests | Porchlamp", "query": ["persona", "sort", "page", "page_size", "q"], "fixed": {"eco": "pypi"}, "defaults": {"page_size": 50}, "shell": true},
@@ -73,7 +73,7 @@ export const ROUTES = deepFreeze([
   {"id": "compare", "path": "/compare/", "title": "Compare open-source projects side by side | Porchlamp", "query": ["persona", "cmp"], "shell": true},
   {"id": "configure", "path": "/weights/", "title": "Rank open-source projects with your own pillar weights | Porchlamp", "query": ["eco", "q", "sort", "page", "page_size", "w"], "shell": true},
   {"id": "methodology", "path": "/methodology/", "title": "Porchlamp methodology: how open-source projects are measured and ranked | Porchlamp", "query": [], "shell": true},
-  {"id": "report", "path": "/black-holes/", "title": "Open-source black holes: how many projects ignore outside pull requests | Porchlamp", "query": [], "shell": true},
+  {"id": "report", "path": "/black-holes/", "title": "Open-source black holes: do projects answer pull requests? | Porchlamp", "query": [], "shell": true},
   {"id": "project", "path": "/projects/{owner}/{name}/", "title": "{owner}/{name}: pull request response time and contributor experience | Porchlamp", "query": ["persona"], "shell": false},
   {"id": "notfound", "path": null, "title": "Page not found | Porchlamp", "query": [], "shell": false}
   // routes:end

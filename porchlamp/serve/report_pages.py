@@ -632,9 +632,9 @@ def _with_ld(built: str, ld: Any) -> str:
 
 
 def report_title(f: Facts, *, frozen: bool = False) -> str:
-    """The latest report names the month; the frozen copy names its snapshot, so the two titles differ."""
-    when = f"snapshot {f.snapshot_id}" if frozen else f.month_year
-    return f"Open-source black holes: how many projects ignore outside pull requests ({when}) | Porchlamp"
+    """The latest report names the year; the frozen copy names its snapshot, so the two titles differ."""
+    when = f"snapshot {f.snapshot_id}" if frozen else f"{f.snapshot_date.year} data"
+    return f"Open-source black holes: do projects answer pull requests? ({when}) | Porchlamp"
 
 
 def report_description(f: Facts) -> str:

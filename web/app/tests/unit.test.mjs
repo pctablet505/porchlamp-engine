@@ -1391,7 +1391,7 @@ test("index.html carries absolute link-preview tags and the preview image exists
   assert.equal(meta("name", "twitter:image"), base + "og.png");
   assert.equal(meta("name", "twitter:card"), "summary_large_image");
   for (const k of ["og:title", "og:description", "og:image:alt"]) assert.ok(meta("property", k), k);
-  assert.match(html, /<title>Porchlamp rankings: find the projects that leave the light on<\/title>/);
+  assert.match(html, /<title>Porchlamp: do open-source projects answer pull requests\? Rankings<\/title>/);
   // The frame is empty: the export's prerender draws the ranked view into it (web/prerender.mjs).
   assert.match(html, /<main class="app-main" id="app-main" tabindex="-1">\s*<\/main>/);
   const png = readFileSync(path.join(here, "..", "og.png"));
@@ -1400,14 +1400,14 @@ test("index.html carries absolute link-preview tags and the preview image exists
   assert.equal(png.readUInt32BE(20), 630, "og:image:height matches the file");
 });
 
-test('SEO: "Porchlamp rankings" leads the title, description and the leaderboard heading', () => {
+test('SEO: "Porchlamp" leads the title, description and the leaderboard heading', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const html = readFileSync(path.join(here, "..", "index.html"), "utf8");
   const title = html.match(/<title>([^<]*)<\/title>/)[1];
   const description = html.match(/<meta name="description" content="([^"]*)"/)[1];
-  assert.match(title, /^Porchlamp rankings\b/);
+  assert.match(title, /^Porchlamp: .*Rankings$/);
   assert.ok(title.length <= 65, `title is ${title.length} chars, search results cut it near 60`);
-  assert.match(description, /^Porchlamp rankings: /);
+  assert.match(description, /^Porchlamp ranks /);
   assert.ok(description.length <= 160, `description is ${description.length} chars`);
   assert.equal(copy.LEADERBOARD_HEADING, "Porchlamp rankings");
   const view = readFileSync(path.join(here, "..", "views", "leaderboard.js"), "utf8");
