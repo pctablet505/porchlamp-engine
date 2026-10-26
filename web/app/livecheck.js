@@ -50,15 +50,17 @@ export const GATE6_HANDOFF_MIN_SHARE = 0.5;
 export const MANIFEST_MAX_DEPTH = 2;
 //: porchlamp.derive.gate_evidence.RECOGNIZED_MANIFEST_BASENAMES.
 export const MANIFEST_BASENAMES = Object.freeze([
-  "BUILD", "BUILD.bazel", "CMakeLists.txt", "Cargo.toml", "GNUmakefile", "Gemfile",
+  "BUILD", "BUILD.bazel", "CMakeLists.txt", "Cargo.toml", "Dockerfile", "GNUmakefile", "Gemfile",
   "Kbuild", "MODULE.bazel", "Makefile", "Package.swift", "SConstruct", "WORKSPACE",
   "WORKSPACE.bazel", "build.sbt", "build.zig", "build.zig.zon", "composer.json", "conanfile.py",
-  "conanfile.txt", "configure.ac", "default.nix", "deps.edn", "dune-project", "flake.nix",
+  "conanfile.txt", "configure.ac", "configure.in", "default.nix", "deps.edn", "dune-project", "flake.nix",
   "go.mod", "meson.build", "mix.exs", "package.json", "pom.xml", "project.clj",
   "pubspec.yaml", "pyproject.toml", "setup.cfg", "setup.py", "stack.yaml", "vcpkg.json",
   "Gopkg.toml", "Pipfile", "Podfile", "Rakefile", "deno.json", "deno.jsonc",
   "pixi.toml", "premake4.lua", "premake5.lua", "requirements.txt", "tsconfig.json", "xmake.lua",
 ]);
+//: porchlamp.derive.gate_evidence.RECOGNIZED_ROOT_MANIFEST_BASENAMES.
+export const ROOT_MANIFEST_BASENAMES = Object.freeze(["configure"]);
 //: porchlamp.derive.gate_evidence.RECOGNIZED_MANIFEST_PREFIXES.
 export const MANIFEST_PREFIXES = Object.freeze(["build.gradle"]);
 //: porchlamp.derive.gate_evidence.RECOGNIZED_MANIFEST_SUFFIXES.
@@ -187,6 +189,7 @@ export function isBotActor({ type = "", login = "", email = "" } = {}) {
 /** D-GATE-1, as gate_evidence._has_recognized_manifest: the first recognised manifest at depth <= 2, else null. */
 export function findRecognizedManifest(paths) {
   for (const path of paths) {
+    if (ROOT_MANIFEST_BASENAMES.includes(path)) return path;
     if (path.split("/").length - 1 > MANIFEST_MAX_DEPTH) continue;
     const base = path.slice(path.lastIndexOf("/") + 1);
     if (

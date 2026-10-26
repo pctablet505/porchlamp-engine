@@ -23,7 +23,7 @@ import re
 from pathlib import Path
 import tempfile
 
-from porchlamp.collect import github_graphql
+from porchlamp.collect import github_graphql, repo_object
 from porchlamp.core import constants, gates
 from porchlamp.core import methodology as methodology_module
 from porchlamp.core.commit_domains import KNOWN_BOT_LOGINS, CommitActor, is_bot
@@ -75,6 +75,7 @@ def csp_directive(policy: str, directive: str) -> str:
 class TestMirroredConstants:
     def test_manifest_rules(self) -> None:
         assert sorted(js_string_list("MANIFEST_BASENAMES")) == sorted(gate_evidence.RECOGNIZED_MANIFEST_BASENAMES)
+        assert sorted(js_string_list("ROOT_MANIFEST_BASENAMES")) == sorted(gate_evidence.RECOGNIZED_ROOT_MANIFEST_BASENAMES)
         assert js_string_list("MANIFEST_PREFIXES") == list(gate_evidence.RECOGNIZED_MANIFEST_PREFIXES)
         assert js_string_list("MANIFEST_SUFFIXES") == list(gate_evidence.RECOGNIZED_MANIFEST_SUFFIXES)
         assert js_number("MANIFEST_MAX_DEPTH") == gate_evidence.MANIFEST_MAX_DEPTH
@@ -138,6 +139,7 @@ class TestSharedCases:
             assert is_bot(actor) is case["expected"], case
         for case in doc["manifests"]:
             assert gate_evidence._has_recognized_manifest(case["paths"]) is case["expected"], case
+            assert repo_object.has_manifest(case["paths"]) is case["expected"], case
         for case in doc["license_files"]:
             assert gate_evidence._has_license_file(case["paths"]) is case["expected"], case
         for case in doc["markers"]:

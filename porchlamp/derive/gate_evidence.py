@@ -19,6 +19,7 @@ from porchlamp.core.gates import Gate5WindowBreakdown, GateEvidence, _parse_iso
 
 __all__ = [
     "RECOGNIZED_MANIFEST_BASENAMES",
+    "RECOGNIZED_ROOT_MANIFEST_BASENAMES",
     "MANIFEST_MAX_DEPTH",
     "_has_recognized_manifest",
     "_has_license_file",
@@ -52,7 +53,9 @@ RECOGNIZED_MANIFEST_BASENAMES: frozenset[str] = frozenset({
     # widened 2026-10-24: build and dependency files of real projects the list missed
     "requirements.txt", "Pipfile", "pixi.toml", "xmake.lua", "premake4.lua", "premake5.lua", "Rakefile",
     "Podfile", "tsconfig.json", "deno.json", "deno.jsonc", "Gopkg.toml",
+    "configure.in", "Dockerfile",
 })
+RECOGNIZED_ROOT_MANIFEST_BASENAMES: frozenset[str] = frozenset({"configure"})
 RECOGNIZED_MANIFEST_PREFIXES: tuple[str, ...] = ("build.gradle",)
 RECOGNIZED_MANIFEST_SUFFIXES: tuple[str, ...] = (
     ".cabal", ".csproj", ".fsproj", ".sln", ".rockspec", ".gemspec", ".podspec",
@@ -66,6 +69,8 @@ def _has_recognized_manifest(paths: Sequence[str]) -> bool:
     ``paths`` (a flat list of repo-relative file paths, as the sample's
     ``raw/tree`` envelopes record them)."""
     for path in paths:
+        if path in RECOGNIZED_ROOT_MANIFEST_BASENAMES:
+            return True
         if path.count("/") > MANIFEST_MAX_DEPTH:
             continue
         base = path.rsplit("/", 1)[-1]
