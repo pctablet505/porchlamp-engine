@@ -23,7 +23,7 @@ import re
 from pathlib import Path
 import tempfile
 
-from porchlamp.collect import github_graphql
+from porchlamp.collect import github_graphql, repo_object
 from porchlamp.core import constants, gates
 from porchlamp.core import methodology as methodology_module
 from porchlamp.core.commit_domains import KNOWN_BOT_LOGINS, CommitActor, is_bot
@@ -139,6 +139,7 @@ class TestSharedCases:
             assert is_bot(actor) is case["expected"], case
         for case in doc["manifests"]:
             assert gate_evidence._has_recognized_manifest(case["paths"]) is case["expected"], case
+            assert repo_object.has_manifest(case["paths"]) is case["expected"], case
         for case in doc["license_files"]:
             assert gate_evidence._has_license_file(case["paths"]) is case["expected"], case
         for case in doc["markers"]:

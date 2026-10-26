@@ -93,7 +93,9 @@ def test_has_manifest_recognised_set():
 
     assert ro_mod.D_GATE1_MANIFEST_NAMES == gate_evidence.RECOGNIZED_MANIFEST_BASENAMES
     assert ro_mod.D_GATE1_ROOT_MANIFEST_NAMES == gate_evidence.RECOGNIZED_ROOT_MANIFEST_BASENAMES
+    assert ro_mod.D_GATE1_MANIFEST_PREFIXES == gate_evidence.RECOGNIZED_MANIFEST_PREFIXES
     assert ro_mod.D_GATE1_MANIFEST_SUFFIXES == gate_evidence.RECOGNIZED_MANIFEST_SUFFIXES
+    assert ro_mod.D_GATE1_MAX_DEPTH == gate_evidence.MANIFEST_MAX_DEPTH
     assert ro_mod.has_manifest(["pyproject.toml"]) is True
     assert ro_mod.has_manifest(["src/package.json"]) is True
     assert ro_mod.has_manifest(["a/b/Cargo.toml"]) is True
