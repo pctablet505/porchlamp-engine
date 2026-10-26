@@ -216,10 +216,6 @@ class Facts:
         return f"{self.window_start.day} {self.window_start:%B}", long_date(self.window_end)
 
     @property
-    def month_year(self) -> str:
-        return f"{self.snapshot_date:%B %Y}"
-
-    @property
     def csv_name(self) -> str:
         return f"porchlamp-{self.snapshot_id}-ranked.csv"
 
