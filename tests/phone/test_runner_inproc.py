@@ -246,6 +246,11 @@ def test_second_cycle_on_same_utc_day_disambiguates_stale_dir(home, kw):
     assert R.run_layer(home, "L1", PR, Gather(), **kw) == 0
     assert (home / STALE_DIR / "pr_window/cycle1.json").read_text() == '{"cycle": 1}'
     assert (home / f"{STALE_DIR}-120000Z" / "pr_window/cycle2.json").read_text() == '{"cycle": 2}'
+    # A third cycle on the same UTC day (even at the same clock second) disambiguates with -2.
+    R._retire_markers(home, lambda: NOW, lambda _m: None)
+    _put(home / "raw/pr_window/cycle3.json", '{"cycle": 3}')
+    assert R.run_layer(home, "L1", PR, Gather(), **kw) == 0
+    assert (home / f"{STALE_DIR}-120000Z-2" / "pr_window/cycle3.json").read_text() == '{"cycle": 3}'
 
 
 def test_staging_happens_once(home, kw):

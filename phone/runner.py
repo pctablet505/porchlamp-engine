@@ -238,7 +238,21 @@ class _Tee:
 
 
 def _has_entries(path: Path) -> bool:
-    return path.exists() and (not path.is_dir() or any(path.iterdir()))
+    if not path.exists():
+        return False
+    if not path.is_dir():
+        return True
+    try:
+        return any(path.iterdir())
+    except OSError:
+        return True
+
+
+def _has_retired_stage_marker(home: Path, layer: str) -> bool:
+    state_dir = home / "state"
+    if not state_dir.is_dir():
+        return False
+    return any(p.is_dir() and any(p.glob(f"{layer}.staged*")) for p in state_dir.glob("refresh-prev*"))
 
 
 def _stage(
@@ -254,8 +268,7 @@ def _stage(
     stale = home / f"raw-stale-{ts:%Y-%m-%d}"
     sources = [c for c in collectors if _has_entries(raw / c)]
     if any((stale / c).exists() for c in sources):
-        prev_dir = home / "state" / "refresh-prev"
-        if prev_dir.is_dir() and any(prev_dir.glob(f"{layer}.staged*")):
+        if _has_retired_stage_marker(home, layer):
             candidate = home / f"{stale.name}-{ts:%H%M%SZ}"
             seq = 2
             while any((candidate / c).exists() for c in sources):
