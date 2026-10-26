@@ -86,7 +86,7 @@ def test_the_generated_texts_state_the_snapshots_own_counts_and_rows(built):
     feed = (site / "feed.xml").read_text(encoding="utf-8")
     assert f"{counts['total']:,} open-source projects measured" in feed
     home = (site / "index.html").read_text(encoding="utf-8")
-    assert f'content="Porchlamp rankings: {counts["total"]:,} open-source' in home
+    assert f'content="Porchlamp ranks {counts["total"]:,} open-source' in home
     assert [i["url"] for i in _ld(home)["@graph"][3]["itemListElement"]] == [
         f"https://porchlamp.org/projects/{r['owner'].lower()}/{r['name'].lower()}/" for r in rows[: home_pages.TOP_LISTED]]
 
@@ -109,7 +109,7 @@ def test_no_number_is_typed_into_the_home_template_or_the_finding_lines():
     for name in ("FINDINGS_LINE", "WHY_FINDING_TEMPLATE"):
         assert number_literals(report_pages.copy_js_string(name)) == [], name
     # the check can fail: a planted count in the description, a planted share in the line
-    planted = template.replace('content="Porchlamp rankings: open-source', 'content="Porchlamp rankings: 11,000 open-source', 1)
+    planted = template.replace('content="Porchlamp ranks open-source', 'content="Porchlamp ranks 11,000 open-source', 1)
     assert planted != template and number_literals(visible_text(planted)) == ["1", "1", "0", "0", "0"]
     assert number_literals(report_pages.copy_js_string("FINDINGS_LINE").replace("{one_in}", "6", 1)) == ["1", "6"]
     assert number_literals(report_pages.copy_js_string("WHY_FINDING_TEMPLATE").replace("{deadline_days}", "14", 1)) == ["1", "4"]
@@ -126,7 +126,7 @@ def _plant(site: Path, rel: str, old: str, new: str) -> None:
 _COUNTS = {
     "llms.txt": r"(Porchlamp ranks )([\d,]+)( open-source)",
     "feed.xml": r"(: )([\d,]+)( open-source projects measured)",
-    "index.html": r'(content="Porchlamp rankings: )([\d,]+)( open-source)',
+    "index.html": r'(content="Porchlamp ranks )([\d,]+)( open-source)',
 }
 
 

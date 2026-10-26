@@ -216,10 +216,6 @@ class Facts:
         return f"{self.window_start.day} {self.window_start:%B}", long_date(self.window_end)
 
     @property
-    def month_year(self) -> str:
-        return f"{self.snapshot_date:%B %Y}"
-
-    @property
     def csv_name(self) -> str:
         return f"porchlamp-{self.snapshot_id}-ranked.csv"
 
@@ -632,9 +628,9 @@ def _with_ld(built: str, ld: Any) -> str:
 
 
 def report_title(f: Facts, *, frozen: bool = False) -> str:
-    """The latest report names the month; the frozen copy names its snapshot, so the two titles differ."""
-    when = f"snapshot {f.snapshot_id}" if frozen else f.month_year
-    return f"Open-source black holes: how many projects ignore outside pull requests ({when}) | Porchlamp"
+    """The latest report names the year; the frozen copy names its snapshot, so the two titles differ."""
+    when = f"snapshot {f.snapshot_id}" if frozen else f"{f.snapshot_date.year} data"
+    return f"Open-source black holes: do projects answer pull requests? ({when}) | Porchlamp"
 
 
 def report_description(f: Facts) -> str:

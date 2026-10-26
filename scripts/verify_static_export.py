@@ -1030,8 +1030,9 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         eco_links = [e["href"] for e in page.find(tag="a", within=page.element(tag="section", aria="ecosystems"))]
         ledger.equal(f"{w} ecosystem rows link their pages", eco_links, [f"/{ECOSYSTEM_PAGE_SLUGS[e]}/" for e in eco_order])
         # head: title, description, canonical, JSON-LD
-        when = f"snapshot {sid}" if label == "frozen" else f"{date.fromisoformat(sid):%B %Y}"
-        ledger.contains(f"{w} <title>", _plain(re.search(r"<title>(.*?)</title>", text, re.S).group(1)), f"({when})")
+        when = f"snapshot {sid}" if label == "frozen" else f"{date.fromisoformat(sid).year} data"
+        expected_title = f"Open-source black holes: do projects answer pull requests? ({when}) | Porchlamp"
+        ledger.equal(f"{w} <title>", _plain(re.search(r"<title>(.*?)</title>", text, re.S).group(1)), expected_title)
         description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1))
         ledger.equal(f"{w} meta description", description, expected["description"])
         canonical = re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1)
