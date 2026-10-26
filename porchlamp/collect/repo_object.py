@@ -54,7 +54,11 @@ D_GATE1_MANIFEST_NAMES: frozenset[str] = frozenset({
     # widened 2026-10-24: build and dependency files of real projects the list missed
     "requirements.txt", "Pipfile", "pixi.toml", "xmake.lua", "premake4.lua", "premake5.lua", "Rakefile",
     "Podfile", "tsconfig.json", "deno.json", "deno.jsonc", "Gopkg.toml",
+    "configure.in", "Dockerfile",
 })
+#: D-GATE-1: build script names recognised only at the repository root (depth 0), avoiding false positives on
+#: documentation subdirectories such as ``docs/how-to/configure`` or ``doc/configure``.
+D_GATE1_ROOT_MANIFEST_NAMES: frozenset[str] = frozenset({"configure"})
 D_GATE1_MANIFEST_PREFIXES: tuple[str, ...] = ("build.gradle",)
 D_GATE1_MANIFEST_SUFFIXES: tuple[str, ...] = (
     ".cabal", ".csproj", ".fsproj", ".sln", ".rockspec", ".gemspec", ".podspec",
@@ -144,6 +148,8 @@ def filter_paths_le2(paths: Optional[list[str]]) -> Optional[list[str]]:
 def has_manifest(paths: list[str]) -> bool:
     """D-GATE-1: does any path carry a recognised build/package manifest?"""
     for p in paths:
+        if p in D_GATE1_ROOT_MANIFEST_NAMES:
+            return True
         base = p.rsplit("/", 1)[-1]
         if (base in D_GATE1_MANIFEST_NAMES
                 or any(base.startswith(x) for x in D_GATE1_MANIFEST_PREFIXES)

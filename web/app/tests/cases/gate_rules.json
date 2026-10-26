@@ -201,6 +201,30 @@
         "src/package.json.bak"
       ],
       "expected": false
+    },
+    {
+      "paths": [
+        "configure"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "docs/how-to/configure"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [
+        "Dockerfile"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "sub/configure.in"
+      ],
+      "expected": true
     }
   ],
   "license_files": [

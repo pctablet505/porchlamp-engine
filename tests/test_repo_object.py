@@ -92,6 +92,7 @@ def test_has_manifest_recognised_set():
     from porchlamp.derive import gate_evidence
 
     assert ro_mod.D_GATE1_MANIFEST_NAMES == gate_evidence.RECOGNIZED_MANIFEST_BASENAMES
+    assert ro_mod.D_GATE1_ROOT_MANIFEST_NAMES == gate_evidence.RECOGNIZED_ROOT_MANIFEST_BASENAMES
     assert ro_mod.D_GATE1_MANIFEST_SUFFIXES == gate_evidence.RECOGNIZED_MANIFEST_SUFFIXES
     assert ro_mod.has_manifest(["pyproject.toml"]) is True
     assert ro_mod.has_manifest(["src/package.json"]) is True
@@ -127,10 +128,10 @@ def test_has_manifest_recognised_set():
 
 #: Build and dependency files of real projects that the first list missed (2026-10-24): a Python project with only a
 #: requirements file, an xmake or premake C/C++ project, a Pipfile, a pixi project, a Rakefile, a
-#: Podfile, a TypeScript or Deno project without package.json, a pre-modules Go library.
+#: Podfile, a TypeScript or Deno project without package.json, a pre-modules Go library, legacy autoconf or Dockerfile.
 WIDENED_MANIFESTS = (
     "requirements.txt", "Pipfile", "pixi.toml", "xmake.lua", "premake4.lua", "premake5.lua", "Rakefile",
-    "Podfile", "tsconfig.json", "deno.json", "deno.jsonc", "Gopkg.toml",
+    "Podfile", "tsconfig.json", "deno.json", "deno.jsonc", "Gopkg.toml", "configure.in", "Dockerfile",
 )
 
 
@@ -147,8 +148,16 @@ def test_a_project_built_with_a_widened_manifest_is_not_gated_non_software(name)
 
 
 def test_a_directory_named_like_a_build_script_is_not_a_manifest():
+    from porchlamp.derive import gate_evidence
+
     # 29 of the stored trees hold a directory called configure (docs/how-to/configure, doc/configure): not a project's build script
     assert ro_mod.has_manifest(["README.md", "docs/how-to/configure"]) is False
+    assert ro_mod.has_manifest(["README.md", "doc/configure"]) is False
+    assert gate_evidence._has_recognized_manifest(["README.md", "docs/how-to/configure"]) is False
+    assert gate_evidence._has_recognized_manifest(["README.md", "doc/configure"]) is False
+    # A root configure script (depth 0, e.g. alibaba/tengine) is recognised as a build manifest.
+    assert ro_mod.has_manifest(["README.md", "configure"]) is True
+    assert gate_evidence._has_recognized_manifest(["README.md", "configure"]) is True
 
 
 def test_lists_courses_and_paper_collections_stay_non_software():

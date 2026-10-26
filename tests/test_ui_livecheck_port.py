@@ -75,6 +75,7 @@ def csp_directive(policy: str, directive: str) -> str:
 class TestMirroredConstants:
     def test_manifest_rules(self) -> None:
         assert sorted(js_string_list("MANIFEST_BASENAMES")) == sorted(gate_evidence.RECOGNIZED_MANIFEST_BASENAMES)
+        assert sorted(js_string_list("ROOT_MANIFEST_BASENAMES")) == sorted(gate_evidence.RECOGNIZED_ROOT_MANIFEST_BASENAMES)
         assert js_string_list("MANIFEST_PREFIXES") == list(gate_evidence.RECOGNIZED_MANIFEST_PREFIXES)
         assert js_string_list("MANIFEST_SUFFIXES") == list(gate_evidence.RECOGNIZED_MANIFEST_SUFFIXES)
         assert js_number("MANIFEST_MAX_DEPTH") == gate_evidence.MANIFEST_MAX_DEPTH
