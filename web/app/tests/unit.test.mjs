@@ -3303,8 +3303,8 @@ test("routes: every route sets its own document title, and the pages the export 
   assert.equal(new Set(titles.values()).size, VIEW_ROUTES.length, "no two views share a title");
   const loaded = { ...defaultState(), repo: "acme/widget", repoDetailByKey: { "acme/widget": { owner: "Acme", name: "Widget" } } };
   assert.equal(titleForState(loaded), routeTitle("project", { owner: "Acme", name: "Widget" }), "the record's spelling once it has loaded");
-  const report = { ...defaultState(), tab: "report", report: { title: "Open-source black holes (October 2026) | Porchlamp" } };
-  assert.equal(titleForState(report), report.report.title, "the report's own title, naming its month, once it has loaded");
+  const report = { ...defaultState(), tab: "report", report: { title: "Open-source black holes: do projects answer pull requests? (2026 data) | Porchlamp" } };
+  assert.equal(titleForState(report), report.report.title, "the report's own title, naming its year, once it has loaded");
   const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
   const titleOf = (file) => readFileSync(path.join(webRoot, file), "utf8").match(/<title>([^<]*)<\/title>/)[1];
   assert.equal(titleOf("index.html"), titles.get("ranked"), "index.html is the leaderboard's page");
