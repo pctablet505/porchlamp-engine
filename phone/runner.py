@@ -250,9 +250,12 @@ def _has_entries(path: Path) -> bool:
 
 def _has_retired_stage_marker(home: Path, layer: str) -> bool:
     state_dir = home / "state"
-    if not state_dir.is_dir():
+    try:
+        if not state_dir.is_dir():
+            return False
+        return any(p.is_dir() and any(p.glob(f"{layer}.staged*")) for p in state_dir.glob("refresh-prev*"))
+    except OSError:
         return False
-    return any(p.is_dir() and any(p.glob(f"{layer}.staged*")) for p in state_dir.glob("refresh-prev*"))
 
 
 def _stage(
