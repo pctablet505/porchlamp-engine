@@ -226,6 +226,33 @@ def test_staging_refuses_existing_target_rc5(home, kw):
     assert not _ex(home, "L1.staged")
 
 
+def test_staging_recovers_after_partial_interruption_or_empty_dir(home, kw):
+    # Suppose github_meta was already moved to raw-stale-<date>/github_meta and recreated empty before crash,
+    # while pr_events still has envelopes to stage and L0.staged was not yet written.
+    _put(home / STALE_DIR / "github_meta/old_meta.json")
+    (home / "raw/github_meta").mkdir(parents=True)
+    _put(home / "raw/pr_events/old_events.json")
+    assert R.run_layer(home, "L0", L0, Gather(), **kw) == 0
+    assert (home / STALE_DIR / "github_meta/old_meta.json").read_text() == "{}"
+    assert (home / STALE_DIR / "pr_events/old_events.json").read_text() == "{}"
+    assert _ex(home, "L0.staged") and _ex(home, "L0.complete")
+
+
+def test_second_cycle_on_same_utc_day_disambiguates_stale_dir(home, kw):
+    # First cycle staged earlier today and its markers were retired to state/refresh-prev/.
+    _put(home / STALE_DIR / "pr_window/cycle1.json", '{"cycle": 1}')
+    _put(home / "state/refresh-prev/L1.staged", FRESH + "\n")
+    _put(home / "raw/pr_window/cycle2.json", '{"cycle": 2}')
+    assert R.run_layer(home, "L1", PR, Gather(), **kw) == 0
+    assert (home / STALE_DIR / "pr_window/cycle1.json").read_text() == '{"cycle": 1}'
+    assert (home / f"{STALE_DIR}-120000Z" / "pr_window/cycle2.json").read_text() == '{"cycle": 2}'
+    # A third cycle on the same UTC day (even at the same clock second) disambiguates with -2.
+    R._retire_markers(home, lambda: NOW, lambda _m: None)
+    _put(home / "raw/pr_window/cycle3.json", '{"cycle": 3}')
+    assert R.run_layer(home, "L1", PR, Gather(), **kw) == 0
+    assert (home / f"{STALE_DIR}-120000Z-2" / "pr_window/cycle3.json").read_text() == '{"cycle": 3}'
+
+
 def test_staging_happens_once(home, kw):
     _put(home / "raw/pr_window/old.json")
     new = home / "raw/pr_window/new.json"
