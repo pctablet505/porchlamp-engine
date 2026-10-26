@@ -237,6 +237,10 @@ class _Tee:
         return "".join(self._parts)
 
 
+def _has_entries(path: Path) -> bool:
+    return path.exists() and (not path.is_dir() or any(path.iterdir()))
+
+
 def _stage(
     home: Path,
     layer: str,
@@ -246,18 +250,29 @@ def _stage(
 ) -> int:
     """Move each collector's old envelope folder to raw-stale-<date>/ (rename, never delete)."""
     raw = home / "raw"
-    stale = home / f"raw-stale-{datetime.fromtimestamp(now(), timezone.utc):%Y-%m-%d}"
-    moves = [(raw / c, stale / c) for c in collectors if (raw / c).exists()]
-    if any(dst.exists() for _, dst in moves):
-        log(f"{layer}: BLOCKED staging: a target under {stale} already exists")
-        return 5
-    for src, dst in moves:
+    ts = datetime.fromtimestamp(now(), timezone.utc)
+    stale = home / f"raw-stale-{ts:%Y-%m-%d}"
+    sources = [c for c in collectors if _has_entries(raw / c)]
+    if any((stale / c).exists() for c in sources):
+        prev_dir = home / "state" / "refresh-prev"
+        if prev_dir.is_dir() and any(prev_dir.glob(f"{layer}.staged*")):
+            candidate = home / f"{stale.name}-{ts:%H%M%SZ}"
+            seq = 2
+            while any((candidate / c).exists() for c in sources):
+                candidate = home / f"{stale.name}-{ts:%H%M%SZ}-{seq}"
+                seq += 1
+            stale = candidate
+        else:
+            log(f"{layer}: BLOCKED staging: a target under {stale} already exists")
+            return 5
+    for c in sources:
+        src, dst = raw / c, stale / c
         dst.parent.mkdir(parents=True, exist_ok=True)
         src.rename(dst)
         log(f"{layer}: staged old {src.name} -> {dst}")
-    _write_marker(home / "state" / "refresh" / f"{layer}.staged", now)
     for c in collectors:
         (raw / c).mkdir(parents=True, exist_ok=True)
+    _write_marker(home / "state" / "refresh" / f"{layer}.staged", now)
     return 0
 
 
