@@ -182,8 +182,8 @@ def _parameter_count(f: HomeFacts) -> int:
 # --------------------------------------------------------------------------- #
 def home_description(f: HomeFacts) -> str:
     return (
-        f"Porchlamp ranks {fmt_int(f.total)} open-source projects by whether they reply, review or merge a stranger's pull "
-        "request, not by stars. Find the projects that leave the light on."
+        f"Porchlamp measures {fmt_int(f.total)} open-source projects by whether they reply, review or merge a stranger's pull "
+        "request, not by stars. Find the ones that leave the light on."
     )
 
 
@@ -207,7 +207,7 @@ def home_jsonld(f: HomeFacts, title: str) -> dict:
             {
                 "@type": "WebPage", "@id": f"{SITE}/#webpage", "url": f"{SITE}/", "name": title,
                 "description": (
-                    "A porch lamp left on tells a visitor they are expected. Porchlamp ranks "
+                    "A porch lamp left on tells a visitor they are expected. Porchlamp measures "
                     f"{fmt_int(f.total)} open-source projects by what happens to a stranger's pull request, not by stars."
                 ),
                 "isPartOf": {"@id": f"{SITE}/#website"}, "about": {"@id": f"{f.report_latest}#dataset"},
@@ -257,7 +257,7 @@ def llms_txt(f: HomeFacts) -> str:
     lines = [
         f"# Porchlamp ({SITE}/)",
         "",
-        "> A porch lamp left on tells a visitor they are expected. Porchlamp ranks "
+        "> A porch lamp left on tells a visitor they are expected. Porchlamp measures "
         f"{fmt_int(f.total)} open-source projects by what happens to a stranger's pull request, not by how many stars the "
         "project has. Every score traces back to recorded GitHub responses and SHA-256 content hashes (by Rahul Kumar, "
         "`pctablet505`).",
