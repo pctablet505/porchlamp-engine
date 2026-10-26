@@ -237,8 +237,15 @@ class _Tee:
         return "".join(self._parts)
 
 
+def _lexists(path: Path) -> bool:
+    try:
+        return path.exists() or path.is_symlink()
+    except OSError:
+        return True
+
+
 def _has_entries(path: Path) -> bool:
-    if not path.exists():
+    if not _lexists(path):
         return False
     if not path.is_dir():
         return True
@@ -270,11 +277,11 @@ def _stage(
     ts = datetime.fromtimestamp(now(), timezone.utc)
     stale = home / f"raw-stale-{ts:%Y-%m-%d}"
     sources = [c for c in collectors if _has_entries(raw / c)]
-    if any((stale / c).exists() for c in sources):
+    if any(_lexists(stale / c) for c in sources):
         if _has_retired_stage_marker(home, layer):
             candidate = home / f"{stale.name}-{ts:%H%M%SZ}"
             seq = 2
-            while any((candidate / c).exists() for c in sources):
+            while any(_lexists(candidate / c) for c in sources):
                 candidate = home / f"{stale.name}-{ts:%H%M%SZ}-{seq}"
                 seq += 1
             stale = candidate
