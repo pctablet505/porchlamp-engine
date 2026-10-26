@@ -85,10 +85,15 @@ def _site_handler() -> type:
     return module.StaticSiteHandler
 
 
+class _SiteServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 128
+
+
 @contextmanager
 def serve(site: Path) -> Iterator[str]:
     handler = functools.partial(_site_handler(), directory=str(site))
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server = _SiteServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -105,18 +110,25 @@ def probe(site: Path, cases: list[dict], tmp: Path, *, budget_ms: int = 60000, f
     chrome = find_chrome()
     if chrome is None:
         raise FileNotFoundError("no Chrome or Chromium on PATH")
+    import uuid
+    probe_id = uuid.uuid4().hex
+    probe_file = site / f"probe-{probe_id}.html"
     page = _PAGE % {"cases": json.dumps(cases)}
-    (site / "probe.html").write_text(page, encoding="utf-8")
-    with serve(site) as base:
-        result = subprocess.run(
-            [
-                chrome, "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-                f"--user-data-dir={tmp / 'chrome-profile'}", f"--virtual-time-budget={budget_ms}",
-                "--window-size=1400,1000", *flags, "--dump-dom", f"{base}/probe.html",
-            ],
-            capture_output=True, text=True, timeout=180, check=False, env={**os.environ, **env} if env else None,
-        )
-    (site / "probe.html").unlink(missing_ok=True)
+    probe_file.write_text(page, encoding="utf-8")
+    profile_dir = tmp / f"chrome-profile-{probe_id}"
+    try:
+        with serve(site) as base:
+            result = subprocess.run(
+                [
+                    chrome, "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+                    f"--user-data-dir={profile_dir}", f"--virtual-time-budget={budget_ms}",
+                    "--window-size=1400,1000", *flags, "--dump-dom", f"{base}/probe-{probe_id}.html",
+                ],
+                capture_output=True, text=True, timeout=180, check=False, env={**os.environ, **env} if env else None,
+            )
+    finally:
+        probe_file.unlink(missing_ok=True)
+        shutil.rmtree(profile_dir, ignore_errors=True)
     found = re.search(r'<pre id="result">(.*?)</pre>', result.stdout, re.DOTALL)
     if not found or found.group(1) == "pending":
         raise RuntimeError(f"the probe page did not finish (exit {result.returncode}): {result.stderr[-600:]}")

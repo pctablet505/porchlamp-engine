@@ -104,6 +104,7 @@ class BoundedServer(ThreadingHTTPServer):
     """A threading server that serves at most ``MAX_CONNECTIONS`` connections at once; the next gets 503 and is closed."""
 
     daemon_threads = True
+    request_queue_size = 64
 
     def __init__(self, *args, **kwargs):
         self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)

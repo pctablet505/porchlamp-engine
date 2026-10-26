@@ -627,6 +627,7 @@ def test_a_browser_draws_each_project_view_byte_for_byte_as_its_page_holds_it_in
             site, cases, tmp_path / zone.replace("/", "-"), flags=(f"--lang={language}", f"--accept-lang={language}"), env={"TZ": zone}
         )
         for rel in pages:
+            assert "zone" in drawn[rel], drawn[rel]
             assert drawn[rel]["zone"] == zone and drawn[rel]["language"] == language, drawn[rel]
             assert drawn[rel]["html"] == held[rel], rel
 
