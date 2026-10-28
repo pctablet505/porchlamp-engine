@@ -500,3 +500,90 @@ def test_uploads_github_com_is_allowed_for_phone_and_counts_streamed_content_len
     row = {r["host"]: r for r in rig.stats.hosts()}["127.0.0.1"]
     assert row["bytes"] >= len(payload) and row["token_sent"] is True
 
+
+def test_cross_scope_compartmentalization_refuses_privilege_confusion(tmp_path, server):
+    rig = Rig(tmp_path)
+
+    # 1. Collector scope can NEVER contact uploads.github.com (even without or with a credential).
+    with pytest.raises(HostRefused, match="uploads.github.com"):
+        rig.gate.urlopen(
+            urllib.request.Request(
+                "https://uploads.github.com/repos/u/porchlamp-drop/releases/1/assets?name=a",
+                headers={"Authorization": f"Bearer {CANARY}"},
+                method="POST",
+            ),
+            5,
+            scope="collect",
+        )
+
+    # 2. Collector scope can NEVER send POST outside /graphql or send PATCH / DELETE / PUT anywhere.
+    for method, path in [
+        ("POST", "/repos/u/porchlamp-drop/releases"),
+        ("PATCH", "/repos/u/porchlamp-drop/releases/1"),
+        ("DELETE", "/repos/u/porchlamp-drop/releases/assets/1"),
+        ("PUT", "/repos/u/porchlamp/contents/index.html"),
+    ]:
+        with pytest.raises(HostRefused):
+            rig.gate.urlopen(urllib.request.Request(server.url + path, data=b"{}", method=method), 5, scope="collect")
+
+    # 3. token_test and self_check scopes allow GET only.
+    for sc in ("token_test", "self_check"):
+        with pytest.raises(HostRefused, match="only GET"):
+            rig.gate.urlopen(urllib.request.Request(server.url + "/graphql", data=b"{}", method="POST"), 5, scope=sc)
+
+    # 4. Upload scope is locked strictly to non-reserved /repos/<owner>/<drop-repo> release & workflow-check paths.
+    for bad_path in [
+        "/user",
+        "/graphql",
+        "/repos/pctablet505/porchlamp/releases",
+        "/repos/pctablet505/porchlamp-engine/releases",
+        "/repos/pctablet505/porchlamp-phone/releases",
+        "/repos/pctablet505/contributor-value-index/releases",
+        "/repos/pctablet505/porchlamp-drop/contents/README.md",
+        "/repos/pctablet505/porchlamp-drop/git/refs",
+        "/repos/pctablet505/porchlamp-drop/../porchlamp/releases",
+        "/repos/pctablet505/porchlamp-drop/%2e%2e/porchlamp/releases",
+    ]:
+        with pytest.raises(HostRefused):
+            rig.gate.urlopen(urllib.request.Request(server.url + bad_path, method="GET"), 5, scope="upload")
+
+    # 5. Upload scope cannot contact non-GitHub hosts (e.g., deps.dev).
+    with pytest.raises(HostRefused, match="only contact GitHub"):
+        rig.gate.urlopen(urllib.request.Request("https://deps.dev/x", method="GET"), 5, scope="upload")
+
+    assert server.count == 0
+    assert CANARY not in "\n".join(rig.lines)
+
+
+
+def test_upload_scope_pins_every_drop_box_route_to_the_methods_it_needs(tmp_path, server):
+    server.responder = lambda req: (200, {"Content-Type": "application/json"}, b"{}")
+    rig = Rig(tmp_path)
+    repo = "/repos/pctablet505/porchlamp-drop"
+    allowed = [
+        ("GET", repo), ("GET", repo + "/contents/.github/workflows"),
+        ("GET", repo + "/releases?per_page=20"), ("POST", repo + "/releases"),
+        ("PATCH", repo + "/releases/7"), ("POST", repo + "/releases/7/assets?name=a"),
+        ("DELETE", repo + "/releases/assets/9"), ("GET", repo + "/releases/tags/cycle-x"),
+    ]
+    for method, path in allowed:
+        body = b"{}" if method in ("POST", "PATCH") else None
+        with rig.gate.urlopen(urllib.request.Request(server.url + path, data=body, method=method), 5, scope="upload"):
+            pass
+    reached = server.count
+    assert reached == len(allowed)
+
+    refused = [
+        ("PATCH", repo), ("DELETE", repo), ("POST", repo),
+        ("POST", repo + "/contents/.github/workflows"), ("DELETE", repo + "/contents/.github/workflows"),
+        ("PATCH", repo + "/releases"), ("DELETE", repo + "/releases"),
+        ("DELETE", repo + "/releases/7"), ("POST", repo + "/releases/7"),
+        ("PATCH", repo + "/releases/7/assets"), ("DELETE", repo + "/releases/7/assets"),
+        ("POST", repo + "/releases/assets/9"), ("PATCH", repo + "/releases/assets/9"),
+        ("POST", repo + "/releases/tags/cycle-x"), ("DELETE", repo + "/releases/tags/cycle-x"),
+    ]
+    for method, path in refused:
+        body = b"{}" if method in ("POST", "PATCH") else None
+        with pytest.raises(HostRefused):
+            rig.gate.urlopen(urllib.request.Request(server.url + path, data=body, method=method), 5, scope="upload")
+    assert server.count == reached

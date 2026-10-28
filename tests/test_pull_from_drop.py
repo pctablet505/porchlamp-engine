@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import tarfile
 from pathlib import Path
 
@@ -38,6 +39,8 @@ def _make_drop_server():
     blob_auth_headers: list[str | None] = []
     next_id = [10]
 
+    repo_flags = {"private": True, "has_workflows": False, "redirect_url": None}
+
     def blob_responder(req):
         blob_auth_headers.append(req.headers.get("authorization"))
         aid = int(req.path.rsplit("/", 1)[1])
@@ -46,6 +49,17 @@ def _make_drop_server():
 
     def api_responder(req):
         path = req.path
+        if path == f"/repos/{DROP_REPO}" and req.method == "GET":
+            return 200, {"Content-Type": "application/json"}, json.dumps({
+                "full_name": DROP_REPO,
+                "private": repo_flags["private"],
+                "fork": False,
+                "archived": False,
+            }).encode()
+        if path == f"/repos/{DROP_REPO}/contents/.github/workflows" and req.method == "GET":
+            if repo_flags["has_workflows"]:
+                return 200, {"Content-Type": "application/json"}, b'[{"name":"ci.yml"}]'
+            return 404, {"Content-Type": "application/json"}, b'{"message":"Not Found"}'
         if path.startswith(f"/repos/{DROP_REPO}/releases?"):
             return 200, {"Content-Type": "application/json"}, json.dumps(list(reversed(releases))).encode()
         if path.startswith(f"/repos/{DROP_REPO}/releases/tags/"):
@@ -86,8 +100,8 @@ def _make_drop_server():
             return 204, {}, b""
         if path.startswith(f"/repos/{DROP_REPO}/releases/assets/") and req.method == "GET":
             aid = int(path.rsplit("/", 1)[1])
-            # Redirect to separate blob server so we prove Authorization is stripped on redirect!
-            return 302, {"Location": f"{blob_srv.url}/blob/{aid}"}, b""
+            target_url = repo_flags["redirect_url"] or f"{blob_srv.url}/blob/{aid}"
+            return 302, {"Location": target_url}, b""
         if path.startswith(f"/repos/{DROP_REPO}/releases/") and req.method == "PATCH":
             rid = int(path.rsplit("/", 1)[1])
             body = json.loads(req.body.decode())
@@ -98,12 +112,12 @@ def _make_drop_server():
 
     srv.responder = api_responder
     blob_srv.responder = blob_responder
-    return srv, blob_srv, releases, blobs, blob_auth_headers
+    return srv, blob_srv, releases, blobs, blob_auth_headers, repo_flags
 
 
 def test_round_trip_multipart_upload_and_pull_strips_auth_on_redirect_and_tracks_state(tmp_path):
     old_gate = httpgate.install(Gate(**loopback_gate_options()))
-    srv, blob_srv, _releases, _blobs, blob_auth_headers = _make_drop_server()
+    srv, blob_srv, _releases, _blobs, blob_auth_headers, _flags = _make_drop_server()
     try:
         phone_home = tmp_path / "phone"
         (phone_home / "raw" / "pr_window").mkdir(parents=True)
@@ -181,20 +195,23 @@ def test_round_trip_multipart_upload_and_pull_strips_auth_on_redirect_and_tracks
         blob_srv.close()
 
 
-def test_pull_from_drop_refuses_tampered_sha256_and_unsafe_tar_members(tmp_path):
-    srv, blob_srv, releases, blobs, _ = _make_drop_server()
-    try:
-        # Craft a release containing a path-traversal member ../../evil.json with matching manifest sha256.
-        buf = io.BytesIO()
-        with (
-            gzip.GzipFile(filename="", mode="wb", fileobj=buf, mtime=0) as gz,
-            tarfile.open(mode="w", fileobj=gz) as tar,
-        ):
-            payload = b'{"bad": 1}'
-            info = tarfile.TarInfo("raw/pr_window/../../evil.json")
+def _pack_tar_gz(entries: list[tuple[str, bytes]]) -> bytes:
+    buf = io.BytesIO()
+    with (
+        gzip.GzipFile(filename="", mode="wb", fileobj=buf, mtime=0) as gz,
+        tarfile.open(mode="w", fileobj=gz) as tar,
+    ):
+        for member_name, payload in entries:
+            info = tarfile.TarInfo(member_name)
             info.size = len(payload)
             tar.addfile(info, io.BytesIO(payload))
-        evil_arc = buf.getvalue()
+    return buf.getvalue()
+
+
+def test_pull_from_drop_refuses_tampered_sha256_and_unsafe_tar_members(tmp_path):
+    srv, blob_srv, releases, blobs, _, _ = _make_drop_server()
+    try:
+        evil_arc = _pack_tar_gz([("raw/pr_window/../../evil.json", b'{"bad": 1}')])
         evil_sha = hashlib.sha256(evil_arc).hexdigest()
         manifest = {
             "generated_at": "2026-10-28T04:00:00Z",
@@ -214,7 +231,7 @@ def test_pull_from_drop_refuses_tampered_sha256_and_unsafe_tar_members(tmp_path)
         blobs[2] = manifest_bytes
         releases.append({
             "id": 99,
-            "tag_name": "cycle-2026-10-28-evil00000000",
+            "tag_name": "cycle-2026-10-28-bad000000000",
             "draft": False,
             "prerelease": False,
             "assets": [
@@ -249,3 +266,149 @@ def test_pull_from_drop_refuses_tampered_sha256_and_unsafe_tar_members(tmp_path)
     finally:
         srv.close()
         blob_srv.close()
+
+
+def test_pull_from_drop_adversarial_gzip_bomb_ssrf_injection_and_repo_safety(tmp_path):
+    srv, blob_srv, releases, blobs, _, flags = _make_drop_server()
+    try:
+        token_file = tmp_path / "tok"
+        token_file.write_text(READ_PAT + "\n", encoding="utf-8")
+        dest = tmp_path / "dest"
+
+        # 1. Refuse untrusted --api-base before sending token anywhere.
+        for bad_api in ("http://evil.invalid", "https://evil.invalid", "https://user@api.github.com"):
+            assert pull_mod.main(["--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file), "--api-base", bad_api]) == 1
+
+        # 2. Refuse malformed / newline-injected --tag.
+        for bad_tag in ("cycle-2026-10-28-0123456789ab\npwn=1", "cycle---help", "cycle-2026-10-28-NOTHEX000000"):
+            assert pull_mod.main([
+                "--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file),
+                "--api-base", srv.url, "--tag", bad_tag,
+            ]) == 1
+
+        # 3. Craft a valid-SHA256 >2 MiB highly-compressible JSON gzip bomb (>200x ratio) -> blocked with exit code 4!
+        bomb_payload = b'{"z":"' + (b"A" * (2 * 1024 * 1024)) + b'"}'
+        bomb_arc = _pack_tar_gz([("raw/pr_window/acme__bomb.json", bomb_payload)])
+        assert len(bomb_payload) > len(bomb_arc) * pull_mod.MAX_COMPRESSION_RATIO
+        bomb_sha = hashlib.sha256(bomb_arc).hexdigest()
+        manifest = {
+            "generated_at": "2026-10-28T04:00:00Z",
+            "main_done": "2026-10-28T04:00:00Z",
+            "layers": {
+                "L1": {
+                    "archive": "L1.tar.gz",
+                    "bytes": len(bomb_arc),
+                    "sha256": bomb_sha,
+                    "completed_at": "2026-10-28T04:00:00Z",
+                }
+            },
+            "candidates_sha256": None,
+        }
+        mbytes = json.dumps(manifest).encode("utf-8")
+        blobs[1] = bomb_arc
+        blobs[2] = mbytes
+        releases.append({
+            "id": 100,
+            "tag_name": "cycle-2026-10-28-b00b00000001",
+            "draft": False,
+            "prerelease": False,
+            "assets": [
+                {"id": 1, "name": "L1.tar.gz", "size": len(bomb_arc), "state": "uploaded"},
+                {"id": 2, "name": "manifest.json", "size": len(mbytes), "state": "uploaded"},
+            ],
+        })
+        assert pull_mod.main(["--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file), "--api-base", srv.url]) == 4
+        assert not (dest / "raw").exists()
+
+        # 4. Hidden dotfile or non-dict JSON envelope inside tar -> blocked with exit code 4!
+        for bad_member, bad_json in [
+            ("raw/pr_window/.hidden.json", b'{"ok": 1}'),
+            ("raw/pr_window/acme__arr.json", b"[1, 2, 3]"),
+            ("raw/pr_window/acme__corrupt.json", b"{not json"),
+        ]:
+            arc = _pack_tar_gz([(bad_member, bad_json)])
+            manifest["layers"]["L1"]["bytes"] = len(arc)
+            manifest["layers"]["L1"]["sha256"] = hashlib.sha256(arc).hexdigest()
+            mb = json.dumps(manifest).encode("utf-8")
+            blobs[1] = arc
+            blobs[2] = mb
+            releases[0]["assets"][0]["size"] = len(arc)
+            releases[0]["assets"][1]["size"] = len(mb)
+            assert pull_mod.main(["--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file), "--api-base", srv.url]) == 4
+            assert not (dest / "raw").exists()
+
+        # 5. Newline injection in manifest main_done -> blocked with exit code 1!
+        good_arc = _pack_tar_gz([("raw/pr_window/acme__ok.json", b'{"ok": true}')])
+        bad_manifest = {
+            **manifest,
+            "main_done": "2026-10-28T04:00:00Z\nGITHUB_OUTPUT_PWN=1",
+            "layers": {
+                "L1": {
+                    "archive": "L1.tar.gz",
+                    "bytes": len(good_arc),
+                    "sha256": hashlib.sha256(good_arc).hexdigest(),
+                    "completed_at": "2026-10-28T04:00:00Z",
+                }
+            },
+        }
+        mb = json.dumps(bad_manifest).encode("utf-8")
+        blobs[1] = good_arc
+        blobs[2] = mb
+        releases[0]["assets"][0]["size"] = len(good_arc)
+        releases[0]["assets"][1]["size"] = len(mb)
+        assert pull_mod.main(["--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file), "--api-base", srv.url]) == 1
+
+        # 6. Asset redirect to untrusted external HTTPS host -> blocked with exit code 1!
+        good_manifest = {**bad_manifest, "main_done": "2026-10-28T04:00:00Z"}
+        mb_ok = json.dumps(good_manifest).encode("utf-8")
+        blobs[2] = mb_ok
+        releases[0]["assets"][1]["size"] = len(mb_ok)
+        flags["redirect_url"] = "https://attacker.invalid/steal-asset"
+        assert pull_mod.main(["--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file), "--api-base", srv.url]) == 1
+        flags["redirect_url"] = None
+
+        # 7. Public drop-box or workflow-containing drop-box -> blocked with exit code 1 before reading releases!
+        flags["private"] = False
+        assert pull_mod.main(["--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file), "--api-base", srv.url]) == 1
+        flags["private"] = True
+        flags["has_workflows"] = True
+        assert pull_mod.main(["--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file), "--api-base", srv.url]) == 1
+    finally:
+        srv.close()
+        blob_srv.close()
+
+
+# The largest real envelope and layer in the 2026-10-27 phone data: raw/pr_window/DIYgod__RSSHub.json and the whole
+# pr_window layer. The caps exist to stop a bomb, never to refuse a real cycle.
+REAL_MAX_MEMBER_BYTES = 135_616_732
+REAL_L1_UNCOMPRESSED_BYTES = 10_924_894_684
+REAL_L1_COMPRESSED_BYTES = 1_900_000_000
+
+
+def _pack_random_tar_gz(path: Path, member: str, size: int) -> None:
+    block = os.urandom(1 << 20)
+    with tarfile.open(path, "w:gz", compresslevel=1) as tar:
+        info = tarfile.TarInfo(member)
+        info.size = size
+        tar.addfile(info, _RepeatedBlock(block, size))
+
+
+class _RepeatedBlock:
+    def __init__(self, block: bytes, size: int) -> None:
+        self._block, self._left = block, size
+
+    def read(self, n: int = -1) -> bytes:
+        n = self._left if n is None or n < 0 else min(n, self._left)
+        out = (self._block * (n // len(self._block) + 1))[:n]
+        self._left -= len(out)
+        return out
+
+
+def test_a_real_sized_envelope_and_layer_are_inside_the_caps(tmp_path):
+    arc = tmp_path / "L1.tar.gz"
+    _pack_random_tar_gz(arc, "raw/pr_window/acme__big.json", 70 * 1024 * 1024)  # over the old 64 MiB cap
+    members = pull_mod._check_members(arc, "L1")
+    assert [m.name for m in members] == ["raw/pr_window/acme__big.json"]
+
+    assert pull_mod.MAX_MEMBER_BYTES >= REAL_MAX_MEMBER_BYTES * 2
+    assert pull_mod._max_uncompressed_for_archive(REAL_L1_COMPRESSED_BYTES) >= REAL_L1_UNCOMPRESSED_BYTES * 3 // 2

@@ -38,3 +38,33 @@ def test_workflow_parses_and_every_step_runs_something(path: Path) -> None:
             assert ("uses" in step) != ("run" in step), (
                 f"{path.name}: job {job_name!r} step {index} ({step.get('name')!r}) needs exactly one of uses/run"
             )
+
+
+def test_publish_from_drop_workflow_enforces_supply_chain_and_secret_isolation() -> None:
+    import re
+
+    sha_pin_re = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+@[0-9a-f]{40}$")
+    path = WORKFLOW_DIR / "publish_from_drop.yml"
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert doc.get("permissions") == {}, "publish_from_drop.yml must set top-level permissions: {}"
+
+    job = doc["jobs"]["publish"]
+    assert job.get("permissions") == {"contents": "read"}
+    steps = job["steps"]
+
+    for step in steps:
+        name = step.get("name", "")
+        if "uses" in step:
+            uses = step["uses"]
+            assert sha_pin_re.fullmatch(uses), f"step {name!r} must pin action to 40-hex commit SHA, got {uses!r}"
+            if uses.startswith("actions/checkout@"):
+                with_cfg = step.get("with") or {}
+                assert with_cfg.get("persist-credentials") is False, (
+                    f"checkout step {name!r} must set persist-credentials: false"
+                )
+                assert "PORCHLAMP_SITE_PUSH_TOKEN" not in str(with_cfg), (
+                    f"checkout step {name!r} must never write PORCHLAMP_SITE_PUSH_TOKEN into .git/config"
+                )
+        if step.get("id") == "build":
+            env_str = str(step.get("env") or {})
+            assert "secrets." not in env_str, "build/verify step must run in a zero-secret environment"

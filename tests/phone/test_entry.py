@@ -697,6 +697,14 @@ def _drop_responder(repo: str = "pctablet505/porchlamp-drop"):
             return 200, {"Content-Type": "application/json"}, json.dumps([
                 {"full_name": "pctablet505/porchlamp", "private": False, "permissions": {"push": False, "pull": True}}
             ]).encode()
+        if path == f"/repos/{repo}" and req.method == "GET":
+            return 200, {"Content-Type": "application/json"}, json.dumps({
+                "full_name": repo,
+                "private": True,
+                "fork": False,
+                "archived": False,
+                "permissions": {"push": True, "pull": True},
+            }).encode()
         if path.startswith(f"/repos/{repo}/releases?"):
             return 200, {"Content-Type": "application/json"}, json.dumps(releases).encode()
         if path == f"/repos/{repo}/releases" and req.method == "POST":
