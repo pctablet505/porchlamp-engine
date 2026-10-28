@@ -254,8 +254,27 @@ _RESERVED_UPLOAD_REPOS: frozenset[str] = frozenset({
 })
 
 
-def _admit_upload_path(path: str) -> str | None:
-    """Return ``None`` if ``path`` stays strictly inside a non-reserved drop-box repository's release/safety surface."""
+def _upload_route_methods(tail: list[str]) -> tuple[str, ...] | None:
+    """The methods the drop-box code uses on one route below ``/repos/<owner>/<drop-repo>``, or ``None`` for no route."""
+    if not tail:
+        return ("GET",)
+    if tail == ["contents", ".github", "workflows"]:
+        return ("GET",)
+    if tail == ["releases"]:
+        return ("GET", "POST")
+    if len(tail) == 2 and tail[0] == "releases" and tail[1].isdigit():
+        return ("GET", "PATCH")
+    if len(tail) == 3 and tail[0] == "releases" and tail[1].isdigit() and tail[2] == "assets":
+        return ("POST",)
+    if len(tail) == 3 and tail[0] == "releases" and tail[1] == "assets" and tail[2].isdigit():
+        return ("DELETE",)
+    if len(tail) == 3 and tail[0] == "releases" and tail[1] == "tags" and tail[2]:
+        return ("GET",)
+    return None
+
+
+def _admit_upload_path(path: str, method: str) -> str | None:
+    """Return ``None`` if ``method`` on ``path`` stays strictly inside a non-reserved drop-box repository's release/safety surface."""
     decoded = urllib.parse.unquote(path or "")
     if "\\" in decoded or "//" in decoded:
         return "malformed upload path"
@@ -267,22 +286,12 @@ def _admit_upload_path(path: str) -> str | None:
     repo_name = segs[3].lower()
     if repo_name in _RESERVED_UPLOAD_REPOS:
         return "upload scope never touches production or code repositories"
-    tail = segs[4:]
-    if not tail:
-        return None
-    if tail == ["contents", ".github", "workflows"]:
-        return None
-    if tail == ["releases"]:
-        return None
-    if len(tail) == 2 and tail[0] == "releases" and tail[1].isdigit():
-        return None
-    if len(tail) == 3 and tail[0] == "releases" and tail[1].isdigit() and tail[2] == "assets":
-        return None
-    if len(tail) == 3 and tail[0] == "releases" and tail[1] == "assets" and tail[2].isdigit():
-        return None
-    if len(tail) == 3 and tail[0] == "releases" and tail[1] == "tags" and tail[2]:
-        return None
-    return "upload scope only reaches release and workflow-absence endpoints"
+    methods = _upload_route_methods(segs[4:])
+    if methods is None:
+        return "upload scope only reaches release and workflow-absence endpoints"
+    if method not in methods:
+        return "method not allowed on this drop-box route"
+    return None
 
 
 class Gate:
@@ -429,7 +438,7 @@ class Gate:
                 raise self._refuse(host, "drop-box uploads only contact GitHub")
             if method not in ("GET", "POST", "PATCH", "DELETE"):
                 raise self._refuse(host, "method not allowed for drop-box upload")
-            bad_path = _admit_upload_path(parts.path)
+            bad_path = _admit_upload_path(parts.path, method)
             if bad_path is not None:
                 raise self._refuse(host, bad_path)
             return

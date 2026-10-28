@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import tarfile
 from pathlib import Path
 
@@ -375,3 +376,39 @@ def test_pull_from_drop_adversarial_gzip_bomb_ssrf_injection_and_repo_safety(tmp
     finally:
         srv.close()
         blob_srv.close()
+
+
+# The largest real envelope and layer in the 2026-10-27 phone data: raw/pr_window/DIYgod__RSSHub.json and the whole
+# pr_window layer. The caps exist to stop a bomb, never to refuse a real cycle.
+REAL_MAX_MEMBER_BYTES = 135_616_732
+REAL_L1_UNCOMPRESSED_BYTES = 10_924_894_684
+REAL_L1_COMPRESSED_BYTES = 1_900_000_000
+
+
+def _pack_random_tar_gz(path: Path, member: str, size: int) -> None:
+    block = os.urandom(1 << 20)
+    with tarfile.open(path, "w:gz", compresslevel=1) as tar:
+        info = tarfile.TarInfo(member)
+        info.size = size
+        tar.addfile(info, _RepeatedBlock(block, size))
+
+
+class _RepeatedBlock:
+    def __init__(self, block: bytes, size: int) -> None:
+        self._block, self._left = block, size
+
+    def read(self, n: int = -1) -> bytes:
+        n = self._left if n is None or n < 0 else min(n, self._left)
+        out = (self._block * (n // len(self._block) + 1))[:n]
+        self._left -= len(out)
+        return out
+
+
+def test_a_real_sized_envelope_and_layer_are_inside_the_caps(tmp_path):
+    arc = tmp_path / "L1.tar.gz"
+    _pack_random_tar_gz(arc, "raw/pr_window/acme__big.json", 70 * 1024 * 1024)  # over the old 64 MiB cap
+    members = pull_mod._check_members(arc, "L1")
+    assert [m.name for m in members] == ["raw/pr_window/acme__big.json"]
+
+    assert pull_mod.MAX_MEMBER_BYTES >= REAL_MAX_MEMBER_BYTES * 2
+    assert pull_mod._max_uncompressed_for_archive(REAL_L1_COMPRESSED_BYTES) >= REAL_L1_UNCOMPRESSED_BYTES * 3 // 2

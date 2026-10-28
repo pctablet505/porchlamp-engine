@@ -554,3 +554,36 @@ def test_cross_scope_compartmentalization_refuses_privilege_confusion(tmp_path, 
     assert server.count == 0
     assert CANARY not in "\n".join(rig.lines)
 
+
+
+def test_upload_scope_pins_every_drop_box_route_to_the_methods_it_needs(tmp_path, server):
+    server.responder = lambda req: (200, {"Content-Type": "application/json"}, b"{}")
+    rig = Rig(tmp_path)
+    repo = "/repos/pctablet505/porchlamp-drop"
+    allowed = [
+        ("GET", repo), ("GET", repo + "/contents/.github/workflows"),
+        ("GET", repo + "/releases?per_page=20"), ("POST", repo + "/releases"),
+        ("PATCH", repo + "/releases/7"), ("POST", repo + "/releases/7/assets?name=a"),
+        ("DELETE", repo + "/releases/assets/9"), ("GET", repo + "/releases/tags/cycle-x"),
+    ]
+    for method, path in allowed:
+        body = b"{}" if method in ("POST", "PATCH") else None
+        with rig.gate.urlopen(urllib.request.Request(server.url + path, data=body, method=method), 5, scope="upload"):
+            pass
+    reached = server.count
+    assert reached == len(allowed)
+
+    refused = [
+        ("PATCH", repo), ("DELETE", repo), ("POST", repo),
+        ("POST", repo + "/contents/.github/workflows"), ("DELETE", repo + "/contents/.github/workflows"),
+        ("PATCH", repo + "/releases"), ("DELETE", repo + "/releases"),
+        ("DELETE", repo + "/releases/7"), ("POST", repo + "/releases/7"),
+        ("PATCH", repo + "/releases/7/assets"), ("DELETE", repo + "/releases/7/assets"),
+        ("POST", repo + "/releases/assets/9"), ("PATCH", repo + "/releases/assets/9"),
+        ("POST", repo + "/releases/tags/cycle-x"), ("DELETE", repo + "/releases/tags/cycle-x"),
+    ]
+    for method, path in refused:
+        body = b"{}" if method in ("POST", "PATCH") else None
+        with pytest.raises(HostRefused):
+            rig.gate.urlopen(urllib.request.Request(server.url + path, data=body, method=method), 5, scope="upload")
+    assert server.count == reached
