@@ -38,7 +38,8 @@ from phone.netstats import NetStats
 
 #: Every host the code may reach. ``contacts`` on the status screen lists only hosts actually used.
 ALLOWED_HOSTS: frozenset[str] = frozenset({
-    "api.github.com",              # GitHub: project facts, pull requests (the only host that ever gets the token)
+    "api.github.com",              # GitHub: project facts, pull requests, release metadata
+    "uploads.github.com",          # GitHub Release asset uploads for the private drop-box repo
     "raw.githubusercontent.com",   # public files of a repo (governance, README, pom.xml)
     "deps.dev", "api.deps.dev",    # which package belongs to which project
     "ecosyste.ms", "packages.ecosyste.ms",   # how many projects depend on a package
@@ -51,10 +52,11 @@ ALLOWED_HOSTS: frozenset[str] = frozenset({
 #: What the phone engine may reach: every listed host except the ones no phone step uses.
 PHONE_HOSTS: frozenset[str] = ALLOWED_HOSTS - {"data.gharchive.org"}
 #: The only hosts a credential may be sent to.
-TOKEN_HOSTS: frozenset[str] = frozenset({"api.github.com"})
+TOKEN_HOSTS: frozenset[str] = frozenset({"api.github.com", "uploads.github.com"})
 
 WHAT = {
     "api.github.com": "Pull requests and project details",
+    "uploads.github.com": "Drop-box archive upload",
     "raw.githubusercontent.com": "Public files of each project",
     "deps.dev": "Which package belongs to which project",
     "api.deps.dev": "Which package belongs to which project",
@@ -128,7 +130,14 @@ def _request_size(req: urllib.request.Request, parts: urllib.parse.SplitResult) 
     head = len(req.get_method()) + len(target) + 11 + len(parts.netloc) + 8  # "GET /x HTTP/1.1" and "Host: h"
     head += sum(len(k) + len(v) + 4 for k, v in req.header_items())
     body = req.data
-    return head + (len(body) if isinstance(body, (bytes, bytearray)) else 0)
+    if isinstance(body, (bytes, bytearray)):
+        return head + len(body)
+    if body is not None:
+        for key, value in req.header_items():
+            if key.lower() == "content-length":
+                with contextlib.suppress(ValueError):
+                    return head + max(0, int(value))
+    return head
 
 
 class _Counted:
@@ -240,7 +249,7 @@ class Gate:
     def __init__(self, *, allowed: frozenset[str] | set[str] = ALLOWED_HOSTS,
                  token_hosts: frozenset[str] | set[str] = TOKEN_HOSTS,
                  http_hosts: frozenset[str] | set[str] = frozenset(),
-                 budget_hosts: frozenset[str] | set[str] = TOKEN_HOSTS,
+                 budget_hosts: frozenset[str] | set[str] = frozenset({"api.github.com"}),
                  stats: NetStats | None = None, controls: Any = None,
                  log: Callable[[str], object] | None = None,
                  clock: Callable[[], float] = time.time, slice_s: float = 0.5,
@@ -362,7 +371,7 @@ class Gate:
         if host not in self.http_hosts and (parts.scheme != "https" or port not in (None, 443)):
             raise self._refuse(host, "only https on the default port is used")
         if req.has_header("Authorization") and host not in self.token_hosts:
-            raise self._refuse(host, "a credential is only sent to api.github.com")
+            raise self._refuse(host, "a credential is only sent to GitHub")
 
     def _await_clear(self, host: str, scope: str, wait: bool) -> None:
         announced = False
@@ -386,9 +395,10 @@ class Gate:
                 scope: str = "collect", wait: bool = True) -> Any:
         """Open ``req`` like ``urllib.request.urlopen`` does, through the checks in the module docstring.
 
-        ``scope`` is ``"collect"`` (the engine's own work), ``"token_test"`` or ``"self_check"`` (an act of the owner:
-        it is not held by user pause, battery, heat or disk rules, but still by the network rule and the allow-list).
-        ``wait=False`` raises ``WouldBlock`` instead of waiting.
+        ``scope`` is ``"collect"`` (the engine's own work), ``"upload"`` (drop-box release upload: held by pause,
+        battery, heat, disk and network rules, independent of the collector token), or ``"token_test"`` /
+        ``"self_check"`` (an act of the owner: held only by the network rule and the allow-list). ``wait=False`` raises
+        ``WouldBlock`` instead of waiting.
         """
         if isinstance(req, str):
             req = urllib.request.Request(req)
@@ -446,18 +456,18 @@ class Gate:
             self.stats.error()
         if status >= 500 or status in LOGGED_STATUSES:
             self.log(f"{method} {host} {status}{' (rate limit)' if limited else ''}")
-        if scope == "collect":
+        if scope in ("collect", "upload"):
             if status < 500 and not limited:
                 self.touch_progress()
             if self.controls is not None:
-                self.controls.on_response(host, status, authed)
+                self.controls.on_response(host, status, authed and scope == "collect")
 
     def _failed(self, host: str, exc: BaseException, scope: str = "collect") -> None:
         if self.stats is not None:
             self.stats.error()
         timeout = is_timeout(exc)
         self.log(f"{host}: {'timed out' if timeout else type(exc).__name__}")
-        if self.controls is not None and scope == "collect":
+        if self.controls is not None and scope in ("collect", "upload"):
             self.controls.on_failure(host, is_no_answer(exc))
 
     def _timed_out(self, host: str, scope: str = "collect") -> None:

@@ -671,3 +671,111 @@ def test_start_refuses_to_run_when_the_collectors_do_not_go_through_the_gate_it_
     eng = Engine(tmp_path / "ok", threads=False)
     eng.start(GH, LAN)                                                # routed: it starts
     assert eng.started is True and httpgate.current() is eng.gate
+
+
+UPLOAD_PAT = "github_pat_11CANARY0123456789abcdef_0123456789abcdefABCDEF0123456789"
+
+
+def _drop_responder(repo: str = "pctablet505/porchlamp-drop"):
+    releases: list[dict] = []
+    assets: dict[int, list[dict]] = {}
+    next_id = [100]
+
+    def handle(req):
+        path = req.path
+        if path == "/rate_limit":
+            return 200, {"Content-Type": "application/json"}, json.dumps({
+                "resources": {"core": {"remaining": 4800, "limit": 5000, "reset": int(T0 + 3600)}}
+            }).encode()
+        if path == "/user":
+            return 200, {"Content-Type": "application/json", "X-OAuth-Scopes": ""}, b'{"login":"pctablet505"}'
+        if path.startswith("/user/repos?visibility=private"):
+            return 200, {"Content-Type": "application/json"}, json.dumps([
+                {"full_name": repo, "private": True, "permissions": {"push": True, "pull": True}}
+            ]).encode()
+        if path.startswith("/user/repos?visibility=public"):
+            return 200, {"Content-Type": "application/json"}, json.dumps([
+                {"full_name": "pctablet505/porchlamp", "private": False, "permissions": {"push": False, "pull": True}}
+            ]).encode()
+        if path.startswith(f"/repos/{repo}/releases?"):
+            return 200, {"Content-Type": "application/json"}, json.dumps(releases).encode()
+        if path == f"/repos/{repo}/releases" and req.method == "POST":
+            body = json.loads(req.body.decode())
+            rid = next_id[0]
+            next_id[0] += 1
+            rel = {"id": rid, "tag_name": body["tag_name"], "draft": bool(body.get("draft", True)), "assets": []}
+            releases.append(rel)
+            assets[rid] = rel["assets"]
+            return 201, {"Content-Type": "application/json"}, json.dumps(rel).encode()
+        if path.startswith(f"/repos/{repo}/releases/") and "/assets?" in path and req.method == "POST":
+            rid = int(path.split("/releases/", 1)[1].split("/assets", 1)[0])
+            name = path.split("name=", 1)[1]
+            raw = req.body
+            aid = next_id[0]
+            next_id[0] += 1
+            asset = {"id": aid, "name": name, "size": len(raw), "state": "uploaded"}
+            assets[rid].append(asset)
+            return 201, {"Content-Type": "application/json"}, json.dumps(asset).encode()
+        if path.startswith(f"/repos/{repo}/releases/") and req.method == "PATCH":
+            rid = int(path.rsplit("/", 1)[1])
+            body = json.loads(req.body.decode())
+            rel = next(x for x in releases if x["id"] == rid)
+            rel["draft"] = bool(body.get("draft", False))
+            return 200, {"Content-Type": "application/json"}, json.dumps(rel).encode()
+        return 404, {"Content-Type": "application/json"}, b'{"message":"not found"}'
+
+    return handle, releases
+
+
+def test_upload_token_is_redacted_everywhere_tested_and_uploads_finished_cycle(tmp_path):
+    srv = FakeHTTP()
+    handle, releases = _drop_responder()
+    srv.responder = handle
+    try:
+        eng = Engine(
+            tmp_path / "files",
+            threads=False,
+            api_base=srv.url,
+            upload_base=srv.url,
+            gate_options=loopback_gate_options(),
+        )
+        eng.start(GH, None, UPLOAD_PAT)
+        eng.controls.set_token(True, "accepted", T0)
+        eng.update_device(json.dumps(WIFI))
+        (eng.home / "raw" / "pr_window").mkdir(parents=True, exist_ok=True)
+        (eng.home / "raw" / "pr_window" / "a__b.json").write_text('{"ok": true}\n', encoding="utf-8")
+        (eng.home / "raw" / "candidates.jsonl").write_text(
+            '{"owner":"a","name":"b","ecosystem":"pypi"}\n', encoding="utf-8"
+        )
+        (eng.home / "state" / "refresh").mkdir(parents=True, exist_ok=True)
+        (eng.home / "state" / "refresh" / "L1.complete").write_text("2026-10-28T01:00:00Z\n", encoding="utf-8")
+        (eng.home / "state" / "refresh" / "MAIN.done").write_text("2026-10-28T01:00:00Z\n", encoding="utf-8")
+        eng.settings.set({"layers": ["L1"], "delivery_mode": "github_drop", "drop_repo": "pctablet505/porchlamp-drop"})
+
+        # Switching to github_drop with a finished cycle automatically verifies the token and publishes the release!
+        assert len(releases) == 1 and releases[0]["draft"] is False
+        names = {a["name"] for a in releases[0]["assets"]}
+        assert names == {"candidates.jsonl", "L1.tar.gz", "manifest.json"}
+
+        # Calling upload_now again skips re-uploading the identical cycle.
+        second = json.loads(eng.upload_now())
+        assert second["ok"] is True and second["skipped"] is True
+
+        # Self-check includes the 7th "delivery" check when delivery_mode != "lan", and link is ok without lan_token.
+        sc = json.loads(eng.self_check())
+        by_id = {c["id"]: c for c in sc["checks"]}
+        assert list(by_id) == ["github", "network", "link", "space", "progress", "battery", "delivery"]
+        assert by_id["link"]["ok"] is True and by_id["delivery"]["ok"] is True
+
+        # Ensure zero leakage of UPLOAD_PAT in status, timeline, techlog, or files on disk.
+        eng.log(f"accidental trace {UPLOAD_PAT}")
+        assert UPLOAD_PAT not in eng.status()
+        assert UPLOAD_PAT not in eng.events(0, 50)
+        assert not leaks(eng.files_dir, [GH, UPLOAD_PAT])
+
+        # remove_tokens forgets upload_token too.
+        assert json.loads(eng.danger("remove_tokens", "remove_tokens"))["ok"] is True
+        assert json.loads(eng.status())["delivery"]["upload_token"]["set"] is False
+    finally:
+        srv.close()
+

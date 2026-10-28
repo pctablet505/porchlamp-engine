@@ -13,6 +13,7 @@ holds them.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -25,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from phone import control, httpgate, runner, serve, status as status_mod, tokencheck
+from phone import control, httpgate, runner, serve, status as status_mod, tokencheck, upload
 from phone.control import Controls, LanManager, Reason, Settings
 from phone.events import Redactor, TechLog, Timeline
 from phone.httpgate import Gate, Stopped
@@ -38,6 +39,7 @@ STUCK_AFTER_S = status_mod.STUCK_AFTER_S
 RUNNER_POLL_S = 30.0
 TOKEN_RETRY_S = 60.0
 TOKEN_BLOCKED_RETRY_S = 5.0
+UPLOAD_RETRY_S = 300.0
 HALT_WAIT_S = 20.0
 DANGER_ACTIONS = ("reset", "move_data_aside", "remove_tokens")
 TOKEN_ENV = ("PORCHLAMP_GH_TOKENS", "GITHUB_TOKEN")   # ghcli reads these ahead of, or in place of, GH_TOKEN
@@ -62,7 +64,7 @@ class Engine:
                  free_gb: Callable[[], float] | None = None, gather_main: Callable[[list[str]], int] | None = None,
                  make_server: Callable[..., Any] | None = None, threads: bool = True, tick_s: float = 2.0,
                  gate_options: dict[str, Any] | None = None, api_base: str | None = None,
-                 lan_port: int = control.LAN_PORT) -> None:
+                 upload_base: str | None = None, lan_port: int = control.LAN_PORT) -> None:
         self.files_dir = Path(files_dir)
         self.home = self.files_dir / "porchlamp"
         self.exports = self.files_dir / "exports"
@@ -71,6 +73,7 @@ class Engine:
         self._threads_enabled = threads
         self._tick_s = tick_s
         self._api_base = api_base
+        self._upload_base = upload_base
         for sub in ("raw", "state", "config"):
             (self.home / sub).mkdir(parents=True, exist_ok=True)
         state = self.home / "state"
@@ -84,7 +87,7 @@ class Engine:
         self.controls = Controls(self.settings, clock=clock, state_dir=state, emit=self.event,
                                  free_gb=free_gb or (lambda: runner.shutil_free(self.home)),
                                  on_reason=self._reason_changed,
-                                 github_hosts=options.get("token_hosts", httpgate.TOKEN_HOSTS))
+                                 github_hosts=options.get("token_hosts", frozenset({"api.github.com"})))
         self.gate = Gate(stats=self.stats, controls=self.controls, log=self.log, clock=clock, **options)
         self.gate.on_rate_wait_end = self._rate_wait_ended
         self.runstate = runner.RunState()
@@ -106,15 +109,41 @@ class Engine:
         self._engine_error: dict[str, Any] | None = None
         self._gh_token: str | None = None
         self._lan_token: str | None = None
+        self._upload_token: str | None = None
+        self.upload_token_state = "untested"
+        self.upload_token_tested_at: float | None = None
         self._last_test: tuple[str, str, float] | None = None   # (digest, state, time): never the value
+        self._last_upload_test: tuple[str, str, str, float] | None = None  # (digest, repo, state, time)
+        self.uploading = False
+        self.last_upload_at: float | None = None
+        self.last_upload_tag: str | None = None
+        self.last_upload_error: str | None = None
+        self._auto_upload_tried_at = -1e9
+        self._uploaded_main_done: float | None = None
+        self._uploaded_repo: str | None = None
+        self._upload_lock = threading.Lock()
         self._life = threading.RLock()
         self._shutdown = threading.Event()
         self._cancel = threading.Event()
         self._collector: threading.Thread | None = None
         self._monitor: threading.Thread | None = None
         self._token_worker: threading.Thread | None = None
+        self._upload_worker: threading.Thread | None = None
+        self._load_uploaded_state()
         if self.settings.load_note:
             self.event("warn", "Settings were reset", self.settings.load_note)
+
+    def _load_uploaded_state(self) -> None:
+        saved = upload.read_uploaded_state(self.home)
+        if not saved:
+            return
+        tag = saved.get("tag")
+        if isinstance(tag, str) and tag:
+            self.last_upload_tag = tag
+        stamp = saved.get("uploaded_at")
+        if isinstance(stamp, str) and stamp:
+            with contextlib.suppress(ValueError):
+                self.last_upload_at = datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
 
     # ---- small shared pieces ------------------------------------------------------------------------------------
     def log(self, text: str) -> None:
@@ -169,8 +198,8 @@ class Engine:
                 and self.gate.rate_state() is None and self.collector_alive())
 
     # ---- tokens -----------------------------------------------------------------------------------------------------
-    def set_tokens(self, github_token: object, lan_token: object) -> None:
-        gh, lan = _clean(github_token), _clean(lan_token)
+    def set_tokens(self, github_token: object, lan_token: object, upload_token: object = None) -> None:
+        gh, lan, up = _clean(github_token), _clean(lan_token), _clean(upload_token)
         with self._life:
             if gh != self._gh_token:
                 old, self._gh_token = self._gh_token, gh
@@ -193,10 +222,30 @@ class Engine:
                 self.redactor.discard(old)
                 self.redactor.add(lan)
                 self.lan.set_token(lan)
+            if up != self._upload_token:
+                old, self._upload_token = self._upload_token, up
+                self.redactor.discard(old)
+                self.redactor.add(up)
+                self.last_upload_error = None
+                self._auto_upload_tried_at = -1e9
+                if up is None:
+                    self.upload_token_state = "untested"
+                    self.upload_token_tested_at = None
+                else:
+                    repo = self.settings.value("drop_repo")
+                    last_u = self._last_upload_test
+                    known_u = last_u is not None and last_u[0] == _digest(up) and last_u[1] == repo
+                    self.upload_token_state = last_u[2] if known_u else "untested"
+                    self.upload_token_tested_at = last_u[3] if known_u else None
+                    self.event("info", "Upload token set" if known_u else "Upload token set, not tested yet", "", "network")
 
     @property
     def lan_token_set(self) -> bool:
         return self._lan_token is not None
+
+    @property
+    def upload_token_set(self) -> bool:
+        return self._upload_token is not None
 
     def check_token(self, token: str) -> dict[str, Any]:
         """Test ``token`` against GitHub. If it is the token in use, its state and permission to be used follow."""
@@ -220,19 +269,50 @@ class Engine:
         result["_blocked"] = blocked
         return result
 
+    def check_upload_token(self, token: str, drop_repo: str | None = None) -> dict[str, Any]:
+        """Test ``token`` for minimal drop-box scope against GitHub."""
+        repo = drop_repo if drop_repo is not None and drop_repo.strip() else self.settings.value("drop_repo")
+        result = upload.check_upload_token(token, repo, base=self._api_base)
+        state = result["state"]
+        now = self.clock()
+        blocked = bool(result.pop("blocked", False))
+        clean_repo = control.valid_drop_repo(repo) or ""
+        if state not in ("unreachable", "bad_repo"):
+            self._last_upload_test = (_digest(token), clean_repo, state, now)
+            level = {"accepted": "ok", "rejected": "err", "too_powerful": "err"}[state]
+            self.event(level, f"Upload token tested: {state.replace('_', ' ')}", "", "network")
+            with self._life:
+                if (self._upload_token is not None and _digest(self._upload_token) == _digest(token)
+                        and clean_repo == self.settings.value("drop_repo")):
+                    self.upload_token_state = state
+                    self.upload_token_tested_at = now
+        result["_blocked"] = blocked
+        return result
+
     def _token_loop(self, cancel: threading.Event) -> None:
-        """Test the token in use until GitHub has answered; collection never uses a token that was not accepted."""
+        """Test the tokens in use until GitHub has answered; neither collection nor upload uses an unverified token."""
         self.gate.bind_cancel(cancel)
         try:
             while not cancel.is_set() and not self._shutdown.is_set():
+                did_work = False
+                wait_s = 1.0
                 token = self._gh_token
-                if token is None or self.controls.token_state != "untested":
-                    if cancel.wait(1.0):
-                        return
-                    continue
-                result = self.check_token(token)
-                if result["state"] == "unreachable" and cancel.wait(
-                        TOKEN_BLOCKED_RETRY_S if result["_blocked"] else TOKEN_RETRY_S):
+                if token is not None and self.controls.token_state == "untested":
+                    did_work = True
+                    result = self.check_token(token)
+                    if result["state"] == "unreachable":
+                        wait_s = max(wait_s, TOKEN_BLOCKED_RETRY_S if result["_blocked"] else TOKEN_RETRY_S)
+                up_token = self._upload_token
+                s = self.settings.get()
+                if (up_token is not None and self.upload_token_state == "untested"
+                        and s["delivery_mode"] != "lan" and s["drop_repo"]):
+                    did_work = True
+                    up_res = self.check_upload_token(up_token, s["drop_repo"])
+                    if up_res["state"] == "unreachable":
+                        wait_s = max(wait_s, TOKEN_BLOCKED_RETRY_S if up_res["_blocked"] else TOKEN_RETRY_S)
+                    elif up_res["state"] == "accepted":
+                        self._maybe_start_upload()
+                if cancel.wait(wait_s if did_work else 1.0):
                     return
         except Stopped:
             return
@@ -245,10 +325,10 @@ class Engine:
             httpgate.install(previous)
             raise RuntimeError("the collectors are not routed through the HTTP gate; the engine will not start")
 
-    def start(self, github_token: object, lan_token: object) -> None:
+    def start(self, github_token: object, lan_token: object, upload_token: object = None) -> None:
         with self._life:
             self._route_through_gate()
-            self.set_tokens(github_token, lan_token)
+            self.set_tokens(github_token, lan_token, upload_token)
             if self.started and not self.stopped:
                 return
             was_stopped = self.stopped
@@ -305,7 +385,10 @@ class Engine:
         thread = self._collector
         if thread is not None and thread.is_alive():
             thread.join(timeout=wait_s)
-        return thread is None or not thread.is_alive()
+        up_thread = self._upload_worker
+        if up_thread is not None and up_thread.is_alive():
+            up_thread.join(timeout=wait_s)
+        return (thread is None or not thread.is_alive()) and (up_thread is None or not up_thread.is_alive())
 
     def _monitor_loop(self, shutdown: threading.Event) -> None:
         while not shutdown.wait(self._tick_s):
@@ -323,9 +406,9 @@ class Engine:
             self.gate.stop()
             self._cancel.set()
         self.lan.stop_server()
-        thread = self._collector
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=5)
+        for thread in (self._collector, self._upload_worker):
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=5)
         self.stats.flush()
         (self.home / "state" / "running").unlink(missing_ok=True)
         self.event("info", "Stopped by you", "Progress is saved. Tap Start to carry on.")
@@ -412,6 +495,8 @@ class Engine:
         elif name == "cycle_done":
             self.controls.cycle_boundary()
             self.event("ok", "Cycle finished", f"{len(steps)} of {len(steps)} steps. The data is ready to pull.")
+            if self.settings.value("delivery_mode") != "lan":
+                self._maybe_start_upload()
         elif name == "cycle_fail":
             self.event("err", "A step stopped with an error", f"Code {info.get('rc')}. It tries again in a while.")
         elif name == "no_candidates":
@@ -421,6 +506,106 @@ class Engine:
             if due is not None and due != self._idle_event_for:
                 self._idle_event_for = due
                 self.event("info", f"Idle. The next cycle is due {status_mod.date_text(due)}")
+            if self.settings.value("delivery_mode") != "lan":
+                self._maybe_start_upload()
+
+    # ---- drop-box upload ----------------------------------------------------------------------------------------
+    def _maybe_start_upload(self) -> None:
+        if self.stopped or not self.started:
+            return
+        s = self.settings.get()
+        repo = control.valid_drop_repo(s["drop_repo"])
+        if s["delivery_mode"] == "lan" or repo is None or self._upload_token is None:
+            return
+        if self.upload_token_state in ("rejected", "too_powerful"):
+            return
+        main_done = runner.marker_ts(self.home / "state" / "refresh" / "MAIN.done")
+        if main_done is None:
+            return
+        if self._uploaded_main_done == main_done and self._uploaded_repo == repo:
+            return
+        now = self.clock()
+        if self.last_upload_error is not None and now - self._auto_upload_tried_at < UPLOAD_RETRY_S:
+            return
+        if self.uploading or (self._upload_worker is not None and self._upload_worker.is_alive()):
+            return
+        self._auto_upload_tried_at = now
+        if self._threads_enabled:
+            cancel = self._cancel
+            self._upload_worker = threading.Thread(
+                target=self._upload_thread_main, args=(cancel,), daemon=True, name="porchlamp-upload"
+            )
+            self._upload_worker.start()
+        else:
+            self.run_upload(manual=False)
+
+    def _upload_thread_main(self, cancel: threading.Event) -> None:
+        self.gate.bind_cancel(cancel)
+        with self._life:
+            if self.stopped or cancel.is_set():
+                return
+        self.run_upload(manual=False)
+
+    def run_upload(self, *, manual: bool = False) -> dict[str, Any]:
+        """Run one drop-box upload pass synchronously (used directly in tests and inside ``porchlamp-upload``)."""
+        s = self.settings.get()
+        repo = control.valid_drop_repo(s["drop_repo"])
+        if repo is None:
+            return {"ok": False, "detail": "Set a dedicated private drop-box repo in Settings first."}
+        token = self._upload_token
+        if token is None:
+            return {"ok": False, "detail": "Add the upload token in Settings first."}
+        main_done = runner.marker_ts(self.home / "state" / "refresh" / "MAIN.done")
+        if main_done is None:
+            return {"ok": False, "detail": "The current cycle has not finished yet."}
+        if not self._upload_lock.acquire(blocking=False):
+            return {"ok": True, "uploading": True, "detail": "An upload is already running."}
+        try:
+            self.uploading = True
+            if self.upload_token_state != "accepted":
+                chk = self.check_upload_token(token, repo)
+                if chk["state"] != "accepted":
+                    self.last_upload_error = chk["detail"]
+                    return {"ok": False, "detail": chk["detail"]}
+            res = upload.upload_cycle(
+                self.home,
+                token,
+                repo,
+                selected_layers=s["layers"],
+                api_base=self._api_base,
+                upload_base=self._upload_base,
+                log=self.log,
+                clock=self.clock,
+                scope="upload",
+            )
+            self.last_upload_tag = res["tag"]
+            self.last_upload_at = self.clock()
+            self.last_upload_error = None
+            self._uploaded_main_done = main_done
+            self._uploaded_repo = repo
+            if not res.get("skipped"):
+                self.event("ok", "Uploaded cycle to drop-box", f"{res['tag']} -> {repo}", "network")
+            detail = (f"Already uploaded {res['tag']}."
+                      if res.get("skipped") else f"Uploaded {res['tag']} to {repo}.")
+            return {"ok": True, **res, "detail": detail}
+        except Stopped:
+            return {"ok": False, "detail": "Upload stopped."}
+        except httpgate.WouldBlock as exc:
+            why = getattr(getattr(exc, "reason", None), "text", None) or "Upload is waiting for device or network rules."
+            return {"ok": False, "detail": why}
+        except (upload.UploadError, OSError, ValueError) as exc:
+            msg = self.redactor(str(exc))
+            self.last_upload_error = msg
+            self._engine_error = {
+                "t": self.clock(),
+                "text": f"Drop-box upload failed: {msg}",
+                "action": "It tries again automatically, or tap Upload now in Settings.",
+            }
+            self.event("err", "Drop-box upload failed", msg, "network")
+            return {"ok": False, "detail": msg}
+        finally:
+            self.uploading = False
+            self._upload_lock.release()
 
     # ---- the monitor tick ---------------------------------------------------------------------------------------
     def tick(self) -> None:
@@ -511,9 +696,28 @@ class Engine:
             os.environ["PORCHLAMP_RATE_FLOOR"] = str(new["rate_floor"])
         if old["lan_mode"] != new["lan_mode"]:
             self.event("info", f"Workstation link set to {new['lan_mode']}", "", "network")
+        if old["delivery_mode"] != new["delivery_mode"]:
+            self.event("info", f"Delivery mode set to {new['delivery_mode']}", "", "network")
+            self._auto_upload_tried_at = -1e9
+        if old["drop_repo"] != new["drop_repo"]:
+            with self._life:
+                self.last_upload_error = None
+                self._auto_upload_tried_at = -1e9
+                if self._upload_token is not None:
+                    last_u = self._last_upload_test
+                    known_u = (last_u is not None and last_u[0] == _digest(self._upload_token)
+                               and last_u[1] == new["drop_repo"])
+                    self.upload_token_state = last_u[2] if known_u else "untested"
+                    self.upload_token_tested_at = last_u[3] if known_u else None
+            if new["drop_repo"]:
+                self.event("info", f"Drop-box repository set to {new['drop_repo']}", "", "network")
         self.controls._dirty = True
         self.gate.kick()
         self.lan.update()
+        if new["delivery_mode"] != "lan" and (
+            old["delivery_mode"] != new["delivery_mode"] or old["drop_repo"] != new["drop_repo"]
+        ):
+            self._maybe_start_upload()
 
     def _on_transfer(self, ip: str, sent: int, received: int, fetched: bool) -> None:
         self.stats.add(ip, "wifi", calls=1, sent=sent, recv=received)
@@ -564,7 +768,36 @@ class Engine:
     def test_token(self, token: str) -> str:
         result = self.check_token(token if isinstance(token, str) else "")
         result.pop("_blocked", None)
-        return json.dumps(result)
+        return self.redactor(json.dumps(result))
+
+    def test_upload_token(self, token: str, drop_repo: str = "") -> str:
+        result = self.check_upload_token(
+            token if isinstance(token, str) else "",
+            drop_repo if isinstance(drop_repo, str) else "",
+        )
+        result.pop("_blocked", None)
+        return self.redactor(json.dumps(result))
+
+    def upload_now(self) -> str:
+        s = self.settings.get()
+        repo = control.valid_drop_repo(s["drop_repo"])
+        if repo is None:
+            return json.dumps({"ok": False, "detail": "Set a dedicated private drop-box repo in Settings first."})
+        if self._upload_token is None:
+            return json.dumps({"ok": False, "detail": "Add the upload token in Settings first."})
+        if not (self.home / "state" / "refresh" / "MAIN.done").is_file():
+            return json.dumps({"ok": False, "detail": "The current cycle has not finished yet."})
+        if self.uploading or (self._upload_worker is not None and self._upload_worker.is_alive()):
+            return json.dumps({"ok": True, "uploading": True, "detail": "An upload is already running."})
+        self.last_upload_error = None
+        if self._threads_enabled:
+            cancel = self._cancel
+            self._upload_worker = threading.Thread(
+                target=self._upload_thread_main, args=(cancel,), daemon=True, name="porchlamp-upload"
+            )
+            self._upload_worker.start()
+            return json.dumps({"ok": True, "started": True, "detail": "Uploading the finished cycle in the background."})
+        return self.redactor(json.dumps(self.run_upload(manual=True)))
 
     def share(self, minutes: Any = control.SHARE_DEFAULT_MIN) -> None:
         self.lan.share(minutes)
@@ -613,7 +846,10 @@ class Engine:
             add("network", "Network", False, "No network. It waits until Wi-Fi returns.")
         # 3. the workstation link: what the phone side can know
         if not self.lan_token_set:
-            add("link", "Workstation link", False, "The link token is not set. Add it in Settings.")
+            if s["delivery_mode"] == "github_drop":
+                add("link", "Workstation link", True, "Not needed: delivery is set to GitHub drop-box only.")
+            else:
+                add("link", "Workstation link", False, "The link token is not set. Add it in Settings.")
         elif self.lan.serving:
             add("link", "Workstation link", True,
                 f"Listening on {self.lan.address}. Link token is set. Whether the workstation is on is not checked.")
@@ -651,6 +887,16 @@ class Engine:
             ", ".join(parts) + ". " + ("Both pause rules are on." if len(rules) == 2 else
                                        "A pause rule is switched off by Keep going anyway."
                                        if rules else "Both pause rules are switched off by Keep going anyway."))
+        # 7. drop-box delivery (only when enabled)
+        if s["delivery_mode"] != "lan":
+            repo = control.valid_drop_repo(s["drop_repo"])
+            if repo is None:
+                add("delivery", "Drop-box delivery", False, "No private drop-box repo set in Settings.")
+            elif self._upload_token is None:
+                add("delivery", "Drop-box delivery", False, "No upload token set in Settings.")
+            else:
+                chk = self.check_upload_token(self._upload_token, repo)
+                add("delivery", "Drop-box delivery", chk["state"] == "accepted", chk["detail"])
         return json.dumps({"checks": checks, "all_ok": all(x["ok"] for x in checks),
                            "took_s": round(time.monotonic() - t0, 2)})
 
@@ -664,7 +910,7 @@ class Engine:
         if action == "remove_tokens":
             self._forget_tokens()
             self.event("warn", "Tokens removed", "Add them again in Settings to carry on.")
-            return json.dumps({"ok": True, "detail": "Both tokens were forgotten. Nothing was deleted."})
+            return json.dumps({"ok": True, "detail": "All tokens were forgotten. Nothing was deleted."})
         was_running = self.started and not self.stopped and self._threads_enabled
         if was_running and not self.halt_collector():
             return json.dumps({"ok": False, "detail": "The collector could not be stopped in time. "
@@ -701,18 +947,34 @@ class Engine:
             src.rename(dest / src.name)
             moved_any = True
         markers = self.home / "state" / "refresh"
+        prev_dir = self.home / "state" / f"refresh-prev-{action}-{stamp}"
         if markers.is_dir() and any(markers.iterdir()):
-            markers.rename(self.home / "state" / f"refresh-prev-{action}-{stamp}")
+            markers.rename(prev_dir)
             markers.mkdir(parents=True, exist_ok=True)
             moved_any = True
+        uploaded_state = self.home / "state" / "uploaded.json"
+        if uploaded_state.is_file():
+            prev_dir.mkdir(parents=True, exist_ok=True)
+            uploaded_state.rename(prev_dir / "uploaded.json")
+            moved_any = True
+        self.last_upload_at = None
+        self.last_upload_tag = None
+        self.last_upload_error = None
+        self._uploaded_main_done = None
+        self._uploaded_repo = None
         return dest.name if moved_any else None
 
     def _forget_tokens(self) -> None:
         with self._life:
             self.redactor.discard(self._gh_token)
             self.redactor.discard(self._lan_token)
-            self._gh_token = self._lan_token = None
+            self.redactor.discard(self._upload_token)
+            self._gh_token = self._lan_token = self._upload_token = None
             self._last_test = None
+            self._last_upload_test = None
+            self.upload_token_state = "untested"
+            self.upload_token_tested_at = None
+            self.last_upload_error = None
             for name in ("GH_TOKEN", *TOKEN_ENV):
                 os.environ.pop(name, None)
             self.controls.set_token(False)
@@ -746,13 +1008,17 @@ def _cold_status() -> str:
         "phone": {"battery_pct": None, "charging": False, "temp_c": None, "free_gb": 0.0, "data_gb": 0.0},
         "contacts": [], "lan": {"mode": "manual", "serving": False, "address": None, "share_until": None,
                                 "last_fetch": None, "ready_steps": 0, "ready_gb": 0.0},
+        "delivery": {"mode": "lan", "drop_repo": "",
+                     "upload_token": {"set": False, "state": "untested", "tested_at": None},
+                     "uploading": False, "last_upload": None, "last_tag": None, "last_error": None},
         "tokens": {"github": {"set": False, "state": "untested", "tested_at": None}, "lan": {"set": False}},
         "alerts": [], "health": {"last_error": None, "retries_today": 0, "uptime_s": 0},
         "device": {"power_save": False, "battery_optimized": False, "notifications_enabled": True,
                    "data_saver": False, "wifi_ip": None}})
 
 
-def start(files_dir: str, github_token: str | None = None, lan_token: str | None = None) -> None:
+def start(files_dir: str, github_token: str | None = None, lan_token: str | None = None,
+          upload_token: str | None = None) -> None:
     """Start the engine threads once (idempotent). A repeated call with other tokens swaps the tokens in memory."""
     global _ENGINE, _PENDING_DEVICE
     with _LOCK:
@@ -761,7 +1027,7 @@ def start(files_dir: str, github_token: str | None = None, lan_token: str | None
                 _ENGINE.stop()
             _ENGINE = Engine(files_dir)
         eng, pending, _PENDING_DEVICE = _ENGINE, _PENDING_DEVICE, None
-    eng.start(github_token, lan_token)
+    eng.start(github_token, lan_token, upload_token)
     if pending is not None:
         eng.update_device(pending)
 
@@ -821,6 +1087,18 @@ def test_token(github_token: str) -> str:
     if _ENGINE is None:
         raise RuntimeError("start() has not been called")
     return _ENGINE.test_token(github_token)
+
+
+def test_upload_token(upload_token: str, drop_repo: str = "") -> str:
+    if _ENGINE is None:
+        raise RuntimeError("start() has not been called")
+    return _ENGINE.test_upload_token(upload_token, drop_repo)
+
+
+def upload_now() -> str:
+    if _ENGINE is None:
+        return json.dumps({"ok": False, "detail": "The engine has not started yet."})
+    return _ENGINE.upload_now()
 
 
 def share(minutes: int = control.SHARE_DEFAULT_MIN) -> None:

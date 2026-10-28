@@ -583,3 +583,33 @@ def test_the_device_block_before_the_first_facts_has_no_wifi_address(monkeypatch
     from phone import entry
     monkeypatch.setattr(entry, "_ENGINE", None)                           # start() has not been called yet
     assert json.loads(entry.status())["device"]["wifi_ip"] is None
+
+
+def test_delivery_block_alerts_and_finished_detail(tmp_path):
+    r, _ = idle_rig(tmp_path)
+    s = r.status()
+    assert s["delivery"] == {
+        "mode": "lan",
+        "drop_repo": "",
+        "upload_token": {"set": False, "state": "untested", "tested_at": None},
+        "uploading": False,
+        "last_upload": None,
+        "last_tag": None,
+        "last_error": None,
+    }
+    r.eng.settings.set({"delivery_mode": "github_drop"})
+    assert "no_drop_repo" in {a["id"] for a in r.status()["alerts"]}
+
+    r.eng.settings.set({"drop_repo": "pctablet505/porchlamp-drop"})
+    assert "no_upload_token" in {a["id"] for a in r.status()["alerts"]}
+
+    r.eng.set_tokens(r.eng._gh_token, r.eng._lan_token, "github_pat_11ABCDEF0123456789abcdef_0123456789abcdefABCDEF0123456789")
+    r.eng.upload_token_state = "accepted"
+    r.eng.last_upload_tag = "cycle-2026-10-11-deadbeefcafe"
+    r.eng.runstate.finished_at = r.clock() - 30
+    done = r.status()
+    assert done["state"] == "finished"
+    assert done["detail"] == "Uploaded cycle-2026-10-11-deadbeefcafe to pctablet505/porchlamp-drop."
+    assert done["delivery"]["upload_token"]["set"] is True
+    assert done["delivery"]["last_tag"] == "cycle-2026-10-11-deadbeefcafe"
+

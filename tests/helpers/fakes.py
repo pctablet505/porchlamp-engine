@@ -60,12 +60,13 @@ class FakeHTTP:
                 data = payload.encode() if isinstance(payload, str) else payload
                 self.send_response(status)
                 for key, value in headers.items():
-                    self.send_header(key, value)
+                    if key.lower() != "content-length":
+                        self.send_header(key, value)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
 
-            do_GET = do_POST = do_PUT = _handle
+            do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = _handle
 
             def log_message(self, *args: Any) -> None:
                 return None

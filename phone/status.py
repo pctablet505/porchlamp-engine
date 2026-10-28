@@ -334,6 +334,7 @@ def _alerts(e: Any, state: str, code: str | None, free_gb: float) -> list[dict[s
         out.append({"id": alert_id, "level": level, "title": title, "text": text})
 
     c = e.controls
+    s = e.settings.get()
     if not c.token_present and e.needs_token():
         add("no_token", "attention", "No token yet", "Add the GitHub token in Settings.")
     elif c.token_present and c.token_state == "rejected":
@@ -342,6 +343,21 @@ def _alerts(e: Any, state: str, code: str | None, free_gb: float) -> list[dict[s
     elif c.token_present and c.token_state == "too_powerful":
         add("token_too_powerful", "attention", "That token is too powerful",
             "Collection did not start. Use a classic token with no scopes.")
+    if s["delivery_mode"] != "lan":
+        if not s["drop_repo"]:
+            add("no_drop_repo", "attention", "No drop-box repo set",
+                "Enter your private drop-box repo (owner/name) in Settings under Delivery.")
+        elif not e.upload_token_set:
+            add("no_upload_token", "attention", "No upload token yet",
+                "Add the fine-grained upload token in Settings under Delivery.")
+        elif e.upload_token_state == "rejected":
+            add("upload_token_rejected", "attention", "GitHub rejected the upload token",
+                "Paste a fine-grained upload token with Contents write on the drop-box repo.")
+        elif e.upload_token_state == "too_powerful":
+            add("upload_token_too_powerful", "attention", "Upload token is too powerful",
+                "Use a fine-grained token scoped only to the private drop-box repository.")
+        elif e.last_upload_error:
+            add("upload_failed", "attention", "Drop-box upload failed", redact(e.last_upload_error))
     if code == "disk_low":
         add("disk_low", "attention", f"Only {free_gb:.1f} GB of space is left",
             "Collection is paused. Free some space, then tap Resume.")
@@ -461,6 +477,19 @@ def build(e: Any) -> dict[str, Any]:
                 "share_until": iso_local(e.lan.share_until) if e.lan.share_until else None,
                 "last_fetch": iso_local(e.last_fetch()) if e.last_fetch() else None,
                 "ready_steps": len(completed), "ready_gb": round(e.datasize.ready_gb(completed), 1)},
+        "delivery": {
+            "mode": s["delivery_mode"],
+            "drop_repo": s["drop_repo"],
+            "upload_token": {
+                "set": e.upload_token_set,
+                "state": e.upload_token_state if e.upload_token_set else "untested",
+                "tested_at": iso_local(e.upload_token_tested_at) if e.upload_token_tested_at else None,
+            },
+            "uploading": bool(e.uploading),
+            "last_upload": iso_local(e.last_upload_at) if e.last_upload_at else None,
+            "last_tag": e.last_upload_tag,
+            "last_error": redact(e.last_upload_error) if e.last_upload_error else None,
+        },
         "tokens": {"github": {"set": c.token_present, "state": c.token_state if c.token_present else "untested",
                               "tested_at": iso_local(c.token_tested_at) if c.token_tested_at else None},
                    "lan": {"set": e.lan_token_set}},
@@ -496,7 +525,7 @@ def _words(e: Any, *, now: float, reason: Any, layer: str | None, idx: int, n_st
     needs_token = e.needs_token()
     if not has_history(e.home) and (e.no_candidates() or (needs_token and not c.token_present)):
         if needs_token and not c.token_present:
-            link = "" if e.lan_token_set else " and the link token"
+            link = "" if (e.lan_token_set or s["delivery_mode"] == "github_drop") else " and the link token"
             return ("first_run", "token_missing", "Welcome to the collector",
                     f"Nothing is collecting yet. Add the GitHub token{link} to begin.", "No token yet.")
         return ("first_run", None, "No repo list yet",
@@ -545,8 +574,16 @@ def _words(e: Any, *, now: float, reason: Any, layer: str | None, idx: int, n_st
                 "Waiting for GitHub's hourly limit.")
     if rs.mode == "idle":
         if finished_recent:
-            return ("finished", None, f"Cycle finished: {n_steps} of {n_steps} steps",
-                    "The data is ready to pull from the workstation.", "")
+            if s["delivery_mode"] == "lan":
+                done_detail = "The data is ready to pull from the workstation."
+            elif e.uploading:
+                done_detail = "Uploading the finished cycle to the private drop-box."
+            elif e.last_upload_tag and not e.last_upload_error:
+                done_detail = (f"Uploaded {e.last_upload_tag} to {s['drop_repo']}."
+                               if s["drop_repo"] else "Uploaded to the private drop-box.")
+            else:
+                done_detail = "The data is ready to upload to the private drop-box."
+            return ("finished", None, f"Cycle finished: {n_steps} of {n_steps} steps", done_detail, "")
         if due is not None:
             last = f"Last cycle finished {datetime_text(last_finished)}. " if last_finished else ""
             return ("idle", None, f"Idle, next cycle due {date_text(due)}",

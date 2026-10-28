@@ -1,0 +1,187 @@
+name: Publish Snapshot from Drop-Box
+
+on:
+  schedule:
+    - cron: "15 4 * * *"
+  workflow_dispatch:
+    inputs:
+      publish_mode:
+        description: "Publish mode (pr opens a review PR on porchlamp; direct pushes to main)"
+        required: false
+        default: "pr"
+        type: choice
+        options:
+          - pr
+          - direct
+      release_tag:
+        description: "Optional specific cycle-* tag from the drop-box repo"
+        required: false
+        default: ""
+        type: string
+      snapshot_id:
+        description: "Optional snapshot ID override (YYYY-MM-DD)"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: publish-from-drop
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Pull drop-box cycle and publish static site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout engine
+        uses: actions/checkout@v4
+        with:
+          path: engine
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore last published drop-box state
+        uses: actions/cache/restore@v4
+        with:
+          path: drop-data/state/pulled/release.json
+          key: drop-pulled-release-${{ github.run_id }}
+          restore-keys: |
+            drop-pulled-release-
+
+      - name: Check drop-box for a new finished cycle
+        id: check
+        env:
+          DROP_REPO: ${{ vars.PORCHLAMP_DROP_REPO }}
+          PORCHLAMP_DROP_READ_TOKEN: ${{ secrets.PORCHLAMP_DROP_READ_TOKEN }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DROP_REPO}" ] || [ -z "${PORCHLAMP_DROP_READ_TOKEN}" ]; then
+            echo "Drop-box variables/secrets not configured yet; skipping."
+            echo "has_new=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TAG_ARGS=()
+          if [ -n "${INPUT_TAG}" ]; then
+            TAG_ARGS=(--tag "${INPUT_TAG}")
+          fi
+          python engine/scripts/pull_from_drop.py \
+            --repo "${DROP_REPO}" \
+            --dest drop-data \
+            --check-only \
+            --status-out check-status.json \
+            "${TAG_ARGS[@]}"
+          HAS_NEW="$(python -c 'import json; print("true" if json.load(open("check-status.json"))["has_new"] else "false")')"
+          REL_TAG="$(python -c 'import json; print(json.load(open("check-status.json")).get("tag") or "")')"
+          echo "has_new=${HAS_NEW}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${REL_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Free unused runner SDKs for snapshot scratch space
+        if: steps.check.outputs.has_new == 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          df -h
+
+      - name: Set up Node 20
+        if: steps.check.outputs.has_new == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install snapshot export dependencies
+        if: steps.check.outputs.has_new == 'true'
+        run: pip install "fastapi==0.141.1" "httpx==0.28.1" "pyyaml==6.0.3" "uvicorn==0.52.4"
+
+      - name: Checkout porchlamp static site repository
+        if: steps.check.outputs.has_new == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.PORCHLAMP_SITE_REPO || 'pctablet505/porchlamp' }}
+          token: ${{ secrets.PORCHLAMP_SITE_PUSH_TOKEN }}
+          path: porchlamp-site
+          fetch-depth: 1
+
+      - name: Pull and verify cycle archives from drop-box
+        id: pull
+        if: steps.check.outputs.has_new == 'true'
+        env:
+          DROP_REPO: ${{ vars.PORCHLAMP_DROP_REPO }}
+          PORCHLAMP_DROP_READ_TOKEN: ${{ secrets.PORCHLAMP_DROP_READ_TOKEN }}
+          REL_TAG: ${{ steps.check.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          python engine/scripts/pull_from_drop.py \
+            --repo "${DROP_REPO}" \
+            --dest drop-data \
+            --tag "${REL_TAG}" \
+            --status-out pull-status.json
+          AS_OF="$(python -c 'import json; print(json.load(open("pull-status.json"))["as_of"])')"
+          echo "as_of=${AS_OF}" >> "$GITHUB_OUTPUT"
+
+      - name: Build, verify, and stage static snapshot
+        id: build
+        if: steps.check.outputs.has_new == 'true'
+        env:
+          AS_OF: ${{ steps.pull.outputs.as_of }}
+          INPUT_SNAPSHOT_ID: ${{ inputs.snapshot_id }}
+        run: |
+          set -euo pipefail
+          SNAP_ID="${INPUT_SNAPSHOT_ID}"
+          if [ -z "${SNAP_ID}" ]; then
+            SNAP_ID="$(date -u +%Y-%m-%d)"
+          fi
+          python engine/scripts/publish_snapshot.py \
+            --data-dir drop-data \
+            --work-dir publish-work \
+            --target-site porchlamp-site \
+            --snapshot-id "${SNAP_ID}" \
+            --as-of "${AS_OF}" \
+            --status-out publish-status.json
+          echo "snapshot_id=${SNAP_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish staged snapshot to porchlamp repository
+        if: steps.check.outputs.has_new == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PORCHLAMP_SITE_PUSH_TOKEN }}
+          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PORCHLAMP_PUBLISH_MODE || 'pr' }}
+          SNAP_ID: ${{ steps.build.outputs.snapshot_id }}
+          REL_TAG: ${{ steps.check.outputs.release_tag }}
+          SITE_REPO: ${{ vars.PORCHLAMP_SITE_REPO || 'pctablet505/porchlamp' }}
+        run: |
+          set -euo pipefail
+          git -C porchlamp-site config user.name "pctablet505"
+          git -C porchlamp-site config user.email "55033230+pctablet505@users.noreply.github.com"
+          if [ -z "$(git -C porchlamp-site status --porcelain)" ]; then
+            echo "No site changes to publish."
+            exit 0
+          fi
+          if [ "${PUBLISH_MODE}" = "direct" ]; then
+            git -C porchlamp-site checkout main
+            git -C porchlamp-site add -A
+            git -C porchlamp-site commit -m "Publish snapshot ${SNAP_ID} (${REL_TAG})"
+            git -C porchlamp-site push origin main
+          else
+            BRANCH="auto/snapshot-${SNAP_ID}"
+            git -C porchlamp-site checkout -B "${BRANCH}"
+            git -C porchlamp-site add -A
+            git -C porchlamp-site commit -m "Publish snapshot ${SNAP_ID} (${REL_TAG})"
+            git -C porchlamp-site push --force-with-lease origin "${BRANCH}"
+            if ! gh pr view "${BRANCH}" --repo "${SITE_REPO}" >/dev/null 2>&1; then
+              gh pr create \
+                --repo "${SITE_REPO}" \
+                --base main \
+                --head "${BRANCH}" \
+                --title "Publish snapshot ${SNAP_ID}" \
+                --body "Automated snapshot build from verified phone cycle \`${REL_TAG}\`. All static parity, mutant, report, chrome, project, home, and crawl checks passed."
+            fi
+          fi
+
+      - name: Save published drop-box state cache
+        if: steps.check.outputs.has_new == 'true' && success()
+        uses: actions/cache/save@v4
+        with:
+          path: drop-data/state/pulled/release.json
+          key: drop-pulled-release-${{ steps.check.outputs.release_tag }}-${{ github.run_id }}

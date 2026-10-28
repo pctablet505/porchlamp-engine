@@ -467,3 +467,36 @@ def test_installed_is_false_for_the_gate_made_at_import_and_true_for_an_engines_
         assert not httpgate.installed()
     finally:
         httpgate.install(before)
+
+
+def test_uploads_github_com_is_allowed_for_phone_and_counts_streamed_content_length(tmp_path, server):
+    assert "uploads.github.com" in httpgate.ALLOWED_HOSTS
+    assert "uploads.github.com" in httpgate.PHONE_HOSTS
+    assert "uploads.github.com" in httpgate.TOKEN_HOSTS
+    assert "uploads.github.com" not in Gate().budget_hosts
+
+    payload = b"z" * 8192
+    received: list[bytes] = []
+
+    def handle(req):
+        received.append(req.body)
+        return 201, {"Content-Type": "application/json"}, b'{"state":"uploaded"}'
+
+    server.responder = handle
+    rig = Rig(tmp_path)
+    import io
+
+    stream = io.BytesIO(payload)
+    req = urllib.request.Request(
+        server.url + "/repos/u/porchlamp-drop/releases/1/assets?name=L1.tar.gz",
+        data=stream,
+        headers={"Authorization": f"Bearer {CANARY}", "Content-Length": str(len(payload))},
+        method="POST",
+    )
+    with rig.gate.urlopen(req, 5, scope="upload") as resp:
+        assert resp.status == 201
+        resp.read()
+    assert received == [payload]
+    row = {r["host"]: r for r in rig.stats.hosts()}["127.0.0.1"]
+    assert row["bytes"] >= len(payload) and row["token_sent"] is True
+

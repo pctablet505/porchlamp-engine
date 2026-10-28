@@ -18,6 +18,7 @@ import ipaddress
 import json
 import math
 import os
+import re
 import tempfile
 import threading
 import time
@@ -27,6 +28,13 @@ from pathlib import Path
 from typing import Any
 
 LAYER_IDS: tuple[str, ...] = ("L1", "L0", "L2", "L3g", "L3c", "L4", "LK")
+RESERVED_REPO_NAMES: frozenset[str] = frozenset({
+    "porchlamp",
+    "porchlamp-engine",
+    "porchlamp-phone",
+    "contributor-value-index",
+})
+_REPO_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 DEFAULTS: dict[str, Any] = {
     "network": "wifi",
     "battery_pause_pct": 20,
@@ -38,6 +46,8 @@ DEFAULTS: dict[str, Any] = {
     "layers": list(LAYER_IDS),
     "rate_floor": 500,
     "lan_mode": "manual",
+    "delivery_mode": "lan",
+    "drop_repo": "",
 }
 INT_RANGES: dict[str, tuple[int, int]] = {
     "battery_pause_pct": (5, 50),
@@ -50,6 +60,7 @@ BOOLS = ("battery_override", "heat_override")
 ENUMS: dict[str, tuple[tuple[str, ...], str]] = {
     "network": (("wifi", "wifi_mobile"), "Pick Wi-Fi only, or Wi-Fi and mobile data."),
     "lan_mode": (("auto", "manual"), "Pick Auto or Manual."),
+    "delivery_mode": (("lan", "github_drop", "both"), "Pick LAN only, GitHub drop-box, or Both."),
 }
 
 BATTERY_RESUME_MARGIN = 5       # resume at pause level + 5 points
@@ -63,6 +74,23 @@ SHARE_DEFAULT_MIN = 30
 SHARE_MAX_MIN = 240
 LAN_PORT = 8765
 LAN_RETRY_S = 30.0
+
+
+def valid_drop_repo(value: Any) -> str | None:
+    """Return trimmed ``owner/name`` when ``value`` names an allowed drop-box repository, else ``None``."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if "/" not in cleaned or cleaned.count("/") != 1:
+        return None
+    owner, name = cleaned.split("/", 1)
+    if owner in ("", ".", "..") or name in ("", ".", ".."):
+        return None
+    if not (_REPO_SEGMENT_RE.fullmatch(owner) and _REPO_SEGMENT_RE.fullmatch(name)):
+        return None
+    if name.lower() in RESERVED_REPO_NAMES:
+        return None
+    return f"{owner}/{name}"
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -123,6 +151,15 @@ def validate(patch: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
                 clean[key] = [layer for layer in LAYER_IDS if layer in value]
             else:
                 errors[key] = "Pick at least one step."
+        elif key == "drop_repo":
+            if isinstance(value, str) and value.strip() == "":
+                clean[key] = ""
+            else:
+                repo = valid_drop_repo(value)
+                if repo is not None:
+                    clean[key] = repo
+                else:
+                    errors[key] = "Enter a dedicated private repo as owner/name (never porchlamp or engine repos)."
     return clean, errors
 
 
@@ -437,9 +474,11 @@ class Controls:
         return self.evaluate() or self._token_reason(needs_token)
 
     def block_reason(self, host: str, scope: str = "collect") -> Reason | None:
-        """The reason a request to ``host`` must wait, or None. Owner acts (token test, self-check) wait only for
-        the network rule."""
+        """The reason a request to ``host`` must wait, or None. ``upload`` obeys pause and device rules without the
+        collector token; owner acts (token test, self-check) wait only for the network rule."""
         reason = self.evaluate()
+        if scope == "upload":
+            return reason
         if scope != "collect":
             with self._lock:
                 return self._network_reason(self.settings.get(), self.device)
