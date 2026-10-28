@@ -49,6 +49,7 @@ __all__ = [
     "split_parts",
     "upload_cycle",
     "valid_drop_repo",
+    "verify_drop_repo_safe",
 ]
 
 API_BASE = "https://api.github.com"
@@ -136,6 +137,53 @@ def _call_json(
         return exc.code, exc.headers, parsed
 
 
+MAX_PUBLIC_PAGES = 10
+_SAFE_ASSET_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
+
+
+def _has_next_page(headers: Any) -> bool:
+    if headers is None:
+        return False
+    link = str(headers.get("link") or "")
+    return 'rel="next"' in link or "rel='next'" in link
+
+
+def verify_drop_repo_safe(
+    api_base: str,
+    repo: str,
+    token: str,
+    *,
+    timeout: float = TIMEOUT_S,
+    scope: str = "upload",
+    wait: bool = True,
+) -> None:
+    """Prove ``repo`` is currently private, unarchived, non-fork, and has zero ``.github/workflows``."""
+    api = api_base.rstrip("/")
+    status, _headers, meta = _call_json(f"{api}/repos/{repo}", token, timeout=timeout, scope=scope, wait=wait)
+    if status == 401:
+        raise UploadError("GitHub rejected the upload token (HTTP 401)")
+    if status != 200 or not isinstance(meta, dict):
+        raise UploadError(f"verifying drop-box repository {repo} failed: HTTP {status}")
+    if str(meta.get("full_name") or "").lower() != repo.lower():
+        raise UploadError(f"repository identity mismatch for {repo}")
+    if meta.get("private") is not True:
+        raise UploadError(f"refusing {repo}: drop-box repository must be private")
+    if meta.get("fork") is True or meta.get("archived") is True:
+        raise UploadError(f"refusing {repo}: drop-box repository must not be a fork or archived")
+
+    wf_status, _wf_headers, _wf_body = _call_json(
+        f"{api}/repos/{repo}/contents/.github/workflows",
+        token,
+        timeout=timeout,
+        scope=scope,
+        wait=wait,
+    )
+    if wf_status == 200:
+        raise UploadError(f"refusing {repo}: drop-box repository must not contain .github/workflows")
+    if wf_status != 404:
+        raise UploadError(f"verifying workflow absence on {repo} failed: HTTP {wf_status}")
+
+
 def check_upload_token(
     token: str,
     drop_repo: str,
@@ -148,12 +196,8 @@ def check_upload_token(
     if not tokencheck.shape_ok(token):
         return {"state": REJECTED, "detail": "That does not look like a GitHub token.", "blocked": False}
     repo = valid_drop_repo(drop_repo)
-    if repo is None:
-        return {
-            "state": BAD_REPO,
-            "detail": "Set a dedicated private drop-box repo (owner/name) in Delivery first.",
-            "blocked": False,
-        }
+    # Reject classic PATs, multi-repo private PATs, and public-push PATs BEFORE returning BAD_REPO so an over-scoped
+    # imported token (upload_token.import when drop_repo is still unset) is flagged and shredded immediately.
     try:
         status, headers, _user = _call_json(
             f"{api}/user", token, timeout=timeout, scope="token_test", wait=False
@@ -170,7 +214,7 @@ def check_upload_token(
                 "blocked": False,
             }
 
-        status, _headers, priv = _call_json(
+        status, priv_headers, priv = _call_json(
             f"{api}/user/repos?visibility=private&per_page=10",
             token,
             timeout=timeout,
@@ -181,24 +225,64 @@ def check_upload_token(
             return {"state": REJECTED, "detail": "GitHub rejected the upload token.", "blocked": False}
         if status != 200 or not isinstance(priv, list):
             return {"state": UNREACHABLE, "detail": "Could not reach GitHub to check the upload token.", "blocked": False}
+        if len(priv) > 1 or _has_next_page(priv_headers):
+            return {
+                "state": TOO_POWERFUL,
+                "detail": "That token can access multiple private repositories, so it was refused.",
+                "blocked": False,
+            }
+
+        for page in range(1, MAX_PUBLIC_PAGES + 1):
+            status, pub_headers, pub = _call_json(
+                f"{api}/user/repos?visibility=public&affiliation=owner,collaborator,organization_member&per_page=100&page={page}",
+                token,
+                timeout=timeout,
+                scope="token_test",
+                wait=False,
+            )
+            if status == 401:
+                return {"state": REJECTED, "detail": "GitHub rejected the upload token.", "blocked": False}
+            if status != 200 or not isinstance(pub, list):
+                return {"state": UNREACHABLE, "detail": "Could not reach GitHub to check the upload token.", "blocked": False}
+            if any(
+                isinstance(r, dict)
+                and isinstance(r.get("permissions"), dict)
+                and r["permissions"].get("push") is True
+                for r in pub
+            ):
+                return {
+                    "state": TOO_POWERFUL,
+                    "detail": "That token can push to a public repository, so it was refused.",
+                    "blocked": False,
+                }
+            if not _has_next_page(pub_headers):
+                break
+        else:
+            return {
+                "state": TOO_POWERFUL,
+                "detail": "Too many public repositories to audit push permissions safely; use a single-repo token.",
+                "blocked": False,
+            }
+
+        if repo is None:
+            return {
+                "state": BAD_REPO,
+                "detail": "Set a dedicated private drop-box repo (owner/name) in Delivery first.",
+                "blocked": False,
+            }
         if not priv:
             return {
                 "state": REJECTED,
                 "detail": f"The token cannot see the private drop-box repository {repo}.",
                 "blocked": False,
             }
-        others = [
-            r.get("full_name", "?")
-            for r in priv
-            if not isinstance(r, dict) or str(r.get("full_name", "")).lower() != repo.lower()
-        ]
-        if others:
+        target = priv[0]
+        if not isinstance(target, dict) or str(target.get("full_name", "")).lower() != repo.lower():
             return {
                 "state": TOO_POWERFUL,
                 "detail": "That token can access other private repositories, so it was refused.",
                 "blocked": False,
             }
-        target = priv[0]
         perms = target.get("permissions") if isinstance(target.get("permissions"), dict) else {}
         if target.get("private") is not True or perms.get("push") is not True:
             return {
@@ -206,24 +290,19 @@ def check_upload_token(
                 "detail": f"The token needs Contents write permission on private repository {repo}.",
                 "blocked": False,
             }
-
-        status, _headers, pub = _call_json(
-            f"{api}/user/repos?visibility=public&affiliation=owner,collaborator,organization_member&per_page=100",
-            token,
-            timeout=timeout,
-            scope="token_test",
-            wait=False,
-        )
-        if status == 401:
-            return {"state": REJECTED, "detail": "GitHub rejected the upload token.", "blocked": False}
-        if status != 200 or not isinstance(pub, list):
+        try:
+            verify_drop_repo_safe(api, repo, token, timeout=timeout, scope="token_test", wait=False)
+        except UploadError as exc:
+            msg = str(exc)
+            if ".github/workflows" in msg:
+                return {
+                    "state": TOO_POWERFUL,
+                    "detail": f"Refused: {repo} contains .github/workflows. A drop-box repository must hold zero workflows.",
+                    "blocked": False,
+                }
+            if "must be private" in msg or "fork or archived" in msg or "mismatch" in msg:
+                return {"state": REJECTED, "detail": msg, "blocked": False}
             return {"state": UNREACHABLE, "detail": "Could not reach GitHub to check the upload token.", "blocked": False}
-        if any(isinstance(r, dict) and isinstance(r.get("permissions"), dict) and r["permissions"].get("push") is True for r in pub):
-            return {
-                "state": TOO_POWERFUL,
-                "detail": "That token can push to a public repository, so it was refused.",
-                "blocked": False,
-            }
     except httpgate.WouldBlock:
         return {
             "state": UNREACHABLE,
@@ -301,6 +380,8 @@ def _upload_asset_slice(
     timeout: float = ASSET_TIMEOUT_S,
     scope: str = "upload",
 ) -> None:
+    if not _SAFE_ASSET_NAME_RE.fullmatch(asset_name):
+        raise UploadError(f"unsafe asset name refused: {asset_name!r}")
     query = urllib.parse.urlencode({"name": asset_name})
     url = f"{upload_base}/repos/{repo}/releases/{int(release_id)}/assets?{query}"
     headers = _api_headers(token, "application/octet-stream")
@@ -331,6 +412,8 @@ def _upload_bytes_asset(
     timeout: float = TIMEOUT_S,
     scope: str = "upload",
 ) -> None:
+    if not _SAFE_ASSET_NAME_RE.fullmatch(asset_name):
+        raise UploadError(f"unsafe asset name refused: {asset_name!r}")
     query = urllib.parse.urlencode({"name": asset_name})
     url = f"{upload_base}/repos/{repo}/releases/{int(release_id)}/assets?{query}"
     headers = _api_headers(token, content_type)
@@ -447,6 +530,9 @@ def upload_cycle(
         if clock is not None
         else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     )
+
+    # Re-verify drop-box privacy and zero-workflow state immediately before uploading any cycle data.
+    verify_drop_repo_safe(api, repo, token, scope=scope, wait=True)
 
     status, _headers, releases = _call_json(f"{api}/repos/{repo}/releases?per_page=20", token, scope=scope)
     if status != 200 or not isinstance(releases, list):

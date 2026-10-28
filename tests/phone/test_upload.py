@@ -65,10 +65,31 @@ def test_check_upload_token_enforces_minimal_fine_grained_scope(loopback_gate):
                 {"full_name": DROP_REPO, "private": True, "permissions": {"push": True}},
             ]).encode()
         if req.path.startswith("/user/repos?visibility=public"):
+            if mode[0] == "public_push_page2":
+                if "page=1" in req.path:
+                    return (
+                        200,
+                        {"Content-Type": "application/json", "Link": '<https://api.github.com/user/repos?page=2>; rel="next"'},
+                        json.dumps([{"full_name": "pctablet505/safe", "private": False, "permissions": {"push": False}}]).encode(),
+                    )
+                return 200, {"Content-Type": "application/json"}, json.dumps([
+                    {"full_name": "pctablet505/porchlamp", "private": False, "permissions": {"push": True}},
+                ]).encode()
             push_pub = mode[0] == "public_push"
             return 200, {"Content-Type": "application/json"}, json.dumps([
                 {"full_name": "pctablet505/porchlamp", "private": False, "permissions": {"push": push_pub}},
             ]).encode()
+        if req.path == f"/repos/{DROP_REPO}" and req.method == "GET":
+            return 200, {"Content-Type": "application/json"}, json.dumps({
+                "full_name": DROP_REPO,
+                "private": mode[0] != "flipped_public",
+                "fork": mode[0] == "forked_repo",
+                "archived": mode[0] == "archived_repo",
+            }).encode()
+        if req.path == f"/repos/{DROP_REPO}/contents/.github/workflows" and req.method == "GET":
+            if mode[0] == "has_workflows":
+                return 200, {"Content-Type": "application/json"}, b'[{"name":"evil.yml"}]'
+            return 404, {"Content-Type": "application/json"}, b'{"message":"Not Found"}'
         return 404, {}, b""
 
     srv.responder = responder
@@ -81,10 +102,17 @@ def test_check_upload_token_enforces_minimal_fine_grained_scope(loopback_gate):
         mode[0] = "401"
         assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.REJECTED
 
+        # Over-scoped classic PAT or page-2 public push PAT is flagged TOO_POWERFUL even when drop_repo is empty ("").
         mode[0] = "classic_scopes"
+        assert upload.check_upload_token(CLASSIC_PAT, "", base=srv.url)["state"] == upload.TOO_POWERFUL
         assert upload.check_upload_token(CLASSIC_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
 
+        mode[0] = "public_push_page2"
+        assert upload.check_upload_token(FINE_PAT, "", base=srv.url)["state"] == upload.TOO_POWERFUL
+        assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
+
         mode[0] = "two_private"
+        assert upload.check_upload_token(FINE_PAT, "", base=srv.url)["state"] == upload.TOO_POWERFUL
         assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
 
         mode[0] = "read_only"
@@ -95,6 +123,12 @@ def test_check_upload_token_enforces_minimal_fine_grained_scope(loopback_gate):
 
         mode[0] = "public_push"
         assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
+
+        mode[0] = "has_workflows"
+        assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
+
+        mode[0] = "forked_repo"
+        assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.REJECTED
     finally:
         srv.close()
 
@@ -120,10 +154,22 @@ def test_upload_cycle_splits_large_assets_resumes_partial_draft_and_flips_draft_
     stored_bytes: dict[str, bytes] = {}
     deleted_ids: list[int] = []
     upload_order: list[str] = []
+    repo_state = {"private": True, "has_workflows": False}
     next_id = [1]
 
     def responder(req):
         path = req.path
+        if path == f"/repos/{DROP_REPO}" and req.method == "GET":
+            return 200, {"Content-Type": "application/json"}, json.dumps({
+                "full_name": DROP_REPO,
+                "private": repo_state["private"],
+                "fork": False,
+                "archived": False,
+            }).encode()
+        if path == f"/repos/{DROP_REPO}/contents/.github/workflows" and req.method == "GET":
+            if repo_state["has_workflows"]:
+                return 200, {"Content-Type": "application/json"}, b'[{"name":"ci.yml"}]'
+            return 404, {"Content-Type": "application/json"}, b'{"message":"Not Found"}'
         if path.startswith(f"/repos/{DROP_REPO}/releases?"):
             return 200, {"Content-Type": "application/json"}, json.dumps(releases).encode()
         if path == f"/repos/{DROP_REPO}/releases" and req.method == "POST":
@@ -159,6 +205,19 @@ def test_upload_cycle_splits_large_assets_resumes_partial_draft_and_flips_draft_
 
     srv.responder = responder
     try:
+        # Pre-flight abort if drop-box repo was accidentally flipped public or gained a workflow file!
+        repo_state["private"] = False
+        with pytest.raises(upload.UploadError, match="must be private"):
+            upload.upload_cycle(home, FINE_PAT, DROP_REPO, selected_layers=["L1"], api_base=srv.url, upload_base=srv.url)
+        assert not releases
+
+        repo_state["private"] = True
+        repo_state["has_workflows"] = True
+        with pytest.raises(upload.UploadError, match=r"\.github/workflows"):
+            upload.upload_cycle(home, FINE_PAT, DROP_REPO, selected_layers=["L1"], api_base=srv.url, upload_base=srv.url)
+        assert not releases
+        repo_state["has_workflows"] = False
+
         # Pre-seed archive so we know the deterministic tag, then pre-create a draft with a corrupt partial .part01.
         res1 = upload.upload_cycle(
             home,

@@ -196,16 +196,128 @@ def render_citation_cff(snapshot: dict[str, Any], report: dict[str, Any]) -> str
     )
 
 
+_SCRUBBED_SUBPROCESS_ENV: frozenset[str] = frozenset({
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "PORCHLAMP_DROP_READ_TOKEN",
+    "PORCHLAMP_SITE_PUSH_TOKEN",
+})
+MIN_TOTAL_RETENTION = 0.95
+MIN_RATED_RETENTION = 0.80
+
+
+def _latest_previous_snapshot(target_site: Path, current_snapshot_id: str) -> dict[str, Any] | None:
+    data_dir = target_site / "data"
+    if not data_dir.is_dir():
+        return None
+    candidates = sorted(
+        (
+            p
+            for p in data_dir.iterdir()
+            if p.is_dir() and not p.is_symlink() and p.name != current_snapshot_id and SNAPSHOT_ID_RE.fullmatch(p.name)
+        ),
+        key=lambda p: p.name,
+    )
+    for folder in reversed(candidates):
+        snap_path = folder / "snapshot.json"
+        if snap_path.is_file() and not snap_path.is_symlink():
+            try:
+                doc = json.loads(snap_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(doc, dict):
+                return doc
+    return None
+
+
+def check_shrinkage_guard(
+    new_snapshot: dict[str, Any],
+    target_site: Path,
+    *,
+    allow_shrink: bool = False,
+) -> None:
+    """Abort before touching ``target_site`` if a new snapshot wipes or drastically shrinks the live corpus."""
+    counts = new_snapshot.get("counts")
+    if not isinstance(counts, dict):
+        raise PublishError("exported snapshot.json is missing counts dictionary")
+    new_total = int(counts.get("total") or 0)
+    new_rated = int(counts.get("rated") or 0)
+    if new_total <= 0:
+        raise PublishError(f"refusing to publish empty snapshot (total={new_total})")
+
+    prev = _latest_previous_snapshot(target_site, str(new_snapshot.get("snapshot_id") or ""))
+    if prev is None or allow_shrink:
+        return
+    prev_counts = prev.get("counts")
+    if not isinstance(prev_counts, dict):
+        return
+    prev_id = str(prev.get("snapshot_id") or "previous")
+    prev_total = int(prev_counts.get("total") or 0)
+    prev_rated = int(prev_counts.get("rated") or 0)
+
+    if prev_rated > 0 and new_rated <= 0:
+        raise PublishError(
+            f"shrinkage guard tripped: new snapshot has rated=0 vs {prev_id} rated={prev_rated} "
+            "(pass --allow-shrink to override intentionally)"
+        )
+    if prev_total > 0 and new_total < prev_total * MIN_TOTAL_RETENTION:
+        raise PublishError(
+            f"shrinkage guard tripped: universe dropped from {prev_total} ({prev_id}) to {new_total} "
+            f"(<{int(MIN_TOTAL_RETENTION * 100)}%; pass --allow-shrink to override)"
+        )
+    if prev_rated > 0 and new_rated < prev_rated * MIN_RATED_RETENTION:
+        raise PublishError(
+            f"shrinkage guard tripped: rated projects dropped from {prev_rated} ({prev_id}) to {new_rated} "
+            f"(<{int(MIN_RATED_RETENTION * 100)}%; pass --allow-shrink to override)"
+        )
+
+
+def audit_staged_site(target_site: Path) -> None:
+    """Verify the staged static site holds zero symlinks, zero ``.github`` paths, and zero unexpected dotfiles."""
+    git_entry = target_site / ".git"
+    if git_entry.is_symlink():
+        raise PublishError("staged site audit failed: .git must not be a symlink")
+
+    for root_str, dirnames, filenames in os.walk(target_site, topdown=True, followlinks=False):
+        root_path = Path(root_str)
+        is_site_root = root_path == target_site
+
+        for dname in list(dirnames):
+            dpath = root_path / dname
+            if is_site_root and dname == ".git":
+                dirnames.remove(dname)
+                continue
+            if dpath.is_symlink():
+                raise PublishError(f"staged site audit failed: symlink directory refused ({dpath.relative_to(target_site)})")
+            if dname == ".github" or dname.startswith("."):
+                raise PublishError(
+                    f"staged site audit failed: hidden/workflow directory refused ({dpath.relative_to(target_site)})"
+                )
+
+        for fname in filenames:
+            fpath = root_path / fname
+            if is_site_root and fname == ".git":
+                continue
+            if fpath.is_symlink():
+                raise PublishError(f"staged site audit failed: symlink file refused ({fpath.relative_to(target_site)})")
+            if fname == ".github" or (fname.startswith(".") and not (is_site_root and fname == ".nojekyll")):
+                raise PublishError(f"staged site audit failed: hidden file refused ({fpath.relative_to(target_site)})")
+
+
 def stage_site(
     exported_site: Path,
     target_site: Path,
     snapshot_id: str,
     *,
     keep_previous_data: int = 1,
+    allow_shrink: bool = False,
 ) -> dict[str, Any]:
     """Stage ``exported_site`` into ``target_site``, preserving operational files, frozen reports, and 1 prior data dir."""
     if (exported_site / ".github").exists() or (target_site / ".github").exists():
         raise PublishError("refusing to stage: .github directory is forbidden in the static site repository")
+
+    # Reject any symlinks inside exported_site before copying a single file.
+    audit_staged_site(exported_site)
 
     snap_file = exported_site / "data" / snapshot_id / "snapshot.json"
     rep_file = exported_site / "data" / snapshot_id / "report.json"
@@ -214,6 +326,8 @@ def stage_site(
 
     snapshot = json.loads(snap_file.read_text(encoding="utf-8"))
     report = json.loads(rep_file.read_text(encoding="utf-8")) if rep_file.is_file() else None
+
+    check_shrinkage_guard(snapshot, target_site, allow_shrink=allow_shrink)
 
     target_site.mkdir(parents=True, exist_ok=True)
     hold_dir = target_site.parent / f".porchlamp-stage-hold-{os.getpid()}"
@@ -226,18 +340,22 @@ def stage_site(
     try:
         # 1. Preserve historical black-holes/<old_id>/ directories (never overwrite the new snapshot_id).
         old_bh = target_site / "black-holes"
-        if old_bh.is_dir():
+        if old_bh.is_dir() and not old_bh.is_symlink():
             (hold_dir / "black-holes").mkdir(parents=True, exist_ok=True)
             for child in sorted(old_bh.iterdir(), key=lambda p: p.name):
-                if child.is_dir() and child.name != snapshot_id:
+                if child.is_dir() and not child.is_symlink() and child.name != snapshot_id and not child.name.startswith("."):
                     shutil.move(str(child), str(hold_dir / "black-holes" / child.name))
                     kept_frozen.append(child.name)
 
         # 2. Preserve at most `keep_previous_data` newest prior data/<prev_id>/ directories.
         old_data = target_site / "data"
-        if old_data.is_dir() and keep_previous_data > 0:
+        if old_data.is_dir() and not old_data.is_symlink() and keep_previous_data > 0:
             prior_dirs = sorted(
-                (p for p in old_data.iterdir() if p.is_dir() and p.name != snapshot_id),
+                (
+                    p
+                    for p in old_data.iterdir()
+                    if p.is_dir() and not p.is_symlink() and p.name != snapshot_id and not p.name.startswith(".")
+                ),
                 key=lambda p: p.name,
             )
             (hold_dir / "data").mkdir(parents=True, exist_ok=True)
@@ -248,6 +366,8 @@ def stage_site(
         # 3. Clean non-preserved root entries from target_site.
         for entry in list(target_site.iterdir()):
             if _is_preserved_root_entry(entry.name):
+                if entry.name != ".git" and entry.is_symlink():
+                    entry.unlink()
                 continue
             if entry.is_dir() and not entry.is_symlink():
                 shutil.rmtree(entry)
@@ -256,13 +376,13 @@ def stage_site(
 
         # 4. Copy newly exported site into target_site.
         for src in sorted(exported_site.iterdir(), key=lambda p: p.name):
-            if src.name == ".github":
-                raise PublishError("refusing to copy .github into target site")
+            if src.name == ".github" or src.is_symlink():
+                raise PublishError(f"refusing to copy unsafe entry {src.name!r} into target site")
             dst = target_site / src.name
             if src.is_dir():
                 shutil.copytree(src, dst, symlinks=False)
             else:
-                shutil.copy2(src, dst)
+                shutil.copy2(src, dst, follow_symlinks=False)
 
         # 5. Restore preserved historical black-holes/<old_id>/ and prior data/<prev_id>/.
         if (hold_dir / "black-holes").is_dir():
@@ -283,6 +403,9 @@ def stage_site(
         if report is not None:
             (target_site / "README.md").write_text(render_readme(snapshot, report), encoding="utf-8")
             (target_site / "CITATION.cff").write_text(render_citation_cff(snapshot, report), encoding="utf-8")
+
+        # 7. Final post-staging audit: zero symlinks, zero .github, zero unexpected dotfiles.
+        audit_staged_site(target_site)
     finally:
         if hold_dir.exists():
             shutil.rmtree(hold_dir, ignore_errors=True)
@@ -297,7 +420,7 @@ def stage_site(
 
 def _run_cmd(cmd: list[str], *, step: str, stdout_file: Path | None = None) -> None:
     _log(f"==> {step}")
-    env = dict(os.environ)
+    env = {k: v for k, v in os.environ.items() if k not in _SCRUBBED_SUBPROCESS_ENV}
     py_path = env.get("PYTHONPATH")
     env["PYTHONPATH"] = f"{REPO_ROOT}:{py_path}" if py_path else str(REPO_ROOT)
     if stdout_file is not None:
@@ -321,6 +444,7 @@ def run_pipeline(
     previous_snapshot_dir: Path | None = None,
     quick_verify: bool = False,
     no_mutants: bool = False,
+    allow_shrink: bool = False,
 ) -> dict[str, Any]:
     """Run derive -> build -> store -> stats -> export_static -> verify_static_export -> stage_site."""
     sid = validate_snapshot_id(snapshot_id)
@@ -444,7 +568,7 @@ def run_pipeline(
         verify_cmd.append("--no-mutants")
     _run_cmd(verify_cmd, step="verify static export")
 
-    staged = stage_site(export_out, target_site, sid)
+    staged = stage_site(export_out, target_site, sid, allow_shrink=allow_shrink)
     _log(f"staged snapshot {sid} into {target_site}")
     return staged
 
@@ -461,6 +585,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stage-only", type=Path, default=None, help="stage an already verified export directory")
     parser.add_argument("--quick-verify", action="store_true", help="pass --quick to verify_static_export.py (tests)")
     parser.add_argument("--no-mutants", action="store_true", help="pass --no-mutants to verify_static_export.py (tests)")
+    parser.add_argument("--allow-shrink", action="store_true", help="override corpus shrinkage guard intentionally")
     parser.add_argument("--status-out", type=Path, default=None, help="write JSON staging summary to this file")
     args = parser.parse_args(argv)
 
@@ -469,7 +594,12 @@ def main(argv: list[str] | None = None) -> int:
             if not args.snapshot_id:
                 raise PublishError("--stage-only requires --snapshot-id")
             sid = validate_snapshot_id(args.snapshot_id)
-            summary = stage_site(args.stage_only.resolve(), args.target_site.resolve(), sid)
+            summary = stage_site(
+                args.stage_only.resolve(),
+                args.target_site.resolve(),
+                sid,
+                allow_shrink=args.allow_shrink,
+            )
         else:
             if args.data_dir is None or args.work_dir is None:
                 raise PublishError("--data-dir and --work-dir are required unless --stage-only is used")
@@ -485,6 +615,7 @@ def main(argv: list[str] | None = None) -> int:
                 previous_snapshot_dir=args.previous_snapshot_dir.resolve() if args.previous_snapshot_dir else None,
                 quick_verify=args.quick_verify,
                 no_mutants=args.no_mutants,
+                allow_shrink=args.allow_shrink,
             )
         if args.status_out is not None:
             args.status_out.parent.mkdir(parents=True, exist_ok=True)

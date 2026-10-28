@@ -367,3 +367,72 @@ def test_run_pipeline_executes_real_snapshot_stages_and_full_orchestration(tmp_p
     assert (target / "CNAME").read_text(encoding="utf-8") == "porchlamp.org\n"
 
 
+def test_shrinkage_circuit_breaker_blocks_poisoned_miniature_snapshot_until_overridden(tmp_path):
+    target = tmp_path / "site"
+    (target / "data" / "2026-10-27").mkdir(parents=True)
+    prev_snap = {
+        **SAMPLE_SNAPSHOT,
+        "snapshot_id": "2026-10-27",
+        "counts": {"total": 11000, "rated": 7000, "gated": 3000, "unrated": 1000},
+    }
+    (target / "data" / "2026-10-27" / "snapshot.json").write_text(json.dumps(prev_snap), encoding="utf-8")
+    (target / "index.html").write_text("live-home-untouched", encoding="utf-8")
+
+    exported = tmp_path / "exported"
+    (exported / "data" / "2026-10-28").mkdir(parents=True)
+    tiny_snap = {
+        **SAMPLE_SNAPSHOT,
+        "snapshot_id": "2026-10-28",
+        "counts": {"total": 50, "rated": 10, "gated": 30, "unrated": 10},
+    }
+    (exported / "data" / "2026-10-28" / "snapshot.json").write_text(json.dumps(tiny_snap), encoding="utf-8")
+    (exported / "index.html").write_text("tiny-poisoned-home", encoding="utf-8")
+
+    with pytest.raises(pub_mod.PublishError, match="shrinkage guard tripped"):
+        pub_mod.stage_site(exported, target, "2026-10-28")
+    # Live site remains completely untouched!
+    assert (target / "index.html").read_text(encoding="utf-8") == "live-home-untouched"
+    assert not (target / "data" / "2026-10-28").exists()
+
+    # Intentional override (--allow-shrink) permits staging.
+    res = pub_mod.stage_site(exported, target, "2026-10-28", allow_shrink=True)
+    assert res["snapshot_id"] == "2026-10-28"
+    assert (target / "index.html").read_text(encoding="utf-8") == "tiny-poisoned-home"
+
+
+def test_stage_site_audits_symlinks_and_hidden_files_and_run_cmd_scrubs_secrets(tmp_path, monkeypatch):
+    exported = tmp_path / "exported"
+    (exported / "data" / "2026-10-28").mkdir(parents=True)
+    (exported / "data" / "2026-10-28" / "snapshot.json").write_text(json.dumps(SAMPLE_SNAPSHOT), encoding="utf-8")
+    (exported / "escape.html").symlink_to("/etc/hosts")
+
+    target = tmp_path / "target"
+    with pytest.raises(pub_mod.PublishError, match="symlink"):
+        pub_mod.stage_site(exported, target, "2026-10-28")
+    (exported / "escape.html").unlink()
+
+    (exported / ".env").write_text("SECRET=1\n", encoding="utf-8")
+    with pytest.raises(pub_mod.PublishError, match="hidden file"):
+        pub_mod.stage_site(exported, target, "2026-10-28")
+    (exported / ".env").unlink()
+
+    # Subprocess execution scrubs all GitHub/drop/push credentials from child environment.
+    monkeypatch.setenv("GH_TOKEN", "ghp_secret1")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghs_secret2")
+    monkeypatch.setenv("PORCHLAMP_DROP_READ_TOKEN", "github_pat_secret3")
+    monkeypatch.setenv("PORCHLAMP_SITE_PUSH_TOKEN", "github_pat_secret4")
+    env_dump = tmp_path / "child_env.json"
+    pub_mod._run_cmd(
+        [
+            pub_mod.sys.executable,
+            "-c",
+            "import json, os; print(json.dumps({k: v for k, v in os.environ.items() if 'TOKEN' in k}))",
+        ],
+        step="check child env",
+        stdout_file=env_dump,
+    )
+    leaked = json.loads(env_dump.read_text(encoding="utf-8"))
+    for forbidden in ("GH_TOKEN", "GITHUB_TOKEN", "PORCHLAMP_DROP_READ_TOKEN", "PORCHLAMP_SITE_PUSH_TOKEN"):
+        assert forbidden not in leaked
+
+
