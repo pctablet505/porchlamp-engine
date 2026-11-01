@@ -261,8 +261,14 @@ def _gather(monkeypatch: pytest.MonkeyPatch, root: Path) -> ModuleType:
     spec.loader.exec_module(module)
     module.DATA = root / "raw"
     module.CANDIDATES = module.DATA / "candidates.jsonl"
-    monkeypatch.setattr(module, "should_skip_ineligible", lambda *args, **kwargs: None)
+    monkeypatch.setattr(module, "should_skip_ineligible", _screen_nothing)
     return module
+
+
+def _screen_nothing(*args, **kwargs) -> None:
+    """The ineligibility screen, pruning nothing. The real one reads stored envelopes from disk, which lets other
+    threads run meanwhile; so does this stub (a 2 ms stop-aware wait)."""
+    net.sleep(0.002)
 
 
 @pytest.fixture
