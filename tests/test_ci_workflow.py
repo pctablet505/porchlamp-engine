@@ -91,3 +91,17 @@ def test_publish_from_drop_runs_on_dispatch_only_and_never_pushes_to_the_site_ma
     assert "push origin main" not in script
     assert "PUBLISH_MODE" not in str(publish[0].get("env") or {}) and "PUBLISH_MODE" not in script
     assert "gh pr create" in script, "the review pull request path must stay"
+
+
+def test_publish_from_drop_build_step_computes_its_own_as_of() -> None:
+    """D2-A: the as_of is the earliest instant every guard accepts, worked out by publish_snapshot.py from the data. The
+    workflow must not pass one (the old value was MAIN.done, which the as-of review showed shrinks every window)."""
+    doc = _publish_from_drop()
+    steps = {s.get("id"): s for s in doc["jobs"]["publish"]["steps"] if s.get("id")}
+    build = steps["build"]
+    assert "publish_snapshot.py" in build["run"]
+    assert "--as-of" not in build["run"]
+    assert "AS_OF" not in (build.get("env") or {})
+    assert "as_of" not in steps["pull"]["run"].lower(), "the pull step must not read or emit an as_of"
+    text = (WORKFLOW_DIR / "publish_from_drop.yml").read_text(encoding="utf-8")
+    assert "outputs.as_of" not in text

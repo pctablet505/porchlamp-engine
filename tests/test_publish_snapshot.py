@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -259,6 +260,13 @@ def _seed_publish_fixture_data(data_dir: Path) -> None:
             "scorecard_overall": 8.5,
         })
         write("scorecard", {"score": 8.5, "checks": {"Branch-Protection": 10}})
+        # The as_of is computed from the data (D2-A): a this-cycle releases and issues_counts file, each anchored after the
+        # newest pr_window anchor `at` and within 14 days of it, make `at` itself the earliest valid as_of.
+        for layer, anchor, body in (
+            ("releases", "2026-10-27T01:00:00Z", {"window_days": 365, "source": "releases", "releases": [], "releases_truncated": False, "tags": None, "recent_count": 0}),
+            ("issues_counts", "2026-10-27T02:00:00Z", {"window_days": 90, "closed_90d": 1, "updated_90d": 1, "sample_size": 1, "sample_total": 1, "sample": [], "comments_per_issue": 1.0}),
+        ):
+            write_envelope(data_dir / "raw" / layer / f"{key}.json", f"test:{layer}", {**body, "window_anchor": anchor}, anchor)
         write("tree", {"paths": ["LICENSE", "CONTRIBUTING.md", "README.md", "pyproject.toml", "src/main.py"]})
         write("bodies", {"body": "Please sign off commits (DCO). Contributors may join the maintainer team."}, k=f"{key}__CONTRIBUTING.md")
 
@@ -275,8 +283,98 @@ def test_resolve_as_of_and_snapshot_id_validation(tmp_path):
 
     data_dir = tmp_path / "data"
     _seed_publish_fixture_data(data_dir)
-    assert pub_mod.resolve_as_of(data_dir, None) == "2026-10-28T00:00:00+00:00"
+    # MAIN.done (2026-10-28T00:00:00Z) is not the as_of: the earliest valid value is the newest pr_window anchor.
+    assert pub_mod.resolve_as_of(data_dir, None) == "2026-10-27T00:00:00+00:00"
     assert pub_mod.resolve_as_of(data_dir, "2026-10-28T05:30:00Z") == "2026-10-28T05:30:00+00:00"
+    with pytest.raises(pub_mod.PublishError, match="invalid ISO-8601"):
+        pub_mod.resolve_as_of(data_dir, "not-a-time")
+
+
+A = datetime(2026, 10, 24, 18, 9, 24, tzinfo=timezone.utc)  # the newest pr_window anchor of the 2026-10-31 build, to the second
+DAY = timedelta(days=1)
+
+
+def _put(root: Path, layer: str, key: str, data: dict, fetched_at: datetime) -> None:
+    write_envelope(root / "raw" / layer / f"{key}.json", f"test:{layer}", data, fetched_at.isoformat())
+
+
+def _pr_window_data(anchor: datetime | None) -> dict:
+    data = {"window_days": 180, "cap": 2000, "count": 1, "truncated": False, "prs": [{"number": 1, "createdAt": "2026-10-01T00:00:00+00:00", "state": "MERGED"}]}
+    return data if anchor is None else {**data, "window_anchor": anchor.isoformat()}
+
+
+def _asof_root(tmp_path: Path, *, extra_pr_window_fetched: datetime | None = None) -> Path:
+    """Two repos of one cycle (pull requests up to ``A``, releases and issues after it) and a MAIN.done four days later.
+    ``extra_pr_window_fetched`` adds a third repo whose pr_window record has no window_anchor, only that fetched_at."""
+    root = tmp_path / "asof-root"
+    repos = {"acme__alpha": (A, A + 2 * DAY, A + 4 * DAY), "acme__beta": (A - 2 * DAY, A + 2 * DAY, A + 4 * DAY)}
+    for key, (pr, releases, issues) in repos.items():
+        _put(root, "pr_window", key, _pr_window_data(pr), pr)
+        _put(root, "releases", key, {"window_anchor": releases.isoformat(), "window_days": 365, "releases": []}, releases)
+        _put(root, "issues_counts", key, {"window_anchor": issues.isoformat(), "window_days": 90}, issues)
+    keys = list(repos)
+    if extra_pr_window_fetched is not None:
+        _put(root, "pr_window", "acme__gamma", _pr_window_data(None), extra_pr_window_fetched)
+        keys.append("acme__gamma")
+    (root / "raw").mkdir(parents=True, exist_ok=True)
+    (root / "raw" / "candidates.jsonl").write_text(
+        "".join(json.dumps({"owner": k.split("__")[0], "name": k.split("__")[1], "ecosystem": "pypi"}) + "\n" for k in keys),
+        encoding="utf-8",
+    )
+    (root / "state" / "refresh").mkdir(parents=True, exist_ok=True)
+    (root / "state" / "refresh" / "MAIN.done").write_text("2026-10-28T00:00:00Z\n", encoding="utf-8")
+    return root
+
+
+def test_resolve_as_of_is_the_earliest_valid_value_never_main_done(tmp_path):
+    """D2-A: MAIN.done marks the end of the last collection step (here four days after the newest pull-request anchor);
+    using it as the as_of would shrink every window. The earliest instant every guard accepts is the newest pr_window
+    anchor rounded up to the minute."""
+    root = _asof_root(tmp_path)
+    assert (root / "state" / "refresh" / "MAIN.done").is_file()
+    assert pub_mod.resolve_as_of(root, None) == "2026-10-24T18:10:00+00:00"
+
+
+def test_resolve_as_of_refuses_a_given_value_that_fails_a_guard_and_accepts_one_that_passes(tmp_path):
+    root = _asof_root(tmp_path)
+    assert pub_mod.resolve_as_of(root, "2026-10-24T18:10:00Z") == "2026-10-24T18:10:00+00:00"
+    one_minute_early = (A - timedelta(minutes=1)).isoformat()
+    with pytest.raises(pub_mod.PublishError, match="cut"):
+        pub_mod.resolve_as_of(root, one_minute_early)
+
+
+def test_resolve_as_of_checks_the_value_it_computes(tmp_path):
+    """RB1-G: a pr_window record with no window_anchor and a later fetched_at cannot cover the earliest value, which
+    ignores it. Returning that value unchecked would hand the export a root it refuses; the check stops the run here."""
+    ok = _asof_root(tmp_path)
+    assert pub_mod.resolve_as_of(ok, None) == "2026-10-24T18:10:00+00:00"
+    bad = _asof_root(tmp_path / "bad", extra_pr_window_fetched=A + 5 * DAY)
+    with pytest.raises(pub_mod.PublishError, match="cut"):
+        pub_mod.resolve_as_of(bad, None)
+
+
+def test_resolve_as_of_raises_publish_error_when_no_valid_value_exists_or_the_root_is_unreadable(tmp_path):
+    root = _asof_root(tmp_path)
+    for layer in ("releases", "issues_counts"):
+        for path in (root / "raw" / layer).glob("*.json"):
+            path.unlink()
+    with pytest.raises(pub_mod.PublishError, match="this-cycle"):
+        pub_mod.resolve_as_of(root, None)
+    with pytest.raises(pub_mod.PublishError):
+        pub_mod.resolve_as_of(tmp_path / "no-such-root", None)
+
+
+def test_the_default_snapshot_id_is_the_run_date_not_the_as_of_date(tmp_path, monkeypatch):
+    """D2-A: the as_of is one to three weeks older than the run, so the snapshot id (the publication date) comes from the clock."""
+    root = _asof_root(tmp_path)
+    seen: dict = {}
+    monkeypatch.setattr(pub_mod, "run_pipeline", lambda **kwargs: seen.update(kwargs) or {"snapshot_id": kwargs["snapshot_id"]})
+    before = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rc = pub_mod.main(["--data-dir", str(root), "--work-dir", str(tmp_path / "work"), "--target-site", str(tmp_path / "site")])
+    after = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    assert rc == 0
+    assert seen["snapshot_id"] in {before, after}
+    assert seen["snapshot_id"] != "2026-10-24"
 
 
 def test_run_pipeline_executes_real_snapshot_stages_and_full_orchestration(tmp_path, monkeypatch):

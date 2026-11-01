@@ -529,12 +529,12 @@ def pull_from_drop(
     rel_tag = str(release["tag_name"])
     prev = _read_pulled_release(dest)
     if prev and prev.get("tag") == rel_tag and prev.get("repo") == repo and wanted is None:
-        prev_as_of = prev.get("main_done")
-        safe_prev_as_of = _clean_iso_timestamp(prev_as_of, "cached main_done") if prev_as_of else None
+        prev_main_done = prev.get("main_done")
+        safe_prev_main_done = _clean_iso_timestamp(prev_main_done, "cached main_done") if prev_main_done else None
         return {
             "has_new": False,
             "tag": rel_tag,
-            "as_of": safe_prev_as_of,
+            "main_done": safe_prev_main_done,
             "reason": "already_pulled",
         }
     if check_only:
@@ -638,12 +638,11 @@ def pull_from_drop(
         _write_text(dest / "state" / "refresh" / "MAIN.done", main_done)
         _log("MAIN.done written")
 
-    as_of = str(main_done or generated_at or "")
+    # MAIN.done is reported as main_done only. It is not the build's as_of (D2-A): publish_snapshot.py computes that from the data.
     release_state = {
         "repo": repo,
         "tag": rel_tag,
         "main_done": main_done,
-        "as_of": as_of,
         "pulled_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "layers": [k for k in LAYERS if k in layers],
     }
@@ -651,7 +650,7 @@ def pull_from_drop(
     return {
         "has_new": True,
         "tag": rel_tag,
-        "as_of": as_of,
+        "main_done": main_done,
         "pulled_layers": pulled_layers,
         "reason": "pulled",
     }

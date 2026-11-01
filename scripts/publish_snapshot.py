@@ -5,8 +5,11 @@
         --data-dir /tmp/drop-data \\
         --work-dir /tmp/publish-work \\
         --target-site /tmp/porchlamp-site \\
-        --snapshot-id 2026-10-28 \\
-        --as-of 2026-10-28T04:00:00Z
+        --snapshot-id 2026-10-28
+
+Without ``--as-of`` the build uses the earliest instant every guard accepts (``python -m porchlamp.snapshot as-of``),
+never ``state/refresh/MAIN.done``; a given ``--as-of`` is checked the same way. Without ``--snapshot-id`` the id is
+today's UTC date.
 
 Runs every offline stage in order and stops before staging if any check fails:
 1. ``scripts/derive.py --all --data-dir ... --as-of ...``
@@ -34,6 +37,10 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from porchlamp.snapshot import asof  # standard library only; the as_of rule and its guards (D2-A, D2-E)
+
 SNAPSHOT_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:-[a-z0-9]{1,16})?$")
 PRESERVED_ROOT_NAMES: frozenset[str] = frozenset({".git", "CNAME", "LICENSE"})
 ROOT_VERIFICATION_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -64,21 +71,29 @@ def validate_snapshot_id(snapshot_id: str) -> str:
 
 
 def resolve_as_of(data_dir: Path, explicit_as_of: str | None) -> str:
-    """Resolve ISO-8601 ``as_of`` with UTC offset from ``--as-of`` or ``state/refresh/MAIN.done``."""
-    raw = explicit_as_of
-    if not raw:
-        marker = data_dir / "state" / "refresh" / "MAIN.done"
-        if marker.is_file():
-            raw = marker.read_text(encoding="utf-8").strip()
-    if not raw:
-        raise PublishError("--as-of is required when state/refresh/MAIN.done is absent")
+    """The build's ``as_of`` as ISO-8601 in UTC: ``--as-of`` when given, else the earliest instant every guard accepts.
+
+    The value is never ``state/refresh/MAIN.done`` (D2-A: that marks the end of the last collection step, and a later
+    ``as_of`` shrinks every window). Either way it is run through :func:`porchlamp.snapshot.asof.check_as_of`; a FAIL,
+    or no valid value at all, raises :class:`PublishError` so the run stops before the build (RB1-G)."""
     try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError:
-        raise PublishError(f"invalid ISO-8601 --as-of timestamp: {raw!r}") from None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.isoformat()
+        scan = asof.scan_root(data_dir)
+        if explicit_as_of:
+            moment = asof.parse_as_of(explicit_as_of)
+            if moment is None:
+                raise PublishError(f"invalid ISO-8601 --as-of timestamp: {explicit_as_of!r}")
+        else:
+            plan = asof.plan_as_of(scan)
+            if plan.earliest is None:
+                raise PublishError(f"no valid as_of in {data_dir}: {plan.problem}")
+            moment = plan.earliest
+        results = asof.check_as_of(scan, moment)
+    except asof.AsOfError as exc:
+        raise PublishError(f"cannot work out the as_of of {data_dir}: {exc}") from None
+    if not asof.passed(results):
+        failed = "; ".join(f"{result.guard}: {result.summary}" for result in results if result.status == asof.FAIL)
+        raise PublishError(f"as_of {asof.iso(moment)} fails its guards: {failed}")
+    return asof.iso(moment)
 
 
 def render_readme(snapshot: dict[str, Any], report: dict[str, Any]) -> str:
@@ -439,16 +454,19 @@ def run_pipeline(
     work_dir: Path,
     target_site: Path,
     snapshot_id: str,
-    as_of: str,
+    as_of: str | None = None,
     workers: int = 4,
     previous_snapshot_dir: Path | None = None,
     quick_verify: bool = False,
     no_mutants: bool = False,
     allow_shrink: bool = False,
 ) -> dict[str, Any]:
-    """Run derive -> build -> store -> stats -> export_static -> verify_static_export -> stage_site."""
+    """Run derive -> build -> store -> stats -> export_static -> verify_static_export -> stage_site.
+
+    ``as_of`` is checked, or computed when ``None``, by :func:`resolve_as_of` before any stage runs."""
     sid = validate_snapshot_id(snapshot_id)
     resolved_as_of = resolve_as_of(data_dir, as_of)
+    _log(f"as_of {resolved_as_of} ({'given' if as_of else 'earliest valid'})")
 
     work_dir.mkdir(parents=True, exist_ok=True)
     snap_dir = work_dir / "snapshots" / sid
@@ -578,8 +596,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", type=Path, help="data root holding raw/ and candidates.jsonl")
     parser.add_argument("--work-dir", type=Path, help="scratch directory for snapshot build, SQLite DB, and export")
     parser.add_argument("--target-site", type=Path, required=True, help="checkout of pctablet505/porchlamp to stage")
-    parser.add_argument("--snapshot-id", default=None, help="snapshot ID (YYYY-MM-DD; defaults to as-of UTC date)")
-    parser.add_argument("--as-of", default=None, help="ISO-8601 reference timestamp (defaults to state/refresh/MAIN.done)")
+    parser.add_argument("--snapshot-id", default=None, help="snapshot ID (YYYY-MM-DD; defaults to today's UTC date)")
+    parser.add_argument(
+        "--as-of",
+        default=None,
+        help="ISO-8601 reference timestamp, checked against every guard (defaults to the earliest valid value; "
+        "see `python -m porchlamp.snapshot as-of`)",
+    )
     parser.add_argument("--workers", type=int, default=max(1, min(8, os.cpu_count() or 2)))
     parser.add_argument("--previous-snapshot-dir", type=Path, default=None)
     parser.add_argument("--stage-only", type=Path, default=None, help="stage an already verified export directory")
@@ -603,14 +626,14 @@ def main(argv: list[str] | None = None) -> int:
         else:
             if args.data_dir is None or args.work_dir is None:
                 raise PublishError("--data-dir and --work-dir are required unless --stage-only is used")
-            resolved_as_of = resolve_as_of(args.data_dir.resolve(), args.as_of)
-            sid = validate_snapshot_id(args.snapshot_id or resolved_as_of[:10])
+            # The snapshot id is the publication date; the as_of is one to three weeks older (D2-A).
+            sid = validate_snapshot_id(args.snapshot_id or datetime.now(timezone.utc).strftime("%Y-%m-%d"))
             summary = run_pipeline(
                 data_dir=args.data_dir.resolve(),
                 work_dir=args.work_dir.resolve(),
                 target_site=args.target_site.resolve(),
                 snapshot_id=sid,
-                as_of=resolved_as_of,
+                as_of=args.as_of,
                 workers=max(1, args.workers),
                 previous_snapshot_dir=args.previous_snapshot_dir.resolve() if args.previous_snapshot_dir else None,
                 quick_verify=args.quick_verify,

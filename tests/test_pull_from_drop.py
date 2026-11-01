@@ -170,7 +170,11 @@ def test_round_trip_multipart_upload_and_pull_strips_auth_on_redirect_and_tracks
         ])
         assert rc == 0
         pulled = json.loads(status_out.read_text(encoding="utf-8"))
-        assert pulled["has_new"] is True and pulled["as_of"] == "2026-10-28T03:00:00Z"
+        assert pulled["has_new"] is True and pulled["main_done"] == "2026-10-28T03:00:00Z"
+        # D2-A: the puller reports MAIN.done as main_done only; an `as_of` key would invite the build to take it as the as_of.
+        assert "as_of" not in pulled
+        cached = json.loads((dest / "state" / "pulled" / "release.json").read_text(encoding="utf-8"))
+        assert "as_of" not in cached and cached["main_done"] == "2026-10-28T03:00:00Z"
         assert (dest / "raw" / "pr_window" / "acme__widget.json").read_text(encoding="utf-8") == env_text
         assert (dest / "raw" / "candidates.jsonl").read_text(encoding="utf-8") == cand_text
         assert (dest / "state" / "refresh" / "L1.complete").read_text(encoding="utf-8").strip() == "2026-10-28T03:00:00Z"
@@ -189,6 +193,7 @@ def test_round_trip_multipart_upload_and_pull_strips_auth_on_redirect_and_tracks
         assert rc == 0
         chk2 = json.loads(status_out.read_text(encoding="utf-8"))
         assert chk2["has_new"] is False and chk2["reason"] == "already_pulled"
+        assert "as_of" not in chk2 and chk2["main_done"] == "2026-10-28T03:00:00Z"
     finally:
         httpgate.install(old_gate)
         srv.close()
