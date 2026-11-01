@@ -1118,3 +1118,18 @@ def test_the_hourly_line_counts_requests_points_and_the_most_at_once(wire: Wire,
     clock.t = NOW + 3600
     assert ghcli.run(GQL_ARGS).returncode == 0
     assert ("log", "GitHub, last hour: 6 requests, 10 points, at most 2 at once") in throttle
+
+
+def test_a_hold_is_told_without_echoing_the_header(wire: Wire, throttle: list, sleeps: list[float],
+                                                    capsys: pytest.CaptureFixture[str]) -> None:
+    """The hold's line names the status and the wait GitHub asked for as a number; a ``retry-after`` that is not a
+    number is not echoed into the log (it waits the minute)."""
+    replies = iter([(429, {"retry-after": "120"}, SECONDARY_BODY), (200, {}, '{"data": {}}'),
+                    (429, {"retry-after": "soon <b>x</b>"}, SECONDARY_BODY), (200, {}, '{"data": {}}')])
+    wire.reply = lambda n, who: next(replies)
+    assert ghcli.run(GQL_ARGS).returncode == 0 and ghcli.run(GQL_ARGS).returncode == 0
+    texts = [text for level, text in throttle if level == "warn"]
+    assert texts[0].startswith("GitHub secondary limit (HTTP 429, retry-after 120 s): every request waits 120 s")
+    assert texts[1].startswith("GitHub secondary limit (HTTP 429, retry-after unreadable): every request waits 120 s")
+    assert sleeps == [120, 120]                     # the second is the minute, doubled for the second signal
+    assert "soon" not in capsys.readouterr().err + "".join(texts)

@@ -693,8 +693,8 @@ def _signal_wait(headers: Any) -> tuple[float, str]:
         try:
             seconds = float(retry_after)
         except ValueError:
-            seconds = SECONDARY_MIN_WAIT
-        return max(seconds, SECONDARY_MIN_WAIT), f"retry-after {retry_after} s"
+            return SECONDARY_MIN_WAIT, "retry-after unreadable"   # the header's text is never echoed into a log
+        return max(seconds, SECONDARY_MIN_WAIT), f"retry-after {seconds:g} s"
     reset = _header(headers, "x-ratelimit-reset")
     if _header(headers, "x-ratelimit-remaining") == "0" and reset is not None:
         try:
