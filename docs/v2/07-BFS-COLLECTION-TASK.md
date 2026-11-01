@@ -30,7 +30,7 @@ Layers, in order:
 | L3 | `commits_365d,issues_counts` | criticality signals | REST, up to ~15 calls/repo |
 | L4 | `author_history` | first-timer / returning-contributor rates | GraphQL, most expensive |
 
-After **every** layer you run the same four steps: derive → build → store → serve.
+After **every** layer you derive (Step A); once `as-of` has a time (from L3 on), you also build, store and serve (Steps B–D).
 
 ---
 
@@ -131,14 +131,21 @@ grep -c "DERIVE FAIL" /home/pctablet505/Projects/cvi-scratch/bfs-run/derive-LX.l
 
 ```bash
 cd /home/pctablet505/Projects/contributor-value-index
-rm -rf /home/pctablet505/Projects/cvi-scratch/bfs-run/snap-LX
-.venv/bin/python -m porchlamp.snapshot build \
-  --data-dir data \
-  --out-dir /home/pctablet505/Projects/cvi-scratch/bfs-run/snap-LX \
-  --snapshot-id "$(date -u +%Y-%m-%d)-LX" \
-  --as-of "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
+AS_OF="$(.venv/bin/python -m porchlamp.snapshot as-of --data-dir data --print)" \
+  && rm -rf /home/pctablet505/Projects/cvi-scratch/bfs-run/snap-LX \
+  && .venv/bin/python -m porchlamp.snapshot build \
+    --data-dir data \
+    --out-dir /home/pctablet505/Projects/cvi-scratch/bfs-run/snap-LX \
+    --snapshot-id "$(date -u +%Y-%m-%d)-LX" \
+    --as-of "$AS_OF"
 ```
 
+- `as-of` picks the snapshot's reference time: the newest `pr_window` record's time, rounded up to the minute, and only
+  when every guard accepts it (README, "Pick as_of"). Never pass the wall clock: a `releases` or `issues_counts` file
+  more than 14 days from `--as-of` silently drops `openssf_criticality` for its project, and no later step refuses it.
+- When `as-of` exits 1, nothing is built, and its report (on stderr) says why. After L0 and L1 that is expected: there
+  is no valid time until L2 and L3 have fetched `releases` and `issues_counts` after `pr_window`, so skip Steps B–D for
+  that layer and go on to the next one. After L3 or L4, a `FAIL` line means stop and report it in STATUS.md.
 - Prints three lines: `snapshot <id>`, `bundles <N>`, `out_dir <path>`.
   `bundles` must be close to the derived count. The rated/gated/unrated
   counts come from Step C.
