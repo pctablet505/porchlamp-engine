@@ -2706,8 +2706,26 @@ def _window_nodes(count: int, *, step_minutes: int = 60) -> list[dict]:
     return out
 
 
+class _RefusesPagesAbove(ScriptedWindow):
+    """A ScriptedWindow whose pages and light pages fail with an HTTP 502 whenever ``first`` is at least
+    ``limit`` (GitHub refusing a page that is too heavy, every time it is asked), and are served otherwise."""
+
+    def __init__(self, nodes: list[dict], limit: int) -> None:
+        super().__init__(nodes)
+        self.limit = limit
+
+    def execute(self, query: str, variables: dict) -> dict:
+        name = query.split("(", 1)[0].split()[-1]
+        if name != "PrRepliesBatch" and variables["first"] >= self.limit:
+            self.calls.append((name, dict(variables)))
+            raise RuntimeError("gh api graphql rc=1: gh: HTTP 502: Bad Gateway")
+        return super().execute(query, variables)
+
+
 def test_the_pr_cap_is_2000_and_the_author_window_is_bounded_only_for_safety():
-    assert (gql.PR_CAP, gql.PR_SAMPLE_CAP, gql.PR_PAGE_SIZE_RETRY, gql.PR_LIGHT_PAGE_SIZE) == (2000, 1000, 10, 100)
+    assert (gql.PR_CAP, gql.PR_SAMPLE_CAP, gql.PR_PAGE_SIZE_LADDER, gql.PR_LIGHT_PAGE_SIZE) == (
+        2000, 1000, (50, 25, 10), 100)
+    assert not hasattr(gql, "PR_PAGE_SIZE_RETRY")
     assert gql.AUTHOR_WINDOW_CAP == 250_000
 
 
@@ -2748,6 +2766,105 @@ def test_a_page_that_fails_again_in_pages_of_ten_fails_the_fetch():
     t = ScriptedWindow(_window_nodes(30), fail=[("PrWindow", 0, 25), ("PrWindow", 0, 10)])
     with pytest.raises(RuntimeError, match="504"):
         gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+
+
+# --- the page ladder (50, 25, 10): a failed page goes down it from the same cursor ----------
+
+def test_a_page_refused_at_100_is_read_at_50_then_the_walk_returns_to_100_and_the_prs_are_the_fault_free_ones():
+    """T1.1: every page of 100 draws a 502, so each costs one failed call and two pages of 50; the PR tuple is
+    the one a fault-free walk returns."""
+    nodes = _window_nodes(230)
+    clean = gql.fetch_pr_window("acme", "widget", NOW, ScriptedWindow(nodes), page_size=100)
+    t = _RefusesPagesAbove(nodes, limit=100)
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=100)
+    assert tuple(res.prs) == tuple(clean.prs)
+    assert (res.truncated, res.sampled) == (clean.truncated, clean.sampled) == (False, False)
+    assert t.pages("PrWindow") == [(0, 100), (0, 50), (50, 50), (100, 100), (100, 50), (150, 50),
+                                   (200, 100), (200, 50)]
+
+
+def test_a_page_refused_at_50_too_is_read_at_25_and_the_span_is_covered_before_the_walk_returns_to_its_size():
+    """T1.2: a 502 at 50 then success at 25; four pages of 25 cover the failed page of 100."""
+    nodes = _window_nodes(130)
+    clean = gql.fetch_pr_window("acme", "widget", NOW, ScriptedWindow(nodes), page_size=100)
+    t = _RefusesPagesAbove(nodes, limit=50)
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=100)
+    assert tuple(res.prs) == tuple(clean.prs)
+    assert t.pages("PrWindow") == [(0, 100), (0, 50), (0, 25), (25, 25), (50, 25), (75, 25),
+                                   (100, 100), (100, 50), (100, 25), (125, 25)]
+
+
+def test_a_page_refused_at_every_size_down_to_10_still_fails_the_fetch_without_waiting(monkeypatch):
+    """T1.3: only a failure at the last rung propagates, at once: GitHub's own 502 is not a dropped network."""
+    waits = []
+    monkeypatch.setattr(gql, "_wait", waits.append)
+    t = _RefusesPagesAbove(_window_nodes(30), limit=10)
+    with pytest.raises(RuntimeError, match="502"):
+        gql.fetch_pr_window("acme", "widget", NOW, t, page_size=100)
+    assert t.pages("PrWindow") == [(0, 100), (0, 50), (0, 25), (0, 10)]
+    assert waits == []
+
+
+def test_a_page_that_fails_inside_the_span_goes_on_down_the_ladder_from_where_it_is():
+    """The first half of the span was read at 50; the second half is refused at 50 and read at 25, and the walk
+    then returns to 100. (Before the ladder, a failure inside the span failed the fetch.)"""
+    nodes = _window_nodes(230)
+    clean = gql.fetch_pr_window("acme", "widget", NOW, ScriptedWindow(nodes), page_size=100)
+    t = ScriptedWindow(nodes, fail=[("PrWindow", 0, 100), ("PrWindow", 50, 50)])
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=100)
+    assert tuple(res.prs) == tuple(clean.prs)
+    assert t.pages("PrWindow") == [(0, 100), (0, 50), (50, 50), (50, 25), (75, 25), (100, 100), (200, 100)]
+
+
+def test_a_walk_of_50_goes_down_to_25_and_a_walk_of_25_goes_straight_to_10():
+    nodes = _window_nodes(120)
+    t = ScriptedWindow(nodes, fail=[("PrWindow", 0, 50)])
+    gql.fetch_pr_window("acme", "widget", NOW, t, page_size=50)
+    assert t.pages("PrWindow") == [(0, 50), (0, 25), (25, 25), (50, 50), (100, 50)]
+    t = ScriptedWindow(nodes, fail=[("PrWindow", 0, 25)])
+    gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
+    assert t.pages("PrWindow")[:5] == [(0, 25), (0, 10), (10, 10), (20, 10), (30, 25)]
+
+
+def test_a_walk_of_10_has_no_smaller_page_to_go_to():
+    t = ScriptedWindow(_window_nodes(30), fail=[("PrWindow", 0, 10)])
+    with pytest.raises(RuntimeError, match="504"):
+        gql.fetch_pr_window("acme", "widget", NOW, t, page_size=10)
+    assert t.pages("PrWindow") == [(0, 10)]
+
+
+def test_the_light_walk_and_the_author_window_walk_use_the_same_ladder():
+    nodes = _window_nodes(300)
+    clean = gql.fetch_pr_window("acme", "widget", NOW, ScriptedWindow(nodes), page_size=30, cap=50, sample_cap=20)
+    t = _RefusesPagesAbove(nodes, limit=100)
+    res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=30, cap=50, sample_cap=20)
+    assert [p["number"] for p in res.prs] == [p["number"] for p in clean.prs]
+    assert t.pages("PrWindowLight") == [(60, 100), (60, 50), (110, 50), (160, 100), (160, 50), (210, 50),
+                                        (260, 100), (260, 50)]
+    author_nodes = [w4_pr(700 - i, (NOW - timedelta(hours=12 * i)).isoformat(), f"u{i}") for i in range(230)]
+    clean_window = gql.fetch_author_window("acme", "widget", NOW, ScriptedWindow(author_nodes))
+    t = _RefusesPagesAbove(author_nodes, limit=100)
+    window = gql.fetch_author_window("acme", "widget", NOW, t)
+    assert tuple(window.prs) == tuple(clean_window.prs)
+    assert t.pages("AuthorWindow") == [(0, 100), (0, 50), (50, 50), (100, 100), (100, 50), (150, 50),
+                                       (200, 100), (200, 50)]
+
+
+@pytest.mark.parametrize("width, expected", [
+    (100, (50, 25, 10, 1)), (50, (25, 10, 1)), (30, (25, 10, 1)), (25, (10, 1)), (10, (1,)), (5, (1,)), (1, ()),
+])
+def test_the_batch_width_ladder_is_the_page_ladder_then_one(width, expected):
+    """An aliased batch (reply lookups, number lookups) retries at the page ladder's rungs below its width, then
+    alone: the ladder PR-3's number reads go down."""
+    assert gql.batch_retry_widths(width) == expected
+
+
+def test_the_batch_width_ladder_follows_the_page_ladder(monkeypatch):
+    monkeypatch.setattr(gql, "PR_PAGE_SIZE_LADDER", (40, 20))
+    assert gql.batch_retry_widths(100) == (40, 20, 1)
+    t = ScriptedWindow(_window_nodes(100), fail=[("PrWindow", 0, 100)])
+    gql.fetch_pr_window("acme", "widget", NOW, t, page_size=100)
+    assert t.pages("PrWindow") == [(0, 100), (0, 40), (40, 40), (80, 40)]
 
 
 def test_a_page_failing_for_another_reason_is_not_retried():
@@ -2878,12 +2995,12 @@ def test_the_ledger_refetches_a_cut_or_sampled_envelope_in_full(tmp_path, old_fl
     assert data["truncated"] is False
 
 
-def test_the_author_window_is_the_whole_365_days_and_a_failing_page_is_read_in_tens():
+def test_the_author_window_is_the_whole_365_days_and_a_failing_page_is_read_in_fifties():
     nodes = [w4_pr(700 - i, (NOW - timedelta(hours=12 * i)).isoformat(), f"u{i}") for i in range(600)]
     t = ScriptedWindow(nodes, fail=[("AuthorWindow", 500, 100)])
     res = gql.fetch_author_window("acme", "widget", NOW, t)
     assert (len(res.prs), res.truncated) == (600, False)
-    assert t.pages("AuthorWindow")[5:] == [(500, 100)] + [(500 + 10 * k, 10) for k in range(10)]
+    assert t.pages("AuthorWindow")[5:] == [(500, 100), (500, 50), (550, 50)]
 
 
 def test_a_record_cut_short_of_its_window_yields_no_window_statistics():

@@ -66,8 +66,11 @@ PR_REPLIES_BATCH_SIZE: int = 25
 #: #51: narrower retry widths for reply aliases a batch left unresolved.
 PR_REPLIES_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 #: #51: a page that fails with a heavy-query error is fetched again from the
-#: same cursor in pages of this size until its span is covered.
-PR_PAGE_SIZE_RETRY: int = 10
+#: same cursor at the next size down this ladder, until one succeeds and the
+#: failed page's span is covered; the walk then goes on at its own size. Only a
+#: failure at the last rung propagates. An aliased batch retries at the same
+#: rungs (:func:`batch_retry_widths`).
+PR_PAGE_SIZE_LADDER: tuple[int, ...] = (50, 25, 10)
 #: #51: substrings marking a heavy-query failure (an HTTP 502 or 504, a body
 #: cut off mid-JSON, a timeout): a page that fails with one is read again in
 #: smaller pages (:class:`_PageSizer`), where the phone used to fetch the whole
@@ -300,46 +303,65 @@ def _execute_waiting_for_the_network(transport: "GraphqlTransport", query: str, 
         _wait(wait)
 
 
+def _next_smaller_size(size: int) -> Optional[int]:
+    """The largest rung of :data:`PR_PAGE_SIZE_LADDER` below ``size``, or ``None`` when there is none."""
+    return max((rung for rung in PR_PAGE_SIZE_LADDER if rung < size), default=None)
+
+
+def batch_retry_widths(width: int) -> tuple[int, ...]:
+    """The widths an aliased batch of ``width`` aliases is read again at, in order, after a heavy-query failure
+    (an HTTP 502 or 504, a timeout, a cut body) or an alias it left unresolved: the rungs of
+    :data:`PR_PAGE_SIZE_LADDER` below ``width``, then one alias alone. ``()`` for a batch of one."""
+    rungs = sorted((rung for rung in PR_PAGE_SIZE_LADDER if rung < width), reverse=True)
+    return (*rungs, 1) if width > 1 else ()
+
+
 class _PageSizer:
-    """#51 per-page retry for one connection walk.
+    """#51 per-page retry for one connection walk, down :data:`PR_PAGE_SIZE_LADDER`.
 
     :attr:`first` is the size of the next page. A page that fails with a
     heavy-query error (:func:`_is_heavy_query_error`) is fetched again from
-    the same cursor in pages of :data:`PR_PAGE_SIZE_RETRY` until they cover
-    the failed page's span; the walk then returns to its own page size. A
-    failure inside that span, any other error, or a failure at a page size no
-    larger than :data:`PR_PAGE_SIZE_RETRY` propagates, failing the fetch as
-    before. Pages read before the failure are kept: the project is not
-    repeated from its first page.
+    the same cursor at the next size down the ladder, and at the next again
+    when that fails too, until pages of one size cover the failed page's span;
+    the walk then returns to its own page size. A page of the last rung that
+    fails, any other error, or a walk whose own size is no larger than the last
+    rung propagates, failing the fetch as before. A failure inside the span
+    goes on down the ladder from the size in use. Pages read before the
+    failure are kept: the project is not repeated from its first page.
     """
 
     def __init__(self, page_size: int) -> None:
         self.page_size = page_size
-        self._small_pages_left = 0
+        self._size: Optional[int] = None  # the rung in use while a failed page's span is covered
+        self._span_left = 0               # PRs of that span not yet read
 
     @property
     def first(self) -> int:
         """The ``first`` of the next page."""
-        return PR_PAGE_SIZE_RETRY if self._small_pages_left else self.page_size
+        return self.page_size if self._size is None else self._size
 
     def can_retry_smaller(self, message: str) -> bool:
-        """Whether a page that failed with ``message`` would be fetched again in smaller pages."""
-        if self._small_pages_left or self.page_size <= PR_PAGE_SIZE_RETRY:
-            return False
-        return _is_heavy_query_error(message)
+        """Whether a page that failed with ``message`` would be fetched again at the next size down."""
+        return _is_heavy_query_error(message) and _next_smaller_size(self.first) is not None
 
     def retry_smaller(self, message: str) -> bool:
-        """Whether the page that failed with ``message`` is fetched again in
-        smaller pages (and switch to them when it is)."""
+        """Whether the page that failed with ``message`` is fetched again at the next size down
+        (and switch to it when it is)."""
         if not self.can_retry_smaller(message):
             return False
-        self._small_pages_left = -(-self.page_size // PR_PAGE_SIZE_RETRY)
+        if self._size is None:
+            self._span_left = self.page_size
+        self._size = _next_smaller_size(self.first)
         return True
 
     def page_done(self) -> None:
         """Count one page read successfully."""
-        if self._small_pages_left:
-            self._small_pages_left -= 1
+        if self._size is None:
+            return
+        self._span_left -= self._size
+        if self._span_left <= 0:
+            self._size = None
+            self._span_left = 0
 
 
 def _execute_page(transport: "GraphqlTransport", query: str, variables: dict[str, Any],
