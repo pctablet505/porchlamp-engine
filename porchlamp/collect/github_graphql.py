@@ -29,6 +29,7 @@ import random
 import re
 import statistics
 import subprocess
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -247,6 +248,58 @@ def _is_heavy_query_error(msg: str) -> bool:
     return any(needle in msg for needle in _HEAVY_QUERY_ERRORS)
 
 
+#: Seconds to wait before each new read of a page or batch that failed because the network did. #89: on the phone, a
+#: dropped connection 2 h 36 min into ``NousResearch/hermes-agent``'s history failed the whole project, and the next
+#: pass began again at page 1; six of the 78 busiest projects were lost that way (24% of the step's time). Five waits
+#: of 13 minutes in all, under the phone's 25-minute stuck watchdog.
+NETWORK_RETRY_WAITS_S: tuple[int, ...] = (15, 45, 120, 300, 300)
+#: What a failed transport call says when the network, not GitHub or the query, was the cause.
+_NETWORK_ERRORS: tuple[str, ...] = (
+    "No address associated with hostname",
+    "Name or service not known",
+    "Temporary failure in name resolution",
+    "Network is unreachable",
+    "Software caused connection abort",
+    "Connection reset",
+    "Remote end closed connection",
+    "IncompleteRead",
+    "EOF occurred in violation of protocol",
+    "urlopen error",
+)
+
+
+def _is_network_error(exc: BaseException) -> bool:
+    """True when ``exc`` is a call that never got an answer: ``gh`` itself timed out, or its message names a network
+    failure (:data:`_NETWORK_ERRORS`). A GraphQL answer carrying an error is not one, and neither is GitHub's own
+    502, 504 or "Gateway Timeout" (:func:`_is_heavy_query_error`): that is the query being too heavy, which a smaller
+    page answers and a wait does not."""
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return True
+    message = str(exc)
+    return any(needle in message for needle in _NETWORK_ERRORS) and not _is_heavy_query_error(message)
+
+
+def _wait(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def _execute_waiting_for_the_network(transport: "GraphqlTransport", query: str, variables: dict[str, Any], *,
+                                     declined: Optional[Callable[[BaseException], bool]] = None) -> dict[str, Any]:
+    """``transport.execute``, read again after each of :data:`NETWORK_RETRY_WAITS_S` when the call failed because
+    the network did (:func:`_is_network_error`). Any other failure, and a network failure after the last wait,
+    propagates. ``declined(exc)`` true leaves a failure to the caller at once: a page too heavy for GitHub is read
+    again in smaller pages, not after a wait."""
+    waits = iter(NETWORK_RETRY_WAITS_S)
+    while True:
+        try:
+            return transport.execute(query, variables)
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            wait = next(waits, None)
+            if wait is None or not _is_network_error(exc) or (declined is not None and declined(exc)):
+                raise
+        _wait(wait)
+
+
 class _PageSizer:
     """#51 per-page retry for one connection walk.
 
@@ -269,12 +322,16 @@ class _PageSizer:
         """The ``first`` of the next page."""
         return PR_PAGE_SIZE_RETRY if self._small_pages_left else self.page_size
 
+    def can_retry_smaller(self, message: str) -> bool:
+        """Whether a page that failed with ``message`` would be fetched again in smaller pages."""
+        if self._small_pages_left or self.page_size <= PR_PAGE_SIZE_RETRY:
+            return False
+        return _is_heavy_query_error(message)
+
     def retry_smaller(self, message: str) -> bool:
         """Whether the page that failed with ``message`` is fetched again in
         smaller pages (and switch to them when it is)."""
-        if self._small_pages_left or self.page_size <= PR_PAGE_SIZE_RETRY:
-            return False
-        if not _is_heavy_query_error(message):
+        if not self.can_retry_smaller(message):
             return False
         self._small_pages_left = -(-self.page_size // PR_PAGE_SIZE_RETRY)
         return True
@@ -293,10 +350,13 @@ def _execute_page(transport: "GraphqlTransport", query: str, variables: dict[str
     ``None`` when the page failed with a heavy-query error and is to be read
     again, smaller, from the same cursor (:class:`_PageSizer`). Any other
     GraphQL error goes to ``raise_errors(doc)``; a transport failure that is
-    not a heavy-query one propagates.
+    not a heavy-query one is read again after a wait when the network caused it
+    (:func:`_execute_waiting_for_the_network`), else it propagates.
     """
     try:
-        doc = transport.execute(query, {**variables, "first": sizer.first})
+        doc = _execute_waiting_for_the_network(
+            transport, query, {**variables, "first": sizer.first},
+            declined=lambda exc: sizer.can_retry_smaller(str(exc)))
     except (RuntimeError, subprocess.TimeoutExpired) as exc:
         if sizer.retry_smaller(str(exc)):
             return None
@@ -1912,8 +1972,8 @@ def _run_eligibility_query(logins: Sequence[str], transport: GraphqlTransport,
     query = _eligibility_batch_query(len(logins))
     variables = {f"l{i}": login for i, login in enumerate(logins)}
     try:
-        doc = transport.execute(query, variables)
-    except RuntimeError:
+        doc = _execute_waiting_for_the_network(transport, query, variables)
+    except (RuntimeError, subprocess.TimeoutExpired):
         return {}, list(logins), 0, None, False
     data = doc.get("data") or {}
     rl = data.get("rateLimit") or {}
@@ -2021,8 +2081,8 @@ def _run_author_search_query(owner: str, name: str, logins: Sequence[str],
                                  for i, login in enumerate(logins)}
     variables["first"] = AUTHOR_SEARCH_FIRST
     try:
-        doc = transport.execute(_author_search_batch_query(len(logins)), variables)
-    except RuntimeError:
+        doc = _execute_waiting_for_the_network(transport, _author_search_batch_query(len(logins)), variables)
+    except (RuntimeError, subprocess.TimeoutExpired):
         return {}, list(logins), 0, None
     data = doc.get("data") or {}
     rl = data.get("rateLimit") or {}
@@ -2193,6 +2253,25 @@ def fetch_light_pr_history(
     return by_author, cost, remaining, True
 
 
+def _stored_dr90_band(raw_dir: Path, key: str) -> Optional[tuple[str, frozenset[str]]]:
+    """``(window_anchor, logins)`` of 1.2 DR_90's cohort in the stored ``pr_window`` record of ``key``
+    (:func:`porchlamp.core.gates.dr90_band_logins`), or ``None`` when the record is absent, unreadable, has no
+    readable anchor, or stopped short of its window: then the band is not known and every cohort author is
+    looked up, as before."""
+    try:
+        data = read_envelope(raw_dir / "pr_window" / f"{key}.json").data
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, Mapping) or gates.pr_window_cut_short(data):
+        return None
+    anchor_raw = data.get("window_anchor")
+    anchor = _parse_iso(anchor_raw) if isinstance(anchor_raw, str) else None
+    prs = data.get("prs")
+    if anchor is None or not isinstance(prs, list):
+        return None
+    return anchor_raw, gates.dr90_band_logins(prs, anchor)
+
+
 def collect_author_history(raw_dir: Path, owner: str, name: str,
                            now: Optional[datetime] = None,
                            transport: Optional[GraphqlTransport] = None,
@@ -2214,9 +2293,19 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     when the envelope already exists and ``force`` is False.
 
     Round-2 cost cap (review §4): D-IN-3 eligibility (account age, event
-    count) is fetched for EVERY author in the union via
-    :func:`_fetch_eligibility_batch` — never sampled, so DR_90 keeps its
-    full cohort. The per-author ``search`` (prior-merge history for
+    count) is fetched via :func:`_fetch_eligibility_batch` for every author
+    some score reads, never a sample of them, so DR_90 keeps its full
+    cohort. Those are the authors of 1.2 DR_90's cohort in the stored
+    ``pr_window`` record (:func:`_stored_dr90_band`), the per-author search
+    sample and the newcomer sample; with no usable ``pr_window`` record that
+    is every author in the union. #89: every other author (in the history's
+    wider decision cohort, outside the search sample) keeps a record with
+    ``eligibility_looked_up`` false and no account facts: 1.3 already leaves
+    such an author out (``history_unsampled``) and 1.2 never joins it, so no
+    score changes, and its failed lookups can no longer count toward the
+    unmeasured-fraction gate. The envelope then names the ``pr_window`` it was
+    narrowed to (``dr90_band_anchor``), and 1.2 refuses a different one. The
+    per-author ``search`` (prior-merge history for
     MR_first) is capped at :data:`AUTHOR_SEARCH_CAP` and deterministically
     sampled (:func:`_seeded_sample`) when the union exceeds it; an author
     outside the sample is ``history_unsampled`` and, like a failed search
@@ -2259,6 +2348,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
 
     author_records: list[dict] = []
     reused_elig: dict[str, dict] = {}
+    search_sample: set[str] = set()
     if light_history:
         light_by_author, light_cost, light_rem, light_ok = (
             fetch_light_pr_history(owner, name, t, page_size=page_size)
@@ -2320,14 +2410,21 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
                 record["prs"] = histories[login]
             author_records.append(record)
 
-    elig_needed = [login for login in needed if login not in reused_elig]
+    band = None if light_history else _stored_dr90_band(raw_dir, key)
+    read = set() if band is None else band[1] | search_sample | set(newcomers)
+    skipped = set() if band is None else set(needed) - read
+    elig_needed = [login for login in needed if login not in reused_elig and login not in skipped]
     elig, elig_cost, elig_remaining = _eligibility_with_cache(elig_needed, t, now, user_cache)
     cost += elig_cost
     if elig_remaining is not None:
         remaining = elig_remaining
     elig.update(reused_elig)
     for record in author_records:
-        record.update(elig[record["login"]])
+        login = record["login"]
+        if login in skipped:
+            record.update({"eligibility_looked_up": False, "eligibility_observed_at": None})
+        else:
+            record.update(elig[login])
 
     data: dict[str, Any] = {
         "window_anchor": now.isoformat(),
@@ -2341,6 +2438,8 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
         "sampled_authors": list(sample),
         "author_records": author_records,
     }
+    if skipped and band is not None:
+        data["dr90_band_anchor"] = band[0]
     write_envelope(target, source="github-graphql:author-history", data=data,
                    fetched_at=now.isoformat())
     return "ok"

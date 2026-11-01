@@ -1436,8 +1436,8 @@ def _merged_external_latency_hours(data: Mapping[str, Any]) -> list[float]:
 #: the decision-rate cohort is the older half of the 180 d window, not
 #: a second fetch beyond it -- every PR in it has had a full 90 d to be
 #: decided by the time the envelope's own ``window_anchor`` was recorded.
-_DR90_COHORT_START_DAYS = 180
-_DR90_COHORT_END_DAYS = 90
+_DR90_COHORT_START_DAYS = gates.DR90_COHORT_START_DAYS
+_DR90_COHORT_END_DAYS = gates.DR90_COHORT_END_DAYS
 _DR90_DECISION_WINDOW_DAYS = 90
 
 #: 1.2 DR_90's ``method``: ``"primary"`` once BOTH the D-IN-3 per-author
@@ -1656,6 +1656,10 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     #51: it reads every PR of the window, a sampled one included (decisions
     are PR-level facts), and refuses a record cut short of its window.
 
+    #89: an ``author_history`` record that looked up eligibility only for the authors of another ``pr_window``
+    record's cohort (``dr90_band_anchor``) is refused the same way: the join would drop every author of this one's
+    cohort that it never looked up.
+
     #66 F1: it also refuses (``collector_failure``) an ``author_history``
     record cut short of the cohort's start, the instant ``window_anchor``
     minus 180 d of THIS ``pr_window`` record
@@ -1685,6 +1689,14 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     if ah_data is not None:
         if _author_history_cut_short_at(ah_data, cohort_start):
             return Unmeasured(reason="collector_failure", detail=_author_history_cut_detail(ah_data, cohort_start))
+        band_anchor = ah_data.get("dr90_band_anchor")
+        if band_anchor is not None and _parse_iso_or_none(band_anchor) != anchor:
+            return Unmeasured(
+                reason="collector_failure",
+                detail=(f"author_history looked up eligibility only for the authors of the decision cohort of the "
+                        f"pr_window recorded at {band_anchor}, and this pr_window was recorded at "
+                        f"{data.get('window_anchor')}: collect author_history again"),
+            )
         author_records = {
             str(record.get("login") or "").lower(): record
             for record in ah_data.get("author_records") or []

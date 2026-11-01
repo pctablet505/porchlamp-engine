@@ -142,6 +142,15 @@ def _p4_gather(argv):
     return 0
 
 
+def _p4_gather_with_a_failure(argv):
+    """The same lines as :func:`_p4_gather` with one project that fails every run, so a second run is needed."""
+    print("collectors: x; repos: 2")
+    print("o/ok [pypi]: OK")
+    print("o/bh [pypi]: OK (stopped at black_hole)")
+    print("done: 2 clean, 1 with failures")
+    return 0
+
+
 def test_counts_reset_each_run(home, kw):
     state, seen = R.RunState(), []
 
@@ -149,7 +158,7 @@ def test_counts_reset_each_run(home, kw):
         if line.startswith("o/"):                                       # the counts as the app would read them
             seen.append((state.run, state.checked, state.stopped))
 
-    assert R.run_layer(home, "L3g", "governance", _p4_gather, state=state, **{**kw, "log": log}) == 0
+    assert R.run_layer(home, "L3g", "governance", _p4_gather_with_a_failure, state=state, **{**kw, "log": log}) == 0
     assert seen == [(1, 1, 0), (1, 2, 1), (2, 1, 0), (2, 2, 1)]        # the second run starts again from 0
     assert _ex(home, "L3g.complete")                                    # two runs agree: the step completes at run 2
 
@@ -186,7 +195,7 @@ def test_two_agreeing_runs_complete_a_layer(home, kw):
 
 
 def test_moving_counts_do_not_complete(home, kw, tmp_path):
-    counts = [3, 2, 1, 0, 0]
+    counts = [3, 2, 1, 2, 2]
     g = Gather(lambda c, n: counts[n - 1])
     assert R.run_layer(home, "L1", PR, g, max_runs=4, **kw) == 2
     assert len(g.calls) == 4 and not _ex(home, "L1.complete")
@@ -195,6 +204,27 @@ def test_moving_counts_do_not_complete(home, kw, tmp_path):
     g2 = Gather(lambda c, n: counts[n - 1])
     assert R.run_layer(home2, "L1", PR, g2, **kw) == 0
     assert len(g2.calls) == 5
+
+
+def test_a_clean_first_run_completes_a_layer(home, kw):
+    """A run with no failure leaves nothing for a second run to read again (every envelope exists), so the layer is
+    complete at once: the second pass over thousands of projects cost a whole skip-check of the universe."""
+    g = Gather(lambda c, n: 0)
+    assert R.run_layer(home, "L4", L4, g, **kw) == 0
+    assert len(g.calls) == 1
+    assert ISO.fullmatch((home / "state/refresh/L4.complete").read_text().strip())
+
+
+def test_a_first_run_that_checked_nothing_is_not_taken_as_clean(home, kw):
+    """``done: 0 clean, 0 with failures`` (an empty candidate list, a gatherer that did not look) is no proof: a
+    second run must still agree before the layer completes."""
+    def empty(argv):
+        print("done: 0 clean, 0 with failures")
+        return 0
+
+    calls = []
+    assert R.run_layer(home, "L4", L4, lambda argv: calls.append(argv) or empty(argv), **kw) == 0
+    assert len(calls) == 2
 
 
 def test_max_runs_returns_2(home, kw):
@@ -419,8 +449,8 @@ def test_restart_mid_cycle_resumes_without_retiring_markers_or_rc5(home, fkw, lo
     with pytest.raises(_Stop):
         R.run_forever(home, g, poll_s=5, sleep=_raise_stop, **fkw)
     assert PR not in g.calls and L0 not in g.calls  # finished layers are skipped
-    assert g.calls.count(L2) == 2  # the staged layer reruns to two agreeing runs
-    assert g.calls.count(KEYLESS) == 2
+    assert g.calls.count(L2) == 1  # the staged layer reruns once, and a run with no failure completes it
+    assert g.calls.count(KEYLESS) == 1
     assert (home / "state/refresh/L1.complete").read_text() == OLD + "\n"  # nothing retired
     assert not (home / "state/refresh-prev").exists()
     assert (home / "raw/repo_object/new.json").exists()  # not restaged
@@ -457,7 +487,7 @@ def test_restart_during_keyless_layer_with_main_done_present_resumes_the_keyless
     g = Gather()
     with pytest.raises(_Stop):
         R.run_forever(home, g, poll_s=5, sleep=_raise_stop, **fkw)
-    assert g.calls == [KEYLESS, KEYLESS]  # only the keyless layer reran
+    assert g.calls == [KEYLESS]  # only the keyless layer reran
     assert _ex(home, "LK.complete") and not _ex(home, OPEN)
     assert (home / "state/refresh/MAIN.done").read_text() == FRESH + "\n"  # not re-stamped
     assert not (home / "state/refresh-prev").exists()
@@ -475,7 +505,7 @@ def test_old_main_done_without_cycle_open_starts_a_new_cycle(home, fkw):
     assert seen["open"] is True
     assert (prev / "L1.complete").read_text() == OLD + "\n"  # retired, not deleted
     assert (prev / "MAIN.done").read_text() == OLD + "\n"
-    assert g.calls.count(PR) == 2  # L1 reran
+    assert g.calls.count(PR) == 1  # L1 reran
     assert (home / "state/refresh/MAIN.done").read_text() != OLD + "\n"
     assert not _ex(home, OPEN)
 
