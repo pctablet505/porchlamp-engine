@@ -24,10 +24,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 from porchlamp.collect import ci_runs, ghcli, net, validate
 from porchlamp.collect.commits import (
@@ -932,9 +931,9 @@ POOL_STOP_WAIT_S = 120.0
 _COUNT_HEAD = re.compile(rb'"count": (\d+)')
 
 
-@dataclass(frozen=True)
-class _Loop:
-    """What every repo of one gather run shares, read-only."""
+class _Loop(NamedTuple):
+    """What every repo of one gather run shares, read-only. (A NamedTuple, not a dataclass: tests and tools load this
+    file by path without registering it in ``sys.modules``, where a dataclass looks its module up.)"""
 
     a: argparse.Namespace
     selected: Optional[frozenset[str]]
