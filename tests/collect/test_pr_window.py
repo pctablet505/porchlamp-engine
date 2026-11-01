@@ -4045,17 +4045,20 @@ def test_author_history_records_are_the_same_at_eligibility_batches_of_8_and_15(
     authors: 15 + 5 calls before, 8 + 8 + 4 now)."""
     authors = [f"a{i:02d}" for i in range(20)]
     prs = [w4_days(100 + i, 150, login, closed_after=5) for i, login in enumerate(authors)]
+    users = {login: {"createdAt": f"20{10 + i % 10}-0{1 + i % 9}-01T00:00:00Z",       # each author its own values
+                     "contributionsCollection": {"contributionCalendar": {"totalContributions": 7 * i + 3}}}
+             for i, login in enumerate(authors)}
     records, sizes = {}, {}
     for width in (15, 8):
         monkeypatch.setattr(gql, "ELIGIBILITY_BATCH_SIZE", width)
-        fake = W4Transport([_w4_page(prs, False)], [3], [4990], {login: {"nodes": []} for login in authors},
-                           _users(authors))
+        fake = W4Transport([_w4_page(prs, False)], [3], [4990], {login: {"nodes": []} for login in authors}, users)
         raw = tmp_path / f"width{width}" / "raw"
         assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
         records[width] = read_envelope(raw / "author_history" / f"{KEY}.json").data["author_records"]
         sizes[width] = fake.eligibility_batch_sizes
     assert sizes == {15: [15, 5], 8: [8, 8, 4]}
     assert len(records[8]) == 20 and records[8] == records[15]
+    assert {r["login"]: r["public_event_count"] for r in records[8]} == {a: 7 * i + 3 for i, a in enumerate(authors)}
 
 
 def test_a_network_wait_ends_at_a_stop():
