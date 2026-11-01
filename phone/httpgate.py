@@ -38,7 +38,8 @@ from phone.netstats import NetStats
 
 #: Every host the code may reach. ``contacts`` on the status screen lists only hosts actually used.
 ALLOWED_HOSTS: frozenset[str] = frozenset({
-    "api.github.com",              # GitHub: project facts, pull requests (the only host that ever gets the token)
+    "api.github.com",              # GitHub: project facts, pull requests, release metadata
+    "uploads.github.com",          # GitHub Release asset uploads for the private drop-box repo
     "raw.githubusercontent.com",   # public files of a repo (governance, README, pom.xml)
     "deps.dev", "api.deps.dev",    # which package belongs to which project
     "ecosyste.ms", "packages.ecosyste.ms",   # how many projects depend on a package
@@ -51,10 +52,11 @@ ALLOWED_HOSTS: frozenset[str] = frozenset({
 #: What the phone engine may reach: every listed host except the ones no phone step uses.
 PHONE_HOSTS: frozenset[str] = ALLOWED_HOSTS - {"data.gharchive.org"}
 #: The only hosts a credential may be sent to.
-TOKEN_HOSTS: frozenset[str] = frozenset({"api.github.com"})
+TOKEN_HOSTS: frozenset[str] = frozenset({"api.github.com", "uploads.github.com"})
 
 WHAT = {
     "api.github.com": "Pull requests and project details",
+    "uploads.github.com": "Drop-box archive upload",
     "raw.githubusercontent.com": "Public files of each project",
     "deps.dev": "Which package belongs to which project",
     "api.deps.dev": "Which package belongs to which project",
@@ -128,7 +130,14 @@ def _request_size(req: urllib.request.Request, parts: urllib.parse.SplitResult) 
     head = len(req.get_method()) + len(target) + 11 + len(parts.netloc) + 8  # "GET /x HTTP/1.1" and "Host: h"
     head += sum(len(k) + len(v) + 4 for k, v in req.header_items())
     body = req.data
-    return head + (len(body) if isinstance(body, (bytes, bytearray)) else 0)
+    if isinstance(body, (bytes, bytearray)):
+        return head + len(body)
+    if body is not None:
+        for key, value in req.header_items():
+            if key.lower() == "content-length":
+                with contextlib.suppress(ValueError):
+                    return head + max(0, int(value))
+    return head
 
 
 class _Counted:
@@ -217,12 +226,14 @@ class _GateRedirect(urllib.request.HTTPRedirectHandler):
             return None
         parts = urllib.parse.urlsplit(new.full_url)
         host = (parts.hostname or "").lower()
+        if scope == "upload":
+            raise gate._refuse(host, "drop-box upload requests do not follow redirects")
         if host != old_host:                                  # a credential never follows a change of host
             for key in [k for k in new.headers if k.lower() == "authorization"]:
                 del new.headers[key]
             for key in [k for k in new.unredirected_hdrs if k.lower() == "authorization"]:
                 del new.unredirected_hdrs[key]
-        gate._admit(new, parts, host)
+        gate._admit(new, parts, host, scope)
         seen = getattr(req, "redirect_dict", None)
         if seen is not None and (seen.get(newurl, 0) >= self.max_repeats or len(seen) >= self.max_redirections):
             return new                                        # urllib stops here without sending: nothing to count
@@ -234,13 +245,63 @@ class _GateRedirect(urllib.request.HTTPRedirectHandler):
         return new
 
 
+_KNOWN_SCOPES: frozenset[str] = frozenset({"collect", "upload", "token_test", "self_check"})
+_RESERVED_UPLOAD_REPOS: frozenset[str] = frozenset({
+    "porchlamp",
+    "porchlamp-engine",
+    "porchlamp-phone",
+    "contributor-value-index",
+})
+
+
+def _upload_route_methods(tail: list[str]) -> tuple[str, ...] | None:
+    """The methods the drop-box code uses on one route below ``/repos/<owner>/<drop-repo>``, or ``None`` for no route."""
+    if not tail:
+        return ("GET",)
+    if tail == ["contents", ".github", "workflows"]:
+        return ("GET",)
+    if tail == ["releases"]:
+        return ("GET", "POST")
+    if len(tail) == 2 and tail[0] == "releases" and tail[1].isdigit():
+        return ("GET", "PATCH")
+    if len(tail) == 3 and tail[0] == "releases" and tail[1].isdigit() and tail[2] == "assets":
+        return ("POST",)
+    if len(tail) == 3 and tail[0] == "releases" and tail[1] == "assets" and tail[2].isdigit():
+        return ("DELETE",)
+    if len(tail) == 3 and tail[0] == "releases" and tail[1] == "tags" and tail[2]:
+        return ("GET",)
+    return None
+
+
+def _admit_upload_path(path: str, method: str) -> str | None:
+    """Return ``None`` if ``method`` on ``path`` stays strictly inside a non-reserved drop-box repository's release/safety surface."""
+    decoded = urllib.parse.unquote(path or "")
+    if "\\" in decoded or "//" in decoded:
+        return "malformed upload path"
+    segs = decoded.split("/")
+    if any(seg in ("..", ".") for seg in segs[1:]):
+        return "path traversal in upload path"
+    if len(segs) < 4 or segs[0] != "" or segs[1] != "repos" or not segs[2] or not segs[3]:
+        return "upload scope only reaches /repos/<owner>/<drop-repo>"
+    repo_name = segs[3].lower()
+    if repo_name in _RESERVED_UPLOAD_REPOS:
+        return "upload scope never touches production or code repositories"
+    methods = _upload_route_methods(segs[4:])
+    if methods is None:
+        return "upload scope only reaches release and workflow-absence endpoints"
+    if method not in methods:
+        return "method not allowed on this drop-box route"
+    return None
+
+
 class Gate:
     """State of the gate: the allow-list, the counters, the controls, the stop flag and the GitHub budget."""
 
     def __init__(self, *, allowed: frozenset[str] | set[str] = ALLOWED_HOSTS,
                  token_hosts: frozenset[str] | set[str] = TOKEN_HOSTS,
                  http_hosts: frozenset[str] | set[str] = frozenset(),
-                 budget_hosts: frozenset[str] | set[str] = TOKEN_HOSTS,
+                 budget_hosts: frozenset[str] | set[str] = frozenset({"api.github.com"}),
+                 allow_collect_mutations: bool = False,
                  stats: NetStats | None = None, controls: Any = None,
                  log: Callable[[str], object] | None = None,
                  clock: Callable[[], float] = time.time, slice_s: float = 0.5,
@@ -249,6 +310,7 @@ class Gate:
         self.token_hosts = frozenset(token_hosts)
         self.http_hosts = frozenset(http_hosts)  # hosts reachable without TLS or on a non-default port (tests only)
         self.budget_hosts = frozenset(budget_hosts)  # hosts whose x-ratelimit-* headers feed the GitHub budget
+        self.allow_collect_mutations = bool(allow_collect_mutations)
         self.stats = stats
         self.controls = controls
         self._log = log
@@ -346,7 +408,15 @@ class Gate:
         self.log(f"REFUSED {host or '?'}: {why}; nothing was sent")
         return HostRefused(f"{host or '?'}: {why}")
 
-    def _admit(self, req: urllib.request.Request, parts: urllib.parse.SplitResult, host: str) -> None:
+    def _admit(
+        self,
+        req: urllib.request.Request,
+        parts: urllib.parse.SplitResult,
+        host: str,
+        scope: str = "collect",
+    ) -> None:
+        if scope not in _KNOWN_SCOPES:
+            raise self._refuse(host, "unknown request scope")
         if parts.scheme not in ("http", "https"):
             raise self._refuse(host, "only http and https are used")
         if not host or not host.isascii():
@@ -361,8 +431,32 @@ class Gate:
             raise self._refuse(host, "host is not on the allow-list")
         if host not in self.http_hosts and (parts.scheme != "https" or port not in (None, 443)):
             raise self._refuse(host, "only https on the default port is used")
-        if req.has_header("Authorization") and host not in self.token_hosts:
-            raise self._refuse(host, "a credential is only sent to api.github.com")
+
+        method = req.get_method().upper()
+        if scope == "upload":
+            if host not in self.token_hosts:
+                raise self._refuse(host, "drop-box uploads only contact GitHub")
+            if method not in ("GET", "POST", "PATCH", "DELETE"):
+                raise self._refuse(host, "method not allowed for drop-box upload")
+            bad_path = _admit_upload_path(parts.path, method)
+            if bad_path is not None:
+                raise self._refuse(host, bad_path)
+            return
+
+        # Non-upload scopes ("collect", "token_test", "self_check") can never contact uploads.github.com or mutate state.
+        if host == "uploads.github.com":
+            raise self._refuse(host, "uploads.github.com is only used for drop-box uploads")
+        if req.has_header("Authorization") and host not in (self.token_hosts - {"uploads.github.com"}):
+            raise self._refuse(host, "a credential is only sent to GitHub")
+        if scope in ("token_test", "self_check"):
+            if method != "GET":
+                raise self._refuse(host, "only GET is allowed for token_test and self_check")
+            return
+        if not self.allow_collect_mutations:
+            if method not in ("GET", "POST"):
+                raise self._refuse(host, "collector requests never modify remote state")
+            if method == "POST" and parts.path != "/graphql":
+                raise self._refuse(host, "collector POST is only allowed for /graphql")
 
     def _await_clear(self, host: str, scope: str, wait: bool) -> None:
         announced = False
@@ -386,15 +480,16 @@ class Gate:
                 scope: str = "collect", wait: bool = True) -> Any:
         """Open ``req`` like ``urllib.request.urlopen`` does, through the checks in the module docstring.
 
-        ``scope`` is ``"collect"`` (the engine's own work), ``"token_test"`` or ``"self_check"`` (an act of the owner:
-        it is not held by user pause, battery, heat or disk rules, but still by the network rule and the allow-list).
-        ``wait=False`` raises ``WouldBlock`` instead of waiting.
+        ``scope`` is ``"collect"`` (the engine's own work), ``"upload"`` (drop-box release upload: held by pause,
+        battery, heat, disk and network rules, independent of the collector token), or ``"token_test"`` /
+        ``"self_check"`` (an act of the owner: held only by the network rule and the allow-list). ``wait=False`` raises
+        ``WouldBlock`` instead of waiting.
         """
         if isinstance(req, str):
             req = urllib.request.Request(req)
         parts = urllib.parse.urlsplit(req.full_url)
         host = (parts.hostname or "").lower()
-        self._admit(req, parts, host)
+        self._admit(req, parts, host, scope)
         self._await_clear(host, scope, wait)
         net = self._net()
         authed = req.has_header("Authorization")
@@ -446,18 +541,18 @@ class Gate:
             self.stats.error()
         if status >= 500 or status in LOGGED_STATUSES:
             self.log(f"{method} {host} {status}{' (rate limit)' if limited else ''}")
-        if scope == "collect":
+        if scope in ("collect", "upload"):
             if status < 500 and not limited:
                 self.touch_progress()
             if self.controls is not None:
-                self.controls.on_response(host, status, authed)
+                self.controls.on_response(host, status, authed and scope == "collect")
 
     def _failed(self, host: str, exc: BaseException, scope: str = "collect") -> None:
         if self.stats is not None:
             self.stats.error()
         timeout = is_timeout(exc)
         self.log(f"{host}: {'timed out' if timeout else type(exc).__name__}")
-        if self.controls is not None and scope == "collect":
+        if self.controls is not None and scope in ("collect", "upload"):
             self.controls.on_failure(host, is_no_answer(exc))
 
     def _timed_out(self, host: str, scope: str = "collect") -> None:

@@ -184,7 +184,10 @@ def test_rest_get_fields_become_the_query_string_in_order(fake: FakeGitHub) -> N
 
 
 def test_rest_non_get_fields_become_a_json_body(fake: FakeGitHub) -> None:
-    ghcli.run(["api", "-X", "PATCH", "repos/x/y", "-f", "name=z", "-F", "n=5", "-F", "ok=true"])
+    blocked = ghcli.run(["api", "-X", "PATCH", "repos/x/y", "-f", "name=z", "-F", "n=5", "-F", "ok=true"])
+    assert blocked.returncode == 1 and fake.seen == []
+    with installed(loopback_gate(allow_collect_mutations=True)):
+        ghcli.run(["api", "-X", "PATCH", "repos/x/y", "-f", "name=z", "-F", "n=5", "-F", "ok=true"])
     req = fake.seen[-1]
     assert req["method"] == "PATCH" and req["path"] == "/repos/x/y"
     assert json.loads(req["body"]) == {"name": "z", "n": 5, "ok": True}
@@ -373,8 +376,11 @@ def test_same_host_redirect_is_followed_with_the_same_headers(authed: FakeGitHub
 
 
 def test_same_host_redirect_keeps_method_and_body(authed: FakeGitHub) -> None:
+    blocked = ghcli.run(["api", "-X", "POST", "repos/x/y/issues", "-f", "title=t"])
+    assert blocked.returncode == 1 and authed.seen == []
     authed.replies = [(307, {"Location": "/again"}, ""), _ok()]
-    ghcli.run(["api", "-X", "POST", "repos/x/y/issues", "-f", "title=t"])
+    with installed(loopback_gate(allow_collect_mutations=True)):
+        ghcli.run(["api", "-X", "POST", "repos/x/y/issues", "-f", "title=t"])
     assert [(r["method"], r["body"]) for r in authed.seen] == [("POST", '{"title": "t"}')] * 2
 
 

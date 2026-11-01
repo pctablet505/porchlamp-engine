@@ -24,7 +24,7 @@ def test_the_defaults_are_the_contracts_and_the_lan_is_manual_and_overrides_are_
     assert s.get() == {"network": "wifi", "battery_pause_pct": 20, "battery_override": False, "heat_pause_c": 40,
                        "heat_override": False, "timeout_streak": 5, "interval_days": 28,
                        "layers": ["L1", "L0", "L2", "L3g", "L3c", "L4", "LK"], "rate_floor": 500,
-                       "lan_mode": "manual"}
+                       "lan_mode": "manual", "delivery_mode": "lan", "drop_repo": ""}
     assert s.get() == DEFAULTS and s.get() is not DEFAULTS and s.get()["layers"] is not DEFAULTS["layers"]
 
 
@@ -491,3 +491,48 @@ def test_a_failed_bind_is_reported_once_and_retried_later(tmp_path):
     finally:
         blocker.close()
         rig.close()
+
+
+def test_delivery_mode_and_drop_repo_validation_refuse_reserved_and_malformed_names(tmp_path):
+    s = Settings(tmp_path / "s.json")
+    for mode in ("lan", "github_drop", "both"):
+        assert s.set({"delivery_mode": mode})["ok"]
+    assert not s.set({"delivery_mode": "s3"})["ok"]
+
+    assert s.set({"drop_repo": " pctablet505/porchlamp-drop "})["ok"]
+    assert s.value("drop_repo") == "pctablet505/porchlamp-drop"
+    assert s.set({"drop_repo": "   "})["ok"] and s.value("drop_repo") == ""
+
+    for bad in (
+        "pctablet505/porchlamp",
+        "pctablet505/PORCHLAMP",
+        "pctablet505/porchlamp-engine",
+        "pctablet505/porchlamp-phone",
+        "pctablet505/contributor-value-index",
+        "onlyone",
+        "a/b/c",
+        "../porchlamp-drop",
+        "owner/..",
+        "owner/repo?x=1",
+        123,
+    ):
+        reply = s.set({"drop_repo": bad})
+        assert not reply["ok"] and list(reply["errors"]) == ["drop_repo"], bad
+
+
+def test_upload_scope_obeys_pause_and_device_rules_without_the_collector_token(tmp_path):
+    r = Rules(tmp_path)
+    # No collector github_token set: collect is held by token_missing, upload is clear on healthy Wi-Fi.
+    assert r.reason("api.github.com", "collect") == "token_missing"
+    assert r.reason("api.github.com", "upload") is None
+    assert r.reason("uploads.github.com", "upload") is None
+
+    # User pause, low battery, and Wi-Fi loss hold upload just like collect.
+    r.controls.set_user_pause(True)
+    assert r.reason("uploads.github.com", "upload") == "user"
+    r.controls.set_user_pause(False)
+    r.device(battery_pct=15)
+    assert r.reason("uploads.github.com", "upload") == "battery"
+    r.device(battery_pct=50, network="none")
+    assert r.reason("uploads.github.com", "upload") == "no_wifi"
+
