@@ -18,10 +18,13 @@ import json
 import re
 import subprocess  # noqa: F401  (tests patch this module's subprocess)
 import contextlib
+import queue
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -913,6 +916,240 @@ def _repair_replies(owner: str, name: str, eco: str) -> bool:
     return True
 
 
+#: D4 (rollout 2026-11-01): the most projects ``--workers`` fetches side by side: the level this account sustained
+#: for 8.8 h on 2026-10-10/11. GitHub's requests in flight are capped again in the transport (``PORCHLAMP_GH_INFLIGHT``).
+MAX_WORKERS = 3
+#: A project whose stored ``pr_window`` counts more PRs than this is heavy: at most one heavy project is in flight
+#: (89 repos above 5,000 hold 33% of the stored PRs; two of their deep walks, or two 1-1.5 GB envelopes, never
+#: run on the phone at once).
+HEAVY_PRS = 5000
+#: ``count`` sits before ``prs`` in a ``pr_window`` envelope: the first 4 KiB hold it.
+HEAVY_HEAD_BYTES = 4096
+#: A stored window this large with no ``count`` in its head is taken for heavy.
+HEAVY_UNREAD_BYTES = 20 * 2**20
+#: How long a stopped pool waits for the projects still in flight before it raises the stop again.
+POOL_STOP_WAIT_S = 120.0
+_COUNT_HEAD = re.compile(rb'"count": (\d+)')
+
+
+@dataclass(frozen=True)
+class _Loop:
+    """What every repo of one gather run shares, read-only."""
+
+    a: argparse.Namespace
+    selected: Optional[frozenset[str]]
+    screen: bool
+    fp_result: Any
+    dirty_map: Optional[dict[str, frozenset[str]]]
+    clean_label: str
+
+
+def _one(i: int, owner: str, name: str, eco: str, loop: _Loop) -> tuple[int, int]:
+    """One repo of the gather loop: prints its repo line exactly as before and returns its ``(ok, fail)`` counts.
+
+    ``--workers 1`` calls it in the loop as before; ``--workers N`` calls it in worker threads (:func:`_run_pool`).
+    It reads only its arguments and ``loop``, never state another repo writes."""
+    from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
+
+    a = loop.a
+    key = f"{owner}__{name}"
+    if a.repair_replies:
+        repaired_ok = _repair_replies(owner, name, eco)
+        return int(repaired_ok), int(not repaired_ok)
+    if (a.skip_ineligible or loop.screen) and not a.force:
+        pruned_reason = (
+            loop.fp_result.pruned_by_repo.get(key)
+            if loop.fp_result is not None
+            else should_skip_ineligible(
+                owner, name, raw_dir=DATA, now=datetime.now(timezone.utc)
+            )
+        )
+        if pruned_reason is not None:
+            print(f"{owner}/{name} [{eco}]: SKIP (ineligible: {pruned_reason})")
+            return 1, 0
+    repo_collectors = loop.selected
+    repo_force = a.force
+    if loop.dirty_map is not None and not a.force:
+        inv = loop.dirty_map.get(key, ALL_GATHER_COLLECTORS)
+        if not inv:
+            print(f"{owner}/{name} [{eco}]: SKIP ({loop.clean_label})")
+            return 1, 0
+        repo_collectors = inv if loop.selected is None else (loop.selected & inv)
+        if not repo_collectors:
+            print(f"{owner}/{name} [{eco}]: SKIP (selected collectors clean)")
+            return 1, 0
+        repo_force = True
+    started = datetime.now(timezone.utc)
+    try:
+        import inspect as _inspect
+        gr_params = _inspect.signature(gather_repo).parameters
+        has_var_kw = any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in gr_params.values())
+        kwargs: dict[str, Any] = {
+            "force": repo_force,
+            "collectors": repo_collectors,
+        }
+        if "graphql_bulk" in gr_params or has_var_kw:
+            kwargs["graphql_bulk"] = a.graphql_bulk
+        if "skip_ineligible" in gr_params or has_var_kw:
+            kwargs["skip_ineligible"] = a.skip_ineligible
+        if getattr(a, "incremental_ledgers", False) and ("incremental_ledgers" in gr_params or has_var_kw):
+            kwargs["incremental_ledgers"] = True
+        if getattr(a, "light_author_history", False) and ("light_author_history" in gr_params or has_var_kw):
+            kwargs["light_author_history"] = True
+        st = gather_repo(owner, name, eco, **kwargs)
+    except Exception as e:  # review-ok: gate-network — isolate unexpected per-repo error during sweep
+        print(f"{owner}/{name} [{eco}]: FAIL {e}")
+        return 0, 1
+    bad = [k for k, v in st.items() if v == "fail"]
+    if st.get("skipped_deep_black_hole") is True and not bad:
+        print(f"{owner}/{name} [{eco}]: OK (stopped at black_hole)")
+    else:
+        print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
+    if loop.fp_result is not None and not loop.screen and loop.selected is None:
+        _persist_fingerprint(loop.fp_result, owner, name, eco, st, started,
+                             refetched=ALL_GATHER_COLLECTORS if a.force
+                             else repo_collectors)
+    return int(not bad), int(bool(bad))
+
+
+class _ThreadLines:
+    """``sys.stdout`` while the workers run: each thread's text is held until its line is whole, then written to the
+    stream below in one write, one thread at a time, so the phone runner's tee (and its repo-line count) sees whole
+    lines only. A logger below that prints from inside that write (``log=print``) re-enters safely."""
+
+    def __init__(self, below: Any) -> None:
+        self._below = below
+        self._pieces: dict[int, str] = {}
+        self._pieces_lock = threading.Lock()
+        self._write_lock = threading.RLock()
+
+    def write(self, text: str) -> int:
+        me = threading.get_ident()
+        with self._pieces_lock:
+            *whole, rest = (self._pieces.pop(me, "") + text).split("\n")
+            if rest:
+                self._pieces[me] = rest
+        if whole:
+            with self._write_lock:
+                self._below.write("".join(line + "\n" for line in whole))
+        return len(text)
+
+    def flush(self) -> None:
+        with self._write_lock:
+            self._below.flush()
+
+    def close(self) -> None:
+        """Write out what is left without its newline (each thread's piece in one write)."""
+        with self._pieces_lock:
+            left = list(self._pieces.values())
+            self._pieces.clear()
+        with self._write_lock:
+            for piece in left:
+                self._below.write(piece)
+
+
+def _heavy(owner: str, name: str) -> bool:
+    """Whether the project's stored ``pr_window`` counts more than :data:`HEAVY_PRS` PRs (read from its first
+    :data:`HEAVY_HEAD_BYTES`). A missing or unreadable record is heavy (its size is unknown: it runs alone), and so is
+    one of :data:`HEAVY_UNREAD_BYTES` or more whose head names no count."""
+    path = DATA / "pr_window" / f"{owner}__{name}.json"
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(HEAVY_HEAD_BYTES)
+            size = fh.seek(0, 2)
+    except OSError:
+        return True
+    found = _COUNT_HEAD.search(head)
+    if found is None:
+        return size >= HEAVY_UNREAD_BYTES
+    return int(found.group(1)) > HEAVY_PRS
+
+
+def _run_pool(repos: list[tuple[str, str, str]], loop: _Loop, workers: int) -> tuple[int, int]:
+    """``--workers N`` (D4): up to ``workers`` repos side by side, each run start to end by :func:`_one` in its own
+    thread, so each repo's envelope is computed exactly as one at a time computes it; only the order of repos changes.
+
+    The main thread schedules: a free slot takes the first pending repo that is not already in flight under the same
+    key and, when heavy (:func:`_heavy`), only while no heavy repo is in flight. Every worker adopts the caller's
+    cancel binding first, so a stop or a watchdog restart reaches each at its next request. The user cache is made
+    before any worker starts. ``ok`` and ``fail`` are summed here; an exception that escapes :func:`_one` is that
+    repo's FAIL line. A ``BaseException`` (``Stopped``, ``KeyboardInterrupt``) stops the dispatch, waits up to
+    :data:`POOL_STOP_WAIT_S` for the repos in flight, and is raised again."""
+    binding = net.binding()
+    if loop.selected is not None and "author_history" in loop.selected:
+        _user_cache()
+    results: queue.Queue = queue.Queue()
+
+    def work(i: int, owner: str, name: str, eco: str) -> None:
+        net.bind(binding)
+        try:
+            outcome: tuple[int, int] = _one(i, owner, name, eco, loop)
+        except Exception as e:  # review-ok: gate-network — an escape is that repo's FAIL, as in the loop's except
+            print(f"{owner}/{name} [{eco}]: FAIL {e}")
+            outcome = (0, 1)
+        except BaseException as e:  # review-ok: a stop is handed to the main thread, which raises it again
+            results.put((i, None, e))
+            return
+        results.put((i, outcome, None))
+
+    pending = list(enumerate(repos, 1))
+    in_flight: dict[int, tuple[str, bool]] = {}
+    heavy_of: dict[int, bool] = {}
+    ok = fail = 0
+    stop: Optional[BaseException] = None
+    lines = _ThreadLines(sys.stdout)
+    saved = sys.stdout
+    sys.stdout = lines
+    try:
+        try:
+            while pending or in_flight:
+                while stop is None and pending and len(in_flight) < workers:
+                    keys = {key for key, _ in in_flight.values()}
+                    heavy_busy = any(heavy for _, heavy in in_flight.values())
+                    pick = None
+                    for pos, (i, (owner, name, _eco)) in enumerate(pending):
+                        if f"{owner}__{name}" in keys:
+                            continue
+                        if i not in heavy_of:
+                            heavy_of[i] = _heavy(owner, name)
+                        if heavy_busy and heavy_of[i]:
+                            continue
+                        pick = pos
+                        break
+                    if pick is None:
+                        break
+                    i, (owner, name, eco) = pending.pop(pick)
+                    in_flight[i] = (f"{owner}__{name}", heavy_of[i])
+                    threading.Thread(target=work, args=(i, owner, name, eco), name=f"gather-{i}",
+                                     daemon=True).start()
+                if not in_flight:
+                    break
+                i, outcome, error = results.get()
+                del in_flight[i]
+                if error is not None:
+                    stop = error
+                    pending.clear()
+                    break
+                ok += outcome[0]
+                fail += outcome[1]
+        except BaseException as e:  # review-ok: the main thread itself was interrupted: stop like a worker's stop
+            stop = stop or e
+            pending.clear()
+        if stop is not None:
+            deadline = time.monotonic() + POOL_STOP_WAIT_S
+            while in_flight:
+                try:
+                    i, _outcome, _error = results.get(timeout=max(0.0, deadline - time.monotonic()))
+                except queue.Empty:
+                    break
+                del in_flight[i]
+            raise stop
+    finally:
+        lines.close()
+        sys.stdout = saved
+    return ok, fail
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=10)
@@ -969,7 +1206,23 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="use gh CLI subprocesses instead of direct HTTP transport")
     ap.add_argument("--cost-log", type=Path, default=None,
                     help="path to write cost accounting log JSONL")
+    ap.add_argument("--workers", type=int, default=1,
+                    help=f"projects fetched side by side, 1 to {MAX_WORKERS} (default 1: one at a time). Above 1 it "
+                         "needs --all and --collectors (one breadth-first layer); GitHub's requests in flight are "
+                         "capped by PORCHLAMP_GH_INFLIGHT in the transport")
     a = ap.parse_args(argv)
+    if not 1 <= a.workers <= MAX_WORKERS:
+        ap.error(f"--workers is 1 to {MAX_WORKERS}")
+    if a.workers > 1:
+        alone = [flag for flag, used in (("--dirty", a.dirty), ("--fingerprint-only", a.fingerprint_only),
+                                         ("--priority-keys", a.priority_keys is not None),
+                                         ("--repair-replies", a.repair_replies), ("--force", a.force),
+                                         ("--gh-cli", a.gh_cli)) if used]
+        if alone:
+            ap.error(f"--workers above 1 is not for {', '.join(alone)}: its shared files or order assume one project "
+                     "at a time (--gh-cli: the GitHub throttle is in the HTTPS transport)")
+        if not (a.all and a.collectors):
+            ap.error("--workers above 1 needs --all and --collectors: one breadth-first layer")
     if a.refetch_cut and (a.force or a.dirty or a.fingerprint_only or a.screen_ineligible):
         ap.error("--refetch-cut already picks the repos and the collectors: "
                  "not with --force, --dirty, --fingerprint-only or --screen-ineligible")
@@ -993,8 +1246,6 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 
 def _run_main(a: argparse.Namespace) -> int:
-    from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
-
     if a.incremental_ledgers or a.light_author_history:
         print(EXPERIMENTAL, file=sys.stderr)
     if a.cost_log:
@@ -1062,80 +1313,17 @@ def _run_main(a: argparse.Namespace) -> int:
 
     ok = fail = 0
     print(f"collectors: {'all' if selected is None else ','.join(sorted(selected))}; repos: {len(repos)}")
-    for i, (owner, name, eco) in enumerate(repos, 1):
-        key = f"{owner}__{name}"
-        if a.repair_replies:
-            repaired_ok = _repair_replies(owner, name, eco)
-            ok += repaired_ok
-            fail += not repaired_ok
-            continue
-        if (a.skip_ineligible or screen) and not a.force:
-            pruned_reason = (
-                fp_result.pruned_by_repo.get(key)
-                if fp_result is not None
-                else should_skip_ineligible(
-                    owner, name, raw_dir=DATA, now=datetime.now(timezone.utc)
-                )
-            )
-            if pruned_reason is not None:
-                ok += 1
-                print(f"{owner}/{name} [{eco}]: SKIP (ineligible: {pruned_reason})")
-                if i == n_first:
-                    print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
-                continue
-        repo_collectors = selected
-        repo_force = a.force
-        if dirty_map is not None and not a.force:
-            inv = dirty_map.get(key, ALL_GATHER_COLLECTORS)
-            if not inv:
-                ok += 1
-                print(f"{owner}/{name} [{eco}]: SKIP ({clean_label})")
-                if i == n_first:
-                    print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
-                continue
-            repo_collectors = inv if selected is None else (selected & inv)
-            if not repo_collectors:
-                ok += 1
-                print(f"{owner}/{name} [{eco}]: SKIP (selected collectors clean)")
-                if i == n_first:
-                    print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
-                continue
-            repo_force = True
-        started = datetime.now(timezone.utc)
-        try:
-            import inspect as _inspect
-            gr_params = _inspect.signature(gather_repo).parameters
-            has_var_kw = any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in gr_params.values())
-            kwargs: dict[str, Any] = {
-                "force": repo_force,
-                "collectors": repo_collectors,
-            }
-            if "graphql_bulk" in gr_params or has_var_kw:
-                kwargs["graphql_bulk"] = a.graphql_bulk
-            if "skip_ineligible" in gr_params or has_var_kw:
-                kwargs["skip_ineligible"] = a.skip_ineligible
-            if getattr(a, "incremental_ledgers", False) and ("incremental_ledgers" in gr_params or has_var_kw):
-                kwargs["incremental_ledgers"] = True
-            if getattr(a, "light_author_history", False) and ("light_author_history" in gr_params or has_var_kw):
-                kwargs["light_author_history"] = True
-            st = gather_repo(owner, name, eco, **kwargs)
-        except Exception as e:  # review-ok: gate-network — isolate unexpected per-repo error during sweep
-            fail += 1
-            print(f"{owner}/{name} [{eco}]: FAIL {e}")
-        else:
-            bad = [k for k, v in st.items() if v == "fail"]
-            ok += not bad
-            fail += bool(bad)
-            if st.get("skipped_deep_black_hole") is True and not bad:
-                print(f"{owner}/{name} [{eco}]: OK (stopped at black_hole)")
-            else:
-                print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
-            if fp_result is not None and not screen and selected is None:
-                _persist_fingerprint(fp_result, owner, name, eco, st, started,
-                                     refetched=ALL_GATHER_COLLECTORS if a.force
-                                     else repo_collectors)
-        if i == n_first:
-            print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
+    loop = _Loop(a=a, selected=selected, screen=screen, fp_result=fp_result, dirty_map=dirty_map,
+                 clean_label=clean_label)
+    if a.workers > 1:
+        ok, fail = _run_pool(repos, loop, a.workers)
+    else:
+        for i, (owner, name, eco) in enumerate(repos, 1):
+            more_ok, more_fail = _one(i, owner, name, eco, loop)
+            ok += more_ok
+            fail += more_fail
+            if i == n_first:
+                print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
     if _USER_CACHE is not None:
         print(_USER_CACHE.summary())
     if a.cost_log and cost is not None and hasattr(cost, "write_cost_log"):
