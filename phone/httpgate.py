@@ -323,7 +323,7 @@ class Gate:
         self._redirecting_opener = urllib.request.build_opener(_GateRedirect(self))
         self._lock = threading.Lock()
         self._budget: dict[str, dict[str, float]] = {}
-        self._rate: tuple[str, float] | None = None
+        self._rates: dict[int, tuple[str, float]] = {}   # thread id -> (resource, resume epoch) of its rate wait
         self.progress_ts: float = clock()
         self.on_rate_wait_end: Callable[[str, float], object] | None = None
 
@@ -348,6 +348,10 @@ class Gate:
     def bind_cancel(self, event: threading.Event | None) -> None:
         """Make this thread's requests raise ``Stopped`` when ``event`` is set (a restarted collector's old thread)."""
         self._tls.cancel = event
+
+    def cancel_event(self) -> threading.Event | None:
+        """This thread's cancel binding (set by :meth:`bind_cancel`), or None: a worker thread adopts it."""
+        return getattr(self._tls, "cancel", None)
 
     def kick(self) -> None:
         """Wake every waiting request so it re-reads the controls at once (resume, settings change, new facts)."""
@@ -398,8 +402,12 @@ class Gate:
             return dict(max(self._budget.values(), key=lambda r: r["t"]))
 
     def rate_state(self) -> tuple[str, float] | None:
-        """``(resource, resume epoch)`` while a rate-limit wait is in progress."""
-        return self._rate
+        """``(resource, resume epoch)`` while a rate-limit wait is in progress: of several threads waiting, the wait
+        that ends last."""
+        with self._lock:
+            if not self._rates:
+                return None
+            return max(self._rates.values(), key=lambda rate: rate[1])
 
     # ---- admission --------------------------------------------------------------------------------------------
     def _refuse(self, host: str, why: str) -> HostRefused:
@@ -568,7 +576,9 @@ class Gate:
         """
         started = self.clock()
         until = started + seconds
-        self._rate = (resource, until)
+        me = threading.get_ident()
+        with self._lock:
+            self._rates[me] = (resource, until)
         self.log(f"waiting {int(seconds)}s for the GitHub {resource} reset (remaining {remaining})")
         try:
             if sleep is not None:
@@ -581,7 +591,8 @@ class Gate:
                         break
                     self._wait(min(left, self.slice_s))
         finally:
-            self._rate = None
+            with self._lock:
+                self._rates.pop(me, None)
         if self.on_rate_wait_end is not None:
             self.on_rate_wait_end(resource, self.clock() - started)
 
@@ -625,3 +636,18 @@ def urlopen(req: urllib.request.Request | str, timeout: float = 30, *, opener: A
 def rate_wait(resource: str, remaining: int, seconds: float,
               sleep: Callable[[float], object] | None = None) -> None:
     _GATE.rate_wait(resource, remaining, seconds, sleep)
+
+
+def binding() -> threading.Event | None:
+    """The calling thread's cancel binding on the process's gate (``Gate.cancel_event``)."""
+    return _GATE.cancel_event()
+
+
+def bind(event: threading.Event | None) -> None:
+    """Adopt ``event`` as the calling thread's cancel binding (a worker started by the collector thread)."""
+    _GATE.bind_cancel(event)
+
+
+def sleep(seconds: float) -> None:
+    """A stop-aware sleep on the process's gate."""
+    _GATE.sleep(seconds)

@@ -434,7 +434,7 @@ def test_a_pause_a_wait_or_a_rate_limit_is_not_stuck_and_resume_starts_the_clock
     r.clock.advance(60)
     r.eng.tick()
     assert restarts.calls == 0 and r.eng.stuck is False              # three hours paused is not three hours stuck
-    r.eng.gate._rate = ("core", r.clock() + 7200)                    # a long wait for GitHub's limit
+    r.eng.gate._rates[0] = ("core", r.clock() + 7200)                # a long wait for GitHub's limit
     r.clock.advance(2 * 3600)
     r.eng.tick()
     assert restarts.calls == 0 and r.eng.stuck is False

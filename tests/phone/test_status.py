@@ -309,7 +309,7 @@ def test_waiting_for_the_github_limit_names_the_clock_time_the_calls_left_and_th
     rig.run_on("L1")
     rig.eng.gate.feed_budget({"x-ratelimit-remaining": "500", "x-ratelimit-limit": "5000",
                               "x-ratelimit-reset": str(int(T0 + 2280)), "x-ratelimit-resource": "core"})
-    rig.eng.gate._rate = ("core", T0 + 2280)
+    rig.eng.gate._rates[0] = ("core", T0 + 2280)
     s = rig.status()
     assert s["state"] == "waiting" and s["reason"]["code"] == "rate_limit"
     assert s["headline"] == "Waiting for GitHub's hourly limit"
