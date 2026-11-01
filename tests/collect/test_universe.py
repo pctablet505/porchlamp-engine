@@ -330,3 +330,26 @@ def test_star_velocity_evidence_corrupt_cached_envelope_returns_unmeasured(tmp_p
     assert record.stars_audited is None
     assert record.star_velocity is None
 
+
+
+@pytest.mark.parametrize("owner, name", [("../../../esc", "x"), ("ok", "a/b"), ("..", "x"), ("ok", "")])
+def test_the_star_history_writers_refuse_an_owner_or_name_that_is_not_one_path_segment(
+    tmp_path: Path, block_live_network, owner: str, name: str
+):
+    """The writers build ``raw/<collector>/{owner}__{name}.json``: nothing may be written outside ``raw``."""
+    root = tmp_path / "root"
+    raw_dir = root / "data" / "raw"
+    raw_dir.mkdir(parents=True)
+    before = {str(p.relative_to(root)) for p in root.rglob("*")}
+    with pytest.raises(ValueError, match="not a single path segment"):
+        collect_star_history(raw_dir, owner, name, _clean_fetch, FETCHED_AT)
+    with pytest.raises(ValueError, match="not a single path segment"):
+        star_velocity_evidence(raw_dir, owner, name, NOW, _clean_fetch, FETCHED_AT)
+    assert {str(p.relative_to(root)) for p in root.rglob("*")} == before
+
+
+def test_the_star_history_writers_accept_the_real_candidate_that_valid_name_refuses(
+    tmp_path: Path, block_live_network
+):
+    record = star_velocity_evidence(tmp_path / "raw", "981011512", "--", NOW, _clean_fetch, FETCHED_AT)
+    assert record.measured is True

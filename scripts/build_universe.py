@@ -51,6 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from porchlamp.collect.names import is_path_segment, valid_name
 from porchlamp.collect.universe import Transport, default_star_history_transport, star_velocity_evidence
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "raw"
@@ -400,11 +401,19 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
 
     prior: dict[tuple[str, str], dict[str, Any]] = {}
     src = existing or CANDIDATES
+    dropped = 0
     if src.is_file():
         for line in src.read_text().splitlines():
             if line.strip():
                 r = json.loads(line)
+                # owner and name become file names (universe_entry/, star_history/): a carried row is not trusted
+                if not (isinstance(r, dict) and is_path_segment(r.get("owner")) and is_path_segment(r.get("name"))
+                        and valid_name(r.get("ecosystem"))):
+                    dropped += 1
+                    continue
                 prior[(r["owner"].lower(), r["name"].lower())] = r
+    if dropped:
+        print(f"WARN dropped {dropped} carried candidates whose owner, name or ecosystem is not a single path segment")
     found: dict[tuple[str, str], dict[str, Any]] = {
         k: repair_registry_stars(dict(v, selected_by=list(v["selected_by"]))) for k, v in prior.items()}
     searched: set[tuple[str, str]] = set()

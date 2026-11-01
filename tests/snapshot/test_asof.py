@@ -651,3 +651,23 @@ def test_the_reduced_record_covers_exactly_as_the_full_record_does(data: dict[st
         assert pr_window_coverage_in(reduced, A + shift) == pr_window_coverage_in(
             document, A + shift
         )
+
+
+def test_a_candidate_whose_owner_or_name_is_not_one_path_segment_is_skipped_as_derive_refuses_it(
+    tmp_path: Path,
+) -> None:
+    """A key such as ``../x__y`` would make the guards read ``raw/<layer>/../x__y.json``, outside the layer directory."""
+    asof = _asof()
+    root = tmp_path / "root"
+    (root / "raw").mkdir(parents=True)
+    rows = [
+        {"owner": "../x", "name": "y"},
+        {"owner": "ok", "name": "a/b"},
+        {"owner": "..", "name": "z"},
+        {"owner": "981011512", "name": "--"},
+        {"owner": "acme", "name": "alpha"},
+    ]
+    (root / "raw" / "candidates.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+    )
+    assert asof._candidate_keys(root) == (["981011512__--", "acme__alpha"], 3)
