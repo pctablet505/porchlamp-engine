@@ -15,6 +15,8 @@ pytestmark = pytest.mark.usefixtures("clean_env", "utc")
 
 FINE_PAT = "github_pat_11ABCDEF0123456789abcdef_0123456789abcdefABCDEF0123456789"
 CLASSIC_PAT = "ghp_0123456789abcdefABCDEF0123456789abcd"
+# Not a `github_pat_` fine-grained token and not a classic one with scopes: the shape whose public-repo push flags still count.
+OTHER_TOKEN = "ghu_0123456789abcdefABCDEF0123456789abcd"
 DROP_REPO = "pctablet505/porchlamp-drop"
 
 
@@ -108,8 +110,8 @@ def test_check_upload_token_enforces_minimal_fine_grained_scope(loopback_gate):
         assert upload.check_upload_token(CLASSIC_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
 
         mode[0] = "public_push_page2"
-        assert upload.check_upload_token(FINE_PAT, "", base=srv.url)["state"] == upload.TOO_POWERFUL
-        assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
+        assert upload.check_upload_token(OTHER_TOKEN, "", base=srv.url)["state"] == upload.TOO_POWERFUL
+        assert upload.check_upload_token(OTHER_TOKEN, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
 
         mode[0] = "two_private"
         assert upload.check_upload_token(FINE_PAT, "", base=srv.url)["state"] == upload.TOO_POWERFUL
@@ -122,7 +124,7 @@ def test_check_upload_token_enforces_minimal_fine_grained_scope(loopback_gate):
         assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.REJECTED
 
         mode[0] = "public_push"
-        assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
+        assert upload.check_upload_token(OTHER_TOKEN, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
 
         mode[0] = "has_workflows"
         assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
@@ -131,6 +133,59 @@ def test_check_upload_token_enforces_minimal_fine_grained_scope(loopback_gate):
         assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.REJECTED
     finally:
         srv.close()
+
+
+def test_a_fine_grained_token_is_not_refused_for_the_push_flag_on_public_repositories(loopback_gate):
+    """D1-D F5: GitHub does not say whether `permissions.push` on a public repo reflects the token or the owner's role, so
+    for a `github_pat_` token that flag is not evidence. The private-repository check still gates it."""
+    srv = FakeHTTP()
+    public_requests: list[str] = []
+    mode = ["ok"]
+
+    def responder(req):
+        if req.path == "/user":
+            return 200, {"Content-Type": "application/json", "X-OAuth-Scopes": ""}, b'{"login":"pctablet505"}'
+        if req.path.startswith("/user/repos?visibility=private"):
+            rows = [{"full_name": DROP_REPO, "private": True, "permissions": {"push": True}}]
+            if mode[0] == "two_private":
+                rows.append({"full_name": "pctablet505/porchlamp-engine", "private": True, "permissions": {"push": True}})
+            return 200, {"Content-Type": "application/json"}, json.dumps(rows).encode()
+        if req.path.startswith("/user/repos?visibility=public"):
+            public_requests.append(req.path)
+            return 200, {"Content-Type": "application/json"}, json.dumps([
+                {"full_name": "pctablet505/porchlamp", "private": False, "permissions": {"push": True}},
+            ]).encode()
+        if req.path == f"/repos/{DROP_REPO}" and req.method == "GET":
+            return 200, {"Content-Type": "application/json"}, json.dumps({
+                "full_name": DROP_REPO, "private": True, "fork": False, "archived": False,
+            }).encode()
+        if req.path == f"/repos/{DROP_REPO}/contents/.github/workflows" and req.method == "GET":
+            return 404, {"Content-Type": "application/json"}, b'{"message":"Not Found"}'
+        return 404, {}, b""
+
+    srv.responder = responder
+    try:
+        # A fine-grained token that lists a public repo as pushable is accepted: only the drop repo is private.
+        assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.ACCEPTED
+        # Any other token shape keeps the public-repo push refusal.
+        assert upload.check_upload_token(OTHER_TOKEN, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
+        assert public_requests, "the other-shape token must have been audited against the public list"
+        # The gate that stays: a second private repository is refused for the fine-grained token too.
+        mode[0] = "two_private"
+        assert upload.check_upload_token(FINE_PAT, DROP_REPO, base=srv.url)["state"] == upload.TOO_POWERFUL
+    finally:
+        srv.close()
+
+
+def test_split_parts_gives_four_parts_of_at_most_512_mib_for_a_real_sized_archive():
+    """D1-C: resume is per asset, so a dropped connection costs one part; 512 MiB parts cap that cost (a 1.63 GB archive is 4 parts)."""
+    assert upload.MAX_ASSET_BYTES == 512 * 1024 * 1024
+    parts = upload.split_parts(1_630_000_000)
+    assert len(parts) == 4
+    assert all(length <= 536_870_912 for _suffix, _offset, length in parts)
+    assert sum(length for _suffix, _offset, length in parts) == 1_630_000_000
+    assert [suffix for suffix, _offset, _length in parts] == [".part00", ".part01", ".part02", ".part03"]
+    assert upload.split_parts(536_870_912) == [("", 0, 536_870_912)]
 
 
 def test_split_parts_handles_single_and_multipart_boundaries():

@@ -8,7 +8,9 @@
    ``private: true``, and ``permissions.push`` must be ``true``. Seeing any second private repository is
    ``too_powerful``.
 3. ``GET /user/repos?visibility=public&affiliation=owner,collaborator,organization_member&per_page=100``: any public
-   repository with ``permissions.push == true`` is ``too_powerful``.
+   repository with ``permissions.push == true`` is ``too_powerful``. A fine-grained ``github_pat_`` token skips this
+   step: GitHub does not say whether that flag reflects the token or the owner's role, and step 2 already bars any
+   other private repository.
 
 ``upload_cycle(home, token, drop_repo)`` builds ``archives/manifest.json`` and deterministic ``.tar.gz`` archives,
 creates or resumes a draft GitHub Release ``cycle-<date>-<sha12>`` on ``drop_repo``, streams ``candidates.jsonl`` and
@@ -59,7 +61,8 @@ API_VERSION = "2022-11-28"
 TIMEOUT_S = 20.0
 ASSET_TIMEOUT_S = 300.0
 CHUNK_SIZE = 1 << 20
-MAX_ASSET_BYTES = 1_800_000_000
+MAX_ASSET_BYTES = 512 * 1024 * 1024  # resume is per asset: a dropped connection costs at most one 512 MiB part
+FINE_GRAINED_PREFIX = "github_pat_"
 
 ACCEPTED = "accepted"
 REJECTED = "rejected"
@@ -196,7 +199,7 @@ def check_upload_token(
     if not tokencheck.shape_ok(token):
         return {"state": REJECTED, "detail": "That does not look like a GitHub token.", "blocked": False}
     repo = valid_drop_repo(drop_repo)
-    # Reject classic PATs, multi-repo private PATs, and public-push PATs BEFORE returning BAD_REPO so an over-scoped
+    # Reject classic PATs, multi-repo private PATs, and (non-fine-grained) public-push tokens BEFORE returning BAD_REPO so an over-scoped
     # imported token (upload_token.import when drop_repo is still unset) is flagged and shredded immediately.
     try:
         status, headers, _user = _call_json(
@@ -232,37 +235,41 @@ def check_upload_token(
                 "blocked": False,
             }
 
-        for page in range(1, MAX_PUBLIC_PAGES + 1):
-            status, pub_headers, pub = _call_json(
-                f"{api}/user/repos?visibility=public&affiliation=owner,collaborator,organization_member&per_page=100&page={page}",
-                token,
-                timeout=timeout,
-                scope="token_test",
-                wait=False,
-            )
-            if status == 401:
-                return {"state": REJECTED, "detail": "GitHub rejected the upload token.", "blocked": False}
-            if status != 200 or not isinstance(pub, list):
-                return {"state": UNREACHABLE, "detail": "Could not reach GitHub to check the upload token.", "blocked": False}
-            if any(
-                isinstance(r, dict)
-                and isinstance(r.get("permissions"), dict)
-                and r["permissions"].get("push") is True
-                for r in pub
-            ):
+        # A fine-grained token (github_pat_) skips this audit: GitHub does not say whether `permissions.push` on a public
+        # repository reflects the token or the owner's role, so for that shape the flag is no evidence. The property that
+        # matters, no reach into other private code, is the single-private-repository check above. Any other shape keeps it.
+        if not token.startswith(FINE_GRAINED_PREFIX):
+            for page in range(1, MAX_PUBLIC_PAGES + 1):
+                status, pub_headers, pub = _call_json(
+                    f"{api}/user/repos?visibility=public&affiliation=owner,collaborator,organization_member&per_page=100&page={page}",
+                    token,
+                    timeout=timeout,
+                    scope="token_test",
+                    wait=False,
+                )
+                if status == 401:
+                    return {"state": REJECTED, "detail": "GitHub rejected the upload token.", "blocked": False}
+                if status != 200 or not isinstance(pub, list):
+                    return {"state": UNREACHABLE, "detail": "Could not reach GitHub to check the upload token.", "blocked": False}
+                if any(
+                    isinstance(r, dict)
+                    and isinstance(r.get("permissions"), dict)
+                    and r["permissions"].get("push") is True
+                    for r in pub
+                ):
+                    return {
+                        "state": TOO_POWERFUL,
+                        "detail": "That token can push to a public repository, so it was refused.",
+                        "blocked": False,
+                    }
+                if not _has_next_page(pub_headers):
+                    break
+            else:
                 return {
                     "state": TOO_POWERFUL,
-                    "detail": "That token can push to a public repository, so it was refused.",
+                    "detail": "Too many public repositories to audit push permissions safely; use a single-repo token.",
                     "blocked": False,
                 }
-            if not _has_next_page(pub_headers):
-                break
-        else:
-            return {
-                "state": TOO_POWERFUL,
-                "detail": "Too many public repositories to audit push permissions safely; use a single-repo token.",
-                "blocked": False,
-            }
 
         if repo is None:
             return {

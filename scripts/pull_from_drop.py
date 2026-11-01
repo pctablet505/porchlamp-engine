@@ -5,7 +5,7 @@
     python scripts/pull_from_drop.py --repo owner/porchlamp-drop --dest DATA_ROOT --check-only
 
 Exit codes: 0 ok, 1 usage or HTTP/network error, 3 sha256/size mismatch (nothing extracted),
-4 unsafe archive member (nothing extracted), 5 a set-aside target already exists (nothing moved).
+4 unsafe archive member or candidate row (nothing extracted), 5 a set-aside target already exists (nothing moved).
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from phone.archive import LAYERS, MAIN_LAYERS
 from phone.control import valid_drop_repo
+from porchlamp.collect.names import is_path_segment, valid_name  # standard library only; the shared rule for candidate rows
 
 API_BASE = "https://api.github.com"
 API_VERSION = "2022-11-28"
@@ -434,6 +435,12 @@ def _validate_candidates_jsonl(path: Path) -> None:
                     or not obj["name"]
                 ):
                     raise PullError(4, f"candidates.jsonl line {lineno}: invalid candidate object")
+                # derive and run_all paste owner and name into file names, gather pastes the ecosystem into one: a row that
+                # could climb out of the data root is refused here, where a hostile drop would enter (D1 F1, RB3 U1).
+                if not (is_path_segment(obj["owner"]) and is_path_segment(obj["name"])):
+                    raise PullError(4, f"candidates.jsonl line {lineno}: owner or name is not a single path segment")
+                if not valid_name(obj.get("ecosystem")):
+                    raise PullError(4, f"candidates.jsonl line {lineno}: ecosystem is missing or not a legal name")
                 seen += 1
     except (UnicodeDecodeError, ValueError) as exc:
         if isinstance(exc, PullError):

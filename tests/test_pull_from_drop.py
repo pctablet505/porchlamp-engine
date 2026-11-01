@@ -412,3 +412,79 @@ def test_a_real_sized_envelope_and_layer_are_inside_the_caps(tmp_path):
 
     assert pull_mod.MAX_MEMBER_BYTES >= REAL_MAX_MEMBER_BYTES * 2
     assert pull_mod._max_uncompressed_for_archive(REAL_L1_COMPRESSED_BYTES) >= REAL_L1_UNCOMPRESSED_BYTES * 3 // 2
+
+
+def _release_with_candidates(releases: list, blobs: dict, cand_bytes: bytes) -> None:
+    """One finished release holding only a candidates.jsonl (no layers), the way a hostile drop could carry one."""
+    manifest = {
+        "generated_at": "2026-10-28T04:00:00Z",
+        "main_done": "2026-10-28T04:00:00Z",
+        "layers": {},
+        "candidates_sha256": hashlib.sha256(cand_bytes).hexdigest(),
+        "candidates_bytes": len(cand_bytes),
+    }
+    manifest_bytes = json.dumps(manifest).encode("utf-8")
+    blobs[1], blobs[2] = cand_bytes, manifest_bytes
+    releases[:] = [{
+        "id": 101,
+        "tag_name": "cycle-2026-10-28-ca4d1d000001",
+        "draft": False,
+        "prerelease": False,
+        "assets": [
+            {"id": 1, "name": "candidates.jsonl", "size": len(cand_bytes), "state": "uploaded"},
+            {"id": 2, "name": "manifest.json", "size": len(manifest_bytes), "state": "uploaded"},
+        ],
+    }]
+
+
+def test_a_candidate_row_that_is_not_a_path_segment_or_has_a_bad_ecosystem_exits_4_and_writes_nothing(tmp_path):
+    """D1 F1 on the drop door (and RB3 U1): owner and name become file names in derive, the ecosystem becomes one in
+    gather. A row that could climb out of the data root must be refused before `raw/candidates.jsonl` exists."""
+    srv, blob_srv, releases, blobs, _, _ = _make_drop_server()
+    try:
+        token_file = tmp_path / "tok"
+        token_file.write_text(READ_PAT + "\n", encoding="utf-8")
+        hostile = [
+            {"owner": "../x", "name": "y", "ecosystem": "npm"},
+            {"owner": "ok", "name": "../../../e2", "ecosystem": "npm"},
+            {"owner": "a/b", "name": "y", "ecosystem": "npm"},
+            {"owner": "a\\b", "name": "y", "ecosystem": "npm"},
+            {"owner": "ok", "name": "..", "ecosystem": "npm"},
+            {"owner": ".", "name": "y", "ecosystem": "npm"},
+            {"owner": "ok", "name": "y\x00z", "ecosystem": "npm"},
+            {"owner": "ok", "name": "y\nz", "ecosystem": "npm"},
+            {"owner": "a", "name": "b", "ecosystem": "../../e"},
+            {"owner": "a", "name": "b", "ecosystem": "/abs"},
+            {"owner": "a", "name": "b", "ecosystem": ""},
+            {"owner": "a", "name": "b", "ecosystem": "n p m"},
+            {"owner": "a", "name": "b", "ecosystem": 7},
+            {"owner": "a", "name": "b"},
+        ]
+        for index, row in enumerate(hostile):
+            good = json.dumps({"owner": "acme", "name": "widget", "ecosystem": "pypi"})
+            _release_with_candidates(releases, blobs, (good + "\n" + json.dumps(row) + "\n").encode("utf-8"))
+            dest = tmp_path / f"dest-hostile-{index}"
+            rc = pull_mod.main([
+                "--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file), "--api-base", srv.url,
+            ])
+            assert rc == 4, row
+            assert not (dest / "raw" / "candidates.jsonl").exists(), row
+            assert not (dest / "raw").exists(), row
+
+        # The control: the real candidate `981011512/--` (valid_name refuses it, a path segment accepts it) and every
+        # real ecosystem pass, so the refusals above come from the rows and not from the harness.
+        real = [
+            {"owner": "981011512", "name": "--", "ecosystem": "npm"},
+            *({"owner": "acme", "name": f"w-{eco}", "ecosystem": eco} for eco in ("crates", "go", "maven", "npm", "pypi", "systems")),
+        ]
+        text = "".join(json.dumps(row) + "\n" for row in real)
+        _release_with_candidates(releases, blobs, text.encode("utf-8"))
+        dest = tmp_path / "dest-real"
+        rc = pull_mod.main([
+            "--repo", DROP_REPO, "--dest", str(dest), "--token-file", str(token_file), "--api-base", srv.url,
+        ])
+        assert rc == 0
+        assert (dest / "raw" / "candidates.jsonl").read_text(encoding="utf-8") == text
+    finally:
+        srv.close()
+        blob_srv.close()

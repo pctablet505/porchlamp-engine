@@ -68,3 +68,26 @@ def test_publish_from_drop_workflow_enforces_supply_chain_and_secret_isolation()
         if step.get("id") == "build":
             env_str = str(step.get("env") or {})
             assert "secrets." not in env_str, "build/verify step must run in a zero-secret environment"
+
+
+def _publish_from_drop() -> dict:
+    return yaml.safe_load((WORKFLOW_DIR / "publish_from_drop.yml").read_text(encoding="utf-8"))
+
+
+def test_publish_from_drop_runs_on_dispatch_only_and_never_pushes_to_the_site_main_branch() -> None:
+    """Drop-box decision D1-A/D1-D F6: the workflow is manual-only until merge 2 puts the schedule back (flip the
+    first assertion then), and its only publish path is a review pull request; there is no `direct` push to main."""
+    doc = _publish_from_drop()
+    triggers = doc.get("on", doc.get(True))
+    assert "schedule" not in triggers, "merge 1 ships the workflow manual-only; merge 2 restores the schedule"
+    assert "workflow_dispatch" in triggers
+    assert "publish_mode" not in (triggers["workflow_dispatch"].get("inputs") or {}), (
+        "a dispatch must not be able to choose direct publishing"
+    )
+    steps = doc["jobs"]["publish"]["steps"]
+    publish = [s for s in steps if "PORCHLAMP_SITE_PUSH_TOKEN" in str(s.get("env") or {})]
+    assert len(publish) == 1, "exactly one step may hold the site push token"
+    script = publish[0]["run"]
+    assert "push origin main" not in script
+    assert "PUBLISH_MODE" not in str(publish[0].get("env") or {}) and "PUBLISH_MODE" not in script
+    assert "gh pr create" in script, "the review pull request path must stay"

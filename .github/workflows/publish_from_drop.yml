@@ -1,18 +1,8 @@
 name: Publish Snapshot from Drop-Box
 
 on:
-  schedule:
-    - cron: "15 4 * * *"
   workflow_dispatch:
     inputs:
-      publish_mode:
-        description: "Publish mode (pr opens a review PR on porchlamp; direct pushes to main)"
-        required: false
-        default: "pr"
-        type: choice
-        options:
-          - pr
-          - direct
       release_tag:
         description: "Optional specific cycle-* tag from the drop-box repo"
         required: false
@@ -201,7 +191,6 @@ jobs:
         if: steps.check.outputs.has_new == 'true'
         env:
           GH_TOKEN: ${{ secrets.PORCHLAMP_SITE_PUSH_TOKEN }}
-          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PORCHLAMP_PUBLISH_MODE || 'pr' }}
           SNAP_ID: ${{ steps.build.outputs.snapshot_id }}
           REL_TAG: ${{ steps.check.outputs.release_tag }}
           SITE_REPO: ${{ vars.PORCHLAMP_SITE_REPO || 'pctablet505/porchlamp' }}
@@ -234,25 +223,18 @@ jobs:
             exit 0
           fi
           AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 | tr -d '\n')"
-          if [ "${PUBLISH_MODE}" = "direct" ]; then
-            git -C porchlamp-site checkout main
-            git -C porchlamp-site add -A
-            git -C porchlamp-site commit -m "Publish snapshot ${SNAP_ID} (${REL_TAG})"
-            git -C porchlamp-site -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin main
-          else
-            BRANCH="auto/snapshot-${SNAP_ID}"
-            git -C porchlamp-site checkout -B "${BRANCH}"
-            git -C porchlamp-site add -A
-            git -C porchlamp-site commit -m "Publish snapshot ${SNAP_ID} (${REL_TAG})"
-            git -C porchlamp-site -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push --force origin "HEAD:refs/heads/${BRANCH}"
-            if ! gh pr view "${BRANCH}" --repo "${SITE_REPO}" >/dev/null 2>&1; then
-              gh pr create \
-                --repo "${SITE_REPO}" \
-                --base main \
-                --head "${BRANCH}" \
-                --title "Publish snapshot ${SNAP_ID}" \
-                --body "Automated snapshot build from verified phone cycle \`${REL_TAG}\`. All static parity, mutant, report, chrome, project, home, crawl, and shrinkage checks passed."
-            fi
+          BRANCH="auto/snapshot-${SNAP_ID}"
+          git -C porchlamp-site checkout -B "${BRANCH}"
+          git -C porchlamp-site add -A
+          git -C porchlamp-site commit -m "Publish snapshot ${SNAP_ID} (${REL_TAG})"
+          git -C porchlamp-site -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push --force origin "HEAD:refs/heads/${BRANCH}"
+          if ! gh pr view "${BRANCH}" --repo "${SITE_REPO}" >/dev/null 2>&1; then
+            gh pr create \
+              --repo "${SITE_REPO}" \
+              --base main \
+              --head "${BRANCH}" \
+              --title "Publish snapshot ${SNAP_ID}" \
+              --body "Automated snapshot build from verified phone cycle \`${REL_TAG}\`. All static parity, mutant, report, chrome, project, home, crawl, and shrinkage checks passed."
           fi
 
       - name: Save published drop-box state cache
