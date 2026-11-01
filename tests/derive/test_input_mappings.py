@@ -1923,6 +1923,31 @@ def test_dr90_decision_rate_eligibility_gate_applied_with_author_history(tmp_pat
     )
 
 
+def test_dr90_decision_rate_refuses_an_author_history_narrowed_to_another_pr_window(tmp_path: Path) -> None:
+    """#89: ``author_history`` looked up eligibility only for the authors of the decision cohort of one ``pr_window``
+    record (``dr90_band_anchor``). Against a ``pr_window`` recorded at another instant the join would drop every
+    author of the new cohort it never looked up, so 1.2 is ``collector_failure``, not a rate over the repeat
+    contributors. The same record against its own ``pr_window`` is read as always."""
+    data = pr_window_data(prs=_DR90_GATE_PRS)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__gated", data, "2026-09-01T00:05:00+00:00")
+    prov_doc = base_document(provenance={
+        "pr_window_count": prov("pr_window", key="acme__gated"),
+        "author_history_cost_points": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00",
+                                           key="acme__gated"),
+    })
+    own = author_history_data(author_records=_DR90_GATE_AUTHOR_RECORDS)
+    own["dr90_band_anchor"] = data["window_anchor"]
+    write_envelope(tmp_path / "raw", "author_history", "acme__gated", own, "2026-09-01T00:06:00+00:00")
+    assert load(tmp_path, prov_doc, key="acme__gated").inputs["dr90_decision_rate"].value == 0.4
+
+    other = author_history_data(author_records=_DR90_GATE_AUTHOR_RECORDS)
+    other["dr90_band_anchor"] = "2026-08-20T00:00:00+00:00"
+    write_envelope(tmp_path / "raw", "author_history", "acme__gated", other, "2026-09-01T00:06:00+00:00")
+    refused = load(tmp_path, prov_doc, key="acme__gated").inputs["dr90_decision_rate"]
+    assert isinstance(refused, Unmeasured) and refused.reason == "collector_failure"
+    assert "2026-08-20T00:00:00+00:00" in refused.detail and "collect author_history again" in refused.detail
+
+
 def test_dr90_decision_rate_eligibility_gate_unapplied_without_author_history(tmp_path: Path) -> None:
     """Identical 14-PR ``pr_window`` data as the previous test, but NO
     ``author_history`` envelope was collected for this repo (the  hook

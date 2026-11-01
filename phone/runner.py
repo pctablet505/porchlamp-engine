@@ -1,7 +1,7 @@
 """In-process layer runner for the phone app: a port of refresh.sh + gather_layer.sh.
 
-Each layer calls scripts/gather.py main() in this process and reruns until two consecutive
-runs report the same failure count, then writes a marker. There is no rate-limit sampling,
+Each layer calls scripts/gather.py main() in this process and reruns until a run has no failure or two
+consecutive runs report the same failure count, then writes a marker. There is no rate-limit sampling,
 no kill, no threads and no shards: the GitHub rate-limit wait lives in PHONE-2's transport,
 and pause and stop live in the HTTP gate (``phone.httpgate``).
 
@@ -313,7 +313,10 @@ def run_layer(
     state: RunState | None = None,
     notify: Notify | None = None,
 ) -> int:
-    """Run one layer until two consecutive runs agree on the failure count.
+    """Run one layer until a run has no failure, or two consecutive runs agree on the failure count.
+
+    A run with no failure ends the layer at once: every project has its record, so a second run would only check
+    them all again. A run that checked nothing (``done: 0 clean``) is no proof, so it still needs a second run.
 
     Returns 0 complete; 2 not confirmed after max_runs; 3 the gatherer raised (SystemExit
     included); 4 a run printed no done line; 5 staging refused; 6 free disk under min_free_gb.
@@ -361,11 +364,12 @@ def run_layer(
         if not found:
             log(f"{layer}: run {run} printed no done line")
             return 4
-        fail = int(found[-1][1])
-        log(f"{layer}: run {run} summary: {found[-1][0]} clean, {fail} with failures")
-        if prev is not None and fail == prev:
+        clean, fail = int(found[-1][0]), int(found[-1][1])
+        log(f"{layer}: run {run} summary: {clean} clean, {fail} with failures")
+        if (fail == 0 and clean > 0) or (prev is not None and fail == prev):
             _write_marker(marker_dir / f"{layer}.complete", now)
-            log(f"{layer}: COMPLETE, two runs agree on {fail} failures")
+            log(f"{layer}: COMPLETE, " + ("a run with no failure" if fail == 0 and clean > 0
+                                            else f"two runs agree on {fail} failures"))
             counts = {} if state is None else {"checked": state.checked, "stopped": state.stopped}
             _note(notify, "step_done", layer=layer, **counts)
             try:

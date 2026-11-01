@@ -203,7 +203,7 @@ def test_a_cycle_open_before_the_repair_existed_repairs_before_it_goes_on_with_s
     _mark(home, "L0.staged")
     g = Cycle()
     assert R.run_cycle(home, g, **_kw(kw)) == 0
-    assert g.calls[:3] == ["repair", L0, L0]
+    assert g.calls[:2] == ["repair", L0]
     assert "pr_window" not in g.calls                            # step 1 itself is not collected again
     assert _text(home, "L1.repaired") == STAMP
 

@@ -119,10 +119,10 @@ def test_the_collector_starts_again_after_a_reset_and_after_a_stop_when_the_dire
     try:
         assert wait_until(lambda: (eng.home / "state/refresh/LK.complete").is_file())
         module = loaded()
-        assert len(module.CALLS) == 2                                  # the runner runs a layer twice to confirm it
+        assert len(module.CALLS) == 1                                  # a run with no failure completes the layer
         reply = json.loads(eng.danger("reset", "reset"))               # moves the folders aside, restarts the collector
         assert reply["ok"] is True
-        assert wait_until(lambda: len(module.CALLS) == 4), eng.techlog.read_text()[-600:]
+        assert wait_until(lambda: len(module.CALLS) == 2), eng.techlog.read_text()[-600:]
         assert wait_until(lambda: (eng.home / "state/refresh/LK.complete").is_file())
         aside = [p for p in (eng.home / "state").iterdir() if p.name.startswith("refresh-prev-reset-")]
         assert len(aside) == 1 and (aside[0] / "LK.complete").is_file()  # the new marker is a fresh one
@@ -130,7 +130,7 @@ def test_the_collector_starts_again_after_a_reset_and_after_a_stop_when_the_dire
         shutil.rmtree(eng.home / "state" / "refresh")                  # a new cycle is due
         eng.start(None, LAN)
         eng.update_device(json.dumps(WIFI))
-        assert wait_until(lambda: len(module.CALLS) == 6), eng.techlog.read_text()[-600:]
+        assert wait_until(lambda: len(module.CALLS) == 3), eng.techlog.read_text()[-600:]
         assert wait_until(lambda: (eng.home / "state/refresh/LK.complete").is_file())
         errors = [e for e in eng.timeline.list(0, 100) if e["text"] == "The collector hit an error"]
         assert errors == [] and "already loaded" not in eng.techlog.read_text()
@@ -154,7 +154,7 @@ def test_a_stuck_restart_brings_a_working_collector_back_when_the_directory_has_
         assert wait_until(lambda: eng.stuck is True)
         assert wait_until(lambda: "collector thread ended" in eng.techlog.read_text())   # the old thread has unwound
         hold.unlink()                                                  # the new run does not wait
-        assert wait_until(lambda: len(module.CALLS) == 3), eng.techlog.read_text()[-600:]   # run 1 again, then run 2
+        assert wait_until(lambda: len(module.CALLS) == 2), eng.techlog.read_text()[-600:]   # the held run, then run 1 again
         assert wait_until(lambda: (eng.home / "state/refresh/LK.complete").is_file())
         errors = [e for e in eng.timeline.list(0, 100) if e["text"] == "The collector hit an error"]
         assert errors == [] and "already loaded" not in eng.techlog.read_text()

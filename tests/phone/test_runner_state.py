@@ -110,15 +110,14 @@ def test_the_owners_interval_is_read_afresh_on_every_pass(home):
         R.run_forever(home, g, now=lambda: NOW, log=logs.append, poll_s=5, sleep=sleep,
                       every_days=lambda: days[0], layers=lambda: ["LK"])
     assert any(line.startswith("Idle, next cycle due 2026-10-30") for line in logs)       # 28 days: idle
-    assert g.calls == [KEYLESS, KEYLESS]                                                  # 7 days: a new cycle ran
+    assert g.calls == [KEYLESS]                                                           # 7 days: a new cycle ran
     assert any("starting a new cycle" in line for line in logs)
 
 
 def test_only_the_selected_layers_run_and_the_cycle_still_completes(home):
     g = Gather()
     logs = run(home, g, layers=lambda: ["L0", "LK"])
-    assert g.calls == ["github_meta,pr_events,pr_reviews,contributors,actions_runs,tree,commits_180d"] * 2 + [
-        KEYLESS] * 2
+    assert g.calls == ["github_meta,pr_events,pr_reviews,contributors,actions_runs,tree,commits_180d", KEYLESS]
     names = {p.name for p in (home / "state" / "refresh").iterdir()}
     assert {"L0.complete", "LK.complete", "MAIN.done"} <= names
     assert not any(n in names for n in ("L1.complete", "L2.complete", "L3g.complete", "L4.complete", "cycle.open"))
@@ -131,24 +130,23 @@ def test_a_layer_deselected_mid_cycle_is_skipped_at_the_next_boundary(home):
     class Switching(Gather):
         def __call__(self, argv):
             out = super().__call__(argv)
-            if argv[3:4] == ["pr_window"] and self.counts["pr_window"] == 2:
+            if argv[3:4] == ["pr_window"] and self.counts["pr_window"] == 1:
                 chosen[0] = ["L1", "LK"]                       # L1 just completed: now drop L0
             return out
 
     g = Switching()
     run(home, g, layers=lambda: chosen[0])
     assert "github_meta,pr_events,pr_reviews,contributors,actions_runs,tree,commits_180d" not in g.calls
-    assert g.calls.count("pr_window") == 2 and g.calls.count(KEYLESS) == 2
+    assert g.calls.count("pr_window") == 1 and g.calls.count(KEYLESS) == 1
 
 
 def test_the_state_shows_the_step_its_collectors_and_the_pass_while_the_gatherer_runs(home):
     state = R.RunState()
     g = Gather(state)
     run(home, g, state=state, layers=lambda: ["L1", "LK"])
-    assert g.seen_state == [("L1", ("pr_window",), 1), ("L1", ("pr_window",), 2),
+    assert g.seen_state == [("L1", ("pr_window",), 1),
                            ("L1", ("pr_window",), 1),                      # the repair after step 1: one clean run
-                           ("LK", ("depsdev", "scorecard", "downloads"), 1),
-                           ("LK", ("depsdev", "scorecard", "downloads"), 2)]
+                           ("LK", ("depsdev", "scorecard", "downloads"), 1)]
     assert state.failures == 0 and state.last_rc == 0 and state.finished_at == NOW
     assert state.cycle_started == NOW
 
@@ -204,6 +202,6 @@ def test_the_cycle_waits_for_the_repo_list_but_an_idle_runner_never_asks(home):
                       state=state, ready=ready, notify=lambda name, **info: told.append(name))
     assert sleeps[:2] == ["no_candidates", "no_candidates"]
     assert logs.count("run_forever: waiting for the repo list") == 1 and told.count("no_candidates") == 1
-    assert g.calls == [KEYLESS, KEYLESS]                           # once the list came, the cycle ran
+    assert g.calls == [KEYLESS]                                    # once the list came, the cycle ran
     asked_before_idle = len(asked)
     assert asked_before_idle == 3                                   # asked at each wait and once more, never while idle

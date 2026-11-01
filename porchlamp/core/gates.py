@@ -434,6 +434,32 @@ def is_bot_actor_node(actor: object) -> bool:
     ))
 
 
+#: 1.2 DR_90's decision cohort: the PRs opened in [anchor - 180 d, anchor - 90 d) of the ``pr_window`` record.
+#: ``porchlamp.derive.bundle`` reads its edges from here, and the collector reads the same set of authors
+#: (:func:`dr90_band_logins`) to look up only those whose eligibility 1.2 reads.
+DR90_COHORT_START_DAYS = 180
+DR90_COHORT_END_DAYS = 90
+
+
+def dr90_band_logins(prs: Iterable[object], anchor: datetime) -> frozenset[str]:
+    """The lower-cased logins of the authors of 1.2 DR_90's cohort PRs: outside PRs (:func:`is_outside_pr`) opened in
+    [``anchor`` - 180 d, ``anchor`` - 90 d). A PR with an unreadable ``createdAt`` or no author login adds none.
+    These are the authors whose D-IN-3 eligibility 1.2 joins; no other ``author_history`` record is read by it."""
+    start = anchor - timedelta(days=DR90_COHORT_START_DAYS)
+    end = anchor - timedelta(days=DR90_COHORT_END_DAYS)
+    logins: set[str] = set()
+    for pr in prs:
+        if not is_outside_pr(pr):
+            continue
+        created = _parse_iso_opt(pr.get("createdAt"))  # type: ignore[union-attr]
+        if created is None or not (start <= created < end):
+            continue
+        login = str((pr.get("author") or {}).get("login") or "").lower()  # type: ignore[union-attr]
+        if login:
+            logins.add(login)
+    return frozenset(logins)
+
+
 def is_outside_pr(pr: object) -> bool:
     """Whether a recorded PR node is an outside PR, the population of every
     external-PR measure (1.1 TTFHR, 1.2 DR_90, 1.4 GR_14 and D-GATE-5, 1.5
