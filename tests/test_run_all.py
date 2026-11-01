@@ -145,3 +145,40 @@ def test_one_as_of_runs_through_every_derivation_and_the_freeze(monkeypatch, tmp
     assert run_all.main(["--all", "--as-of", "2026-10-13T04:32:26Z"]) == 0
     stamps = {c[-1] for c in calls if c[0] in ("derive", "freeze")}
     assert stamps == {datetime(2026, 10, 13, 4, 32, 26, tzinfo=timezone.utc)}
+
+
+_HOSTILE = [
+    {"owner": "../../escape", "name": "x", "ecosystem": "npm"},
+    {"owner": "ok", "name": "../../../e2", "ecosystem": "npm"},
+    {"owner": "ok", "ecosystem": "npm"},
+]
+
+
+def _write_candidates(monkeypatch, tmp_path, rows):
+    path = tmp_path / "data" / "candidates.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    monkeypatch.setattr(run_all.gather, "CANDIDATES", path)
+
+
+def test_candidates_drops_an_owner_or_name_that_is_not_one_path_segment(monkeypatch, tmp_path, capsys):
+    real = {"owner": "981011512", "name": "--", "ecosystem": "npm"}
+    _write_candidates(monkeypatch, tmp_path, [*_HOSTILE, real])
+    assert run_all._candidates(None) == [("981011512", "--", "npm")]
+    assert "skipped 3 candidates" in capsys.readouterr().out
+
+
+def test_a_hostile_candidates_line_reaches_neither_gather_nor_a_file_outside_the_data_dir(monkeypatch, tmp_path):
+    _write_candidates(monkeypatch, tmp_path, [*_HOSTILE, {"owner": "numpy", "name": "numpy", "ecosystem": "pypi"}])
+    gathered = []
+    monkeypatch.setattr(run_all.gather, "gather_repo",
+                        lambda owner, name, eco, skip_pypistats: gathered.append((owner, name)))
+    monkeypatch.setattr(run_all.derive, "derive_repo", lambda *a, **k: {"repo": "stub"})
+    monkeypatch.setattr(run_all.derive, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(run_all.verify, "verify_repo", lambda owner, name: {"clean": True})
+    monkeypatch.setattr(run_all, "freeze_and_promote", lambda db, data_dir, as_of: 0)
+    before = {str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")}
+    assert run_all.main(["--all"]) == 0
+    created = {str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")} - before
+    assert created == {"data/derived", "data/derived/numpy__numpy.json"}
+    assert gathered == [("numpy", "numpy")]

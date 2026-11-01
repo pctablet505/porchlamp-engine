@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from porchlamp.audit.coverage import COLLECTORS, GITHUB_KEYED_COLLECTORS, discover_repos
+from porchlamp.collect.names import is_path_segment
 
 __version__ = "1.0.0"
 
@@ -98,6 +99,7 @@ def load_universe(data_dir: Path) -> List[dict]:
     """Load ``raw/candidates.jsonl`` -- the universe of selected repositories."""
     path = data_dir / "raw" / "candidates.jsonl"
     entries: List[dict] = []
+    refused = 0
     with path.open(encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
@@ -105,7 +107,12 @@ def load_universe(data_dir: Path) -> List[dict]:
                 continue
             record = json.loads(line)
             if isinstance(record, dict) and record.get("owner") and record.get("name"):
+                if not (is_path_segment(record["owner"]) and is_path_segment(record["name"])):
+                    refused += 1
+                    continue
                 entries.append(record)
+    if refused:
+        print(f"refused {refused} universe rows whose owner/name is not a single path segment", file=sys.stderr)
     return entries
 
 
@@ -226,6 +233,11 @@ def envelope_paths(data_dir: Path, entry: dict) -> Dict[str, str]:
         relative = Path(folder) / f"{owner}__{name}.json"
         if (data_dir / relative).is_file():
             files[folder] = relative.as_posix()
+    for relative_path in files.values():
+        # the source and the copy are both built from this path: it must not climb out of either root
+        normal = os.path.normpath(relative_path)
+        if os.path.isabs(normal) or normal == ".." or normal.startswith(".." + os.sep):
+            raise ValueError(f"envelope path leaves the sample directory: {relative_path!r}")
     return files
 
 
