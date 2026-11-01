@@ -976,11 +976,22 @@ def _candidates_file(data_dir: Path) -> Optional[Path]:
     return None
 
 
+def _is_path_segment(part: str) -> bool:
+    """Whether ``part`` names one file-name component: no ``/``, ``\\`` or control character, not ``.`` or ``..``.
+
+    The batch writes ``derived/{owner}__{name}.json``, so a name with a separator would write
+    outside ``derived/``. Deliberately looser than ``valid_name``, which refuses a real repo
+    (``981011512/--``): only what can leave the directory is refused.
+    """
+    return not (part in (".", "..") or any(c in "/\\" or ord(c) < 32 or ord(c) == 127 for c in part))
+
+
 def _read_candidates(path: Path) -> list[_Candidate]:
     """One candidate per non-blank line of ``path``, in file order.
 
     Nothing is guessed. A line that is not a JSON object naming ``owner`` and ``name`` is
-    refused by its line number. A repo whose ``ecosystem`` is missing or not an
+    refused by its line number, and so is one whose owner or name is not a single path segment
+    (:func:`_is_path_segment`). A repo whose ``ecosystem`` is missing or not an
     :class:`Ecosystem` value is refused by name: derived as another ecosystem, its downloads
     and their status would be looked up in another registry.
     """
@@ -997,6 +1008,10 @@ def _read_candidates(path: Path) -> list[_Candidate]:
         if not (isinstance(owner, str) and owner and isinstance(name, str) and name):
             out.append(_Candidate(f"{path.name} line {number}", None,
                                   "not a JSON object naming owner and name"))
+            continue
+        if not (_is_path_segment(owner) and _is_path_segment(name)):
+            out.append(_Candidate(f"{path.name} line {number}", None,
+                                  "owner/name is not a single path segment"))
             continue
         eco = row.get("ecosystem")
         try:

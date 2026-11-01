@@ -184,3 +184,50 @@ def test_the_bundles_written_do_not_depend_on_the_number_of_worker_processes(tmp
         # time would be caught here
         later = derive.derive_repo(owner, name, derive.Ecosystem(eco), one, now=now + timedelta(days=1))
         assert written != json.dumps(later, indent=2, sort_keys=True).encode("utf-8")
+
+
+_NOT_ONE_SEGMENT = "owner/name is not a single path segment"
+_HOSTILE_LINES = [
+    json.dumps({"owner": "../../escape", "name": "x", "ecosystem": "npm"}),
+    json.dumps({"owner": "ok", "name": "../../../e2", "ecosystem": "npm"}),
+]
+
+
+def test_a_candidate_whose_owner_or_name_is_not_one_path_segment_is_refused(tmp_path):
+    path = tmp_path / "candidates.jsonl"
+    path.write_text("".join(f"{ln}\n" for ln in [
+        *_HOSTILE_LINES, json.dumps({"owner": "981011512", "name": "--", "ecosystem": "npm"})]),
+        encoding="utf-8")
+    first, second, real = derive._read_candidates(path)
+    assert (first.label, first.repo, first.refused) == ("candidates.jsonl line 1", None, _NOT_ONE_SEGMENT)
+    assert (second.label, second.repo, second.refused) == ("candidates.jsonl line 2", None, _NOT_ONE_SEGMENT)
+    assert real.refused is None and real.repo == ("981011512", "--", derive.Ecosystem.NPM)
+
+
+@pytest.mark.parametrize("owner, name", [
+    ("a/b", "x"), ("a", "b/c"), ("a\\b", "x"), ("a", "b\\c"), (".", "x"), ("a", ".."), ("..", "x"),
+    ("a\0b", "x"), ("a", "b\nc"), ("a", "b\x1fc"), ("a\x7f", "x"), ("a", "b\tc"),
+])
+def test_each_character_that_would_leave_a_path_segment_is_refused(tmp_path, owner, name):
+    path = tmp_path / "candidates.jsonl"
+    path.write_text(json.dumps({"owner": owner, "name": name, "ecosystem": "npm"}) + "\n", encoding="utf-8")
+    (entry,) = derive._read_candidates(path)
+    assert (entry.repo, entry.refused) == (None, _NOT_ONE_SEGMENT)
+
+
+def _tree(root: Path) -> set[str]:
+    return {str(p.relative_to(root)) for p in root.rglob("*")}
+
+
+def test_a_hostile_candidates_line_writes_no_file_outside_the_derived_directory(tmp_path, capsys):
+    data = _data_dir(tmp_path, lines=[
+        *_HOSTILE_LINES, json.dumps({"owner": "numpy", "name": "numpy", "ecosystem": "pypi"})],
+        repos=REPOS[:1])
+    before = _tree(tmp_path)
+    code = derive.main(["--all", "--as-of", "2026-10-24T18:10:00+00:00", "--data-dir", str(data),
+                        "--workers", "1"])
+    err = capsys.readouterr().err
+    created = _tree(tmp_path) - before
+    assert created == {"data/derived", "data/derived/numpy__numpy.json"}
+    assert code == 1
+    assert err.count(_NOT_ONE_SEGMENT) == 2
