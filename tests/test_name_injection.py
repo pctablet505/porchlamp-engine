@@ -13,7 +13,7 @@ import pytest
 
 from porchlamp.collect import ghcli, repo_object as ro_mod
 from porchlamp.collect import validate
-from porchlamp.collect.names import valid_name, valid_ref
+from porchlamp.collect.names import is_path_segment, valid_name, valid_ref
 from tests.collect.test_ghcli import FakeGitHub
 from tests.helpers.gate import installed, loopback_gate
 
@@ -187,3 +187,21 @@ def test_validate_rules_refuse_flags_traversal_control_characters_and_other_host
                 "https://raw.githubusercontent.com/o/n/../../x", "https://169.254.169.254/latest/meta-data/"):
         with pytest.raises(ValueError, match="disallowed raw content URL"):
             validate.https_url(bad, validate.RAW_GITHUB_HOSTS, "raw content")
+
+
+@pytest.mark.parametrize("value", ["981011512", "--", "a.b", "numpy", "-x", "a b", "é", "...", ".hidden"])
+def test_is_path_segment_accepts_what_a_single_file_name_can_hold(value):
+    assert is_path_segment(value)
+
+
+@pytest.mark.parametrize("value", [
+    "", ".", "..", "a/b", "/a", "a/", "../x", "a\\b", "a\0b", "a\nb", "a\tb", "a\x1fb", "a\x7f",
+    None, 5, b"abc", ["a"],
+])
+def test_is_path_segment_refuses_anything_else(value):
+    assert not is_path_segment(value)
+
+
+def test_is_path_segment_accepts_the_real_candidate_that_valid_name_refuses():
+    assert not valid_ref("981011512", "--")
+    assert is_path_segment("981011512") and is_path_segment("--")

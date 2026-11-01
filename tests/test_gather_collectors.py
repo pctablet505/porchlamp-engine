@@ -236,6 +236,52 @@ def test_make_sample_overwrites_readonly_existing_files(tmp_path: Path) -> None:
     assert (dst_sample / "raw" / "github_meta" / "a__b.json").read_text(encoding="utf-8") == '{"stars": 2}'
 
 
+def _make_sample_module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("porchlamp_make_sample", ROOT / "scripts/make_sample.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_make_sample_refuses_a_universe_row_that_is_not_one_path_segment_and_copies_nothing_outside(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    make_sample = _make_sample_module()
+    src_data, out = tmp_path / "a" / "src_data", tmp_path / "dst"
+    (src_data / "raw").mkdir(parents=True)
+    # the file a hostile name would copy: it sits above the data directory, and its copy would land above `out`
+    (tmp_path / "a" / "esc__x.json").write_text("{}", encoding="utf-8")
+    (src_data / "raw" / "github_meta").mkdir()
+    (src_data / "raw" / "github_meta" / "981011512__--.json").write_text('{"stars": 1}', encoding="utf-8")
+    rows = [{"owner": "../../../esc", "name": "x", "ecosystem": "npm"},
+            {"owner": "..", "name": "x", "ecosystem": "npm"},
+            {"owner": "o", "name": "a/b", "ecosystem": "npm"},
+            {"owner": "981011512", "name": "--", "ecosystem": "npm"}]
+    (src_data / "raw" / "candidates.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    before = {str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")}
+
+    entries = make_sample.load_universe(src_data)
+    assert [make_sample.repo_id(e) for e in entries] == ["981011512/--"]
+    make_sample.copy_sample(src_data, out, entries)
+
+    created = {str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")} - before
+    assert all(name == "dst" or name.startswith("dst/") for name in created), created
+    assert (out / "raw" / "github_meta" / "981011512__--.json").is_file()
+    assert "refused 3 universe rows" in capsys.readouterr().err
+
+
+def test_make_sample_envelope_paths_refuses_a_path_that_climbs_out_of_the_directory(tmp_path: Path) -> None:
+    make_sample = _make_sample_module()
+    (tmp_path / "esc__esc.json").write_text("{}", encoding="utf-8")
+    data = tmp_path / "d"
+    (data / "raw" / "downloads").mkdir(parents=True)
+    # the downloads envelope is keyed by the entry's ecosystem, which load_universe does not check
+    with pytest.raises(ValueError, match="leaves the sample directory"):
+        make_sample.envelope_paths(data, {"owner": "x", "name": "esc", "ecosystem": "../../../esc"})
+    assert make_sample.envelope_paths(data, {"owner": "o", "name": "n", "ecosystem": "npm"}) == {}
+
+
 def test_main_dirty_and_fingerprint_only_skip_clean_repos(
     gather: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
