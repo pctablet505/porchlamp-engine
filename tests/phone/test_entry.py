@@ -6,9 +6,11 @@ import hashlib
 import io
 import json
 import os
+import threading
 import time
 import urllib.request
 import urllib.response
+from datetime import datetime, timezone
 from http.client import HTTPMessage
 from pathlib import Path
 
@@ -787,3 +789,54 @@ def test_upload_token_is_redacted_everywhere_tested_and_uploads_finished_cycle(t
     finally:
         srv.close()
 
+
+
+def test_inflight_env_follows_settings_and_pin_file(tmp_path, monkeypatch):
+    """T22 (D4): the engine tells the GitHub transport how many requests may be in flight: the largest worker setting
+    of the selected steps, 1 while the pin file exists, and 70 GraphQL points a minute. The transport's pin event
+    writes the pin file, the collector's steps then run one project at a time, and a restart keeps it until the next
+    cycle retires the file. A hold is a timeline event, the hourly line goes to the technical log only."""
+    monkeypatch.setattr(ghcli, "on_event", None)                     # put back after the test
+    r = Rig(tmp_path, facts=LOOPBACK)
+    steps = ("L1", "L0", "L2", "L3g", "L3c", "L4", "LK")
+    env = lambda: (os.environ.get("PORCHLAMP_GH_INFLIGHT"), os.environ.get("PORCHLAMP_GH_PPM"))  # noqa: E731
+    assert env() == ("3", "70")
+    assert [r.eng.workers_for(step) for step in steps] == [1, 1, 1, 1, 1, 3, 1]
+    r.eng.settings_set(json.dumps({"l4_workers": 2}))
+    assert env() == ("2", "70")
+    r.eng.settings_set(json.dumps({"l4_workers": 1, "github_workers": 2}))
+    assert env() == ("2", "70") and [r.eng.workers_for(step) for step in steps] == [1, 2, 1, 2, 2, 1, 1]
+    r.eng.settings_set(json.dumps({"layers": ["L1", "L2", "LK"]}))          # no selected step runs side by side
+    assert env() == ("1", "70")
+    r.eng.settings_set(json.dumps({"layers": list(steps), "l4_workers": 3, "github_workers": 1}))
+    assert env() == ("3", "70")
+
+    seen: list[dict] = []
+    monkeypatch.setattr(runner, "run_forever", lambda home, main, **kwargs: seen.append(kwargs))
+    r.eng._collector_main(threading.Event())
+    assert [seen[0]["workers"](step) for step in steps] == [1, 1, 1, 1, 1, 3, 1]
+
+    mark = r.eng.timeline.list(0, 1)[0]["id"]
+    ghcli.on_event("log", "GitHub, last hour: 900 requests, 1100 points, at most 3 at once")
+    ghcli.on_event("warn", "GitHub secondary limit (HTTP 403, retry-after 300 s): every request waits 300 s")
+    ghcli.on_event("err", "3 GitHub secondary limits in 24 h: one request at a time from now on")
+    events = [(e["level"], e["text"]) for e in reversed(r.eng.timeline.list(mark, 10))]
+    assert events == [("warn", "GitHub secondary limit (HTTP 403, retry-after 300 s): every request waits 300 s"),
+                      ("err", "3 GitHub secondary limits in 24 h: one request at a time from now on")]
+    assert "GitHub, last hour: 900 requests" in r.eng.techlog.read_text()
+    pin = r.home / "state" / "refresh" / "concurrency.pinned"
+    assert pin.read_text(encoding="utf-8").strip() == datetime.fromtimestamp(r.clock(), timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    assert env() == ("1", "70") and all(r.eng.workers_for(step) == 1 for step in steps)
+    assert seen[0]["workers"]("L4") == 1
+    r.eng.settings_set(json.dumps({"l4_workers": 2}))
+    assert env() == ("1", "70")
+
+    r.eng.stop()
+    os.environ["PORCHLAMP_GH_INFLIGHT"] = "3"
+    r.eng.start(GH, LAN)
+    assert env() == ("1", "70") and ghcli.on_event is not None             # pinned across a restart
+    runner._retire_markers(r.home, r.clock, lambda line: None)              # the next cycle's start
+    assert not pin.exists() and r.eng.workers_for("L4") == 2
+    r.eng.stop()
+    assert ghcli.on_event is None                                          # a stopped engine hears no more events

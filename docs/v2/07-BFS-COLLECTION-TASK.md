@@ -277,6 +277,23 @@ Notes per phase:
   `ls data/raw/issues_counts | wc -l`.
 - **L4 `author_history`** is the most expensive. Only start it after L3's
   leaderboard is served.
+- **Projects side by side (D4, 2026-11-02).** `gather.py --workers N` (1-3; it
+  needs `--all` and `--collectors`, and is refused with `--dirty`,
+  `--fingerprint-only`, `--priority-keys`, `--repair-replies`, `--force` and
+  `--gh-cli`) fetches N projects at once in one process, each computed exactly as
+  one at a time, so rule 3 (one `gather.py` process) still holds. GitHub's
+  requests in flight are capped by `PORCHLAMP_GH_INFLIGHT` (1-3, unset 1) and
+  GraphQL by `PORCHLAMP_GH_PPM` points a minute. On the phone, L4 runs at the
+  `l4_workers` setting (1-3, default 3) and L0, L3g and L3c at `github_workers`
+  (1-2, default 1); L1, L2 and LK always run one at a time. The back-off: on any
+  GitHub secondary-limit signal (a 429, a 403 with `retry-after` or a
+  "secondary rate limit" message, a GraphQL error naming one) every request waits
+  max(`retry-after`, 60 s), doubling with each signal in 24 h up to 1 h, then
+  goes one request at a time for 30 min (doubling up to 4 h); six GitHub
+  502/504 answers in 5 minutes also give one at a time for 30 min; the third
+  signal in 24 h pins one at a time for the rest of the cycle
+  (`state/refresh/concurrency.pinned`, retired when the next cycle starts). To
+  go back to one at a time by hand, set `l4_workers` to 1.
 
 ## 8. Phase 5 — refresh the cheap layer (only if the calendar says so)
 

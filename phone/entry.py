@@ -32,6 +32,7 @@ from phone.events import Redactor, TechLog, Timeline
 from phone.httpgate import Gate, Stopped
 from phone.netstats import NetStats
 from phone.status import DataSize, Progress
+from porchlamp.collect import ghcli
 from porchlamp.collect import net as collect_net
 
 ENGINE_ROOT = Path(__file__).resolve().parent.parent
@@ -44,6 +45,12 @@ HALT_WAIT_S = 20.0
 DANGER_ACTIONS = ("reset", "move_data_aside", "remove_tokens")
 TOKEN_ENV = ("PORCHLAMP_GH_TOKENS", "GITHUB_TOKEN")   # ghcli reads these ahead of, or in place of, GH_TOKEN
 REPO_LINE = re.compile(r"^[\w.-]+/[\w.-]+ \[[^\]]*\]: ")
+#: D4: GraphQL points a minute the transport may spend (``PORCHLAMP_GH_PPM``): 4,200 an hour, 15% under this account's
+#: busiest measured hour (4,908), leaving the owner's other tools at least 800 of the 5,000.
+GH_PPM = 70
+#: D4: written in ``state/refresh`` when the transport pins one request at a time (the third GitHub secondary limit in
+#: 24 h); while it exists every step runs one project at a time. The next cycle's start retires it.
+PIN_FILE = "concurrency.pinned"
 
 
 def _digest(token: str) -> str:
@@ -191,6 +198,43 @@ class Engine:
         newest = max(candidates, key=lambda e: e["t"])
         return {"ts": status_mod.iso_local(newest["t"]), "text": self.redactor(newest["text"]),
                 "action": self.redactor(newest.get("action", ""))}
+
+    # ---- D4: projects side by side, and the GitHub throttle's settings -----------------------------------------
+    def _pin_path(self) -> Path:
+        return self.home / "state" / "refresh" / PIN_FILE
+
+    def pinned(self) -> bool:
+        """The transport pinned one request at a time in this cycle (the pin file exists)."""
+        return self._pin_path().is_file()
+
+    def workers_for(self, layer: str) -> int:
+        """Projects ``layer`` fetches side by side: its worker setting (:data:`runner.WORKER_SETTING`), 1 for the
+        steps that have none, and 1 for every step while pinned."""
+        if self.pinned() or layer not in runner.WORKER_SETTING:
+            return 1
+        return int(self.settings.value(runner.WORKER_SETTING[layer]))
+
+    def _set_inflight(self, values: dict[str, Any]) -> None:
+        """``PORCHLAMP_GH_INFLIGHT``: the largest worker setting among the selected steps (1 while pinned or when none
+        is selected); ``PORCHLAMP_GH_PPM``: :data:`GH_PPM`."""
+        wanted = [values[runner.WORKER_SETTING[layer]] for layer in values["layers"] if layer in runner.WORKER_SETTING]
+        os.environ[ghcli.INFLIGHT_ENV] = str(1 if self.pinned() else max(wanted, default=1))
+        os.environ[ghcli.PPM_ENV] = str(GH_PPM)
+
+    def _gh_event(self, level: str, text: str) -> None:
+        """The GitHub throttle's events (``ghcli.on_event``): ``log`` a technical-log line (the hourly rate, a storm of
+        timeouts, the way back), ``warn`` a hold for a secondary limit (timeline), ``err`` the pin (timeline error, the
+        pin file, and one request at a time from now on)."""
+        if level == "log":
+            self.log(text)
+            return
+        self.event(level, text, "", "network")
+        if level == "err":
+            path = self._pin_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(datetime.fromtimestamp(self.clock(), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") + "\n",
+                            encoding="utf-8")
+            self._set_inflight(self.settings.get())
 
     def is_working(self) -> bool:
         return (self.started and not self.stopped and self.runstate.mode == "running"
@@ -341,6 +385,8 @@ class Engine:
             os.environ["PORCHLAMP_GH"] = "http"
             os.environ["PORCHLAMP_ENGINE"] = str(ENGINE_ROOT)
             os.environ["PORCHLAMP_RATE_FLOOR"] = str(self.settings.value("rate_floor"))
+            self._set_inflight(self.settings.get())
+            ghcli.on_event = self._gh_event
             for hook in ("PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API", *TOKEN_ENV):
                 os.environ.pop(hook, None)   # the API host is fixed, and only the accepted token is used
             marker = self.home / "state" / "running"
@@ -410,6 +456,8 @@ class Engine:
             if thread is not None and thread.is_alive():
                 thread.join(timeout=5)
         self.stats.flush()
+        if ghcli.on_event == self._gh_event:
+            ghcli.on_event = None
         (self.home / "state" / "running").unlink(missing_ok=True)
         self.event("info", "Stopped by you", "Progress is saved. Tap Start to carry on.")
         self.log("engine stopped")
@@ -455,7 +503,7 @@ class Engine:
                     every_days=lambda: self.settings.value("interval_days"), poll_s=RUNNER_POLL_S,
                     sleep=lambda s: self._sleep(s, cancel), now=self.clock, log=self._runner_log,
                     layers=lambda: self.settings.value("layers"), state=self.runstate, notify=self._notify,
-                    ready=lambda: not self.no_candidates())
+                    ready=lambda: not self.no_candidates(), workers=self.workers_for)
                 return
             except Stopped:
                 self.log("collector thread ended")
@@ -694,6 +742,8 @@ class Engine:
                            "It lasts until the current cycle ends." if new[key] else "")
         if old["rate_floor"] != new["rate_floor"]:
             os.environ["PORCHLAMP_RATE_FLOOR"] = str(new["rate_floor"])
+        if any(old[key] != new[key] for key in ("l4_workers", "github_workers", "layers")):
+            self._set_inflight(new)
         if old["lan_mode"] != new["lan_mode"]:
             self.event("info", f"Workstation link set to {new['lan_mode']}", "", "network")
         if old["delivery_mode"] != new["delivery_mode"]:

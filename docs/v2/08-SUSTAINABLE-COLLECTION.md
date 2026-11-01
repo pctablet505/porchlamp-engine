@@ -56,7 +56,21 @@ Two changes landed before L4 started: searches go 25 aliases to a call
 (4.5–5.1 s, 1 point, identical nodes) and eligibility reads the D-COL-5 user
 cache first (134,036 author-repo pairs name 94,235 logins). Projected: **≈24 h**,
 of which ≈13 h is the repos not already gated. GitHub's documented cap of 60 s
-of GraphQL CPU per minute rules out running these lookups concurrently.
+of GraphQL CPU per minute was read here as ruling out concurrent lookups; the
+account's own record says otherwise (D4, 2026-11-02). On 2026-10-10/11 three L4
+gatherers ran side by side on this account for 8.8 h at about 4,700 points an
+hour, with one short burst of refusals and no penalty after; on 2026-11-02 GitHub
+served 3 requests in flight at 2.4–3.0 times the rate of one, with no limit
+signal in 158 requests. The enforced limits are 100 requests in flight, 2,000
+GraphQL points a minute, 60 s of GraphQL CPU a minute and 5,000 points an hour;
+"make requests serially" is GitHub's advice, and the ban risk is for requests
+sent while limited. So `gather.py --workers` runs up to 3 projects side by side
+behind one throttle in the transport (`ghcli`): at most `PORCHLAMP_GH_INFLIGHT`
+requests in flight (the phone: 3 for L4), `PORCHLAMP_GH_PPM` GraphQL points a
+minute (70), every thread held on a secondary-limit signal and then one request
+at a time, pinned there after the third signal in a day. The same measurement
+found 15-login eligibility batches at GitHub's 10-second limit (4 of 12 timed
+out), so a batch is now 8 logins.
 
 **A full sweep is ~3 days of wall-clock on one token** — `governance` alone is
 ≈52 h, more than this table's first published estimate for the whole sweep
