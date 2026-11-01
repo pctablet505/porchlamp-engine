@@ -221,8 +221,9 @@ ls data/raw/pr_window | wc -l
 - Progress at any time: `ls data/raw/pr_window | wc -l` (target 5,753).
 - The run ends with a line `done: N clean, M with failures`. Run the **same
   command again**. Repos that failed are retried; repos already done are
-  skipped instantly. When two consecutive runs end with the same `M`, those
-  repos cannot be fetched (deleted, renamed, private) — the layer is complete.
+  skipped instantly. When a run ends with `M` = 0, or two consecutive runs end
+  with the same `M`, the layer is complete: the rest cannot be fetched (deleted,
+  renamed, private).
 - Rough duration: 6–10 hours of API time for all repos (GraphQL budget is
   5,000 points per hour; measured cost is about 6 points per repo).
 
@@ -238,8 +239,8 @@ ls data/raw/governance | wc -l
 This is the most expensive collector per repo (~45 REST calls, roughly 50
 hours for the whole universe at 5,000 calls/hour), so expect it to run for
 about two days. Run it the same way as `pr_window`: repeat the command until
-two consecutive runs end with the same failure count. Report progress from
-`ls data/raw/governance | wc -l`.
+a run ends with no failure or two consecutive runs end with the same failure
+count. Report progress from `ls data/raw/governance | wc -l`.
 
 Then Step A, B, C, D with `LX` = `L1`. The `rated` count should now be above
 zero for the first time. Write the before/after counts in STATUS.md — that
@@ -303,7 +304,7 @@ lead), write a line starting with `BLOCKED` and the reason.
 
 ## 10. What "done" looks like
 
-- L0–L4 gathered (two consecutive runs with the same failure count each).
+- L0–L4 gathered (a run with no failure, or two consecutive runs with the same failure count, each).
 - Website serving `cvi-L4.db`, STATUS.md showing the rated count after every layer.
 - `backfill.log` ends with its summary line and no `pending` items for pypi.
 
