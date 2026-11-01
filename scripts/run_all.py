@@ -34,6 +34,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from porchlamp.collect.names import is_path_segment
 from porchlamp.lakehouse import repositories_dump_hash
 from porchlamp.snapshot import cli as snapshot_cli
 from porchlamp.snapshot.build_cmd import build_snapshot_dir
@@ -61,14 +62,20 @@ promote = _load_script("promote", "promote.py")
 
 def _candidates(limit: int | None) -> list[tuple[str, str, str]]:
     out = []
+    skipped = 0
     for line in gather.CANDIDATES.read_text().splitlines():
         if not line.strip():
             continue
         r = json.loads(line)
         if r.get("owner"):
+            if not (is_path_segment(r["owner"]) and is_path_segment(r.get("name"))):
+                skipped += 1
+                continue
             out.append((r["owner"], r["name"], r["ecosystem"]))
         if limit and len(out) >= limit:
             break
+    if skipped:
+        print(f"skipped {skipped} candidates whose owner/name is not a single path segment")
     return out
 
 

@@ -18,3 +18,16 @@ def valid_name(s: object) -> bool:
 def valid_ref(owner: object, name: object) -> bool:
     """True iff both the owner and the repository name are legal."""
     return valid_name(owner) and valid_name(name)
+
+
+def is_path_segment(s: object) -> bool:
+    """True iff ``s`` is a non-empty ``str`` that is one file-name component: not ``.`` or ``..``, and no ``/``, ``\\``, NUL or other control character (below 32, or 127).
+
+    Looser than :func:`valid_name` on purpose: for a name pasted into a path and nothing else, ``valid_name`` refuses a real
+    repository (``981011512/--``) that this accepts.
+    """
+    return (
+        isinstance(s, str)
+        and s not in ("", ".", "..")
+        and not any(c in "/\\" or ord(c) < 32 or ord(c) == 127 for c in s)
+    )

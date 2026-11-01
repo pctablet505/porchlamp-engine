@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from porchlamp.collect.envelope import read_envelope, write_envelope
+from porchlamp.collect.names import is_path_segment
 from porchlamp.core import constants
 from porchlamp.models import StargazerEvent
 from porchlamp.starscout import audit_star_velocity
@@ -216,18 +217,27 @@ def default_star_history_transport(owner: str, name: str) -> dict[str, Any]:
     )
 
 
+def _require_path_segments(owner: str, name: str) -> None:
+    """Raise ``ValueError`` unless owner and name can each be one file-name part: both name the files written under ``raw_dir``."""
+    if not (is_path_segment(owner) and is_path_segment(name)):
+        raise ValueError(f"owner/name is not a single path segment: {owner!r}/{name!r}")
+
+
 def collect_star_history(
     raw_dir: Path, owner: str, name: str, fetch: Transport, fetched_at: str,
     *, force: bool = False,
 ) -> str:
     """Fetch one repo's recent stargazer events + fork delta via ``fetch``
-    and write one envelope; returns ``"ok"`` or ``"fail"`` -- never raises.
+    and write one envelope; returns ``"ok"`` or ``"fail"`` -- never raises on a
+    transport failure (an owner or name that is not a single path segment raises
+    ``ValueError`` before any path is built).
     Existence of the envelope is the checkpoint (``scripts/gather.py``'s own
     convention): a prior successful collection is reused unless
     ``force=True``. A transport failure (any exception, or a malformed
     payload) is exactly what this collector exists to catch and report,
     same convention as ``porchlamp.collect.repo_object.collect_repo_object``.
     """
+    _require_path_segments(owner, name)
     path = raw_dir / STAR_HISTORY_COLLECTOR / f"{owner}__{name}.json"
     if path.is_file() and not force:
         return "ok"
@@ -263,6 +273,8 @@ def star_velocity_evidence(
     failure becomes :func:`unmeasured_star_velocity`, never a silent
     ``False``/``0``.
     """
+    # collect_star_history refuses an owner or name that is not one path segment, before this
+    # function builds a path or writes the universe-entry envelope below
     path = raw_dir / STAR_HISTORY_COLLECTOR / f"{owner}__{name}.json"
     status = collect_star_history(raw_dir, owner, name, fetch, fetched_at, force=force)
     if status != "ok":

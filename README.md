@@ -104,8 +104,9 @@ The pipeline, in order:
 | Step | Command | Output |
 |---|---|---|
 | Collect | `scripts/gather.py` (collectors in `porchlamp/collect/`), or the Android collector in `phone/` pulled with `scripts/pull_from_phone.py` | one envelope per signal under `data/raw/` |
+| Pick as_of | `python -m porchlamp.snapshot as-of --data-dir data` | the earliest `--as-of` every guard accepts (the newest pull-request record's time, rounded up to the minute; later only when a releases or issues file needs it), and PASS/FAIL per guard; exit 0, 1 on a fail, 2 on an error; `--print` writes only the value, `--as-of TIME` checks a given one |
 | Derive | `scripts/derive.py OWNER NAME --ecosystem ECO` | one bundle per project under `data/derived/` |
-| Build | `python -m porchlamp.snapshot build --data-dir data --out-dir SNAP --snapshot-id ID --as-of TIME` | score records plus a manifest with a Merkle root |
+| Build | `python -m porchlamp.snapshot build --data-dir data --out-dir SNAP --snapshot-id ID --as-of AS_OF` (AS_OF from the step above, never the wall clock) | score records plus a manifest with a Merkle root |
 | Store | `python -m porchlamp.snapshot store SNAP --db porchlamp.db` | the SQLite store the API reads |
 | Serve | `scripts/serve.py --db porchlamp.db` | the API under `/v1/porchlamp/` and the UI in `web/app/` |
 | Publish | `scripts/export_static.py --db porchlamp.db --stats STATS --out SITE`, then `scripts/verify_static_export.py --db porchlamp.db --stats STATS --site SITE`, with `PORCHLAMP_DATA_ROOT` set to the snapshot's raw data (the report needs the black-hole evidence) | the static site, checked request by request against the API; with `--stats`, also the report (`black-holes/`), its frozen copy, the ranked CSV and the methodology page, one page per ranked project (`projects/<owner>/<name>/`, lower case), `check/` (search any project) and the project sitemap, and ten landing pages (`rust/`, `python/`, `javascript/`, `go/`, `java/`, `c-cpp/`, `first-timers/`, `career/`, `senior-systems/`, `ai-assisted/`), and the home page's findings line, top 20 and JSON-LD, `llms.txt` and `feed.xml`, generated from the snapshot's data, every number checked |
@@ -116,7 +117,7 @@ The pipeline, in order:
 | `porchlamp/collect/` | Collectors: one network fetch per signal, each returning a content-hashed envelope; rate limiting and retries in `ratelimit.py`. |
 | `phone/` | Android collector (`entry.py` is the app's entry point; `runner.py`, `control.py`, `httpgate.py`, `archive.py`, `serve.py`, `auth.py`): runs layers `L1..L4, LK` under battery/thermal/Wi-Fi guards, allow-lists outbound hosts, packs deterministic `.tar.gz` archives and serves them over the LAN with HMAC-signed requests (`X-Porch-Mac`, `auth.py`) to `scripts/pull_from_phone.py`. |
 | `porchlamp/derive/` | Turns envelopes into typed bundles and gate evidence. |
-| `porchlamp/snapshot/` | `build`, `store`, `freeze` and `reproduce`: rebuilds a snapshot from its envelopes and checks it against the recorded hash. |
+| `porchlamp/snapshot/` | `as-of`, `build`, `store`, `freeze` and `reproduce`: picks and checks the snapshot's `as_of`, rebuilds a snapshot from its envelopes and checks it against the recorded hash. |
 | `porchlamp/store/` | SQLite schema, forward-only migrations, writer and queries. |
 | `porchlamp/serve/` | FastAPI app, wire contract, and the guard that refuses to serve an unverified database. |
 | `porchlamp/audit/`, `porchlamp/verify/` | Read-only audits (coverage, anchors, sensitivity, ties, detectors) and a live re-verification canary. |

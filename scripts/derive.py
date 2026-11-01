@@ -50,6 +50,7 @@ from porchlamp.collect import validate
 from porchlamp.collect.ci_runs import commit_waits
 from porchlamp.collect.depsdev import package_key, package_name_for_repo
 from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
+from porchlamp.collect.names import is_path_segment
 from porchlamp.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
 from porchlamp.constants import BOT_LOGIN_MARKERS
 from porchlamp.core import constants as core_constants
@@ -980,7 +981,8 @@ def _read_candidates(path: Path) -> list[_Candidate]:
     """One candidate per non-blank line of ``path``, in file order.
 
     Nothing is guessed. A line that is not a JSON object naming ``owner`` and ``name`` is
-    refused by its line number. A repo whose ``ecosystem`` is missing or not an
+    refused by its line number, and so is one whose owner or name is not a single path segment
+    (:func:`porchlamp.collect.names.is_path_segment`). A repo whose ``ecosystem`` is missing or not an
     :class:`Ecosystem` value is refused by name: derived as another ecosystem, its downloads
     and their status would be looked up in another registry.
     """
@@ -997,6 +999,10 @@ def _read_candidates(path: Path) -> list[_Candidate]:
         if not (isinstance(owner, str) and owner and isinstance(name, str) and name):
             out.append(_Candidate(f"{path.name} line {number}", None,
                                   "not a JSON object naming owner and name"))
+            continue
+        if not (is_path_segment(owner) and is_path_segment(name)):
+            out.append(_Candidate(f"{path.name} line {number}", None,
+                                  "owner/name is not a single path segment"))
             continue
         eco = row.get("ecosystem")
         try:

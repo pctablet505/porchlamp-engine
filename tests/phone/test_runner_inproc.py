@@ -525,3 +525,9 @@ def test_fresh_main_done_without_cycle_open_only_sleeps(home, fkw):
     assert sleeps == [5] and g.calls == []
     assert _ex(home, "L1.complete") and not (home / "state/refresh-prev").exists()
     assert not _ex(home, OPEN)  # nothing started
+
+
+def test_main_layers_keep_the_order_the_as_of_rule_needs():
+    # The as_of rule (porchlamp.snapshot.asof) needs L2 and L3c right after L1 and L4 last: reordering moves the
+    # releases/issues_counts anchors out of 14 days of the newest pull-request record.
+    assert [layer for layer, _ in R.MAIN_LAYERS] == ["L1", "L0", "L2", "L3g", "L3c", "L4"]
