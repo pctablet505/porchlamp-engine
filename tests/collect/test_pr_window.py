@@ -1852,18 +1852,22 @@ def _main_window_collect(tmp_path, **fake_kwargs):
 
 def test_a_search_that_finds_none_of_a_moved_repositorys_prs_leaves_every_searched_author_unmeasured(tmp_path):
     """T2.3: rust-lang-nursery/rand resolves to rust-random/rand (1,152 PRs), whose search by the old name finds
-    none: the project guard fails, so no searched author reads as a first-timer or a newcomer. The 20% gate then
-    refuses 1.3 (MR_first, ``collector_failure``); no newcomer whose search failed is read for 5.2 or 5.3, so
-    neither has a value (the newcomer gate counting those authors as unmeasured is PR-3's, D3-I)."""
+    none: the project guard fails, so no searched author reads as a first-timer or a newcomer. The record carries
+    the guard's inputs, and derive refuses 1.3 (MR_first), 5.2 and 5.3 as collector failures that name the guard
+    (RB2-D); the general rule that the 20% gate counts the newcomers a failed search drops is PR-3's (D3-I)."""
     data, fake = _main_window_collect(tmp_path, pr_total=1152, guard_count=0)
     assert [r["history_unmeasured"] for r in data["author_records"]] == [True, True, True]
     assert all(r["prs"] == [] for r in data["author_records"])
     fields = gql.derive_cohort_fields(data)
     assert fields["authors_excluded_unmeasured"] == (3, "verified")
+    assert (data["name_with_owner"], data["pull_requests_total"], data["search_pr_count"]) == ("acme/widget", 1152, 0)
+    guard_detail = ("the per-author search failed its project guard: repo:acme/widget is:pr found 0 of the "
+                    "repository's 1152 PRs (needs 95%), so no searched author is measured", "verified")
     assert fields["mr_first_rate"] == (None, "missing")
-    assert fields["cohort_unmeasured_detail"] == ("3 of 3 authors unmeasured", "verified")
+    assert fields["cohort_unmeasured_detail"] == guard_detail
     assert fields["newcomer_cohort_author_count"] == (0, "derived")
-    assert fields["newcomer_conversion"][0] is None and fields["rr90_return_rate"][0] is None
+    assert fields["newcomer_conversion"] == (None, "missing") and fields["rr90_return_rate"] == (None, "missing")
+    assert fields["newcomer_unmeasured_detail"] == guard_detail
     # the control: the same record with a search that finds the repository's PRs is measured
     ok_data, _ = _main_window_collect(tmp_path / "ok", pr_total=1152, guard_count=1145)
     assert [r["history_unmeasured"] for r in ok_data["author_records"]] == [False, False, False]
@@ -1899,6 +1903,7 @@ def test_the_project_guard_rides_in_the_first_search_batch_with_24_authors_and_c
     gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
     assert fake.search_batch_sizes == [25, 6]
     assert [q for q in fake.search_queries if " author:" not in q] == ["repo:acme/widget is:pr"]
+    assert fake.search_queries[0] == "repo:acme/widget is:pr"     # the guard leads the first batch
     assert not any(r["history_unmeasured"] for r in _records(raw).values())
 
 
@@ -1947,6 +1952,91 @@ def test_a_veteran_with_40_prs_is_read_from_their_oldest_so_their_prior_merge_ke
     fields = gql.derive_cohort_fields(data)
     assert fields["mr_first_rate_raw"] == (0.0, "derived")
     assert fields["mr_first_pr_count_raw"] == (9, "derived")      # the veteran is not one of the first-timers
+
+
+_GUARD_KEYS = ("name_with_owner", "pull_requests_total", "search_pr_count")
+
+
+def _big_project_collect(tmp_path, **fake_kwargs):
+    """300 decision-cohort authors, 20 of them newcomers too: 50 are searched (the cap), so a failed guard leaves 50
+    of 320 author records unmeasured (15.6%) and the 20% gate cannot fire on its own."""
+    cohort = [f"c{i:03d}" for i in range(280)]
+    newcomers = [f"n{i:02d}" for i in range(20)]
+    prs = ([w4_days(1000 + i, 150, login, closed_after=5) for i, login in enumerate(cohort)]
+           + [w4_days(3000 + i, 250, login, closed_after=5) for i, login in enumerate(newcomers)])
+    logins = cohort + newcomers
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], {login: {"nodes": []} for login in logins},
+                       _users(logins), **fake_kwargs)
+    raw = tmp_path / "raw"
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+    return read_envelope(raw / "author_history" / "acme__widget.json").data
+
+
+def test_a_failed_guard_refuses_1_3_5_2_and_5_3_on_a_project_the_20_percent_gate_cannot_see(tmp_path):
+    """T-D1: 50 unmeasured of 300 author records is under the 20% line, and the newcomers a failed search leaves
+    out never reach the newcomer gate, so before this the three came out ``(None, "derived")`` with n = 0 (an
+    ``insufficient_n`` that says the cohort is small). A record that carries the failed guard refuses all three
+    as collector failures that name it."""
+    data = _big_project_collect(tmp_path, pr_total=1152, guard_count=0)
+    assert sum(1 for r in data["author_records"] if r["history_unmeasured"]) == 50
+    assert len(data["author_records"]) == 300
+    fields = gql.derive_cohort_fields(data)
+    assert fields["authors_excluded_unmeasured"] == (50, "verified")
+    for name in ("mr_first_rate", "newcomer_conversion", "rr90_return_rate"):
+        assert fields[name] == (None, "missing"), name
+    for name in ("cohort_unmeasured_detail", "newcomer_unmeasured_detail"):
+        assert "project guard" in fields[name][0] and "found 0 of the repository's 1152 PRs" in fields[name][0]
+    # the control: the same project with a passing guard is measured
+    ok = gql.derive_cohort_fields(_big_project_collect(tmp_path / "ok", pr_total=1152, guard_count=1145))
+    assert ok["authors_excluded_unmeasured"] == (0, "verified")
+    assert ok["mr_first_rate"][1] == "derived" and ok["newcomer_conversion"][1] == "derived"
+    assert "cohort_unmeasured_detail" not in ok and "newcomer_unmeasured_detail" not in ok
+
+
+def test_the_collector_records_the_guards_inputs_when_it_searched_and_only_then(tmp_path):
+    """T-D2."""
+    data, _ = _main_window_collect(tmp_path, name_with_owner="acme-moved/widget", pr_total=1152, guard_count=1145)
+    assert (data["name_with_owner"], data["pull_requests_total"], data["search_pr_count"]) == (
+        "acme-moved/widget", 1152, 1145)
+    failed, _ = _main_window_collect(tmp_path / "failed", pr_total=1152, guard_count=0)
+    assert failed["search_pr_count"] == 0
+    unanswered, _ = _main_window_collect(tmp_path / "unanswered", pr_total=1152, guard_count=GUARD_UNRESOLVED)
+    assert "search_pr_count" in unanswered and unanswered["search_pr_count"] is None
+    no_total, _ = _main_window_collect(tmp_path / "no_total", pr_total=None)
+    assert "pull_requests_total" in no_total and no_total["pull_requests_total"] is None
+    # nobody to search: none of the three keys
+    raw = tmp_path / "nobody"
+    window = _w4_page([w4_pr(1, "2026-05-01T00:00:00Z", "bob", assoc="MEMBER")], False)
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW,
+                                      transport=W4Transport([window], [3], [4990], {}, {})) == "ok"
+    assert not set(_GUARD_KEYS) & set(read_envelope(raw / "author_history" / "acme__widget.json").data)
+
+
+def test_a_record_without_the_guards_keys_derives_exactly_as_it_always_did(tmp_path):
+    """T-D3, the regression guard for every record collected before: no ``search_pr_count``, no guard."""
+    data, _ = _main_window_collect(tmp_path)
+    assert all(key in data for key in _GUARD_KEYS)
+    stripped = {key: value for key, value in data.items() if key not in _GUARD_KEYS}
+    assert gql.derive_cohort_fields(stripped) == gql.derive_cohort_fields(data)
+    # a failed-guard record stripped of its keys takes the old path: the 20% gate alone, and no newcomer is read
+    failed, _ = _main_window_collect(tmp_path / "failed", pr_total=1152, guard_count=0)
+    old = gql.derive_cohort_fields({key: value for key, value in failed.items() if key not in _GUARD_KEYS})
+    assert old["cohort_unmeasured_detail"] == ("3 of 3 authors unmeasured", "verified")
+    assert old["newcomer_conversion"] == (None, "derived") and "newcomer_unmeasured_detail" not in old
+
+
+def test_history_total_is_written_above_30_prs_and_not_at_exactly_30(tmp_path):
+    raw = tmp_path / "raw"
+    prs, users = _decision_authors(["h30", "h31"])
+
+    def history(count):
+        return SearchHistory([w4_spr(i + 1, (NOW - timedelta(days=400 - i)).isoformat()) for i in range(count)])
+
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], {"h30": history(30), "h31": history(31)}, users)
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    recs = _records(raw)
+    assert "history_total" not in recs["h30"] and len(recs["h30"]["prs"]) == 30
+    assert recs["h31"]["history_total"] == 31 and len(recs["h31"]["prs"]) == 30
 
 
 # --- D-COL-5 user cache inside collect_author_history -----------------------

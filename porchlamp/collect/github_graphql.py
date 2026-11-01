@@ -2405,7 +2405,11 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     :data:`AUTHOR_SEARCH_FIRST`); a search that finds none of an author the window holds, or whose
     repository-wide guard (:func:`_search_guard_passes`) fails, leaves the searched authors
     ``history_unmeasured``, so the 20% gate (:data:`AUTHOR_UNMEASURED_MAX_FRACTION`) refuses
-    1.3, 5.2 and 5.3 rather than score a veteran as a first-timer.
+    1.3, 5.2 and 5.3 rather than score a veteran as a first-timer. The guard's inputs are
+    recorded whenever a search ran (``name_with_owner``, ``pull_requests_total``, ``search_pr_count``,
+    null when the guard alias never answered), and :func:`derive_cohort_fields` refuses on
+    them: a project with many authors keeps the 20% gate below its line when the search covers
+    only 50 of them.
 
     When ``light_history`` is True (RFC-0009 / W6-5), replaces the per-author
     ``search(type: ISSUE)`` queries and :data:`AUTHOR_SEARCH_CAP` sampling with
@@ -2444,6 +2448,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     author_records: list[dict] = []
     reused_elig: dict[str, dict] = {}
     search_sample: set[str] = set()
+    search_meta: dict[str, Any] = {}
     if light_history:
         light_by_author, light_cost, light_rem, light_ok = (
             fetch_light_pr_history(owner, name, t, page_size=page_size)
@@ -2487,10 +2492,15 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
         search_sample = set(newcomers) | set(_seeded_sample(other_logins, remaining_cap))
 
         searched = [login for login in needed if login in search_sample]
+        repo_searched = window.name_with_owner or f"{owner}/{name}"
         histories, search_count, search_cost, search_remaining = _fetch_author_searches(
-            owner, name, searched, t, repo=window.name_with_owner or f"{owner}/{name}", guard=bool(searched))
+            owner, name, searched, t, repo=repo_searched, guard=bool(searched))
         project_guard_failed = bool(searched) and not _search_guard_passes(
             search_count, window.pull_requests_total)
+        if searched:
+            # The guard's inputs, so derive can refuse on a failed guard and a record can say why (D3 3.4).
+            search_meta = {"name_with_owner": repo_searched, "pull_requests_total": window.pull_requests_total,
+                           "search_pr_count": search_count}
         cost += search_cost
         if search_remaining is not None:
             remaining = search_remaining
@@ -2542,6 +2552,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
         "sampled_authors": list(sample),
         "author_records": author_records,
     }
+    data.update(search_meta)
     if skipped and band is not None:
         data["dr90_band_anchor"] = band[0]
     write_envelope(target, source="github-graphql:author-history", data=data,
@@ -2855,7 +2866,15 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     out["authors_excluded_unmeasured"] = (authors_excluded_unmeasured, "verified")
     out["authors_excluded_ineligible"] = (authors_excluded_ineligible, "verified")
     unmeasured_fraction = (authors_excluded_unmeasured / authors_total) if authors_total else 0.0
-    collector_failed = unmeasured_fraction > AUTHOR_UNMEASURED_MAX_FRACTION
+    # D3-G (RB2-D): a record that carries the project guard's inputs and fails them refuses 1.3, 5.2 and 5.3
+    # whatever the 20% gate says (it divides by every author record, and the search covers only 50). A record
+    # without ``search_pr_count`` (every record collected before) takes the path it always did.
+    guard_failed = "search_pr_count" in ah and not _search_guard_passes(
+        ah.get("search_pr_count"), ah.get("pull_requests_total"))
+    guard_detail = (f"the per-author search failed its project guard: repo:{ah.get('name_with_owner')} is:pr "
+                    f"found {ah.get('search_pr_count')} of the repository's {ah.get('pull_requests_total')} PRs "
+                    f"(needs {AUTHOR_SEARCH_GUARD_FACTOR:.0%}), so no searched author is measured")
+    collector_failed = unmeasured_fraction > AUTHOR_UNMEASURED_MAX_FRACTION or guard_failed
     # #51 rule 5: a record cut short of the decision cohort's start yields no
     # cohort rate (the core's one definition, which the bundle reader also uses).
     decision_window_cut = gates.record_cut_short(ah, DECISION_COHORT_START_DAYS)
@@ -2883,6 +2902,8 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         if decision_window_cut:
             detail = (f"author_history window truncated before reaching the {DECISION_COHORT_START_DAYS}d "
                       f"decision-cohort start ({gap_days}d short)")
+        elif guard_failed:
+            detail = guard_detail
         else:
             detail = f"{authors_excluded_unmeasured} of {authors_total} authors unmeasured"
         out["dr90_decision_rate_author_history_cohort"] = (None, "missing")
@@ -2917,13 +2938,15 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     newcomer_total = len(authors)
     newcomer_unmeasured = sum(1 for a in authors if a["_eligible"] is None)
     newcomer_fraction = (newcomer_unmeasured / newcomer_total) if newcomer_total else 0.0
-    newcomer_collector_failed = newcomer_fraction > AUTHOR_UNMEASURED_MAX_FRACTION
+    newcomer_collector_failed = newcomer_fraction > AUTHOR_UNMEASURED_MAX_FRACTION or guard_failed
     newcomer_window_cut = gates.record_cut_short(ah, NEWCOMER_BAND_START_DAYS)
 
     eligible_authors = [a for a in authors if a["_eligible"] is True]
     if newcomer_collector_failed or newcomer_window_cut:
         if newcomer_window_cut:
             detail = "author_history window truncated before reaching 365d newcomer band start"
+        elif guard_failed:
+            detail = guard_detail
         else:
             detail = f"{newcomer_unmeasured} of {newcomer_total} newcomer authors unmeasured"
         out["newcomer_conversion"] = (None, "missing")
