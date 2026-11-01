@@ -2741,9 +2741,9 @@ def test_a_failing_page_is_read_again_in_pages_of_ten_then_the_walk_returns_to_i
     res = gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
     assert [p["number"] for p in res.prs] == [n["number"] for n in nodes]
     assert res.truncated is False
-    # the failed 25-PR page is covered by three pages of ten, then pages of 25 again
-    assert t.pages("PrWindow") == [(0, 25), (0, 10), (10, 10), (20, 10),
-                                   (30, 25), (55, 25), (80, 25), (105, 25)]
+    # the failed 25-PR page is covered by pages of ten and a last one of five, then pages of 25 again
+    assert t.pages("PrWindow") == [(0, 25), (0, 10), (10, 10), (20, 5),
+                                   (25, 25), (50, 25), (75, 25), (100, 25)]
 
 
 def test_a_local_gh_timeout_is_retried_in_pages_of_ten():
@@ -2823,7 +2823,7 @@ def test_a_walk_of_50_goes_down_to_25_and_a_walk_of_25_goes_straight_to_10():
     assert t.pages("PrWindow") == [(0, 50), (0, 25), (25, 25), (50, 50), (100, 50)]
     t = ScriptedWindow(nodes, fail=[("PrWindow", 0, 25)])
     gql.fetch_pr_window("acme", "widget", NOW, t, page_size=25)
-    assert t.pages("PrWindow")[:5] == [(0, 25), (0, 10), (10, 10), (20, 10), (30, 25)]
+    assert t.pages("PrWindow")[:5] == [(0, 25), (0, 10), (10, 10), (20, 5), (25, 25)]
 
 
 def test_a_walk_of_10_has_no_smaller_page_to_go_to():
@@ -2831,6 +2831,45 @@ def test_a_walk_of_10_has_no_smaller_page_to_go_to():
     with pytest.raises(RuntimeError, match="504"):
         gql.fetch_pr_window("acme", "widget", NOW, t, page_size=10)
     assert t.pages("PrWindow") == [(0, 10)]
+
+
+@pytest.mark.parametrize("page_size, fail", [
+    (100, [("PrWindow", 100, 100), ("PrWindow", 100, 50), ("PrWindow", 125, 25)]),
+    (25, [("PrWindow", 175, 25)]),
+], ids=["page100", "page25"])
+def test_a_refused_page_does_not_move_the_boundary_the_sampled_walk_stops_at(page_size, fail):
+    """F-1: a refused page read again in smaller pages must cover exactly its span, so every later page boundary
+    stays where a fault-free walk puts it. A last small page that overshot moved the cap boundary, the full-field
+    walk read the 203-PR window to its end, and the record held every reply with ``sampled`` false where the
+    fault-free walk samples."""
+    nodes = _window_nodes(203)
+    clean = gql.fetch_pr_window("acme", "widget", NOW, ScriptedWindow(nodes), page_size=page_size, cap=200,
+                                sample_cap=50)
+    assert clean.sampled is True
+    res = gql.fetch_pr_window("acme", "widget", NOW, ScriptedWindow(nodes, fail=fail), page_size=page_size,
+                              cap=200, sample_cap=50)
+    assert res.sampled is True
+    assert tuple(res.prs) == tuple(clean.prs)
+
+
+def test_the_last_page_of_a_span_is_as_long_as_what_is_left_of_it():
+    sizer = gql._PageSizer(25)
+    assert sizer.first == 25
+    assert sizer.retry_smaller("HTTP 502") is True
+    assert [sizer.first] == [10]
+    sizer.page_done()
+    assert sizer.first == 10
+    sizer.page_done()
+    assert sizer.first == 5          # 5 PRs of the failed page's 25 are left
+    sizer.page_done()
+    assert sizer.first == 25         # the span is covered exactly: the walk is back on its own boundaries
+    sizer = gql._PageSizer(60)
+    assert sizer.retry_smaller("HTTP 504") is True and sizer.first == 50
+    sizer.page_done()
+    assert sizer.first == 10
+    assert sizer.retry_smaller("HTTP 504") is False   # nothing between 10 and the last rung's size to go to
+    sizer.page_done()
+    assert sizer.first == 60
 
 
 def test_the_light_walk_and_the_author_window_walk_use_the_same_ladder():
@@ -2864,7 +2903,7 @@ def test_the_batch_width_ladder_follows_the_page_ladder(monkeypatch):
     assert gql.batch_retry_widths(100) == (40, 20, 1)
     t = ScriptedWindow(_window_nodes(100), fail=[("PrWindow", 0, 100)])
     gql.fetch_pr_window("acme", "widget", NOW, t, page_size=100)
-    assert t.pages("PrWindow") == [(0, 100), (0, 40), (40, 40), (80, 40)]
+    assert t.pages("PrWindow") == [(0, 100), (0, 40), (40, 40), (80, 20)]
 
 
 def test_a_page_failing_for_another_reason_is_not_retried():

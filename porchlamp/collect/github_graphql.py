@@ -326,8 +326,11 @@ class _PageSizer:
     the walk then returns to its own page size. A page of the last rung that
     fails, any other error, or a walk whose own size is no larger than the last
     rung propagates, failing the fetch as before. A failure inside the span
-    goes on down the ladder from the size in use. Pages read before the
-    failure are kept: the project is not repeated from its first page.
+    goes on down the ladder from the size in use. The last page of a span is no
+    longer than what is left of it, so page boundaries never move (a walk that
+    stops at a boundary, like the sampled one at its cap, stops where a
+    fault-free walk does). Pages read before the failure are kept: the project
+    is not repeated from its first page.
     """
 
     def __init__(self, page_size: int) -> None:
@@ -337,8 +340,9 @@ class _PageSizer:
 
     @property
     def first(self) -> int:
-        """The ``first`` of the next page."""
-        return self.page_size if self._size is None else self._size
+        """The ``first`` of the next page: the rung in use, or what is left of the failed page's span when that
+        is less, so the span is covered exactly and the walk's later page boundaries never move."""
+        return self.page_size if self._size is None else min(self._size, self._span_left)
 
     def can_retry_smaller(self, message: str) -> bool:
         """Whether a page that failed with ``message`` would be fetched again at the next size down."""
