@@ -1673,8 +1673,9 @@ def derive_pr_window_landing_fields(prw: Optional[dict]) -> dict[str, tuple[Any,
 #   :data:`ELIGIBILITY_BATCH_SIZE`. An alias with no data in the response —
 #   a deleted/renamed account, or a truncated batch — is recorded
 #   ``eligibility_unmeasured`` rather than a silent ineligible default;
-# * the per-author ``search`` (the author's newest 30 PRs in the repo,
-#   ``repo:o/n is:pr author:login`` — prior-merge history for MR_first) is
+# * the per-author ``search`` (the author's OLDEST 30 PRs in the repo,
+#   ``repo:<nameWithOwner> is:pr author:login sort:created-asc`` — the prior-merge
+#   history MR_first needs and the proof that a newcomer is one, D3-G) is
 #   capped at :data:`AUTHOR_SEARCH_CAP` per repo, deterministically sampled
 #   (:func:`_seeded_sample`) from the union when it is larger. A search that
 #   fails with a GraphQL error (``history_unmeasured``) or that fell outside
@@ -1697,7 +1698,7 @@ def derive_pr_window_landing_fields(prw: Optional[dict]) -> dict[str, tuple[Any,
 #
 # Documented approximations: "no previously merged PR" (MR_first — the
 # predicate is merge time, not creation time) is a statement about recorded
-# history only — the 365-d window plus the sampled per-author newest-30 search;
+# history only — the 365-d window plus the sampled per-author oldest-30 search;
 # a PR older than the window that the project landed outside GitHub's merge is
 # known only from that search, which records no landing, so it does not count
 # as a prior merge; a truncated newcomer band excludes candidates whose oldest
@@ -1718,7 +1719,8 @@ NEWCOMER_BAND_END_DAYS: int = 180
 NEWCOMER_SAMPLE_SIZE: int = 20
 #: Fixed seed for deterministic sampling of the candidate pool.
 NEWCOMER_SAMPLE_SEED: int = 20260912
-#: Per-author history: the 30 newest of the author's PRs in the repo.
+#: Per-author history: the 30 oldest of the author's PRs in the repo (D3-G). Read newest
+#: first, a veteran's early PRs fell outside the 30 and they read as a first-timer or a newcomer.
 AUTHOR_SEARCH_FIRST: int = 30
 #: Truncation guard: a newcomer candidate whose oldest recorded PR is this
 #: close to the truncated window's floor may have an unrecorded older PR.
@@ -1754,6 +1756,12 @@ ELIGIBILITY_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 AUTHOR_SEARCH_BATCH_SIZE: int = 25
 #: Narrower retry widths for search aliases a batch left unresolved.
 AUTHOR_SEARCH_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
+#: D3-G, the project guard: the search ``repo:<nameWithOwner> is:pr`` must find at least this share of the
+#: repository's own PR count (``pullRequests.totalCount``, read in the author window's first call). The search
+#: index runs a median 0.27% below the total (72 projects, 2026-11-01); a repository the search cannot find under
+#: the name asked (a moved one found 0 of 1,152) is far below it. When the guard fails no searched author is
+#: measured: an empty search would read every one of them as a first-timer.
+AUTHOR_SEARCH_GUARD_FACTOR: float = 0.95
 #: Above this fraction of a repo's cohort authors being unmeasured,
 #: row 1.2 (DR_90) and row 1.3 (MR_first)'s D-IN-3-adjusted rate
 #: are reported unmeasured rather than computed on a collapsed population.
@@ -1767,10 +1775,14 @@ AUTHOR_SEARCH_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 #: landed outside GitHub's merge as merged. A 100-PR page costs 2 points where it
 #: cost 1 (``pytorch/pytorch``'s newest page, measured 2026-10-22). Envelopes
 #: recorded before lack both keys and their cohorts read GitHub's merges alone.
+#: D3-G: the repository's own ``nameWithOwner`` (a moved repository answers to its new name
+#: only) and its PR total, which the per-author searches are asked by and checked against
+#: (:func:`_search_guard_passes`); both ride in the first page's call and cost no point.
 AUTHOR_WINDOW_QUERY: str = (
     "query AuthorWindow($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost remaining }"
     " r: repository(owner: $owner, name: $name) {"
+    " nameWithOwner total: pullRequests { totalCount }"
     " pullRequests(states: [OPEN, MERGED, CLOSED], first: $first, after: $after,"
     " orderBy: {field: CREATED_AT, direction: DESC}) {"
     " pageInfo { hasNextPage endCursor }"
@@ -1796,16 +1808,21 @@ def _eligibility_batch_query(n: int) -> str:
     return f"query AuthorEligibilityBatch({var_decls}) {{ rateLimit {{ cost remaining }} {aliases} }}"
 
 
-def _author_search_batch_query(n: int) -> str:
+def _author_search_batch_query(n: int, guard_at: Optional[int] = None) -> str:
     """Per-author PR history for ``n`` authors in one call: aliased
     ``search`` fields ``s0``..``s{n-1}`` (variables ``q0``..``q{n-1}``,
-    ``s{i}`` always paired with ``q{i}``), each one author's newest PRs in
+    ``s{i}`` always paired with ``q{i}``), each one author's oldest PRs in
     the repo (the search type ISSUE covers pull requests; the query is per
-    D-IN-4 / 02 §4 1.3)."""
+    D-IN-4 / 02 §4 1.3) with ``issueCount``, the count of all of them. Alias
+    ``guard_at`` (if any) is the project guard: the repository's own PRs found
+    by the same search, counted and not listed (:func:`_search_guard_passes`).
+    Search nodes never carry the landing fields: 25 aliases with them returned
+    HTTP 502 (2026-11-02)."""
     var_decls = " ".join(f"$q{i}: String!" for i in range(n))
     aliases = " ".join(
+        f"s{i}: search(query: $q{i}, type: ISSUE, first: 1) {{ issueCount }}" if i == guard_at else
         f"s{i}: search(query: $q{i}, type: ISSUE, first: $first) {{"
-        " nodes { ... on PullRequest { number createdAt closedAt mergedAt state } } }"
+        " issueCount nodes { ... on PullRequest { number createdAt closedAt mergedAt state } } }"
         for i in range(n))
     return (f"query AuthorPrsSearchBatch({var_decls} $first: Int) {{"
             f" rateLimit {{ cost remaining }} {aliases} }}")
@@ -1834,7 +1851,10 @@ def _is_external_nonbot(pr: dict) -> bool:
 
 @dataclass(frozen=True)
 class AuthorHistoryResult:
-    """One author-history fetch: the recorded 365-d window and its cost."""
+    """One author-history fetch: the recorded 365-d window and its cost.
+
+    D3-G: ``name_with_owner`` and ``pull_requests_total`` are the repository's own name and PR count as the
+    first page that answered read them (``None`` when the reply carried none)."""
 
     owner: str
     name: str
@@ -1843,6 +1863,8 @@ class AuthorHistoryResult:
     cost_points: int
     remaining: Optional[int]
     prs: tuple[dict, ...]
+    name_with_owner: Optional[str] = None
+    pull_requests_total: Optional[int] = None
 
 
 def fetch_author_window(owner: str, name: str, now: datetime,
@@ -1873,7 +1895,15 @@ def fetch_author_window(owner: str, name: str, now: datetime,
     cost = 0
     remaining: Optional[int] = None
     after: Optional[str] = None
+    name_with_owner: Optional[str] = None
+    pull_requests_total: Optional[int] = None
+    first_page = True
     sizer = _PageSizer(page_size)
+
+    def result(truncated: bool) -> AuthorHistoryResult:
+        return AuthorHistoryResult(owner, name, now, truncated, cost, remaining, tuple(prs),
+                                   name_with_owner, pull_requests_total)
+
     while cap is None or len(prs) < cap:
         variables: dict[str, Any] = {"owner": owner, "name": name}
         if after is not None:
@@ -1891,20 +1921,25 @@ def fetch_author_window(owner: str, name: str, now: datetime,
             remaining = int(rl["remaining"])
         if (data.get("r") or None) is None:
             raise RuntimeError(f"repository not found: {owner}/{name}")
+        if first_page:
+            first_page = False
+            nwo = data["r"].get("nameWithOwner")
+            name_with_owner = nwo if isinstance(nwo, str) and nwo else None
+            total = (data["r"].get("total") or {}).get("totalCount")
+            pull_requests_total = total if isinstance(total, int) and not isinstance(total, bool) else None
         connection = data["r"].get("pullRequests") or {}
         for raw in connection.get("nodes") or []:
             created = _parse_iso(raw.get("createdAt"))
             if created is not None and created < window_start:
-                return AuthorHistoryResult(owner, name, now, False, cost, remaining, tuple(prs))
+                return result(False)
             prs.append(raw)
             if cap is not None and len(prs) >= cap:
                 break
         page_info = connection.get("pageInfo") or {}
         if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
-            return AuthorHistoryResult(owner, name, now, False, cost, remaining, tuple(prs))
+            return result(False)
         after = page_info["endCursor"]
-    return AuthorHistoryResult(owner, name, now, cap is not None and len(prs) >= cap,
-                               cost, remaining, tuple(prs))
+    return result(cap is not None and len(prs) >= cap)
 
 
 def _seeded_sample(candidates: Sequence[str], size: int) -> tuple[str, ...]:
@@ -2083,14 +2118,28 @@ def _fetch_eligibility_batch(logins: Sequence[str], transport: GraphqlTransport,
     return out, cost, remaining
 
 
+#: The pool entry that stands for the project guard alias in a search batch (no login is empty).
+_SEARCH_GUARD: str = ""
+
+
+@dataclass(frozen=True)
+class AuthorSearch:
+    """One search alias' answer: the oldest :data:`AUTHOR_SEARCH_FIRST` PRs of the author as shaped records
+    (``prs``) and ``issue_count``, how many PRs the search found in all. The project guard's answer has no PRs."""
+
+    prs: list[dict]
+    issue_count: int
+
+
 def _run_author_search_query(owner: str, name: str, logins: Sequence[str],
-                             transport: GraphqlTransport,
-                             ) -> tuple[dict[str, list[dict]], list[str], int, Optional[int]]:
-    """One ``AuthorPrsSearchBatch`` call over exactly ``logins``.
+                             transport: GraphqlTransport, *, repo: Optional[str] = None,
+                             ) -> tuple[dict[str, AuthorSearch], list[str], int, Optional[int]]:
+    """One ``AuthorPrsSearchBatch`` call over exactly ``logins``, searched under ``repo`` (the repository's
+    ``nameWithOwner``; default ``owner/name``). :data:`_SEARCH_GUARD` among ``logins`` is the project guard alias.
 
     Returns ``(resolved, unresolved, cost, remaining)``; ``resolved`` maps a
-    login to its shaped PR list. An alias is resolved only when its data is
-    present AND no ``errors`` entry is addressed to it: one search that
+    login to its :class:`AuthorSearch`. An alias is resolved only when its data is
+    present with its ``issueCount`` AND no ``errors`` entry is addressed to it: one search that
     fails with any error is ``history_unmeasured`` (the rule of the
     one-search-per-call loop this replaces), so an alias carrying data next
     to an error of its own is not kept either. An ``errors`` entry without a
@@ -2099,11 +2148,16 @@ def _run_author_search_query(owner: str, name: str, logins: Sequence[str],
     ``data`` at all -- a rate-limit answer is JSON with neither ``data`` nor
     ``errors`` -- which the one-search loop read as an author with no PRs.
     """
-    variables: dict[str, Any] = {f"q{i}": f"repo:{owner}/{name} is:pr author:{login}"
-                                 for i, login in enumerate(logins)}
+    repo = repo or f"{owner}/{name}"
+    guard_at = list(logins).index(_SEARCH_GUARD) if _SEARCH_GUARD in logins else None
+    variables: dict[str, Any] = {
+        f"q{i}": (f"repo:{repo} is:pr" if login == _SEARCH_GUARD
+                  else f"repo:{repo} is:pr author:{login} sort:created-asc")
+        for i, login in enumerate(logins)}
     variables["first"] = AUTHOR_SEARCH_FIRST
     try:
-        doc = _execute_waiting_for_the_network(transport, _author_search_batch_query(len(logins)), variables)
+        doc = _execute_waiting_for_the_network(
+            transport, _author_search_batch_query(len(logins), guard_at), variables)
     except (RuntimeError, subprocess.TimeoutExpired):
         return {}, list(logins), 0, None
     data = doc.get("data") or {}
@@ -2114,51 +2168,55 @@ def _run_author_search_query(owner: str, name: str, logins: Sequence[str],
     if any(not error.get("path") for error in errors):
         return {}, list(logins), cost, remaining
     errored = {str(error["path"][0]) for error in errors}
-    resolved: dict[str, list[dict]] = {}
+    resolved: dict[str, AuthorSearch] = {}
     unresolved: list[str] = []
     for i, login in enumerate(logins):
         node = data.get(f"s{i}")
-        if node is None or f"s{i}" in errored:
+        count = node.get("issueCount") if isinstance(node, Mapping) else None
+        if node is None or f"s{i}" in errored or not isinstance(count, int) or isinstance(count, bool):
             unresolved.append(login)
             continue
-        resolved[login] = [
-            {"number": raw.get("number"), "createdAt": raw.get("createdAt"),
-             "closedAt": raw.get("closedAt"), "mergedAt": raw.get("mergedAt"),
-             "state": raw.get("state")}
-            for raw in (node.get("nodes") or [])
-        ]
+        resolved[login] = AuthorSearch(
+            [{"number": raw.get("number"), "createdAt": raw.get("createdAt"),
+              "closedAt": raw.get("closedAt"), "mergedAt": raw.get("mergedAt"),
+              "state": raw.get("state")}
+             for raw in (node.get("nodes") or [])],
+            count)
     return resolved, unresolved, cost, remaining
 
 
 def _fetch_author_searches(owner: str, name: str, logins: Sequence[str],
                            transport: GraphqlTransport,
                            batch_size: int = AUTHOR_SEARCH_BATCH_SIZE,
-                           ) -> tuple[dict[str, Optional[list[dict]]], int, Optional[int]]:
-    """Per-author PR history (the newest :data:`AUTHOR_SEARCH_FIRST` PRs
-    each author opened in the repo) for every login in ``logins``.
+                           *, repo: Optional[str] = None, guard: bool = False,
+                           ) -> tuple[dict[str, Optional[AuthorSearch]], Optional[int], int, Optional[int]]:
+    """Per-author PR history (the oldest :data:`AUTHOR_SEARCH_FIRST` PRs
+    each author opened in the repo, and how many they opened in all) for every login in ``logins``.
 
     Batched like :func:`_fetch_eligibility_batch`: every alias that
     resolves is kept at once; only the logins whose alias did not are
     retried, at the narrower :data:`AUTHOR_SEARCH_RETRY_WIDTHS`, and a login
     still unresolved at width 1 maps to ``None`` -- the caller records it
     ``history_unmeasured``, never as an author with no PRs. ``logins`` is
-    de-duplicated in first-seen order. Returns ``(histories, cost,
-    remaining)``.
+    de-duplicated in first-seen order. With ``guard`` the project guard alias
+    leads the first batch (24 authors and the guard) and is retried like an
+    author; its count is the second item returned, ``None`` when it never
+    resolved. Returns ``(histories, guard_count, cost, remaining)``.
     """
-    out: dict[str, Optional[list[dict]]] = {}
+    out: dict[str, Optional[AuthorSearch]] = {}
     cost = 0
     remaining: Optional[int] = None
 
     def _run(pool: Sequence[str]) -> list[str]:
         nonlocal cost, remaining
-        resolved, unresolved, c, r = _run_author_search_query(owner, name, pool, transport)
+        resolved, unresolved, c, r = _run_author_search_query(owner, name, pool, transport, repo=repo)
         out.update(resolved)
         cost += c
         if r is not None:
             remaining = r
         return unresolved
 
-    fresh = list(dict.fromkeys(logins))
+    fresh = ([_SEARCH_GUARD] if guard else []) + list(dict.fromkeys(logins))
     while fresh:
         chunk, fresh = fresh[:batch_size], fresh[batch_size:]
         pool = _run(chunk)
@@ -2169,7 +2227,16 @@ def _fetch_author_searches(owner: str, name: str, logins: Sequence[str],
             pool = next_pool
         for login in pool:
             out[login] = None
-    return out, cost, remaining
+    guard_search = out.pop(_SEARCH_GUARD, None)
+    return out, (guard_search.issue_count if guard_search is not None else None), cost, remaining
+
+
+def _search_guard_passes(search_count: Optional[int], pull_requests_total: Optional[int]) -> bool:
+    """D3-G, the project guard: the repository-wide search found at least :data:`AUTHOR_SEARCH_GUARD_FACTOR` of
+    the repository's own PR count. A count or a total that was not read fails it: the searches cannot be trusted."""
+    if search_count is None or pull_requests_total is None:
+        return False
+    return search_count >= AUTHOR_SEARCH_GUARD_FACTOR * pull_requests_total
 
 
 def _eligibility_with_cache(logins: Sequence[str], transport: GraphqlTransport,
@@ -2332,7 +2399,13 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     sampled (:func:`_seeded_sample`) when the union exceeds it; an author
     outside the sample is ``history_unsampled`` and, like a failed search
     (``history_unmeasured``), excluded from MR_first's population entirely
-    (:func:`_no_prior_merged`) rather than assumed a first-timer.
+    (:func:`_no_prior_merged`) rather than assumed a first-timer. D3-G: the search
+    reads each author's oldest :data:`AUTHOR_SEARCH_FIRST` PRs under the repository's
+    own ``nameWithOwner`` and counts all of them (``history_total``, recorded above
+    :data:`AUTHOR_SEARCH_FIRST`); a search that finds none of an author the window holds, or whose
+    repository-wide guard (:func:`_search_guard_passes`) fails, leaves the searched authors
+    ``history_unmeasured``, so the 20% gate (:data:`AUTHOR_UNMEASURED_MAX_FRACTION`) refuses
+    1.3, 5.2 and 5.3 rather than score a veteran as a first-timer.
 
     When ``light_history`` is True (RFC-0009 / W6-5), replaces the per-author
     ``search(type: ISSUE)`` queries and :data:`AUTHOR_SEARCH_CAP` sampling with
@@ -2413,8 +2486,11 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
         other_logins = sorted(set(decision_logins) - set(newcomers))
         search_sample = set(newcomers) | set(_seeded_sample(other_logins, remaining_cap))
 
-        histories, search_cost, search_remaining = _fetch_author_searches(
-            owner, name, [login for login in needed if login in search_sample], t)
+        searched = [login for login in needed if login in search_sample]
+        histories, search_count, search_cost, search_remaining = _fetch_author_searches(
+            owner, name, searched, t, repo=window.name_with_owner or f"{owner}/{name}", guard=bool(searched))
+        project_guard_failed = bool(searched) and not _search_guard_passes(
+            search_count, window.pull_requests_total)
         cost += search_cost
         if search_remaining is not None:
             remaining = search_remaining
@@ -2424,12 +2500,18 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
                 "prs": [], "history_unmeasured": False, "history_unsampled": False,
                 "eligibility_unmeasured": False,
             }
+            found = histories.get(login)
             if login not in search_sample:
                 record["history_unsampled"] = True
-            elif histories.get(login) is None:
-                record["history_unmeasured"] = True  # unresolved at every width: a failed search
+            elif project_guard_failed or found is None or found.issue_count == 0:
+                # D3-G: the repository-wide search does not find the repository under the name asked, an alias
+                # unresolved at every width, or a search that finds none of an author whose PR the window
+                # holds (every searched author has one): not an author with no history.
+                record["history_unmeasured"] = True
             else:
-                record["prs"] = histories[login]
+                record["prs"] = found.prs
+                if found.issue_count > AUTHOR_SEARCH_FIRST:
+                    record["history_total"] = found.issue_count
             author_records.append(record)
 
     band = None if light_history else _stored_dr90_band(raw_dir, key)

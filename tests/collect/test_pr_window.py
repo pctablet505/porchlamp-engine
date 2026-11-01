@@ -996,6 +996,22 @@ class ResolvesBelowWidth:
         self.value = value
 
 
+class SearchHistory:
+    """Sentinel: this login's search is answered from the author's whole history in the repository, as GitHub
+    does: every PR of the author ordered by the query's ``sort:`` qualifier (newest first without one), cut at
+    ``first``, with ``issueCount`` the whole count. ``prs`` are ``w4_spr`` nodes."""
+
+    def __init__(self, prs):
+        self.prs = list(prs)
+
+
+class GuardUnresolved:
+    """Sentinel for ``guard_count``: the project guard's alias comes back null with an error addressed to it."""
+
+
+GUARD_UNRESOLVED = GuardUnresolved()
+
+
 class W4Transport:
     """Recorded-response transport for the author section: scripted window
     pages, per-author search nodes served through the batched
@@ -1023,11 +1039,28 @@ class W4Transport:
     distinct from an errors-carrying response. The query text is parsed
     (not just ``variables``) to assert the alias/variable correspondence
     the live query depends on.
+
+    D3-G: a search alias answers ``issueCount`` when the query asks for it: for a plain ``{"nodes": [...]}`` script
+    it is every PR the author has in the repository, the scripted older ones plus the author's PRs in the window
+    pages (``SearchHistory`` and an explicit ``issueCount`` in the script say otherwise). The window answers
+    ``nameWithOwner`` (``name_with_owner``, default the requested repository) and ``total`` (``pr_total``, none
+    leaves it out); the project guard alias (a search query with no ``author:``) answers ``guard_count`` (default
+    ``pr_total``, or ``GUARD_UNRESOLVED``). Every search query is kept in ``search_queries``.
     """
 
     def __init__(self, window_pages, window_costs, window_remaining, searches, users,
                 search_batch_meta=None, eligibility_batch_meta=None,
-                eligibility_raise_on_call=None, search_raise_on_call=None):
+                eligibility_raise_on_call=None, search_raise_on_call=None,
+                name_with_owner=None, pr_total=1000, guard_count=None):
+        self.name_with_owner = name_with_owner
+        self.pr_total = pr_total
+        self.guard_count = guard_count
+        self.search_queries: list[str] = []
+        self.window_author_prs: dict[str, int] = {}
+        for page in window_pages:
+            for node in page["nodes"]:
+                login = str((node.get("author") or {}).get("login") or "").lower()
+                self.window_author_prs[login] = self.window_author_prs.get(login, 0) + 1
         self.window_pages = list(window_pages)
         self.window_costs = list(window_costs)
         self.window_remaining = list(window_remaining)
@@ -1049,19 +1082,28 @@ class W4Transport:
         if "pullRequests(states" in query:
             n = sum(1 for q, _ in self.calls if "pullRequests(states" in q)
             assert n <= len(self.window_pages), "transport called past recorded pages"
+            repo = {"nameWithOwner": self.name_with_owner or f"{variables['owner']}/{variables['name']}",
+                    "pullRequests": self.window_pages[n - 1]}
+            if self.pr_total is not None:
+                repo["total"] = {"totalCount": self.pr_total}
             return {"data": {"rateLimit": {"cost": self.window_costs[n - 1],
                                           "remaining": self.window_remaining[n - 1]},
-                            "r": {"pullRequests": self.window_pages[n - 1]}}}
+                            "r": repo}}
         if "AuthorPrsSearchBatch" in query:
             batch_idx = self._search_batches
             self._search_batches += 1
             n = sum(1 for key in variables if key.startswith("q"))
             self.search_batch_sizes.append(n)
-            # Parse the query text itself: every alias s{i} paired with $q{i},
-            # exactly n of them, all sharing the one $first variable.
+            # Parse the query text itself: every alias s{i} paired with $q{i}, exactly n of them; an author
+            # alias shares the one $first variable, the project guard alias (a query with no ``author:``)
+            # asks for the count alone.
             for i in range(n):
-                assert f"s{i}: search(query: $q{i}, type: ISSUE, first: $first)" in query, \
-                    f"alias s{i} not paired with $q{i} in query text"
+                if " author:" in variables[f"q{i}"]:
+                    assert f"s{i}: search(query: $q{i}, type: ISSUE, first: $first)" in query, \
+                        f"alias s{i} not paired with $q{i} in query text"
+                else:
+                    assert f"s{i}: search(query: $q{i}, type: ISSUE, first: 1)" in query, \
+                        f"guard alias s{i} not paired with $q{i} in query text"
             assert query.count("search(query:") == n
             assert variables["first"] == gql.AUTHOR_SEARCH_FIRST
             if batch_idx in self.search_raise_on_call:
@@ -1070,8 +1112,18 @@ class W4Transport:
             errors: list[dict] = []
             for i in range(n):
                 q = variables[f"q{i}"]
-                assert q.startswith("repo:acme/") and " is:pr author:" in q, q
-                login = q.rsplit("author:", 1)[-1]
+                self.search_queries.append(q)
+                assert q.startswith("repo:") and " is:pr" in q, q
+                if " author:" not in q:
+                    if isinstance(self.guard_count, GuardUnresolved):
+                        data[f"s{i}"] = None
+                        errors.append({"path": [f"s{i}"], "message": "Something went wrong while executing your query."})
+                    else:
+                        count = self.pr_total if self.guard_count is None else self.guard_count
+                        asks = f"s{i}: search(query: $q{i}, type: ISSUE, first: 1) {{ issueCount" in query
+                        data[f"s{i}"] = {"issueCount": count} if asks else {}
+                    continue
+                login = q.rsplit("author:", 1)[-1].removesuffix(" sort:created-asc")
                 assert login in self.searches, f"unrecorded search for {login}"
                 self.searched_logins.append(login)
                 val = self.searches[login]
@@ -1083,12 +1135,20 @@ class W4Transport:
                     data[f"s{i}"] = None
                     errors.append({"path": [f"s{i}"],
                                   "message": "Something went wrong while executing your query."})
+                    continue
+                if isinstance(val, SearchHistory):
+                    ordered = sorted(val.prs, key=lambda pr: pr["createdAt"],
+                                     reverse=not q.endswith(" sort:created-asc"))
+                    val = {"issueCount": len(val.prs), "nodes": ordered[:variables["first"]]}
                 elif isinstance(val, DataWithError):
-                    data[f"s{i}"] = val.value
                     errors.append({"path": [f"s{i}", "nodes", 0],
                                   "message": "Something went wrong while executing your query."})
-                else:
-                    data[f"s{i}"] = val
+                    val = val.value
+                if "issueCount" not in val:
+                    val = {**val, "issueCount": len(val["nodes"]) + self.window_author_prs.get(login, 0)}
+                if f"s{i}: search(query: $q{i}, type: ISSUE, first: $first) {{ issueCount" not in query:
+                    val = {key: value for key, value in val.items() if key != "issueCount"}
+                data[f"s{i}"] = val
             data["rateLimit"] = (self.search_batch_meta[batch_idx]
                                  if batch_idx < len(self.search_batch_meta)
                                  else {"cost": 1, "remaining": 999})
@@ -1332,7 +1392,7 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
     assert recs["new2"]["history_unmeasured"] is False
     assert recs["new2"]["eligibility_unmeasured"] is False
     assert len(fake.calls) == 8  # 2 window + 3 search + 3 eligibility calls
-    assert fake.search_batch_sizes == [3, 1, 1]  # one batch, then new1 alone twice
+    assert fake.search_batch_sizes == [4, 1, 1]  # one batch (3 authors and the guard), then new1 alone twice
     assert fake.n_eligibility_batch_calls == 3
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW,
                                       transport=fake) == "skip"
@@ -1550,7 +1610,7 @@ def test_collect_author_history_search_cap_marks_unsampled_authors(tmp_path):
     assert len(unsampled) == 10
     # only the sampled authors are searched, each once, 25 to a call
     assert sorted(fake.searched_logins) == sorted(sampled)
-    assert fake.search_batch_sizes == [25, 25]
+    assert fake.search_batch_sizes == [25, 25, 1]   # the guard and 24 authors, 25, then the last one
     assert set(sampled) == set(gql._seeded_sample(sorted(recs), gql.AUTHOR_SEARCH_CAP))
     assert fake.n_eligibility_batch_calls == 4  # ceil(60 / 15): every author, uncapped
 
@@ -1627,7 +1687,7 @@ def test_batched_searches_keep_each_authors_own_nodes(tmp_path):
     fake = W4Transport([_w4_page(prs, False)], [3], [4990], searches, users)
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
     recs = _records(raw)
-    assert fake.search_batch_sizes == [25, 5]
+    assert fake.search_batch_sizes == [25, 6]   # the guard and 24 authors, then 6
     for i, login in enumerate(logins):
         assert recs[login]["history_unmeasured"] is False
         expected = [] if login == "d007" else [5000 + i]
@@ -1646,7 +1706,7 @@ def test_one_failed_alias_retries_only_that_author(tmp_path):
     gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
     recs = _records(raw)
     assert [login for login, r in recs.items() if r["history_unmeasured"]] == ["d003"]
-    assert fake.search_batch_sizes == [25, 1, 1, 5]
+    assert fake.search_batch_sizes == [25, 1, 1, 6]
 
 
 def test_a_rate_limit_body_is_unmeasured_never_an_empty_history(tmp_path):
@@ -1668,7 +1728,7 @@ def test_a_rate_limit_body_is_unmeasured_never_an_empty_history(tmp_path):
     assert recs["d000"]["history_unmeasured"] is False
     assert recs["d000"]["prs"] == [merged]
     assert recs["d002"]["history_unmeasured"] is False
-    assert fake.search_batch_sizes == [3, 3, 1, 1, 1]
+    assert fake.search_batch_sizes == [4, 4, 1, 1, 1, 1]   # the guard rides along: 4 aliases, again at width 5, then alone
 
 
 def test_an_alias_with_data_and_its_own_error_is_not_kept(tmp_path):
@@ -1712,7 +1772,181 @@ def test_search_transport_failure_retries_narrower(tmp_path):
                        search_raise_on_call={0})
     gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
     assert not any(r["history_unmeasured"] for r in _records(raw).values())
-    assert fake.search_batch_sizes == [7, 5, 2]
+    assert fake.search_batch_sizes == [8, 5, 3]   # 7 authors and the guard fail; width 5 retries them 5 and 3
+
+
+# --- D3-G (PR-2): the search reads the author's OLDEST PRs, by the repository's own name, behind two guards ---
+
+def _users(logins, events=50):
+    return {login: {"createdAt": "2015-01-01T00:00:00Z",
+                    "contributionsCollection": {"contributionCalendar": {"totalContributions": events}}}
+            for login in logins}
+
+
+def test_the_author_search_is_oldest_first_by_the_name_github_gives_the_repository(tmp_path):
+    """T2.1: ``repo:<nameWithOwner> is:pr author:<login> sort:created-asc`` (a moved repository answers to its new
+    name only) and the count of all the author's PRs."""
+    raw = tmp_path / "raw"
+    logins = ["d000", "d001", "d002"]
+    prs, users = _decision_authors(logins)
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], {login: {"nodes": []} for login in logins}, users,
+                       name_with_owner="acme-moved/widget-new")
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+    author_queries = [q for q in fake.search_queries if " author:" in q]
+    assert sorted(author_queries) == [
+        f"repo:acme-moved/widget-new is:pr author:{login} sort:created-asc" for login in logins]
+    assert "issueCount" in next(query for query, _ in fake.calls if "AuthorPrsSearchBatch" in query)
+
+
+def test_the_author_window_query_reads_the_repository_name_and_pr_total_from_its_first_page():
+    assert " nameWithOwner total: pullRequests { totalCount }" in gql.AUTHOR_WINDOW_QUERY
+
+    class TwoPages:
+        calls = 0
+
+        def execute(self, query, variables):
+            TwoPages.calls += 1
+            first_page = TwoPages.calls == 1
+            node = w4_pr(10 - TwoPages.calls, (NOW - timedelta(days=TwoPages.calls)).isoformat(), "alice")
+            return {"data": {"rateLimit": {"cost": 1, "remaining": 9}, "r": {
+                "nameWithOwner": "first/page" if first_page else "second/page",
+                "total": {"totalCount": 7 if first_page else 99},
+                "pullRequests": _w4_page([node], first_page, "c1")}}}
+
+    res = gql.fetch_author_window("acme", "widget", NOW, TwoPages())
+    assert (len(res.prs), res.name_with_owner, res.pull_requests_total) == (2, "first/page", 7)
+
+
+def test_the_search_batch_query_asks_for_the_count_and_a_guard_alias_asks_for_the_count_alone():
+    query = gql._author_search_batch_query(3, guard_at=0)
+    assert query.count("search(query:") == 3
+    assert "s0: search(query: $q0, type: ISSUE, first: 1) { issueCount }" in query
+    for i in (1, 2):
+        assert f"s{i}: search(query: $q{i}, type: ISSUE, first: $first) {{ issueCount nodes {{" in query
+    assert "issueCount" in gql._author_search_batch_query(1)
+    assert "first: 1)" not in gql._author_search_batch_query(2)
+
+
+def test_a_search_that_finds_none_of_an_authors_prs_leaves_them_unmeasured_not_a_first_timer(tmp_path):
+    """T2.2: ``issueCount`` 0 for an author whose PR the window holds is a search that missed them, not an
+    author with no history; their neighbour in the same call is measured."""
+    raw = tmp_path / "raw"
+    prs, users = _decision_authors(["d000", "d001"])
+    searches = {"d000": {"issueCount": 0, "nodes": []}, "d001": {"nodes": []}}
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], searches, users)
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    recs = _records(raw)
+    assert (recs["d000"]["history_unmeasured"], recs["d000"]["prs"]) == (True, [])
+    assert recs["d001"]["history_unmeasured"] is False
+
+
+def _main_window_collect(tmp_path, **fake_kwargs):
+    raw = tmp_path / "raw"
+    searches = {"ext1": {"nodes": [w4_spr(100, "2026-06-01T00:00:00Z", closed="2026-06-05T00:00:00Z")]},
+                "new1": {"nodes": []}, "new2": {"nodes": []}}
+    fake = W4Transport(_w4_main_window_pages(), [10, 12], [4990, 4980], searches, _users(searches), **fake_kwargs)
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+    data = read_envelope(raw / "author_history" / "acme__widget.json").data
+    return data, fake
+
+
+def test_a_search_that_finds_none_of_a_moved_repositorys_prs_leaves_every_searched_author_unmeasured(tmp_path):
+    """T2.3: rust-lang-nursery/rand resolves to rust-random/rand (1,152 PRs), whose search by the old name finds
+    none: the project guard fails, so no searched author reads as a first-timer or a newcomer. The 20% gate then
+    refuses 1.3 (MR_first, ``collector_failure``); no newcomer whose search failed is read for 5.2 or 5.3, so
+    neither has a value (the newcomer gate counting those authors as unmeasured is PR-3's, D3-I)."""
+    data, fake = _main_window_collect(tmp_path, pr_total=1152, guard_count=0)
+    assert [r["history_unmeasured"] for r in data["author_records"]] == [True, True, True]
+    assert all(r["prs"] == [] for r in data["author_records"])
+    fields = gql.derive_cohort_fields(data)
+    assert fields["authors_excluded_unmeasured"] == (3, "verified")
+    assert fields["mr_first_rate"] == (None, "missing")
+    assert fields["cohort_unmeasured_detail"] == ("3 of 3 authors unmeasured", "verified")
+    assert fields["newcomer_cohort_author_count"] == (0, "derived")
+    assert fields["newcomer_conversion"][0] is None and fields["rr90_return_rate"][0] is None
+    # the control: the same record with a search that finds the repository's PRs is measured
+    ok_data, _ = _main_window_collect(tmp_path / "ok", pr_total=1152, guard_count=1145)
+    assert [r["history_unmeasured"] for r in ok_data["author_records"]] == [False, False, False]
+    ok_fields = gql.derive_cohort_fields(ok_data)
+    assert ok_fields["authors_excluded_unmeasured"] == (0, "verified")
+    assert ok_fields["newcomer_cohort_author_count"] == (2, "derived")
+    assert "cohort_unmeasured_detail" not in ok_fields
+
+
+@pytest.mark.parametrize("pr_total, guard_count, measured", [
+    (1000, 950, True),    # exactly 95% of the repository's own count passes
+    (1000, 949, False),   # one below fails
+    (1000, 1000, True),
+    (0, 0, True),         # a repository with no PR has nothing to miss
+    (None, 1000, False),  # the reply carries no total: the guard cannot be read, so it fails
+    (1000, GUARD_UNRESOLVED, False),  # the guard alias never answers
+])
+def test_the_project_guard_passes_at_95_percent_of_the_repositorys_own_count(tmp_path, pr_total, guard_count,
+                                                                               measured):
+    raw = tmp_path / "raw"
+    prs, users = _decision_authors(["d000", "d001"])
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], {"d000": {"nodes": []}, "d001": {"nodes": []}}, users,
+                       pr_total=pr_total, guard_count=guard_count)
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    assert [r["history_unmeasured"] for r in _records(raw).values()] == [not measured] * 2
+
+
+def test_the_project_guard_rides_in_the_first_search_batch_with_24_authors_and_costs_no_call(tmp_path):
+    raw = tmp_path / "raw"
+    logins = [f"d{i:03d}" for i in range(30)]
+    prs, users = _decision_authors(logins)
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], {login: {"nodes": []} for login in logins}, users)
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    assert fake.search_batch_sizes == [25, 6]
+    assert [q for q in fake.search_queries if " author:" not in q] == ["repo:acme/widget is:pr"]
+    assert not any(r["history_unmeasured"] for r in _records(raw).values())
+
+
+def test_a_search_call_that_fails_carries_the_guard_into_the_narrower_retry(tmp_path):
+    raw = tmp_path / "raw"
+    prs, users = _decision_authors(["d000", "d001", "d002"])
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], {login: {"nodes": []} for login in users}, users,
+                       search_raise_on_call={0})
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    assert fake.search_batch_sizes == [4, 4]   # 3 authors and the guard, then the same four at width 5
+    assert not any(r["history_unmeasured"] for r in _records(raw).values())
+
+
+def test_no_author_to_search_means_no_search_call_and_no_guard(tmp_path):
+    raw = tmp_path / "raw"
+    window = _w4_page([w4_pr(1, "2026-05-01T00:00:00Z", "bob", assoc="MEMBER")], False)
+    fake = W4Transport([window], [3], [4990], {}, {})
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+    assert fake.n_search_calls == 0
+
+
+def test_a_veteran_with_40_prs_is_read_from_their_oldest_so_their_prior_merge_keeps_them_out_of_mr_first(tmp_path):
+    """T2.4: the veteran's merged PR is their oldest of 40. Read newest first they showed 30 unmerged PRs and
+    counted as a first-timer (1.3); oldest first they show the merge. The fake answers from the whole history
+    by the query's own ``sort:`` qualifier, so it pins the order the collector asks for."""
+    raw = tmp_path / "raw"
+    cohort_created = NOW - timedelta(days=150)
+    history = ([w4_spr(1, (NOW - timedelta(days=400)).isoformat(), closed=(NOW - timedelta(days=395)).isoformat(),
+                       merged=(NOW - timedelta(days=395)).isoformat())]
+               + [w4_spr(10 + i, (NOW - timedelta(days=360 - i)).isoformat(),
+                         closed=(NOW - timedelta(days=359 - i)).isoformat()) for i in range(38)]
+               + [w4_spr(901, cohort_created.isoformat(), closed=(cohort_created + timedelta(days=3)).isoformat(),
+                         merged=(cohort_created + timedelta(days=3)).isoformat())])
+    assert len(history) == 40
+    prs = _b2_repro_prs()
+    logins = ["vet"] + [f"g{i}" for i in range(9)]
+    searches = {"vet": SearchHistory(history), **{f"g{i}": {"nodes": []} for i in range(9)}}
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], searches, _users(logins))
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    recs = _records(raw)
+    assert [pr["number"] for pr in recs["vet"]["prs"]][:2] == [1, 10] and len(recs["vet"]["prs"]) == 30
+    assert recs["vet"]["history_unmeasured"] is False
+    assert recs["vet"]["history_total"] == 40                       # issueCount > 30 is recorded
+    assert not any("history_total" in recs[f"g{i}"] for i in range(9))
+    data = read_envelope(raw / "author_history" / "acme__widget.json").data
+    fields = gql.derive_cohort_fields(data)
+    assert fields["mr_first_rate_raw"] == (0.0, "derived")
+    assert fields["mr_first_pr_count_raw"] == (9, "derived")      # the veteran is not one of the first-timers
 
 
 # --- D-COL-5 user cache inside collect_author_history -----------------------
