@@ -35,6 +35,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Union
 
+from porchlamp.collect.names import is_path_segment
 from porchlamp.collect.pike_signals import parse_iso, window_anchor_stale
 from porchlamp.core.constants import WINDOW_STALENESS_DAYS
 from porchlamp.derive.gate_evidence import pr_window_coverage_in
@@ -171,7 +172,8 @@ def _repo(key: str) -> str:
 
 def _candidate_keys(data_dir: Path) -> tuple[list[str], int]:
     """The envelope keys (``owner__name``) of the repos ``derive --all`` reads: ``raw/candidates.jsonl``,
-    else ``candidates.jsonl``. Also the number of lines that name no repo (derive refuses those too)."""
+    else ``candidates.jsonl``. Also the number of lines that name no repo, or whose owner or name is not a single path segment
+    (derive refuses those too)."""
     for path in (data_dir / "raw" / "candidates.jsonl", data_dir / "candidates.jsonl"):
         if path.is_file():
             break
@@ -194,7 +196,7 @@ def _candidate_keys(data_dir: Path) -> tuple[list[str], int]:
         except json.JSONDecodeError:
             row = None
         owner, name = (row.get("owner"), row.get("name")) if isinstance(row, dict) else (None, None)
-        if isinstance(owner, str) and owner and isinstance(name, str) and name:
+        if is_path_segment(owner) and is_path_segment(name):
             keys[f"{owner}__{name}"] = None
         else:
             skipped += 1

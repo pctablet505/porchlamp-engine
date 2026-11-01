@@ -557,3 +557,66 @@ def test_a_fetch_that_fails_on_a_later_page_writes_no_envelope(
     status = gather.gather_repo("acme", "widget", "pypi", collectors=frozenset({"actions_runs"}))
     assert status["actions_runs"] == "fail"
     assert not (gather.DATA / "actions_runs" / "acme__widget.json").exists()
+
+
+_HOSTILE_ECOSYSTEM = "../../../esc"
+
+
+def _nested_root(gather: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Point gather at ``tmp_path/root/data/raw``, so an escape through ``..`` still lands inside ``tmp_path``."""
+    root = tmp_path / "root"
+    monkeypatch.setattr(gather, "DATA", root / "data" / "raw")
+    monkeypatch.setattr(gather, "CANDIDATES", root / "data" / "raw" / "candidates.jsonl")
+    gather.DATA.mkdir(parents=True)
+    return root
+
+
+def _tree(root: Path) -> set[str]:
+    return {str(p.relative_to(root)) for p in root.rglob("*")}
+
+
+def test_load_candidates_skips_a_row_whose_ecosystem_is_not_a_file_name_part(
+    gather: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lines = [json.dumps({"owner": "a", "name": "b", "ecosystem": _HOSTILE_ECOSYSTEM}),
+             json.dumps({"owner": "a", "name": "c"}),
+             json.dumps({"owner": "981011512", "name": "x", "ecosystem": "npm"})]
+    assert gather.load_candidates(lines, None) == [("981011512", "x", "npm")]
+    assert "skipped 2 invalid candidates" in capsys.readouterr().out
+
+
+def test_gather_all_downloads_writes_nothing_outside_the_data_root_for_a_hostile_ecosystem(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _nested_root(gather, monkeypatch, tmp_path)
+    gather.CANDIDATES.write_text(json.dumps({"owner": "a", "name": "b", "ecosystem": _HOSTILE_ECOSYSTEM}) + "\n")
+    monkeypatch.setattr(gather, "_downloads", lambda eco, pkg, skip_pypistats=False: (5, "stub"))
+    monkeypatch.setattr(gather.time, "sleep", lambda s: None)
+    before = _tree(root)
+    monkeypatch.setattr(sys, "argv", ["gather.py", "--all", "--collectors", "downloads"])
+    gather.main()
+    assert _tree(root) == before, sorted(_tree(root) - before)
+    assert "skipped 1 invalid candidates" in capsys.readouterr().out
+
+
+def test_gather_repo_refuses_an_ecosystem_that_is_not_a_file_name_part_before_building_a_path(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _nested_root(gather, monkeypatch, tmp_path)
+    monkeypatch.setattr(gather, "_downloads", lambda eco, pkg, skip_pypistats=False: (5, "stub"))
+    before = _tree(root)
+    with pytest.raises(ValueError, match="invalid GitHub ecosystem"):
+        gather.gather_repo("a", "b", _HOSTILE_ECOSYSTEM, collectors=frozenset({"downloads"}))
+    assert _tree(root) == before
+
+
+def test_make_sample_envelope_paths_refuses_an_absolute_path(tmp_path: Path) -> None:
+    """A downloads key that starts with ``/`` makes ``Path("raw") / "downloads" / key`` absolute (``pathlib`` drops
+    the left side), and ``data_dir / absolute`` reads that file: only the absolute clause of the check catches it."""
+    make_sample = _make_sample_module()
+    target = tmp_path / "abs__esc.json"
+    target.write_text("{}", encoding="utf-8")
+    data = tmp_path / "d"
+    (data / "raw" / "downloads").mkdir(parents=True)
+    with pytest.raises(ValueError, match="leaves the sample directory"):
+        make_sample.envelope_paths(data, {"owner": "x", "name": "esc", "ecosystem": str(tmp_path / "abs")})

@@ -34,7 +34,7 @@ from porchlamp.collect.commits import (
     derive_commits_180d_rows,
 )
 from porchlamp.collect.envelope import write_envelope
-from porchlamp.collect.names import valid_ref
+from porchlamp.collect.names import valid_name, valid_ref
 # SLEEP_REST shares porchlamp.collect.pike_signals' SLEEP_CORE_SECONDS
 # (both 0.15, the same GitHub core-API rate limit) -- one definition imported
 # under this file's existing name.
@@ -208,6 +208,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     """
     validate.github_segment(owner, "owner")
     validate.github_segment(name, "name")
+    validate.github_segment(ecosystem, "ecosystem")  # becomes part of the downloads file name
     key = f"{owner}__{name}"
     status: dict[str, Any] = {}
 
@@ -869,7 +870,8 @@ def _example(value: Any) -> str:
 def load_candidates(lines: list[str], limit: Optional[int]) -> list[tuple[str, str, str]]:
     """``(owner, name, ecosystem)`` for the first ``limit`` lines (all when None).
 
-    A line whose owner or name is not a legal GitHub name is skipped, never passed on; the count and at most five
+    A line whose owner or name is not a legal GitHub name, or whose ecosystem is missing or is not a legal file-name part
+    (it names the downloads file), is skipped, never passed on; the count and at most five
     examples (owner/name only, never the whole line) are printed.
     """
     repos: list[tuple[str, str, str]] = []
@@ -886,7 +888,7 @@ def load_candidates(lines: list[str], limit: Optional[int]) -> list[tuple[str, s
             continue
         if not r.get("owner"):
             continue
-        if not valid_ref(r.get("owner"), r.get("name")):
+        if not valid_ref(r.get("owner"), r.get("name")) or not valid_name(r.get("ecosystem")):
             skipped.append(f"{_example(r.get('owner'))}/{_example(r.get('name'))}")
             continue
         repos.append((r["owner"], r["name"], r["ecosystem"]))

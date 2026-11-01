@@ -613,3 +613,32 @@ def test_added_languages_face_the_same_star_floor_and_cap(sandbox, monkeypatch):
     _build(max_total=2, sleep_s=0, min_stars=1000, now=NOW)
     assert [(r["name"], r["ecosystem"]) for r in _rows(sandbox / "candidates.jsonl")] == [
         ("high", "maven"), ("mid", "maven")]
+
+
+def _carried(owner, name, ecosystem="go"):
+    return {"owner": owner, "name": name, "ecosystem": ecosystem, "selected_by": ["old"],
+            "stars_at_selection": 5000, "added_at": "2026-09-23T01:00:00+00:00"}
+
+
+def test_a_carried_row_that_is_not_one_path_segment_is_dropped_and_nothing_is_written_outside_the_data_root(
+    sandbox, monkeypatch, capsys
+):
+    # build_universe's DATA is a module constant: point it at a nested root, so an escape through `..` still lands in tmp_path
+    root = sandbox / "root"
+    data = root / "data" / "raw"
+    data.mkdir(parents=True)
+    monkeypatch.setattr(bu, "DATA", data)
+    monkeypatch.setattr(bu, "CHECKPOINT", data / "universe_checkpoint.json")
+    monkeypatch.setattr(bu, "CANDIDATES", data / "candidates.jsonl")
+    existing = sandbox / "current.jsonl"
+    existing.write_text("".join(json.dumps(r) + "\n" for r in [
+        _carried("../../../esc", "x"), _carried("ok", "../../../e2"), _carried("ok", "fine", "../../e"),
+        _carried("981011512", "--")]))
+    _install(monkeypatch, FakeGH(_go(2)))
+    before = {str(p.relative_to(root)) for p in root.rglob("*")}
+    bu.build(max_total=100, only="go", sleep_s=0, min_stars=1000, existing=existing)
+    created = {str(p.relative_to(root)) for p in root.rglob("*")} - before
+    assert all(name == "data" or name.startswith("data/") for name in created), sorted(created)
+    owners = {r["owner"] for r in _rows(data / "candidates.jsonl")}
+    assert owners == {"981011512", "o0", "o1"}
+    assert "dropped 3 carried candidates" in capsys.readouterr().out
