@@ -247,7 +247,7 @@ def test_a_pr_window_that_stopped_short_does_not_narrow_the_lookups(tmp_path):
     fake = _transport(prs, needed, search)
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
     data = read_envelope(raw / "author_history" / "acme__widget.json").data
-    assert "dr90_band_anchor" not in data and len(fake.eligibility_batch_sizes) == -(-len(needed) // 15)
+    assert "dr90_band_anchor" not in data and len(fake.eligibility_batch_sizes) == -(-len(needed) // gql.ELIGIBILITY_BATCH_SIZE)
 
 
 # --- the band: one definition, shared with 1.2 -----------------------------------------------------------------------

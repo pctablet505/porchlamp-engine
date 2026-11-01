@@ -29,14 +29,13 @@ import random
 import re
 import statistics
 import subprocess
-import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from porchlamp.collect import ghcli, ledger
+from porchlamp.collect import ghcli, ledger, net
 from porchlamp.collect.envelope import COLLECTOR_VERSION, read_envelope, sha256_hex, write_envelope
 from porchlamp.collect.user_cache import UserCache
 from porchlamp.core import constants, gates, landing
@@ -283,7 +282,9 @@ def _is_network_error(exc: BaseException) -> bool:
 
 
 def _wait(seconds: float) -> None:
-    time.sleep(seconds)
+    """The wait before a call is read again after a network failure; a stop (or the thread's cancel binding) ends it
+    within a second (D4: a worker thread must not hold a stop back for up to 300 s)."""
+    net.sleep(seconds)
 
 
 def _execute_waiting_for_the_network(transport: "GraphqlTransport", query: str, variables: dict[str, Any], *,
@@ -1746,8 +1747,12 @@ RETURN_WINDOW_DAYS: int = 90
 #: deterministically sampled (:func:`_seeded_sample`) from the union of the
 #: decision cohort and the newcomer sample when that union is larger.
 AUTHOR_SEARCH_CAP: int = 50
-#: Batch size for aliased user eligibility queries.
-ELIGIBILITY_BATCH_SIZE: int = 15
+#: Batch size for aliased user eligibility queries. MEASURED 2026-11-02 (D4, workstation, live API): 15-login
+#: batches now sit at GitHub's 10-second limit, 4 of 12 timed out (502 after about 10.7 s) and 1 came back
+#: RESOURCE_LIMITS_EXCEEDED, the rest took 5.0-9.6 s; 8-login batches had no problem in 31 calls at 2.2-4.2 s,
+#: no dearer per login (0.28-0.53 s against 0.33-0.64 s). A timeout costs extra primary points and the narrower
+#: retries that follow. A login's record depends only on its own alias, so the width changes no value.
+ELIGIBILITY_BATCH_SIZE: int = 8
 #: Narrower retry widths for aliases a batch left unresolved.
 ELIGIBILITY_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 #: Aliased per-author searches per ``AuthorPrsSearchBatch`` call. MEASURED
