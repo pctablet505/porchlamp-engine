@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
@@ -470,6 +471,92 @@ def test_t10_cli_print_and_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixt
     assert capsys.readouterr().out == ""
 
 
+def test_a_file_anchored_exactly_at_the_newest_pr_window_anchor_is_not_this_cycle(
+    tmp_path: Path,
+) -> None:
+    """This cycle means anchored AFTER the newest pull-request record: a file anchored at it is older."""
+    asof = _asof()
+    root = _root(
+        tmp_path,
+        {
+            "acme__alpha": {"pr": A, "releases": A + DAY, "issues": A + 2 * DAY},
+            "acme__beta": {"pr": A - DAY, "releases": A, "issues": A + 2 * DAY},
+        },
+    )
+    plan = asof.plan_as_of(root)
+    assert plan.releases.count == 1
+    assert plan.upper == A + 15 * DAY
+    releases = _by_guard(asof.check_as_of(root, A_UP))["releases"]
+    assert releases.counts["files"] == 1
+
+
+def test_repo_keys_keep_their_case(tmp_path: Path) -> None:
+    """Envelope files are named after the candidate as written (``Big__App.json``), not lower-cased."""
+    asof = _asof()
+    root = _root(
+        tmp_path,
+        {
+            "Big__App": {"pr": A, "releases": A + DAY, "issues": A + 2 * DAY},
+            "acme__small": {"pr": A - DAY, "releases": A + DAY, "issues": A + 2 * DAY},
+        },
+    )
+    assert asof.earliest_valid_as_of(root) == A_UP
+
+
+def test_an_envelope_that_is_not_utf8_is_warned_about_not_a_crash(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Derive reads an envelope it cannot decode as absent (``gate_evidence._envelope_document``); so does this."""
+    asof = _asof()
+    root = _standard(tmp_path)
+    candidates = root / "raw" / "candidates.jsonl"
+    candidates.write_text(
+        candidates.read_text(encoding="utf-8")
+        + json.dumps({"owner": "acme", "name": "zeta", "ecosystem": "pypi"})
+        + "\n",
+        encoding="utf-8",
+    )
+    (root / "raw" / "pr_window" / "acme__zeta.json").write_bytes(
+        b'{"data": {"window_anchor": "\xff"}}'
+    )
+    assert asof.earliest_valid_as_of(root) == A_UP
+    unreadable = _by_guard(asof.check_as_of(root, A_UP))["unreadable"]
+    assert unreadable.status == "WARN" and unreadable.counts == {"pr_window": 1}
+    capsys.readouterr()
+    assert main(["as-of", "--data-dir", str(root)]) == 0
+
+
+def test_an_unreadable_candidates_file_exits_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A candidates file that is not UTF-8 is a read error: one line on stderr, exit 2, no traceback."""
+    root = _standard(tmp_path)
+    candidates = root / "raw" / "candidates.jsonl"
+    candidates.write_bytes(b'{"owner": "acme", "name": "alpha\xff"}\n')
+    capsys.readouterr()
+    assert main(["as-of", "--data-dir", str(root)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert str(candidates) in captured.err and captured.err.count("\n") == 1
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read a file whatever its mode")
+def test_a_candidates_file_that_cannot_be_opened_exits_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _standard(tmp_path)
+    candidates = root / "raw" / "candidates.jsonl"
+    candidates.chmod(0)
+    try:
+        capsys.readouterr()
+        assert main(["as-of", "--data-dir", str(root), "--print"]) == 2
+    finally:
+        candidates.chmod(0o644)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert str(candidates) in captured.err and captured.err.count("\n") == 1
+
+
 def test_an_unreadable_envelope_is_warned_about_and_does_not_move_as_of(tmp_path: Path) -> None:
     asof = _asof()
     root = _standard(tmp_path)
@@ -503,13 +590,32 @@ def test_an_unreadable_envelope_is_warned_about_and_does_not_move_as_of(tmp_path
                 "window_days": 180,
                 "truncated": True,
                 "cap": 500,
+                # Newest first, as the collector writes them: the oldest PR is not the first one.
+                "prs": [
+                    {"createdAt": (A - 3 * DAY).isoformat()},
+                    {"createdAt": (A - 20 * DAY).isoformat(), "big": "x" * 50},
+                    {"number": 3},
+                ],
+            },
+            id="cut-at-cap-newest-first",
+        ),
+        pytest.param(
+            {
+                "window_anchor": A.isoformat(),
+                "window_days": 180,
+                "truncated": True,
+                "cap": 500,
                 "prs": [
                     {"createdAt": (A - 20 * DAY).isoformat(), "big": "x" * 50},
                     {"createdAt": (A - 3 * DAY).isoformat()},
                     {"number": 3},
                 ],
             },
-            id="cut-at-cap",
+            id="cut-at-cap-oldest-first",
+        ),
+        pytest.param(
+            {"window_anchor": A.isoformat(), "window_days": 90, "truncated": False, "prs": []},
+            id="window-days-90",
         ),
         pytest.param(
             {"window_anchor": A.isoformat(), "truncated": None, "prs": []}, id="cut-not-stated"
@@ -533,7 +639,15 @@ def test_the_reduced_record_covers_exactly_as_the_full_record_does(data: dict[st
     asof = _asof()
     document = {"source": "test", "fetched_at": (A - DAY).isoformat(), "data": data}
     reduced = asof._reduced_window_document(document)
-    for shift in (timedelta(days=-30), timedelta(0), timedelta(minutes=1), timedelta(days=40)):
+    shifts = (
+        timedelta(days=-30),
+        timedelta(0),
+        timedelta(minutes=1),
+        timedelta(days=40),
+        timedelta(days=100),
+        timedelta(days=170),
+    )
+    for shift in shifts:
         assert pr_window_coverage_in(reduced, A + shift) == pr_window_coverage_in(
             document, A + shift
         )

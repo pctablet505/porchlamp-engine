@@ -64,7 +64,7 @@ _WINDOW_FIELDS = ("window_anchor", "window_days", "truncated", "cap")
 
 
 class AsOfError(Exception):
-    """The data root cannot be read at all: no directory, or no candidates file."""
+    """The data root cannot be read at all: no directory, no candidates file, or one that cannot be read."""
 
 
 @dataclass(frozen=True)
@@ -180,9 +180,13 @@ def _candidate_keys(data_dir: Path) -> tuple[list[str], int]:
             f"no candidates file: {data_dir / 'raw' / 'candidates.jsonl'} or {data_dir / 'candidates.jsonl'} "
             "lists the repos whose envelopes the guards read"
         )
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, ValueError) as error:
+        raise AsOfError(f"cannot read {path}: {error}") from None
     keys: dict[str, None] = {}
     skipped = 0
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         if not line.strip():
             continue
         try:
@@ -204,7 +208,7 @@ def _read(path: Path) -> tuple[Optional[Mapping[str, Any]], bool]:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None, False
-    except OSError:
+    except (OSError, ValueError):
         return None, True
     try:
         document = json.loads(text)
@@ -363,7 +367,9 @@ def plan_as_of(root: Union[Path, str, RootScan]) -> AsOfPlan:
 
 
 def earliest_valid_as_of(root: Union[Path, str, RootScan]) -> Optional[datetime]:
-    """The earliest instant every guard accepts, in UTC; ``None`` when there is none."""
+    """The earliest whole-minute instant the anchor rule (D2-A) allows, in UTC; ``None`` when the bounds
+    leave none. It is not a verdict: :func:`check_as_of` decides (a record with no ``window_anchor``, or cut
+    records at two caps, can still FAIL there)."""
     return plan_as_of(root).earliest
 
 
