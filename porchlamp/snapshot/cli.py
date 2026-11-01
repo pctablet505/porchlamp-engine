@@ -1,5 +1,6 @@
 """``porchlamp snapshot freeze``, ``porchlamp snapshot reproduce``,
-``porchlamp snapshot store``, ``porchlamp snapshot build`` and ``porchlamp snapshot stats``.
+``porchlamp snapshot store``, ``porchlamp snapshot build``, ``porchlamp snapshot stats`` and
+``porchlamp snapshot as-of``.
 
 The CLI layer owns the wall clock and every ``print``; the modules
 behind it are pure. ``--data-dir`` is a data directory (or a copied sample) with
@@ -17,19 +18,27 @@ Invocation before ``porchlamp/cli.py`` exists::
     .venv/bin/python -m porchlamp.snapshot reproduce <snapshot-id>
     .venv/bin/python -m porchlamp.snapshot store <snapshot-dir> --db data/cvi.db
     .venv/bin/python -m porchlamp.snapshot stats <snapshot.db> --data-dir data > stats-<snapshot-id>.json
+    .venv/bin/python -m porchlamp.snapshot as-of --data-dir data
 
 ``stats`` prints the report's stats file (``porchlamp.snapshot.stats``): the star
 figures and corpus totals ``scripts/export_static.py --stats`` reads.
+
+``as-of`` is the pre-flight for ``--as-of``: it prints the earliest instant every guard accepts
+(``porchlamp.snapshot.asof``) and PASS/FAIL/WARN/INFO per guard before anything is derived or built.
+Exit 0 when no guard fails, 1 on a failed guard or when no valid value exists, 2 on a usage or
+read error.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Sequence
 
+import porchlamp.snapshot.asof as _asof
 import porchlamp.snapshot.build_cmd as _build_cmd
 from porchlamp.snapshot.manifest import (
     PENDING_DUMP_HASH,
@@ -227,6 +236,36 @@ def _stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _as_of(args: argparse.Namespace) -> int:
+    """Print the earliest valid ``as_of`` of ``args.data_dir`` and every guard's verdict at it (or at
+    ``--as-of``, which is then checked instead of computed). ``--print`` writes only the value, and only
+    when no guard fails, for ``AS_OF=$(...)``; the report goes to stderr then. Exit 0 when nothing FAILs,
+    1 on a FAIL or when no valid value exists, 2 on a usage or read error (printed to stderr)."""
+    given: Optional[datetime] = None
+    if args.as_of is not None:
+        given = _asof.parse_as_of(args.as_of)
+        if given is None:
+            print(f"--as-of is not an ISO-8601 timestamp: {args.as_of!r}", file=sys.stderr)
+            return 2
+    try:
+        scan = _asof.scan_root(Path(args.data_dir))
+    except _asof.AsOfError as error:
+        print(f"as-of: {error}", file=sys.stderr)
+        return 2
+    plan = _asof.plan_as_of(scan)
+    as_of = given if given is not None else plan.earliest
+    results = _asof.check_as_of(scan, as_of) if as_of is not None else ()
+    ok = as_of is not None and _asof.passed(results)
+    report = "\n".join(_asof.format_report(scan, plan, results, as_of, given is not None))
+    if not args.print:
+        print(report)
+    elif ok and as_of is not None:
+        print(_asof.iso(as_of))
+    else:
+        print(report, file=sys.stderr)
+    return 0 if ok else 1
+
+
 def _positive_int(text: str) -> int:
     """An argparse type: an integer of at least 1."""
     value = int(text)
@@ -302,6 +341,26 @@ def _parser() -> argparse.ArgumentParser:
     )
     stats.add_argument("--as-of", default=None,
                        help="PR-age reference time, ISO-8601; default: the database's snapshots.as_of")
+
+    as_of = commands.add_parser(
+        "as-of",
+        help="print the earliest valid --as-of for a data dir and check the cut and 14-day guards before a build",
+    )
+    as_of.add_argument(
+        "--data-dir",
+        required=True,
+        help="data dir with raw/ under it (raw/candidates.jsonl lists the repos the guards read)",
+    )
+    as_of.add_argument(
+        "--as-of",
+        default=None,
+        help="check this ISO-8601 time instead of computing one (the earliest valid time is still printed)",
+    )
+    as_of.add_argument(
+        "--print",
+        action="store_true",
+        help="write only the value, and only when no guard fails (for AS_OF=$(...)); the report goes to stderr",
+    )
     return parser
 
 
@@ -312,7 +371,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command is None:
         parser.print_usage()
         return 2
-    handlers = {"freeze": _freeze, "reproduce": _reproduce, "store": _store, "build": _build, "stats": _stats}
+    handlers = {
+        "freeze": _freeze,
+        "reproduce": _reproduce,
+        "store": _store,
+        "build": _build,
+        "stats": _stats,
+        "as-of": _as_of,
+    }
     try:
         return handlers[str(args.command)](args)
     except (SnapshotError, FileNotFoundError) as error:
