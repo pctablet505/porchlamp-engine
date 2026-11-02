@@ -25,7 +25,7 @@ def test_the_defaults_are_the_contracts_and_the_lan_is_manual_and_overrides_are_
                        "heat_override": False, "timeout_streak": 5, "interval_days": 28,
                        "layers": ["L1", "L0", "L2", "L3g", "L3c", "L4", "LK"], "rate_floor": 500,
                        "lan_mode": "manual", "delivery_mode": "lan", "drop_repo": "", "l4_workers": 1,
-                       "github_workers": 1}
+                       "github_workers": 1, "l4_reuse_l1": True}
     assert s.get() == DEFAULTS and s.get() is not DEFAULTS and s.get()["layers"] is not DEFAULTS["layers"]
 
 
@@ -552,3 +552,15 @@ def test_worker_settings_ranges_and_defaults(tmp_path):
             assert reply["ok"] is False and reply["errors"] == {key: f"Pick a number from {low} to {high}."}
             assert s.value(key) == high
     assert Settings(tmp_path / "settings.json").get()["github_workers"] == 2      # saved, and read back
+
+
+def test_l4_reuse_l1_is_a_switch_default_on(tmp_path):
+    """#89 Q1: L4 reuses L1's PR list unless the owner turns it off; only a true or false is taken, and it is saved."""
+    path = tmp_path / "settings.json"
+    s = Settings(path)
+    assert s.value("l4_reuse_l1") is True
+    for bad in ("off", 0, 1, None):
+        reply = s.set({"l4_reuse_l1": bad})
+        assert reply["ok"] is False and reply["errors"] == {"l4_reuse_l1": "Pick on or off."}
+    assert s.set({"l4_reuse_l1": False})["ok"] is True
+    assert Settings(path).value("l4_reuse_l1") is False

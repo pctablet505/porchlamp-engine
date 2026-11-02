@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import hashlib
 import heapq
+import contextlib
 import json
+import os
 import random
 import re
 import statistics
@@ -1993,6 +1995,15 @@ def _is_external_nonbot(pr: dict) -> bool:
 #: Pages between append-only checkpoints during an ``AuthorWindow`` walk (#89 Q5).
 AUTHOR_WINDOW_CHECKPOINT_PAGES: int = 5
 
+#: The phone's off switch for #89 Q1 (its ``l4_reuse_l1`` setting, ``phone.entry`` sets this): ``"0"`` makes
+#: :func:`collect_author_history` read the whole 365-d window, whatever the ``pr_window`` record holds. Read once per project.
+L4_REUSE_L1_ENV: str = "PORCHLAMP_L4_REUSE_L1"
+
+#: What GitHub says of a cursor it will not read (measured 2026-11-02, both forms: "`bogus` does not appear to be a valid
+#: cursor." and "The cursor does not appear to be a valid cursor."). A cursor's format is GitHub's to change; a stored
+#: one it refuses costs a full walk, never the project.
+_REFUSED_CURSOR: str = "valid cursor"
+
 
 @dataclass(frozen=True)
 class AuthorHistoryResult:
@@ -2018,15 +2029,23 @@ def _load_author_window_checkpoint(
     window_start: datetime,
     seen_numbers: set[Any],
     prs: list[dict],
+    start_after: Optional[str],
 ) -> Optional[tuple[Optional[str], int, Optional[int], Optional[str], Optional[int]]]:
-    """Resume an interrupted ``AuthorWindow`` walk from ``checkpoint_path`` when its anchor is within
-    :data:`constants.WINDOW_STALENESS_DAYS` of ``now`` (#89 Q5).
+    """Resume an interrupted ``AuthorWindow`` walk from ``checkpoint_path`` (#89 Q5).
 
-    Each JSONL line records only the delta of PRs and points since the previous flush, so a truncated trailing
-    line from power loss is discarded while all earlier lines stay intact.
+    Each line is the delta of PRs and points since the previous flush, ending in a newline. The reader keeps the lines
+    before the first bad one and cuts the file there, so the next flush is read too. It removes the file and resumes
+    nothing when the walk's first line is older than :data:`constants.WINDOW_STALENESS_DAYS`, when the walk began from
+    another point than this one (``start_after``, a seeded walk's lines hold no PR newer than its cursor: without its seed
+    they would make a record with no recent PR), or when no line can be used.
     """
+
+    def drop() -> None:
+        with contextlib.suppress(OSError):
+            checkpoint_path.unlink(missing_ok=True)
+
     try:
-        raw_lines = checkpoint_path.read_text(encoding="utf-8").splitlines()
+        blob = checkpoint_path.read_bytes()
     except OSError:
         return None
     after: Optional[str] = None
@@ -2034,34 +2053,40 @@ def _load_author_window_checkpoint(
     remaining: Optional[int] = None
     name_with_owner: Optional[str] = None
     pull_requests_total: Optional[int] = None
+    kept: list[dict] = []
+    kept_numbers: set[Any] = set()
+    good_bytes = 0
     valid_lines = 0
-    for line in raw_lines:
-        line = line.strip()
-        if not line:
-            continue
+    for line in blob.splitlines(keepends=True):
+        if not line.endswith(b"\n"):
+            break
         try:
             entry = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
+            if not isinstance(entry, Mapping):
+                break
+            line_cost = int(entry.get("cost_delta") or 0)
+            line_remaining = int(entry["remaining"]) if entry.get("remaining") is not None else None
+        except (ValueError, TypeError):
             break
-        if not isinstance(entry, Mapping):
+        line_after = entry.get("after")
+        if not isinstance(line_after, str) or not line_after:
             break
         if valid_lines == 0:
             anchor = _parse_iso(entry.get("window_anchor") if isinstance(entry.get("window_anchor"), str) else None)
-            if anchor is None or abs((now - anchor).total_seconds()) > constants.WINDOW_STALENESS_DAYS * 86400:
-                try:
-                    checkpoint_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+            if (anchor is None or abs((now - anchor).total_seconds()) > constants.WINDOW_STALENESS_DAYS * 86400
+                    or entry.get("start_after") != start_after):
+                drop()
                 return None
         valid_lines += 1
-        cost += int(entry.get("cost_delta") or 0)
-        if entry.get("remaining") is not None:
-            remaining = int(entry["remaining"])
+        good_bytes += len(line)
+        cost += line_cost
+        after = line_after
+        if line_remaining is not None:
+            remaining = line_remaining
         if isinstance(entry.get("name_with_owner"), str) and entry["name_with_owner"]:
             name_with_owner = entry["name_with_owner"]
         if isinstance(entry.get("pull_requests_total"), int) and not isinstance(entry.get("pull_requests_total"), bool):
             pull_requests_total = entry["pull_requests_total"]
-        after = entry.get("after") if isinstance(entry.get("after"), str) and entry.get("after") else None
         for node in entry.get("prs") or []:
             if not isinstance(node, Mapping):
                 continue
@@ -2069,13 +2094,19 @@ def _load_author_window_checkpoint(
             if created is not None and created < window_start:
                 continue
             num = node.get("number")
-            if num is not None and num in seen_numbers:
+            if num is not None and (num in seen_numbers or num in kept_numbers):
                 continue
             if num is not None:
-                seen_numbers.add(num)
-            prs.append(dict(node))
-    if valid_lines == 0 or after is None:
+                kept_numbers.add(num)
+            kept.append(dict(node))
+    if valid_lines == 0:
+        drop()
         return None
+    if good_bytes < len(blob):
+        with contextlib.suppress(OSError):
+            os.truncate(checkpoint_path, good_bytes)
+    seen_numbers |= kept_numbers
+    prs.extend(kept)
     return after, cost, remaining, name_with_owner, pull_requests_total
 
 
@@ -2083,19 +2114,22 @@ def _append_author_window_checkpoint(
     checkpoint_path: Path,
     now: datetime,
     after: Optional[str],
+    start_after: Optional[str],
     cost_delta: int,
     remaining: Optional[int],
     name_with_owner: Optional[str],
     pull_requests_total: Optional[int],
     batch_prs: Sequence[dict],
-) -> None:
-    """Append one delta line to ``checkpoint_path`` (#89 Q5)."""
+) -> bool:
+    """Append one delta line to ``checkpoint_path`` (#89 Q5). ``False`` when it was not written (a full disk): the caller
+    keeps the delta for the next flush, so no line ever skips PRs."""
     if not after:
-        return
+        return False
     try:
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         record = {
             "window_anchor": now.isoformat(),
+            "start_after": start_after,
             "after": after,
             "cost_delta": cost_delta,
             "remaining": remaining,
@@ -2106,7 +2140,8 @@ def _append_author_window_checkpoint(
         with checkpoint_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, separators=(",", ":")) + "\n")
     except OSError:
-        pass
+        return False
+    return True
 
 
 def fetch_author_window(owner: str, name: str, now: datetime,
@@ -2117,8 +2152,6 @@ def fetch_author_window(owner: str, name: str, now: datetime,
                         seed_prs: Sequence[dict] = (),
                         seed_after: Optional[str] = None,
                         seed_exhausted: bool = False,
-                        seed_name_with_owner: Optional[str] = None,
-                        seed_pull_requests_total: Optional[int] = None,
                         checkpoint_path: Optional[Path] = None) -> AuthorHistoryResult:
     """Fetch the PRs ``owner/name`` opened in the trailing 365 days.
 
@@ -2140,8 +2173,9 @@ def fetch_author_window(owner: str, name: str, now: datetime,
 
     #89 (Q1, Q5): when ``seed_prs`` / ``seed_after`` are provided from an uncut
     ``pr_window`` envelope, the `[180 d, 0 d]` slice is reused and pagination
-    resumes at ``seed_after`` (or returns immediately when ``seed_exhausted`` is
-    True). When ``checkpoint_path`` is provided, appends a JSONL delta every
+    resumes at ``seed_after`` (or, when ``seed_exhausted`` is True, reads one PR's
+    worth of the query for the repository's own name and PR total, which the
+    per-author searches are asked by and checked against). When ``checkpoint_path`` is provided, appends a JSONL delta every
     :data:`AUTHOR_WINDOW_CHECKPOINT_PAGES` pages and resumes from it on retry.
     """
     window_start = now - timedelta(days=AUTHOR_WINDOW_DAYS)
@@ -2163,18 +2197,37 @@ def fetch_author_window(owner: str, name: str, now: datetime,
     cost = 0
     remaining: Optional[int] = None
     after: Optional[str] = seed_after
-    name_with_owner: Optional[str] = seed_name_with_owner
-    pull_requests_total: Optional[int] = seed_pull_requests_total
+    name_with_owner: Optional[str] = None
+    pull_requests_total: Optional[int] = None
 
     def result(truncated: bool) -> AuthorHistoryResult:
         return AuthorHistoryResult(owner, name, now, truncated, cost, remaining, tuple(prs),
                                    name_with_owner, pull_requests_total)
 
+    def read_identity(data: Mapping[str, Any]) -> None:
+        nonlocal name_with_owner, pull_requests_total
+        nwo = data["r"].get("nameWithOwner")
+        name_with_owner = nwo if isinstance(nwo, str) and nwo else None
+        total = (data["r"].get("total") or {}).get("totalCount")
+        pull_requests_total = total if isinstance(total, int) and not isinstance(total, bool) else None
+
     if seed_exhausted:
+        doc = _execute_page(
+            transport, AUTHOR_WINDOW_QUERY, {"owner": owner, "name": name}, _PageSizer(1),
+            lambda failed: _raise_on_graphql_errors(failed, f"author window {owner}/{name}"),
+        )
+        data = (doc or {}).get("data") or {}
+        rl = data.get("rateLimit") or {}
+        cost += int(rl.get("cost") or 0)
+        if rl.get("remaining") is not None:
+            remaining = int(rl["remaining"])
+        if (data.get("r") or None) is None:
+            raise RuntimeError(f"repository not found: {owner}/{name}")
+        read_identity(data)
         return result(cap is not None and len(prs) >= cap)
 
     if checkpoint_path is not None and checkpoint_path.is_file():
-        resumed = _load_author_window_checkpoint(checkpoint_path, now, window_start, seen_numbers, prs)
+        resumed = _load_author_window_checkpoint(checkpoint_path, now, window_start, seen_numbers, prs, seed_after)
         if resumed is not None:
             after, ckpt_cost, ckpt_rem, ckpt_nwo, ckpt_total = resumed
             cost += ckpt_cost
@@ -2212,10 +2265,7 @@ def fetch_author_window(owner: str, name: str, now: datetime,
             raise RuntimeError(f"repository not found: {owner}/{name}")
         if first_page:
             first_page = False
-            nwo = data["r"].get("nameWithOwner")
-            name_with_owner = nwo if isinstance(nwo, str) and nwo else None
-            total = (data["r"].get("total") or {}).get("totalCount")
-            pull_requests_total = total if isinstance(total, int) and not isinstance(total, bool) else None
+            read_identity(data)
         connection = data["r"].get("pullRequests") or {}
         for raw in connection.get("nodes") or []:
             created = _parse_iso(raw.get("createdAt"))
@@ -2235,11 +2285,10 @@ def fetch_author_window(owner: str, name: str, now: datetime,
             return result(False)
         after = page_info["endCursor"]
         pages_since_ckpt += 1
-        if checkpoint_path is not None and pages_since_ckpt >= AUTHOR_WINDOW_CHECKPOINT_PAGES:
-            _append_author_window_checkpoint(
-                checkpoint_path, now, after, ckpt_cost_delta, remaining,
-                name_with_owner, pull_requests_total, ckpt_prs,
-            )
+        if (checkpoint_path is not None and pages_since_ckpt >= AUTHOR_WINDOW_CHECKPOINT_PAGES
+                and _append_author_window_checkpoint(
+                    checkpoint_path, now, after, seed_after, ckpt_cost_delta, remaining,
+                    name_with_owner, pull_requests_total, ckpt_prs)):
             pages_since_ckpt = 0
             ckpt_cost_delta = 0
             ckpt_prs = []
@@ -2916,69 +2965,46 @@ def fetch_light_pr_history(
     return by_author, cost, remaining, True
 
 
-def _stored_dr90_band(raw_dir: Path, key: str) -> Optional[tuple[str, frozenset[str]]]:
-    """``(window_anchor, logins)`` of 1.2 DR_90's cohort in the stored ``pr_window`` record of ``key``
-    (:func:`porchlamp.core.gates.dr90_band_logins`), or ``None`` when the record is absent, unreadable, has no
-    readable anchor, or stopped short of its window: then the band is not known and every cohort author is
-    looked up, as before."""
-    try:
-        data = read_envelope(raw_dir / "pr_window" / f"{key}.json").data
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, Mapping) or gates.pr_window_cut_short(data):
-        return None
-    anchor_raw = data.get("window_anchor")
-    anchor = _parse_iso(anchor_raw) if isinstance(anchor_raw, str) else None
-    prs = data.get("prs")
-    if anchor is None or not isinstance(prs, list):
-        return None
-    return anchor_raw, gates.dr90_band_logins(prs, anchor)
-
-
 def _load_pr_window_context(
     raw_dir: Path,
     key: str,
-    owner: str,
-    name: str,
     now: datetime,
-) -> tuple[
-    Optional[tuple[str, frozenset[str]]],
-    list[dict],
-    Optional[str],
-    bool,
-    Optional[str],
-    Optional[int],
-]:
-    """Read ``raw_dir/pr_window/<key>.json`` once (#89 Q1, Q7): extract ``dr90_band`` and, when the record
-    carries ``window_end_cursor`` / ``window_exhausted`` and RFC-0015 landing fields within
-    :data:`constants.WINDOW_STALENESS_DAYS` of ``now``, shape its PRs for :func:`fetch_author_window` and free
-    the full ``pr_window`` dict immediately."""
+    reuse: bool,
+) -> tuple[Optional[tuple[str, frozenset[str]]], list[dict], Optional[str], bool]:
+    """Read ``raw_dir/pr_window/<key>.json`` once (#89 Q1): ``(band, seed PRs, resume cursor, window exhausted)``.
+
+    ``band`` is ``(window_anchor, logins)`` of 1.2 DR_90's cohort in the record (:func:`porchlamp.core.gates.dr90_band_logins`),
+    or ``None`` when the record is absent, unreadable, has no readable anchor, or stopped short of its window: then the
+    band is not known and every cohort author is looked up, as before.
+
+    With ``reuse``, when the record says where its walk stopped (``window_end_cursor`` or ``window_exhausted``), holds the
+    landing fields, and is anchored within :data:`constants.WINDOW_STALENESS_DAYS` of ``now``, its PRs and those it
+    read past its window are shaped to :func:`fetch_author_window`'s fields. Otherwise nothing is seeded and the walk
+    reads the whole window."""
     try:
         data = read_envelope(raw_dir / "pr_window" / f"{key}.json").data
     except (OSError, ValueError):
-        return None, [], None, False, None, None
+        return None, [], None, False
     if not isinstance(data, Mapping) or gates.pr_window_cut_short(data):
-        return None, [], None, False, None, None
+        return None, [], None, False
     anchor_raw = data.get("window_anchor")
     anchor = _parse_iso(anchor_raw) if isinstance(anchor_raw, str) else None
     prs = data.get("prs")
     if anchor is None or not isinstance(prs, list):
-        return None, [], None, False, None, None
+        return None, [], None, False
     band = (anchor_raw, gates.dr90_band_logins(prs, anchor))
 
     has_cursor_meta = "window_end_cursor" in data or data.get("window_exhausted") is True
     fresh_anchor = abs((now - anchor).total_seconds()) <= constants.WINDOW_STALENESS_DAYS * 86400
     has_landing = all(landing.landing_recorded(p) for p in prs if isinstance(p, Mapping))
-    if not (has_cursor_meta and fresh_anchor and has_landing):
-        del data, prs
-        return band, [], None, False, None, None
+    if not (reuse and has_cursor_meta and fresh_anchor and has_landing):
+        return band, [], None, False
 
     window_start = now - timedelta(days=AUTHOR_WINDOW_DAYS)
     seed_prs: list[dict] = []
     seen_numbers: set[Any] = set()
     overflow = data.get("boundary_overflow_prs")
-    overflow_list = overflow if isinstance(overflow, list) else []
-    for raw in (*prs, *overflow_list):
+    for raw in (*prs, *(overflow if isinstance(overflow, list) else ())):
         if not isinstance(raw, Mapping):
             continue
         created = _parse_iso(raw.get("createdAt"))
@@ -2991,284 +3017,7 @@ def _load_pr_window_context(
             seen_numbers.add(num)
         seed_prs.append(_shape_author_window_pr(raw))
     seed_after = data.get("window_end_cursor") if isinstance(data.get("window_end_cursor"), str) else None
-    seed_exhausted = bool(data.get("window_exhausted"))
-    seed_nwo: Optional[str] = None
-    seed_total: Optional[int] = None
-    if seed_exhausted:
-        raw_nwo = data.get("name_with_owner")
-        seed_nwo = raw_nwo if isinstance(raw_nwo, str) and raw_nwo else f"{owner}/{name}"
-        raw_total = data.get("pull_requests_total")
-        seed_total = (
-            raw_total
-            if isinstance(raw_total, int) and not isinstance(raw_total, bool)
-            else len(prs) + len(overflow_list)
-        )
-    del data, prs, overflow, overflow_list
-    return band, seed_prs, seed_after, seed_exhausted, seed_nwo, seed_total
-
-
-def _author_window_prs_by_number_query(n: int) -> str:
-    """Aliased ``pullRequest(number:)`` query fetching :data:`AUTHOR_WINDOW_QUERY` fields for ``n`` PRs (#89 Q1)."""
-    var_decls = ", ".join(f"$n{i}: Int!" for i in range(n))
-    aliases = " ".join(
-        f"p{i}: pullRequest(number: $n{i}) {{"
-        " number createdAt closedAt mergedAt state"
-        " author { __typename login ... on User { createdAt } } authorAssociation"
-        + landing.PR_LANDING_FIELDS + " }"
-        for i in range(n)
-    )
-    return (
-        f"query AuthorWindowPrsByNumber($owner: String!, $name: String!, {var_decls}) {{"
-        f" rateLimit {{ cost remaining }} r: repository(owner: $owner, name: $name) {{ {aliases} }} }}"
-    )
-
-
-def _fetch_author_window_prs_by_number(
-    owner: str,
-    name: str,
-    numbers: Sequence[int],
-    transport: GraphqlTransport,
-    batch_size: int = PR_REPLIES_BATCH_SIZE,
-) -> tuple[Optional[dict[int, dict]], int, Optional[int]]:
-    """Refresh specific PR numbers in :data:`AUTHOR_WINDOW_QUERY` shape (#89 Q1)."""
-    resolved: dict[int, dict] = {}
-    cost = 0
-    remaining: Optional[int] = None
-    todo = list(dict.fromkeys(numbers))
-    for start in range(0, len(todo), batch_size):
-        chunk = todo[start:start + batch_size]
-        query = _author_window_prs_by_number_query(len(chunk))
-        variables: dict[str, Any] = {"owner": owner, "name": name, **{f"n{i}": num for i, num in enumerate(chunk)}}
-        try:
-            doc = _execute_waiting_for_the_network(transport, query, variables)
-        except (RuntimeError, subprocess.TimeoutExpired):
-            return None, cost, remaining
-        if doc.get("errors"):
-            return None, cost, remaining
-        data = doc.get("data") or {}
-        rl = data.get("rateLimit") or {}
-        cost += int(rl.get("cost") or 0)
-        if rl.get("remaining") is not None:
-            remaining = int(rl["remaining"])
-        repo_node = data.get("r")
-        if not isinstance(repo_node, Mapping):
-            return None, cost, remaining
-        for i, num in enumerate(chunk):
-            node = repo_node.get(f"p{i}")
-            if not isinstance(node, Mapping):
-                return None, cost, remaining
-            resolved[num] = _shape_author_window_pr(node)
-    return resolved, cost, remaining
-
-
-def _reuse_stale_author_window_tail(
-    raw_dir: Path,
-    target: Path,
-    key: str,
-    owner: str,
-    name: str,
-    now: datetime,
-    transport: GraphqlTransport,
-    seed_prs: Sequence[dict],
-) -> Optional[tuple[list[dict], int, Optional[int], Optional[str], Optional[int]]]:
-    """Cycle 2+ reuse (#89 Q1): combine fresh ``[180d, 0d]`` ``seed_prs`` from ``pr_window`` with settled
-    ``[365d, 180d)`` PRs from a previous uncut ``author_history`` envelope in ``raw-stale-*/author_history/<key>.json``
-    (or ``target`` when ``force=True``), refreshing only previously-``OPEN`` PRs by number."""
-    candidates: list[Path] = []
-    if target.is_file():
-        candidates.append(target)
-    if raw_dir.parent.is_dir():
-        candidates.extend(
-            sorted(raw_dir.parent.glob(f"raw-stale-*/author_history/{key}.json"), reverse=True)
-        )
-    if not candidates:
-        return None
-
-    window_start = now - timedelta(days=AUTHOR_WINDOW_DAYS)
-    for cand in candidates:
-        try:
-            prev_data = read_envelope(cand).data
-        except (OSError, ValueError):
-            continue
-        if not isinstance(prev_data, Mapping) or prev_data.get("truncated"):
-            continue
-        prev_anchor_raw = prev_data.get("window_anchor")
-        prev_anchor = _parse_iso(prev_anchor_raw) if isinstance(prev_anchor_raw, str) else None
-        prev_prs = prev_data.get("prs")
-        if prev_anchor is None or not isinstance(prev_prs, list):
-            continue
-        age_seconds = (now - prev_anchor).total_seconds()
-        if age_seconds < 0 or age_seconds > PR_WINDOW_DAYS * 86400:
-            continue
-        if not all(landing.landing_recorded(p) for p in prev_prs if isinstance(p, Mapping)):
-            continue
-        prev_nwo = prev_data.get("name_with_owner")
-        prev_total = prev_data.get("pull_requests_total")
-        if not (isinstance(prev_nwo, str) and prev_nwo and isinstance(prev_total, int) and not isinstance(prev_total, bool)):
-            continue
-
-        seen_numbers = {p.get("number") for p in seed_prs if p.get("number") is not None}
-        tail_prs: list[dict] = []
-        open_numbers: list[int] = []
-        for raw in prev_prs:
-            if not isinstance(raw, Mapping):
-                continue
-            created = _parse_iso(raw.get("createdAt"))
-            if created is None or created < window_start or created > now:
-                continue
-            num = raw.get("number")
-            if num is None or num in seen_numbers:
-                continue
-            seen_numbers.add(num)
-            shaped = _shape_author_window_pr(raw)
-            tail_prs.append(shaped)
-            if shaped.get("state") == "OPEN" and isinstance(num, int) and not isinstance(num, bool):
-                open_numbers.append(num)
-        del prev_data, prev_prs
-
-        cost = 0
-        remaining: Optional[int] = None
-        if open_numbers:
-            refreshed, cost, remaining = _fetch_author_window_prs_by_number(owner, name, open_numbers, transport)
-            if refreshed is None:
-                return None
-            tail_prs = [refreshed.get(p.get("number"), p) for p in tail_prs]
-
-        combined = sorted(
-            [*seed_prs, *tail_prs],
-            key=lambda p: str(p.get("createdAt") or ""),
-            reverse=True,
-        )
-        return combined, cost, remaining, prev_nwo, prev_total
-    return None
-
-
-def _prefilter_local_eligibility(
-    logins: Sequence[str],
-    window_prs: Sequence[dict],
-    now: datetime,
-    user_cache: Optional[UserCache] = None,
-    author_records: Optional[Sequence[Mapping[str, Any]]] = None,
-) -> tuple[dict[str, dict], list[str]]:
-    """Resolve D-IN-3 eligibility locally at 0 GraphQL cost (#89 Q2a) before calling
-    :func:`_eligibility_with_cache`:
-
-    1. Non-``User`` actors (``__typename`` is a non-empty string other than ``"User"``, e.g. ``"Mannequin"``,
-       ``"Organization"``) are confirmed ineligible.
-    2. Accounts younger than :data:`constants.MIN_ACCOUNT_AGE_DAYS` at their latest in-window PR creation date
-       (``latest_pr_created_at - author.createdAt < 90 d``) are confirmed ineligible for every PR in this window.
-    3. ``User`` accounts with at least :data:`constants.MIN_PUBLIC_EVENTS` (5) distinct PRs in the repository
-       (across ``window_prs`` and ``author_records`` from search/light-history) and at least
-       :data:`constants.MIN_ACCOUNT_AGE_DAYS` of account age at their earliest in-window PR are confirmed
-       eligible (each PR creation is itself a public contribution) and written to ``user_cache``.
-    """
-    if not logins:
-        return {}, []
-    target_set = set(logins)
-    typenames: dict[str, set[str]] = {}
-    created_at_by_login: dict[str, str] = {}
-    pr_numbers_by_login: dict[str, set[Any]] = {}
-    history_total_by_login: dict[str, int] = {}
-    earliest_pr_by_login: dict[str, datetime] = {}
-    latest_pr_by_login: dict[str, datetime] = {}
-
-    for pr in window_prs:
-        login = _login_of(pr)
-        if not login or login not in target_set:
-            continue
-        author = pr.get("author") or {}
-        if isinstance(author, Mapping):
-            tname = author.get("__typename")
-            if isinstance(tname, str) and tname:
-                typenames.setdefault(login, set()).add(tname)
-            acct_created = author.get("createdAt")
-            if isinstance(acct_created, str) and acct_created and login not in created_at_by_login:
-                created_at_by_login[login] = acct_created
-        pr_created = _parse_iso(pr.get("createdAt"))
-        if pr_created is not None:
-            prev_min = earliest_pr_by_login.get(login)
-            if prev_min is None or pr_created < prev_min:
-                earliest_pr_by_login[login] = pr_created
-            prev_max = latest_pr_by_login.get(login)
-            if prev_max is None or pr_created > prev_max:
-                latest_pr_by_login[login] = pr_created
-        num = pr.get("number")
-        pr_numbers_by_login.setdefault(login, set()).add(
-            num if num is not None else pr.get("createdAt")
-        )
-
-    for rec in author_records or ():
-        if not isinstance(rec, Mapping):
-            continue
-        login = str(rec.get("login") or "").lower()
-        if not login or login not in target_set:
-            continue
-        htotal = rec.get("history_total")
-        if isinstance(htotal, int) and not isinstance(htotal, bool) and htotal > 0:
-            history_total_by_login[login] = max(history_total_by_login.get(login, 0), htotal)
-        for hist_pr in rec.get("prs") or ():
-            if not isinstance(hist_pr, Mapping):
-                continue
-            num = hist_pr.get("number")
-            key = num if num is not None else hist_pr.get("createdAt")
-            if key is not None:
-                pr_numbers_by_login.setdefault(login, set()).add(key)
-
-    min_age = timedelta(days=constants.MIN_ACCOUNT_AGE_DAYS)
-    now_iso = now.isoformat()
-    resolved: dict[str, dict] = {}
-    remaining: list[str] = []
-
-    for login in logins:
-        tnames = typenames.get(login) or set()
-        if tnames and "User" not in tnames:
-            resolved[login] = {
-                "account_created_at": None,
-                "public_event_count": 0,
-                "eligibility_unmeasured": False,
-                "eligibility_observed_at": now_iso,
-            }
-            continue
-
-        acct_iso = created_at_by_login.get(login)
-        acct_dt = _parse_iso(acct_iso)
-        latest_pr = latest_pr_by_login.get(login)
-        earliest_pr = earliest_pr_by_login.get(login)
-        pr_count = max(
-            len(pr_numbers_by_login.get(login) or ()),
-            history_total_by_login.get(login, 0),
-        )
-
-        if acct_dt is not None and latest_pr is not None and latest_pr - acct_dt < min_age:
-            resolved[login] = {
-                "account_created_at": acct_iso,
-                "public_event_count": 0,
-                "eligibility_unmeasured": False,
-                "eligibility_observed_at": now_iso,
-            }
-            continue
-
-        if (
-            "User" in tnames
-            and acct_dt is not None
-            and earliest_pr is not None
-            and pr_count >= constants.MIN_PUBLIC_EVENTS
-            and earliest_pr - acct_dt >= min_age
-        ):
-            rec = {
-                "account_created_at": acct_iso,
-                "public_event_count": pr_count,
-                "eligibility_unmeasured": False,
-                "eligibility_observed_at": now_iso,
-            }
-            resolved[login] = rec
-            if user_cache is not None:
-                user_cache.put(login, rec, now)
-            continue
-
-        remaining.append(login)
-
-    return resolved, remaining
+    return band, seed_prs, seed_after, bool(data.get("window_exhausted"))
 
 
 def collect_author_history(raw_dir: Path, owner: str, name: str,
@@ -3295,7 +3044,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     count) is fetched via :func:`_fetch_eligibility_batch` for every author
     some score reads, never a sample of them, so DR_90 keeps its full
     cohort. Those are the authors of 1.2 DR_90's cohort in the stored
-    ``pr_window`` record (:func:`_stored_dr90_band`), the per-author search
+    ``pr_window`` record (:func:`_load_pr_window_context`), the per-author search
     sample and the newcomer sample; with no usable ``pr_window`` record that
     is every author in the union. #89: every other author (in the history's
     wider decision cohort, outside the search sample) keeps a record with
@@ -3347,32 +3096,30 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
             prev_records_by_login = {}
             prev_anchor_iso = ""
 
-    band, seed_prs, seed_after, seed_exhausted, seed_nwo, seed_total = (
-        (None, [], None, False, None, None)
+    band, seed_prs, seed_after, seed_exhausted = (
+        (None, [], None, False)
         if light_history
-        else _load_pr_window_context(raw_dir, key, owner, name, now)
+        else _load_pr_window_context(raw_dir, key, now, os.environ.get(L4_REUSE_L1_ENV, "1") != "0")
     )
-    if seed_prs and not seed_exhausted:
-        reused_tail = _reuse_stale_author_window_tail(raw_dir, target, key, owner, name, now, t, seed_prs)
-        if reused_tail is not None:
-            seed_prs, tail_cost, tail_rem, seed_nwo, seed_total = reused_tail
-            seed_exhausted = True
-            seed_after = None
-        else:
-            tail_cost, tail_rem = 0, None
-    else:
-        tail_cost, tail_rem = 0, None
-
+    reused_anchor = band[0] if band is not None and (seed_after is not None or seed_exhausted) else None
     checkpoint_path = raw_dir.parent / "state" / "partial" / "author_history" / f"{key}.pages.jsonl"
-    window = fetch_author_window(
-        owner, name, now, t, page_size=page_size, cap=cap,
-        seed_prs=seed_prs, seed_after=seed_after, seed_exhausted=seed_exhausted,
-        seed_name_with_owner=seed_nwo, seed_pull_requests_total=seed_total,
-        checkpoint_path=checkpoint_path,
-    )
+    try:
+        window = fetch_author_window(
+            owner, name, now, t, page_size=page_size, cap=cap,
+            seed_prs=seed_prs, seed_after=seed_after, seed_exhausted=seed_exhausted,
+            checkpoint_path=checkpoint_path,
+        )
+    except RuntimeError as exc:
+        if _REFUSED_CURSOR not in str(exc):
+            raise
+        reused_anchor = None
+        with contextlib.suppress(OSError):
+            checkpoint_path.unlink(missing_ok=True)
+        window = fetch_author_window(owner, name, now, t, page_size=page_size, cap=cap,
+                                     checkpoint_path=checkpoint_path)
     del seed_prs
-    cost = window.cost_points + tail_cost
-    remaining = window.remaining if window.remaining is not None else tail_rem
+    cost = window.cost_points
+    remaining = window.remaining
     sample, reserve_newcomers = _select_newcomer_candidates(window.prs, now, window.truncated)
     newcomers = sorted(set(sample))
     decision_logins = sorted(set(_decision_cohort_logins(window.prs, now)))
@@ -3488,10 +3235,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
 
     read = set() if band is None else band[1] | search_sample | set(newcomers)
     skipped = set() if band is None else set(needed) - read
-    elig_candidates = [login for login in needed if login not in reused_elig and login not in skipped]
-    local_elig, elig_needed = _prefilter_local_eligibility(
-        elig_candidates, window.prs, now, user_cache, author_records=author_records
-    )
+    elig_needed = [login for login in needed if login not in reused_elig and login not in skipped]
     cutoff_by_login: dict[str, datetime] = {}
     for pr in window.prs:
         login = _login_of(pr)
@@ -3508,7 +3252,6 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     cost += elig_cost
     if elig_remaining is not None:
         remaining = elig_remaining
-    elig.update(local_elig)
     elig.update(reused_elig)
     for record in author_records:
         login = record["login"]
@@ -3532,12 +3275,13 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     data.update(search_meta)
     if skipped and band is not None:
         data["dr90_band_anchor"] = band[0]
+    if reused_anchor is not None:
+        # #89 Q1: this record's PRs of the newest 180 d were read when that pr_window was, not at window_anchor.
+        data["reused_pr_window_anchor"] = reused_anchor
     write_envelope(target, source="github-graphql:author-history", data=data,
                    fetched_at=now.isoformat())
-    try:
+    with contextlib.suppress(OSError):
         checkpoint_path.unlink(missing_ok=True)
-    except OSError:
-        pass
     return "ok"
 
 

@@ -53,6 +53,8 @@ DEFAULTS: dict[str, Any] = {
     # call counts allow it (default 1).
     "l4_workers": 1,
     "github_workers": 1,
+    # L4 starts from the PR list L1 read this cycle (#89 Q1); off reads the whole 365-d window, as before.
+    "l4_reuse_l1": True,
 }
 INT_RANGES: dict[str, tuple[int, int]] = {
     "battery_pause_pct": (5, 50),
@@ -63,7 +65,7 @@ INT_RANGES: dict[str, tuple[int, int]] = {
     "l4_workers": (1, 3),
     "github_workers": (1, 2),
 }
-BOOLS = ("battery_override", "heat_override")
+BOOLS = ("battery_override", "heat_override", "l4_reuse_l1")
 ENUMS: dict[str, tuple[tuple[str, ...], str]] = {
     "network": (("wifi", "wifi_mobile"), "Pick Wi-Fi only, or Wi-Fi and mobile data."),
     "lan_mode": (("auto", "manual"), "Pick Auto or Manual."),
