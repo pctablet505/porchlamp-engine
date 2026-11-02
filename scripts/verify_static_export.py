@@ -781,7 +781,10 @@ def _report_sentences(hooks: dict[str, str], names: dict[str, str]) -> dict[str,
         )
     if "undecided_cut" in v:
         method.append(
-            f"We could not judge {v['undecided_cut']} busy projects yet: we hold only the newest {v['pr_cap']} pull "
+            f"We could not judge 1 busy project yet: we hold only its newest {v['pr_cap']} pull requests, and they do not "
+            f"reach back to {v['window_start']}."
+            if v["undecided_cut"] == "1"
+            else f"We could not judge {v['undecided_cut']} busy projects yet: we hold only the newest {v['pr_cap']} pull "
             f"requests of each, and they do not reach back to {v['window_start']}."
         )
     if "sampled" in v:

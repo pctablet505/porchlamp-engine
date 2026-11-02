@@ -780,8 +780,11 @@ def report_json(f: Facts) -> dict:
         )
     if f.undecided_cut:
         method.append(
-            "We could not judge {undecided_cut} busy projects yet: we hold only the newest {pr_cap} pull requests of "
-            "each, and they do not reach back to {window_start}."
+            "We could not judge {undecided_cut} busy project yet: we hold only its newest {pr_cap} pull requests, and "
+            "they do not reach back to {window_start}."
+            if f.undecided_cut == 1
+            else "We could not judge {undecided_cut} busy projects yet: we hold only the newest {pr_cap} pull requests "
+            "of each, and they do not reach back to {window_start}."
         )
     if f.sampled:
         noun = "project" if f.sampled == 1 else "projects"

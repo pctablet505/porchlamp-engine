@@ -107,7 +107,10 @@ def render_readme(snapshot: dict[str, Any], report: dict[str, Any]) -> str:
 
     undecided_cut = str(vals.get("undecided_cut") or "0")
     busy_sentence = (
-        f" We could not judge {undecided_cut} busy projects yet: we hold only\n"
+        f" We could not judge 1 busy project yet: we hold only\n"
+        f"  its newest {vals['pr_cap']} pull requests, and they do not reach back to {vals['window_start']}."
+        if undecided_cut == "1"
+        else f" We could not judge {undecided_cut} busy projects yet: we hold only\n"
         f"  the newest {vals['pr_cap']} pull requests of each, and they do not reach back to {vals['window_start']}."
         if undecided_cut != "0"
         else ""
