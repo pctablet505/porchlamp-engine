@@ -721,3 +721,17 @@ def test_pre_main_done_refreshes_only_stale_releases_and_issues_counts_anchors(h
     assert any("L2: anchor refresh COMPLETE" in line for line in logs)
     assert any("L3c: anchor refresh COMPLETE" in line for line in logs)
 
+
+def test_failed_anchor_refresh_restores_staged_envelopes_so_no_record_is_lost(home, kw, logs):
+    """Q4: If refresh_stale_anchors fails mid-run, any staged stale envelope that was not re-fetched is restored
+    back to raw/<collector>/ so no repository loses its existing record."""
+    stale_anchor = "2026-09-25T00:00:00Z"
+    _put(home / "raw/releases/stale__repo.json", f'{{"data": {{"window_anchor": "{stale_anchor}"}}}}')
+
+    def failing_gather(argv: list[str]) -> None:
+        raise RuntimeError("network lost during anchor refresh")
+
+    assert R.refresh_stale_anchors(home, failing_gather, **kw) == 3
+    assert (home / "raw/releases/stale__repo.json").is_file()
+    assert any("restored 1 unfetched releases anchor envelope(s)" in line for line in logs)
+

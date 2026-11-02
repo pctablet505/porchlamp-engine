@@ -561,7 +561,7 @@ def _stage_stale_anchor_files(
     files: list[Path],
     now: Callable[[], float],
     log: Callable[[str], object],
-) -> None:
+) -> list[tuple[Path, Path]]:
     ts = datetime.fromtimestamp(now(), timezone.utc)
     base = home / f"raw-stale-{ts:%Y-%m-%d}-anchor-{ts:%H%M%SZ}"
     candidate = base
@@ -571,9 +571,30 @@ def _stage_stale_anchor_files(
         seq += 1
     dst_dir = candidate / collector
     dst_dir.mkdir(parents=True, exist_ok=True)
+    staged: list[tuple[Path, Path]] = []
     for src in files:
-        src.rename(dst_dir / src.name)
+        dst = dst_dir / src.name
+        src.rename(dst)
+        staged.append((src, dst))
     log(f"{layer}: staged {len(files)} stale {collector} anchor(s) (> {STALE_ANCHOR_REFRESH_DAYS}d old) -> {dst_dir}")
+    return staged
+
+
+def _restore_unfetched_anchor_files(
+    staged: list[tuple[Path, Path]],
+    layer: str,
+    collector: str,
+    log: Callable[[str], object],
+) -> int:
+    restored = 0
+    for orig, backup in staged:
+        if not orig.is_file() and backup.is_file():
+            orig.parent.mkdir(parents=True, exist_ok=True)
+            backup.rename(orig)
+            restored += 1
+    if restored:
+        log(f"{layer}: restored {restored} unfetched {collector} anchor envelope(s) from staging")
+    return restored
 
 
 def refresh_stale_anchors(
@@ -595,7 +616,8 @@ def refresh_stale_anchors(
     ``data.window_anchor`` drifted more than ``max_age_days`` (13 days) behind ``now()``.
 
     Only the stale envelope files are staged to ``raw-stale-...-anchor-.../`` (rename, never delete) and re-fetched,
-    after which the layer's ``.complete`` marker and ``.tar.gz`` archive are rebuilt.
+    after which the layer's ``.complete`` marker and ``.tar.gz`` archive are rebuilt. Any staged envelope that could
+    not be re-fetched is restored to ``raw/<collector>/`` so a refresh error never drops an existing record.
     """
     home = Path(home)
     marker_dir = home / "state" / "refresh"
@@ -614,7 +636,7 @@ def refresh_stale_anchors(
         stale = _stale_anchor_files(home, collector, now(), max_age_days=max_age_days)
         if not stale:
             continue
-        _stage_stale_anchor_files(home, layer, collector, stale, now, log)
+        staged = _stage_stale_anchor_files(home, layer, collector, stale, now, log)
         w = workers(layer) if workers else 1
         side_by_side = ("--workers", str(w)) if w > 1 and layer in WORKER_SETTING else ()
         os.environ[INFLIGHT_ENV] = str(w if side_by_side else 1)
@@ -623,45 +645,51 @@ def refresh_stale_anchors(
             state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
         prev: int | None = None
         confirmed = False
-        for run in range(1, max_runs + 1):
-            if state is not None:
-                state.run = run
-                state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
-            free = free_gb(home)
-            if free < min_free_gb:
-                log(f"{layer}: BLOCKED free disk {free:.1f} GB under {min_free_gb} GB")
-                return 6
-            log(f"{layer}: === anchor refresh run {run} of {max_runs} (collectors: {collector}) ===")
-            tee = _Tee(counted)
-            try:
-                with contextlib.redirect_stdout(tee):  # type: ignore[arg-type]
-                    gather_main(["--all", "--graphql-bulk", "--collectors", collector, *LAYER_FLAGS.get(layer, ()),
-                                 *side_by_side])
-            except (Exception, SystemExit):
-                tee.finish()
-                log(f"{layer}: anchor refresh raised in run {run}")
-                log(traceback.format_exc())
-                return 3
-            tee.finish()
-            found = _DONE.findall(tee.text())
-            if not found:
-                log(f"{layer}: anchor refresh run {run} printed no done line")
-                return 4
-            clean, fail = int(found[-1][0]), int(found[-1][1])
-            log(f"{layer}: anchor refresh run {run} summary: {clean} clean, {fail} with failures")
-            if (fail == 0 and clean > 0) or (prev is not None and fail == prev):
-                _write_marker(marker_dir / f"{layer}.complete", now)
-                log(f"{layer}: anchor refresh COMPLETE ({len(stale)} stale {collector} record(s) refreshed)")
+        try:
+            for run in range(1, max_runs + 1):
+                if state is not None:
+                    state.run = run
+                    state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
+                free = free_gb(home)
+                if free < min_free_gb:
+                    log(f"{layer}: BLOCKED free disk {free:.1f} GB under {min_free_gb} GB")
+                    return 6
+                log(f"{layer}: === anchor refresh run {run} of {max_runs} (collectors: {collector}) ===")
+                tee = _Tee(counted)
                 try:
-                    archive.build_archive(home, layer)
-                except OSError as exc:
-                    log(f"archive for {layer} not built: {exc}; the pull builds it")
-                confirmed = True
-                break
-            prev = fail
-        if not confirmed:
-            log(f"{layer}: anchor refresh NOT confirmed after {max_runs} runs")
-            return 2
+                    with contextlib.redirect_stdout(tee):  # type: ignore[arg-type]
+                        gather_main(["--all", "--graphql-bulk", "--collectors", collector, *LAYER_FLAGS.get(layer, ()),
+                                     *side_by_side])
+                except (Exception, SystemExit):
+                    tee.finish()
+                    log(f"{layer}: anchor refresh raised in run {run}")
+                    log(traceback.format_exc())
+                    return 3
+                tee.finish()
+                found = _DONE.findall(tee.text())
+                if not found:
+                    log(f"{layer}: anchor refresh run {run} printed no done line")
+                    return 4
+                clean, fail = int(found[-1][0]), int(found[-1][1])
+                log(f"{layer}: anchor refresh run {run} summary: {clean} clean, {fail} with failures")
+                if (fail == 0 and clean > 0) or (prev is not None and fail == prev):
+                    restored = _restore_unfetched_anchor_files(staged, layer, collector, log)
+                    _write_marker(marker_dir / f"{layer}.complete", now)
+                    refreshed_n = len(stale) - restored
+                    log(f"{layer}: anchor refresh COMPLETE ({refreshed_n} stale {collector} record(s) refreshed)")
+                    try:
+                        archive.build_archive(home, layer)
+                    except OSError as exc:
+                        log(f"archive for {layer} not built: {exc}; the pull builds it")
+                    confirmed = True
+                    break
+                prev = fail
+            if not confirmed:
+                log(f"{layer}: anchor refresh NOT confirmed after {max_runs} runs")
+                return 2
+        finally:
+            if not confirmed:
+                _restore_unfetched_anchor_files(staged, layer, collector, log)
     return 0
 
 

@@ -141,8 +141,6 @@ class Progress:
         self._active_s = 0.0
         self._last_tick: float | None = None
         self._samples: list[tuple[float, int]] = []
-        self._skip_base = 0
-        self._last_skipped = 0
         self._counted_at = -1e9
         self._cand_key: tuple[int, int] | None = None
         self._cand_n = 0
@@ -184,31 +182,22 @@ class Progress:
             if (layer, run) != (self.layer, self.run):
                 self.layer, self.run, self.done, self.total = layer, run, 0, 0
                 self._samples, self._counted_at = [], -1e9
-                self._skip_base, self._last_skipped = 0, 0
             if layer is None:
                 return
             if not force and now - self._counted_at < self.TTL_S:
                 return
             self._counted_at = now
             done, total = checked, total or self.candidates()
-            prev_done = self.done
-            if done > prev_done:
+            if done > self.done:
                 self.changed_ts = now
             self.done, self.total = done, total
             skipped = max(0, min(done, skipped))
-            delta_done = max(0, done - prev_done)
-            delta_skipped = max(0, skipped - self._last_skipped)
-            self._last_skipped = skipped
+            eff_done = max(0, done - skipped)
             if active:
-                if done > 0 and done == skipped:
+                if done > 0 and eff_done == 0:
                     # Pure initial skip burst before any active network repo completed: rebase sample origin.
-                    self._skip_base = skipped
                     self._samples = [(self._active_s, 0)]
                     return
-                if delta_done > 0 and delta_skipped == delta_done:
-                    # Mid-pass tick where only instant skips occurred and zero active repos completed.
-                    self._skip_base += delta_skipped
-                eff_done = max(0, done - self._skip_base)
                 if (not self._samples or eff_done != self._samples[-1][1]
                         or self._active_s - self._samples[-1][0] >= self.SAMPLE_EVERY_S):
                     self._samples.append((self._active_s, eff_done))
