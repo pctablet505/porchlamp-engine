@@ -98,6 +98,7 @@ def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     monkeypatch.setattr(ghcli, "_LIMITS", ghcli._BUDGET)
     monkeypatch.setattr(ghcli, "_sleep", recorded.append)
     monkeypatch.setattr(ghcli, "_now", lambda: NOW)
+    monkeypatch.setattr(ghcli, "_THROTTLE", ghcli._Throttle())  # a hold or strike left by one test never charges the next
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "PORCHLAMP_GH_TOKENS", "PORCHLAMP_GH", "PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API",
                  "PORCHLAMP_RATE_FLOOR"):
         monkeypatch.delenv(name, raising=False)
@@ -466,7 +467,9 @@ def test_retry_after_429_waits_then_retries_twice_at_most(fake: FakeGitHub, slee
     sleeps.clear()
     fake.replies = [limited, _ok(body='{"ok": 1}')]
     out = ghcli.run(["api", "repos/x/y"])
-    assert len(fake.seen) == 2 and len(sleeps) == 1
+    # D4/RB5: the first wait is the hold the third refusal above left (240 s), served before this call sends; the
+    # second is this call's own refusal, the fourth signal of the day (60 s doubled three times).
+    assert len(fake.seen) == 2 and sleeps == [240, 480]
     assert (out.returncode, out.stdout) == (0, '{"ok": 1}')
 
 
@@ -1133,3 +1136,126 @@ def test_a_hold_is_told_without_echoing_the_header(wire: Wire, throttle: list, s
     assert texts[1].startswith("GitHub secondary limit (HTTP 429, retry-after unreadable): every request waits 120 s")
     assert sleeps == [120, 120]                     # the second is the minute, doubled for the second signal
     assert "soon" not in capsys.readouterr().err + "".join(texts)
+
+
+# ---- RB5: every thread obeys a hold, a primary pause never lifts a longer hold, one burst counts once ----------
+def test_a_thread_that_exhausted_its_retries_waits_its_hold_before_its_next_call(
+        wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB5 S1: a call refused three times leaves a hold nobody waited (it gives up instead of retrying). The same
+    thread's next call waits that hold before it sends anything."""
+    order: list[tuple] = []
+    wire.order = order
+    monkeypatch.setattr(ghcli, "_sleep", lambda seconds: order.append(("wait", seconds)))
+    wire.reply = lambda n, who: (429, {"retry-after": "1"}, SECONDARY_BODY) if n <= 3 else (200, {}, '{"data": {}}')
+    assert ghcli.run(GQL_ARGS).returncode == 1
+    assert ghcli.run(GQL_ARGS).returncode == 0
+    assert [e if e[0] == "wait" else e[0] for e in order] == [
+        "send", ("wait", 60), "send", ("wait", 120), "send", ("wait", 240), "send"]
+
+
+def test_a_primary_pause_does_not_lift_a_longer_secondary_hold(wire: Wire, throttle: list,
+                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB5 S2: A's secondary hold runs 600 s. B's recorded budget is under the floor, so B first pauses 35 s for the
+    primary reset; that pause lasts until A's hold ends and does not lift it early. B and C send no earlier than A's
+    end."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    a_waiting, release_a = threading.Event(), threading.Event()
+
+    def sleep(seconds: float) -> None:
+        if threading.current_thread().name == "A":
+            a_waiting.set()
+            release_a.wait(10)
+            return
+        clock.sleep(seconds)
+
+    monkeypatch.setattr(ghcli, "_sleep", sleep)
+    sent: list[tuple[str, float]] = []
+
+    def reply(n: int, who: str) -> tuple:
+        sent.append((who, clock.now()))
+        return (429, {"retry-after": "600"}, SECONDARY_BODY) if n == 1 else (200, {}, '{"data": {}}')
+
+    wire.reply = reply
+    a = threading.Thread(target=ghcli.run, args=(GQL_ARGS,), name="A", daemon=True)
+    a.start()
+    assert a_waiting.wait(10)                                           # A holds every thread until NOW + 600
+    ghcli._TOKEN_LIMITS[0] = {"graphql": ghcli._Limit(10, NOW + 20)}    # under the floor, reset in 20 s
+    for who in ("B", "C"):
+        t = threading.Thread(target=ghcli.run, args=(GQL_ARGS,), name=who, daemon=True)
+        t.start()
+        t.join(10)
+        assert not t.is_alive()
+    release_a.set()
+    a.join(10)
+    assert [who for who, _ in sent] == ["A", "B", "C", "A"]
+    assert [at for who, at in sent if who in ("B", "C")] == [NOW + 600, NOW + 600]
+
+
+def test_a_thread_waiting_a_hold_stops_at_a_stop(wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB5 OP1: with the engine's gate and no test sleep, a thread waiting another thread's hold is a GitHub wait the
+    phone can see (``rate_state``), and a stop ends it within about a second."""
+    monkeypatch.setattr(ghcli, "_sleep", None)
+    gate = loopback_gate()
+    outcome: list[str] = []
+
+    def call() -> None:
+        try:
+            ghcli.run(GQL_ARGS)
+            outcome.append("sent")
+        except httpgate.Stopped:
+            outcome.append("stopped")
+
+    with installed(gate):
+        ghcli._THROTTLE.hold(600)                                       # the clock is pinned: 600 s are left
+        waiter = threading.Thread(target=call, daemon=True)
+        waiter.start()
+        assert _wait_until(lambda: gate.rate_state() is not None, 5)
+        began = time.monotonic()
+        gate.stop()
+        waiter.join(3)
+    assert outcome == ["stopped"] and time.monotonic() - began < 1.5
+    assert wire.n == 0
+
+
+def test_a_hold_that_ends_lifts_only_itself(wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB5 OP2: B's 30-s hold is set, then A's 600-s hold; when B's ends, B clears only its own. C, after that, still
+    waits until A's end."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    monkeypatch.setattr(ghcli, "_sleep", clock.sleep)
+    ends: dict[str, float] = {}
+
+    def set_hold(who: str, seconds: float) -> None:
+        ends[who] = ghcli._THROTTLE.hold(seconds)
+
+    for who, seconds in (("B", 30), ("A", 600)):
+        t = threading.Thread(target=set_hold, args=(who, seconds))
+        t.start()
+        t.join(5)
+    assert ends == {"B": NOW + 30, "A": NOW + 600}
+    clock.t = NOW + 30                                                  # B waited its 30 s
+    ghcli._THROTTLE.clear_hold(ends["B"])
+    sent: list[float] = []
+    wire.reply = lambda n, who: (sent.append(clock.now()), (200, {}, '{"data": {}}'))[1]
+    assert ghcli.run(GQL_ARGS).returncode == 0
+    assert clock.sleeps == [570] and sent == [NOW + 600]
+
+
+def test_a_request_that_fails_on_the_wire_gives_its_slot_back(wire: Wire, throttle: list,
+                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB5 OP3: a request whose connection fails, or times out, still releases its slot (by name, not by a hang)."""
+    def refused(n: int, who: str) -> tuple:
+        raise ghcli._Transport("connection refused")
+
+    wire.reply = refused
+    assert ghcli.run(GQL_ARGS).returncode == 1
+    assert ghcli._THROTTLE.in_flight == 0
+
+    def too_slow(n: int, who: str) -> tuple:
+        raise subprocess.TimeoutExpired(["gh", *GQL_ARGS], 1)
+
+    wire.reply = too_slow
+    with pytest.raises(subprocess.TimeoutExpired):
+        ghcli.run(GQL_ARGS)
+    assert ghcli._THROTTLE.in_flight == 0

@@ -500,17 +500,17 @@ class _Throttle:
     """The process-wide GitHub throttle (D4). One ``Condition`` guards every field.
 
     ``acquire`` before a request and ``release`` after it; ``signal`` on a secondary limit, ``hold`` on a primary one.
-    A hold stops every other thread before it sends; the thread that set it waits it in its own retry path and clears
-    it afterwards, unless a later signal extended it, so a single thread behaves as before even under a test clock
-    that does not move. A thread waiting for someone else's hold serves it once: it goes on when the hold it waited
-    for is still the hold in force, so a clock that does not move cannot make it wait forever.
+    A hold stops every thread before it sends, the one that set it included (RB5: a call that gave up after its last
+    retry leaves its hold for its own next call too). The thread that set a hold waits it in its retry path and
+    clears it afterwards, unless a later hold extended it. A thread waiting in ``acquire`` serves a hold once: it
+    goes on when the hold it waited for is still the hold in force, so a clock that does not move cannot make it
+    wait forever.
     """
 
     def __init__(self) -> None:
         self._cond = threading.Condition()
         self.in_flight = 0
         self.hold_until = 0.0
-        self._hold_owner: int | None = None
         self.degraded_until = 0.0
         self.strikes: deque[float] = deque()            # secondary-limit signal times, the last PIN_WINDOW_S
         self.fivexx: deque[float] = deque()             # GitHub 502/504 times, the last STORM_WINDOW_S
@@ -533,7 +533,6 @@ class _Throttle:
         """Wait while another thread's hold is in force, while the requests in flight fill the cap, and (GraphQL)
         while the last minute's points reach ``PORCHLAMP_GH_PPM``; then count this request in flight."""
         served = 0.0
-        me = threading.get_ident()
         while True:
             hold_wait = pace_wait = 0.0
             admitted = False
@@ -541,7 +540,7 @@ class _Throttle:
             with self._cond:
                 now = _now()
                 hold = self.hold_until
-                if hold > now and hold > served and self._hold_owner != me:
+                if hold > now and hold > served:
                     hold_wait = hold - now
                 else:
                     cap = self.cap(now)
@@ -616,7 +615,6 @@ class _Throttle:
             self.strikes.append(now)
             k = len(self.strikes)
             self.hold_until = max(self.hold_until, now + min(wait * 2 ** (k - 1), HOLD_MAX))
-            self._hold_owner = threading.get_ident()
             degrade = min(DEGRADE_S * 2 ** (k - 1), DEGRADE_MAX)
             self.degraded_until = max(self.degraded_until, now + degrade)
             several = _inflight_setting() > 1
@@ -639,7 +637,6 @@ class _Throttle:
         """A primary-limit wait of ``seconds`` that every thread obeys (no strike); returns the hold's end."""
         with self._cond:
             self.hold_until = max(self.hold_until, _now() + seconds)
-            self._hold_owner = threading.get_ident()
             self._cond.notify_all()
             return self.hold_until
 
@@ -648,7 +645,6 @@ class _Throttle:
         with self._cond:
             if self.hold_until == until:
                 self.hold_until = 0.0
-                self._hold_owner = None
             self._cond.notify_all()
 
 
@@ -725,7 +721,9 @@ def _pause(resource: str, remaining: int, seconds: float, token_idx: int | None 
     _forget_budget(resource, token_idx)
     throttle = _THROTTLE
     until = throttle.hold(wait)  # every thread waits for the reset, not only this one
-    net.rate_wait(resource, remaining, wait, _sleep)
+    # RB5 S2: the hold in force may be another thread's longer secondary hold; wait until its end, or the clear
+    # below would lift it early.
+    net.rate_wait(resource, remaining, max(wait, until - _now()), _sleep)
     throttle.clear_hold(until)
 
 
