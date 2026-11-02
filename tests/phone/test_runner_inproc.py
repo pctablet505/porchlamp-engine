@@ -199,6 +199,20 @@ def test_two_agreeing_runs_complete_a_layer(home, kw):
     assert ISO.fullmatch((home / "state/refresh/L1.complete").read_text().strip())
 
 
+def test_two_runs_where_every_project_failed_do_not_complete_a_layer(home, kw):
+    """A failure that hits every project (a rejected token, a corrupt state file) repeats the same count, and must not
+    read as a finished step with nothing fetched: the step stops at max_runs, and the app shows it."""
+    calls = []
+
+    def gather(argv):
+        calls.append(argv)
+        print("done: 0 clean, 9 with failures")
+        return 0
+
+    assert R.run_layer(home, "L4", L4, gather, max_runs=3, **kw) == 2
+    assert len(calls) == 3 and not _ex(home, "L4.complete")
+
+
 def test_moving_counts_do_not_complete(home, kw, tmp_path):
     counts = [3, 2, 1, 2, 2]
     g = Gather(lambda c, n: counts[n - 1])
