@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "53d310de9fae44586159118e9d2251f7aeb59de551187c7a79825a498aa03c9e"
+FROZEN_CONSTANTS_HASH = "093cefd6c2f45824a756d1a2fa95b2fe1aa857ad505357ad5cdfcbaff81a4182"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -255,12 +255,14 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     ("LEGACY_COMMIT_CAP", constants.LEGACY_COMMIT_CAP, 1000),
     # RFC-0022: D-IN-4's reply lists: each PR's reviews and comments whole up to 300 nodes.
     ("PR_REPLY_NODE_CAP", constants.PR_REPLY_NODE_CAP, 300),
-    # RFC-0028: L4 cohort sampling and two-tier eligibility constants (#89, Q2b / Q9 / Q11).
+    # RFC-0028: how L4 samples newcomers and 1.2's eligibility lookups (#89).
     ("NEWCOMER_SAMPLE_SIZE", constants.NEWCOMER_SAMPLE_SIZE, 20),
     ("NEWCOMER_CANDIDATE_CAP", constants.NEWCOMER_CANDIDATE_CAP, 35),
-    ("DR90_AUTHOR_CAP_TRIGGER", constants.DR90_AUTHOR_CAP_TRIGGER, 500),
-    ("DR90_AUTHOR_SAMPLE_CAP", constants.DR90_AUTHOR_SAMPLE_CAP, 300),
-    ("ELIGIBILITY_TIER1_BATCH_SIZE", constants.ELIGIBILITY_TIER1_BATCH_SIZE, 50),
+    ("DR90_SAMPLE_MIN_AUTHORS", constants.DR90_SAMPLE_MIN_AUTHORS, 200),
+    ("DR90_SAMPLE_AUTHORS", constants.DR90_SAMPLE_AUTHORS, 150),
+    ("DR90_SAMPLE_Z", constants.DR90_SAMPLE_Z, 2.576),
+    ("DR90_SAMPLE_GATE_MARGIN", constants.DR90_SAMPLE_GATE_MARGIN, 0.05),
+    ("SAMPLE_METHOD_PREFIX", constants.SAMPLE_METHOD_PREFIX, "sample:"),
 )
 
 

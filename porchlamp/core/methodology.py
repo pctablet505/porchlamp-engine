@@ -212,7 +212,14 @@ def _curve_description(input_id: str) -> str:
             f"100 if the median hours to first substantive human response is "
             f"<= {knee:g}; else max(0, 100 - {slope:g} * log2(t / {knee:g}))"
         )
-    if input_id in ("dr90_decision_rate", "mr_first_rate", "substantive_review_rate"):
+    if input_id == "dr90_decision_rate":
+        return (
+            f"min(100, {constants.RATE_SLOPE:g} * r). On a project with more than "
+            f"{constants.DR90_SAMPLE_MIN_AUTHORS:,} outside authors in the decision cohort and a rate so high that "
+            f"a sample cannot change this score, r is read from a random {constants.DR90_SAMPLE_AUTHORS:,} of them, "
+            "and the project page says so; every other project is counted in full."
+        )
+    if input_id in ("mr_first_rate", "substantive_review_rate"):
         return f"min(100, {constants.RATE_SLOPE:g} * r)"
     if input_id == "gr14_ghost_rate":
         return f"max(0, 100 - {constants.GHOST_RATE_SLOPE:g} * g)"

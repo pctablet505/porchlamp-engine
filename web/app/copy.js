@@ -1342,6 +1342,14 @@ export function maintainerBadgeMarkdown(row, baseUrl = "") {
 // (`answer`), written by Python. Flat `Object.freeze({key: "text"})` maps and plain string constants, so the
 // verifier can read them from this file.
 
+/** A value read from a random sample says so in its source cell; any other method prints as recorded. */
+export function methodText(method) {
+  const m = /^sample:(\d+)_of_(\d+)_authors$/.exec(method || "");
+  if (!m) return method || "";
+  const count = (s) => Number(s).toLocaleString("en-US");
+  return `Measured on a random sample of ${count(m[1])} outside authors (${count(m[2])} in the period). `;
+}
+
 /** What each parameter measures (porchlamp/serve/project_pages.py PARAM_MEANINGS, moved here). */
 export const PARAM_MEANINGS = Object.freeze({
   ttfhr_hours: "Median hours from an outside pull request opening to its first substantive human reply.",

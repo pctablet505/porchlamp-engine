@@ -35,7 +35,7 @@ from _fixtures import (
     write_envelope,
 )
 
-from porchlamp.core import constants
+from porchlamp.core import constants, gates
 from porchlamp.core.models import BundleValidationError, Measured, Unmeasured, feature_provenance_hash
 from porchlamp.core.params import dr90
 from porchlamp.derive.bundle import INPUT_MAPPINGS
@@ -1946,6 +1946,59 @@ def test_dr90_decision_rate_refuses_an_author_history_narrowed_to_another_pr_win
     refused = load(tmp_path, prov_doc, key="acme__gated").inputs["dr90_decision_rate"]
     assert isinstance(refused, Unmeasured) and refused.reason == "collector_failure"
     assert "2026-08-20T00:00:00+00:00" in refused.detail and "collect author_history again" in refused.detail
+
+
+_DR90_ANCHOR = "2026-09-01T00:00:00+00:00"
+
+
+def _dr90_saturated_prs(n: int) -> list[dict]:
+    """``n`` outside authors, one PR each, all decided in five days: 1.2 samples this band (RFC-0028)."""
+    return [{**_DR90_GATE_PRS[0], "number": 5000 + i, "author": {"login": f"u{i:04d}"}} for i in range(n)]
+
+
+def _dr90_sampled_setup(tmp_path: Path, history: dict[str, Any]):
+    data = pr_window_data(window_anchor=_DR90_ANCHOR, prs=_dr90_saturated_prs(300))
+    write_envelope(tmp_path / "raw", "pr_window", "acme__big", data, "2026-09-01T00:05:00+00:00")
+    write_envelope(tmp_path / "raw", "author_history", "acme__big", history, "2026-09-01T00:06:00+00:00")
+    doc = base_document(provenance={
+        "pr_window_count": prov("pr_window", key="acme__big"),
+        "author_history_cost_points": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00", key="acme__big"),
+    })
+    return load(tmp_path, doc, key="acme__big").inputs["dr90_decision_rate"]
+
+
+def _dr90_records(logins) -> list[dict]:
+    return [{"login": login, "account_created_at": "2015-01-01T00:00:00+00:00", "public_event_count": 50,
+             "eligibility_unmeasured": False} for login in logins]
+
+
+def test_dr90_decision_rate_reads_the_whole_cohort_of_a_history_that_looked_up_everyone(tmp_path: Path) -> None:
+    """RFC-0028: a record with no ``dr90_band_sha256`` looked up every band author (every record collected before the
+    rule), so it reads the full count: a rebuild on old data moves no value."""
+    every = [f"u{i:04d}" for i in range(300)]
+    value = _dr90_sampled_setup(tmp_path, author_history_data(author_records=_dr90_records(every)))
+    assert (value.n, value.method) == (300, constants.METHOD_PRIMARY)
+
+
+def test_dr90_decision_rate_reads_the_draw_and_says_so(tmp_path: Path) -> None:
+    anchor = gates._parse_iso_opt(_DR90_ANCHOR)
+    drawn = gates.dr90_band_logins(_dr90_saturated_prs(300), anchor)
+    history = author_history_data(author_records=_dr90_records(sorted(drawn)))
+    history.update({"dr90_band_anchor": _DR90_ANCHOR, "dr90_band_sha256": gates.dr90_band_digest(drawn)})
+    value = _dr90_sampled_setup(tmp_path, history)
+    assert (value.n, value.method) == (150, "sample:150_of_300_authors")
+
+
+def test_dr90_decision_rate_refuses_a_history_that_looked_up_another_draw(tmp_path: Path) -> None:
+    """The join would read only the authors both draws share, a fraction of the sample, and report no failure."""
+    prs = _dr90_saturated_prs(300)
+    anchor = gates._parse_iso_opt(_DR90_ANCHOR)
+    other = sorted(gates.dr90_band_all_logins(prs, anchor) - gates.dr90_band_logins(prs, anchor))
+    history = author_history_data(author_records=_dr90_records(other))
+    history.update({"dr90_band_anchor": _DR90_ANCHOR, "dr90_band_sha256": gates.dr90_band_digest(other)})
+    value = _dr90_sampled_setup(tmp_path, history)
+    assert isinstance(value, Unmeasured) and value.reason == "collector_failure"
+    assert "another draw" in value.detail and "collect author_history again" in value.detail
 
 
 def test_dr90_decision_rate_eligibility_gate_unapplied_without_author_history(tmp_path: Path) -> None:

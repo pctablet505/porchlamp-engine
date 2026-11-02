@@ -1749,8 +1749,9 @@ def derive_pr_window_landing_fields(prw: Optional[dict]) -> dict[str, tuple[Any,
 #   window itself truncates before reaching 270 d back;
 # * an external, non-bot author whose first recorded PR in the window was
 #   opened in [anchor-365 d, anchor-180 d] is a newcomer-cohort author
-#   (D-IN-4); at most 20 are sampled per repo — sorted by login, then a
-#   fixed-seed random draw over that sorted list (see :func:`_select_newcomer_sample`);
+#   (D-IN-4); at most 20 are kept per repo — sorted by login, then a fixed-seed
+#   random draw over that sorted list, with up to 15 more drawn to replace any
+#   the search shows had an older PR (RFC-0028, :func:`_select_newcomer_candidates`);
 # * D-IN-3 eligibility (account age, event count) is fetched for every
 #   author in the union (sampled newcomers + external decision-cohort
 #   authors), via aliased ``user(login:)`` batches of
@@ -1820,14 +1821,14 @@ DECISION_WINDOW_DAYS: int = 90
 #: D-IN-3: MIN_ACCOUNT_AGE_DAYS, MIN_PUBLIC_EVENTS and AUTHOR_CAP_FRACTION
 #: are imported from porchlamp.core.constants.
 MIN_ACCOUNT_AGE_DAYS: int = constants.MIN_ACCOUNT_AGE_DAYS
-MIN_PUBLIC_EVENTS: int = constants.MIN_PUBLIC_EVENTS
 #: 5.2: the first PR converted when merged within 180 d of opening (merged on
 #: GitHub or landed outside its merge, RFC-0015).
 NEWCOMER_CONVERT_WINDOW_DAYS: int = 180
 #: 5.3: a return needs a second PR within 90 d after the first PR's merge (or
 #: landing, RFC-0015).
 RETURN_WINDOW_DAYS: int = 90
-#: At most this many per-author ``search`` calls per repo,
+#: At most this many per-author ``search`` calls per repo, plus the up to 15
+#: reserve newcomers when a primary one had an older PR (RFC-0028),
 #: deterministically sampled (:func:`_seeded_sample`) from the union of the
 #: decision cohort and the newcomer sample when that union is larger.
 AUTHOR_SEARCH_CAP: int = 50
@@ -1837,8 +1838,6 @@ AUTHOR_SEARCH_CAP: int = 50
 #: no dearer per login (0.28-0.53 s against 0.33-0.64 s). A timeout costs extra primary points and the narrower
 #: retries that follow. A login's record depends only on its own alias, so the width changes no value.
 ELIGIBILITY_BATCH_SIZE: int = 8
-#: RFC-0028 (Q2b): Tier-1 batch width for lightweight earliest-PR/issue eligibility checks.
-ELIGIBILITY_TIER1_BATCH_SIZE: int = constants.ELIGIBILITY_TIER1_BATCH_SIZE
 #: Narrower retry widths for aliases a batch left unresolved.
 ELIGIBILITY_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 #: Aliased per-author searches per ``AuthorPrsSearchBatch`` call. MEASURED
@@ -1901,54 +1900,6 @@ def _eligibility_batch_query(n: int) -> str:
         "contributionsCollection { contributionCalendar { totalContributions } } }"
         for i in range(n))
     return f"query AuthorEligibilityBatch({var_decls}) {{ rateLimit {{ cost remaining }} {aliases} }}"
-
-
-def _eligibility_tier1_batch_query(n: int) -> str:
-    """Tier-1 D-IN-3 eligibility batch query (RFC-0028, Q2b) for ``n`` logins:
-    aliased ``user(login:)`` nodes ``u0``..``u{n-1}`` carrying ``createdAt`` and
-    the author's earliest :data:`MIN_PUBLIC_EVENTS` public PRs and earliest
-    :data:`MIN_PUBLIC_EVENTS` public issues (``orderBy: {field: CREATED_AT, direction: ASC}``)
-    so 85-92% of accounts can be verified as having >= 5 public events prior to
-    their in-window PR timestamp without evaluating ``contributionsCollection``."""
-    var_decls = " ".join(f"$l{i}: String!" for i in range(n))
-    aliases = " ".join(
-        f"u{i}: user(login: $l{i}) {{ createdAt "
-        f"pullRequests(first: {MIN_PUBLIC_EVENTS}, orderBy: {{field: CREATED_AT, direction: ASC}}) {{ totalCount nodes {{ createdAt }} }} "
-        f"issues(first: {MIN_PUBLIC_EVENTS}, orderBy: {{field: CREATED_AT, direction: ASC}}) {{ totalCount nodes {{ createdAt }} }} }}"
-        for i in range(n)
-    )
-    return f"query AuthorEligibilityTier1Batch({var_decls}) {{ rateLimit {{ cost remaining }} {aliases} }}"
-
-
-def _eligibility_tier2_batch_query(n: int, *, bounded: bool = False) -> str:
-    """Tier-2 D-IN-3 eligibility batch query (RFC-0028, Q2b) for ``n`` logins
-    whose Tier-1 earliest PR + issue count before ``cutoff`` was < 5: queries
-    scalar ``contributionsCollection`` counts (without the expensive 365-day
-    ``contributionCalendar`` object), optionally bounded by ``$from{i}`` /
-    ``$to{i}`` ending at the author's PR creation timestamp."""
-    if bounded:
-        var_decls = " ".join(
-            f"$l{i}: String! $from{i}: DateTime! $to{i}: DateTime!" for i in range(n)
-        )
-        aliases = " ".join(
-            f"u{i}: user(login: $l{i}) {{ createdAt "
-            f"contributionsCollection(from: $from{i}, to: $to{i}) {{ "
-            "totalCommitContributions totalIssueContributions "
-            "totalPullRequestContributions totalPullRequestReviewContributions "
-            "restrictedContributionsCount } }"
-            for i in range(n)
-        )
-    else:
-        var_decls = " ".join(f"$l{i}: String!" for i in range(n))
-        aliases = " ".join(
-            f"u{i}: user(login: $l{i}) {{ createdAt "
-            "contributionsCollection { "
-            "totalCommitContributions totalIssueContributions "
-            "totalPullRequestContributions totalPullRequestReviewContributions "
-            "restrictedContributionsCount } }"
-            for i in range(n)
-        )
-    return f"query AuthorEligibilityTier2Batch({var_decls}) {{ rateLimit {{ cost remaining }} {aliases} }}"
 
 
 def _author_search_batch_query(n: int, guard_at: Optional[int] = None) -> str:
@@ -2381,7 +2332,7 @@ def _select_newcomer_candidates(
     """Return ``(primary_sample, reserve_sample)`` for RFC-0028 (Q9):
     ``primary_sample`` is the seeded :data:`NEWCOMER_SAMPLE_SIZE` (20) sample,
     and ``reserve_sample`` draws up to ``NEWCOMER_CANDIDATE_CAP - len(primary_sample)``
-    (15) additional seeded candidates from the remaining newcomer-band pool so
+    (15) additional seeded candidates, in draw order, from the remaining newcomer-band pool so
     repositories where repeat contributors occupy part of the initial 20 slots
     can still retain up to 20 confirmed true newcomers without shrinking
     ``MR_first``'s 30-slot decision-cohort search budget."""
@@ -2389,7 +2340,8 @@ def _select_newcomer_candidates(
     primary = _seeded_sample(sorted(candidates), NEWCOMER_SAMPLE_SIZE)
     remaining = sorted(candidates - set(primary))
     reserve_cap = max(0, NEWCOMER_CANDIDATE_CAP - len(primary))
-    reserve = _seeded_sample(remaining, reserve_cap) if reserve_cap > 0 else ()
+    # In draw order, not sorted: promotion takes the first confirmed ones, and a login's first letter must not decide that.
+    reserve = tuple(random.Random(NEWCOMER_SAMPLE_SEED).sample(remaining, min(reserve_cap, len(remaining))))
     return primary, reserve
 
 
@@ -2426,207 +2378,6 @@ def _decision_cohort_logins(prs: Sequence[dict], anchor: datetime) -> tuple[str,
     return tuple(sorted(logins))
 
 
-def _resolve_tier1_eligibility_node(
-    node: Any, cutoff: Optional[datetime] = None
-) -> tuple[Optional[dict], int, bool]:
-    """Evaluate a Tier-1 user node (``createdAt``, earliest ``pullRequests`` and ``issues``)
-    against ``cutoff`` (the author's PR creation timestamp, or ``None`` if unbounded).
-
-    Returns ``(resolved_record_or_None, prior_events_count, needs_tier2_escalation)``:
-    - If ``node`` is missing or lacks ``createdAt``: ``(None, 0, False)`` (unresolved alias).
-    - If the account is younger than :data:`MIN_ACCOUNT_AGE_DAYS` at ``cutoff`` or already has
-      >= :data:`MIN_PUBLIC_EVENTS` (5) public PRs + issues on or before ``cutoff``:
-      ``(record, prior_events, False)`` (settled at Tier 1).
-    - Otherwise (< 5 prior PR/issue events and account >= 90 d old):
-      ``(None, prior_events, True)`` (escalate to Tier 2 ``contributionsCollection``).
-    """
-    if not isinstance(node, dict):
-        return None, 0, False
-    created_at = node.get("createdAt")
-    if not isinstance(created_at, str):
-        return None, 0, False
-    acc_dt = _parse_iso(created_at)
-    if acc_dt is None:
-        return None, 0, False
-
-    pr_conn = node.get("pullRequests")
-    issue_conn = node.get("issues")
-    if not isinstance(pr_conn, dict) or not isinstance(issue_conn, dict):
-        return None, 0, False
-
-    def _count_conn(conn: dict) -> int:
-        if cutoff is None:
-            tc = conn.get("totalCount")
-            if isinstance(tc, int) and not isinstance(tc, bool):
-                return tc
-        nodes = conn.get("nodes")
-        if not isinstance(nodes, list):
-            return 0
-        count = 0
-        for item in nodes:
-            if not isinstance(item, dict):
-                continue
-            dt = _parse_iso(item.get("createdAt"))
-            if dt is not None and (cutoff is None or dt <= cutoff):
-                count += 1
-        return count
-
-    prior_events = _count_conn(pr_conn) + _count_conn(issue_conn)
-    too_young = cutoff is not None and (cutoff - acc_dt) < timedelta(days=MIN_ACCOUNT_AGE_DAYS)
-    if prior_events >= MIN_PUBLIC_EVENTS or too_young:
-        return (
-            {
-                "account_created_at": created_at,
-                "public_event_count": prior_events,
-                "eligibility_unmeasured": False,
-            },
-            prior_events,
-            False,
-        )
-    return None, prior_events, True
-
-
-def _resolve_tier2_eligibility_node(node: Any, prior_events: int = 0) -> Optional[dict]:
-    """Evaluate a Tier-2 user node carrying scalar ``contributionsCollection`` counts
-    (or ``contributionCalendar.totalContributions``) and combine with ``prior_events``."""
-    if not isinstance(node, dict):
-        return None
-    created_at = node.get("createdAt")
-    cc = node.get("contributionsCollection")
-    if not isinstance(created_at, str) or not isinstance(cc, dict):
-        return None
-    scalar_keys = (
-        "totalCommitContributions",
-        "totalIssueContributions",
-        "totalPullRequestContributions",
-        "totalPullRequestReviewContributions",
-        "restrictedContributionsCount",
-    )
-    if any(k in cc for k in scalar_keys):
-        vals = [cc.get(k) for k in scalar_keys if k in cc]
-        if any(not isinstance(v, int) or isinstance(v, bool) for v in vals):
-            return None
-        cc_events = sum(int(v) for v in vals)
-    else:
-        cal_total = (cc.get("contributionCalendar") or {}).get("totalContributions")
-        if not isinstance(cal_total, int) or isinstance(cal_total, bool):
-            return None
-        cc_events = cal_total
-    return {
-        "account_created_at": created_at,
-        "public_event_count": max(prior_events, cc_events),
-        "eligibility_unmeasured": False,
-    }
-
-
-def fetch_two_tier_eligibility_batch(
-    logins: Sequence[str],
-    transport: GraphqlTransport,
-    *,
-    cutoff_by_login: Optional[Mapping[str, datetime]] = None,
-    tier1_batch_size: int = ELIGIBILITY_TIER1_BATCH_SIZE,
-    tier2_batch_size: int = ELIGIBILITY_BATCH_SIZE,
-) -> tuple[dict[str, dict], int, Optional[int]]:
-    """Two-tier PR-time-bounded D-IN-3 eligibility lookup (RFC-0028, Q2b):
-    1. Queries ``logins`` in Tier-1 batches of width ``tier1_batch_size`` (30) using
-       :func:`_eligibility_tier1_batch_query` (``createdAt`` + earliest 5 PRs and 5 issues).
-    2. Immediately resolves accounts with >= 5 prior PR/issue events (or age < 90 d at
-       ``cutoff_by_login[login]``).
-    3. Escalates only ambiguous accounts (< 5 prior PR/issue events and age >= 90 d)
-       to Tier-2 batches of width ``tier2_batch_size`` (15) using
-       :func:`_eligibility_tier2_batch_query` bounded to ``[cutoff - 365 d, cutoff]``
-       when ``cutoff_by_login`` is supplied."""
-    out: dict[str, dict] = {}
-    cost = 0
-    remaining: Optional[int] = None
-    unique_logins = list(dict.fromkeys(logins))
-    tier2_needed: list[str] = []
-    tier1_prior: dict[str, int] = {}
-
-    def _run_tier1(chunk: Sequence[str]) -> list[str]:
-        nonlocal cost, remaining
-        query = _eligibility_tier1_batch_query(len(chunk))
-        variables = {f"l{i}": login for i, login in enumerate(chunk)}
-        try:
-            doc = _execute_waiting_for_the_network(transport, query, variables)
-        except (RuntimeError, subprocess.TimeoutExpired):
-            return list(chunk)
-        data = doc.get("data") or {}
-        rl = data.get("rateLimit") or {}
-        cost += int(rl.get("cost") or 0)
-        if rl.get("remaining") is not None:
-            remaining = int(rl["remaining"])
-        unresolved: list[str] = []
-        for i, login in enumerate(chunk):
-            cutoff = cutoff_by_login.get(login) if cutoff_by_login else None
-            rec, prior, escalate = _resolve_tier1_eligibility_node(data.get(f"u{i}"), cutoff)
-            if rec is not None:
-                out[login] = rec
-            elif escalate:
-                tier2_needed.append(login)
-                tier1_prior[login] = prior
-            else:
-                unresolved.append(login)
-        return unresolved
-
-    for start in range(0, len(unique_logins), tier1_batch_size):
-        pool = _run_tier1(unique_logins[start:start + tier1_batch_size])
-        for retry_width in ELIGIBILITY_RETRY_WIDTHS:
-            if not pool:
-                break
-            next_pool: list[str] = []
-            for r_start in range(0, len(pool), retry_width):
-                next_pool.extend(_run_tier1(pool[r_start:r_start + retry_width]))
-            pool = next_pool
-        for login in pool:
-            out[login] = {"account_created_at": None, "public_event_count": None,
-                          "eligibility_unmeasured": True}
-
-    def _run_tier2(chunk: Sequence[str]) -> list[str]:
-        nonlocal cost, remaining
-        bounded = bool(cutoff_by_login and all(login in cutoff_by_login for login in chunk))
-        query = _eligibility_tier2_batch_query(len(chunk), bounded=bounded)
-        variables = {f"l{i}": login for i, login in enumerate(chunk)}
-        if bounded and cutoff_by_login is not None:
-            for i, login in enumerate(chunk):
-                to_dt = cutoff_by_login[login]
-                from_dt = to_dt - timedelta(days=AUTHOR_WINDOW_DAYS)
-                variables[f"from{i}"] = from_dt.isoformat()
-                variables[f"to{i}"] = to_dt.isoformat()
-        try:
-            doc = _execute_waiting_for_the_network(transport, query, variables)
-        except (RuntimeError, subprocess.TimeoutExpired):
-            return list(chunk)
-        data = doc.get("data") or {}
-        rl = data.get("rateLimit") or {}
-        cost += int(rl.get("cost") or 0)
-        if rl.get("remaining") is not None:
-            remaining = int(rl["remaining"])
-        unresolved: list[str] = []
-        for i, login in enumerate(chunk):
-            rec = _resolve_tier2_eligibility_node(data.get(f"u{i}"), tier1_prior.get(login, 0))
-            if rec is not None:
-                out[login] = rec
-            else:
-                unresolved.append(login)
-        return unresolved
-
-    for start in range(0, len(tier2_needed), tier2_batch_size):
-        pool = _run_tier2(tier2_needed[start:start + tier2_batch_size])
-        for retry_width in ELIGIBILITY_RETRY_WIDTHS:
-            if not pool:
-                break
-            next_pool = []
-            for r_start in range(0, len(pool), retry_width):
-                next_pool.extend(_run_tier2(pool[r_start:r_start + retry_width]))
-            pool = next_pool
-        for login in pool:
-            out[login] = {"account_created_at": None, "public_event_count": None,
-                          "eligibility_unmeasured": True}
-
-    return out, cost, remaining
-
-
 def _run_eligibility_query(logins: Sequence[str], transport: GraphqlTransport,
                            ) -> tuple[dict[str, dict], list[str], int, Optional[int], bool]:
     """One ``AuthorEligibilityBatch`` call over exactly ``logins``.
@@ -2660,9 +2411,16 @@ def _run_eligibility_query(logins: Sequence[str], transport: GraphqlTransport,
     unresolved: list[str] = []
     for i, login in enumerate(logins):
         node = data.get(f"u{i}")
-        rec = _resolve_tier2_eligibility_node(node)
-        if rec is not None:
-            resolved[login] = rec
+        created_at = node.get("createdAt") if isinstance(node, dict) else None
+        events = (((node.get("contributionsCollection") or {})
+                   .get("contributionCalendar") or {}).get("totalContributions")
+                  if isinstance(node, dict) else None)
+        if isinstance(created_at, str) and isinstance(events, int) and not isinstance(events, bool):
+            resolved[login] = {
+                "account_created_at": created_at,
+                "public_event_count": events,
+                "eligibility_unmeasured": False,
+            }
         else:
             unresolved.append(login)
     return resolved, unresolved, cost, remaining, resource_limited
@@ -2852,16 +2610,11 @@ def _search_guard_passes(search_count: Optional[int], pull_requests_total: Optio
 
 def _eligibility_with_cache(logins: Sequence[str], transport: GraphqlTransport,
                             now: datetime, user_cache: Optional[UserCache],
-                            *,
-                            cutoff_by_login: Optional[Mapping[str, datetime]] = None,
-                            two_tier: Optional[bool] = None,
                             ) -> tuple[dict[str, dict], int, Optional[int]]:
     """D-IN-3 eligibility for ``logins``, reading and filling the D-COL-5
     user cache (:mod:`porchlamp.collect.user_cache`) when one is given.
 
-    Only logins the cache cannot answer go to :func:`fetch_two_tier_eligibility_batch`
-    (when ``two_tier`` is True or ``transport`` is a live :class:`GhCliTransport`)
-    or :func:`_fetch_eligibility_batch`.
+    Only logins the cache cannot answer go to :func:`_fetch_eligibility_batch`.
     Every returned record carries ``eligibility_observed_at``: ``now`` for a
     value fetched by this call, the original lookup time for a value the
     cache supplied, ``None`` when the lookup failed.
@@ -2872,15 +2625,8 @@ def _eligibility_with_cache(logins: Sequence[str], transport: GraphqlTransport,
             hit = user_cache.get(login, now)
             if hit is not None:
                 cached[login] = hit
-    uncached = [login for login in logins if login not in cached]
-    use_two_tier = two_tier if two_tier is not None else isinstance(transport, GhCliTransport)
-    if use_two_tier:
-        fetched, cost, remaining = fetch_two_tier_eligibility_batch(
-            uncached, transport, cutoff_by_login=cutoff_by_login,
-            tier1_batch_size=ELIGIBILITY_TIER1_BATCH_SIZE, tier2_batch_size=ELIGIBILITY_BATCH_SIZE,
-        )
-    else:
-        fetched, cost, remaining = _fetch_eligibility_batch(uncached, transport, ELIGIBILITY_BATCH_SIZE)
+    fetched, cost, remaining = _fetch_eligibility_batch(
+        [login for login in logins if login not in cached], transport, ELIGIBILITY_BATCH_SIZE)
     out: dict[str, dict] = {}
     for login, record in fetched.items():
         measured = not record["eligibility_unmeasured"]
@@ -3042,8 +2788,9 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
 
     Round-2 cost cap (review §4): D-IN-3 eligibility (account age, event
     count) is fetched via :func:`_fetch_eligibility_batch` for every author
-    some score reads, never a sample of them, so DR_90 keeps its full
-    cohort. Those are the authors of 1.2 DR_90's cohort in the stored
+    some score reads. DR_90 keeps its full cohort except where a sample cannot
+    change its score (RFC-0028, :func:`porchlamp.core.gates.dr90_sample_applies`).
+    Those are the authors :func:`porchlamp.core.gates.dr90_band_logins` names in the stored
     ``pr_window`` record (:func:`_load_pr_window_context`), the per-author search
     sample and the newcomer sample; with no usable ``pr_window`` record that
     is every author in the union. #89: every other author (in the history's
@@ -3188,9 +2935,11 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
         # RFC-0028 (Q9): when any primary newcomer candidate is disqualified by a prior PR
         # opened before anchor - 365 d and reserve newcomer candidates exist, search the
         # reserve candidates and promote confirmed true newcomers up to NEWCOMER_SAMPLE_SIZE.
+        # A search that failed or found nothing proves no prior PR: that author stays, and its
+        # record says history_unmeasured, which the 20% gate counts (D3-G).
         disqualified_primary = {
             login for login in sample
-            if histories.get(login) is not None
+            if histories.get(login) is not None and histories[login].issue_count != 0
             and not _is_confirmed_newcomer_from_search(login, window.prs, histories.get(login), now)
         }
         if disqualified_primary and reserve_newcomers and not project_guard_failed:
@@ -3236,19 +2985,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     read = set() if band is None else band[1] | search_sample | set(newcomers)
     skipped = set() if band is None else set(needed) - read
     elig_needed = [login for login in needed if login not in reused_elig and login not in skipped]
-    cutoff_by_login: dict[str, datetime] = {}
-    for pr in window.prs:
-        login = _login_of(pr)
-        if not login:
-            continue
-        created = _parse_iso(pr.get("createdAt"))
-        if created is not None:
-            prev_dt = cutoff_by_login.get(login)
-            if prev_dt is None or created < prev_dt:
-                cutoff_by_login[login] = created
-    elig, elig_cost, elig_remaining = _eligibility_with_cache(
-        elig_needed, t, now, user_cache, cutoff_by_login=cutoff_by_login
-    )
+    elig, elig_cost, elig_remaining = _eligibility_with_cache(elig_needed, t, now, user_cache)
     cost += elig_cost
     if elig_remaining is not None:
         remaining = elig_remaining
@@ -3275,6 +3012,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     data.update(search_meta)
     if skipped and band is not None:
         data["dr90_band_anchor"] = band[0]
+        data["dr90_band_sha256"] = gates.dr90_band_digest(band[1])
     if reused_anchor is not None:
         # #89 Q1: this record's PRs of the newest 180 d were read when that pr_window was, not at window_anchor.
         data["reused_pr_window_anchor"] = reused_anchor

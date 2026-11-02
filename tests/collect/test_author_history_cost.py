@@ -11,6 +11,7 @@ savings moves a score (engine issue #89, phase 1).
 from __future__ import annotations
 
 import json
+import random
 import re
 import shutil
 import subprocess
@@ -279,24 +280,7 @@ def test_the_band_logins_are_the_authors_of_the_prs_1_2_counts():
     assert (kept, entries) == (3, 3)    # the PR with no author has no record: the gate drops it, the three authors stay
 
 
-# --- RFC-0028: Q11 (DR90 > 500 sampling to 300), Q9 (newcomer reserve 35 -> 20), Q2b (two-tier eligibility) ----------
-
-
-def test_dr90_band_logins_caps_above_500_to_deterministic_300_and_cohort_agrees():
-    """RFC-0028 (Q11): <= 500 distinct DR_90 band authors are kept in full; > 500 are deterministically sampled
-    to 300 using PR_SAMPLE_SEED, and bundle._dr90_decision_cohort evaluates the exact same 300-author sample."""
-    prs_500 = [w4_days(1000 + i, 120, f"u{i:04d}", closed_after=5) for i in range(500)]
-    assert len(gates.dr90_band_logins(prs_500, NOW)) == 500
-
-    prs_600 = [w4_days(2000 + i, 120, f"u{i:04d}", closed_after=5) for i in range(600)]
-    sampled = gates.dr90_band_logins(prs_600, NOW)
-    assert len(sampled) == gates.DR90_AUTHOR_SAMPLE_CAP == 300
-    assert sampled == gates.dr90_band_logins(list(reversed(prs_600)), NOW)
-
-    records = {login: {"login": login, "account_created_at": "2015-01-01T00:00:00Z", "public_event_count": 50}
-               for login in sampled}
-    decided, kept, entries, malformed, gate = bundle._dr90_decision_cohort({"prs": prs_600}, NOW, records)
-    assert (decided, kept, entries, malformed, gate) == (300, 300, 300, 0, True)
+# --- RFC-0028: Q9 (newcomer reserve 35 -> 20) ------------------------------------------------------------------------
 
 
 def test_newcomer_pre_filters_young_and_non_user_and_promotes_reserve_up_to_20(tmp_path):
@@ -340,75 +324,154 @@ def test_newcomer_pre_filters_young_and_non_user_and_promotes_reserve_up_to_20(t
     assert fields["newcomer_cohort_author_count"] == (20, "derived")
 
 
-def test_two_tier_eligibility_settles_active_at_tier1_and_escalates_ambiguous_to_bounded_tier2():
-    """RFC-0028 (Q2b): Tier 1 batches 50 logins with earliest 5 PRs/issues and settles accounts with >= 5 prior
-    events (or < 90d age at cutoff); only ambiguous accounts (< 5 prior PR/issue events and >= 90d age) escalate
-    to Tier 2 scalar contributionsCollection(from:, to:) bounded to the PR creation timestamp."""
-    cutoff = NOW - timedelta(days=100)
-    early_ts = (NOW - timedelta(days=300)).isoformat()
+def _nc_in(days):
+    return (NOW - timedelta(days=days)).isoformat()
 
-    class TwoTierTransport:
-        def __init__(self) -> None:
-            self.queries: list[tuple[str, dict]] = []
 
-        def execute(self, query: str, variables: dict) -> dict:
-            self.queries.append((query, dict(variables)))
-            if "AuthorEligibilityTier1Batch" in query:
-                return {
-                    "data": {
-                        "rateLimit": {"cost": 1, "remaining": 4999},
-                        "u0": {
-                            "createdAt": "2018-01-01T00:00:00Z",
-                            "pullRequests": {"totalCount": 3, "nodes": [{"createdAt": early_ts}] * 3},
-                            "issues": {"totalCount": 2, "nodes": [{"createdAt": early_ts}] * 2},
-                        },
-                        "u1": {
-                            "createdAt": "2018-01-01T00:00:00Z",
-                            "pullRequests": {"totalCount": 1, "nodes": [{"createdAt": early_ts}]},
-                            "issues": {"totalCount": 0, "nodes": []},
-                        },
-                        "u2": {
-                            "createdAt": (cutoff - timedelta(days=30)).isoformat(),  # < 90d at cutoff
-                            "pullRequests": {"totalCount": 0, "nodes": []},
-                            "issues": {"totalCount": 0, "nodes": []},
-                        },
-                    }
-                }
-            assert "AuthorEligibilityTier2Batch" in query
-            assert "contributionCalendar" not in query
-            assert variables["l0"] == "commit_only"
-            assert variables["to0"] == cutoff.isoformat()
-            return {
-                "data": {
-                    "rateLimit": {"cost": 1, "remaining": 4998},
-                    "u0": {
-                        "createdAt": "2018-01-01T00:00:00Z",
-                        "contributionsCollection": {
-                            "totalCommitContributions": 12,
-                            "totalIssueContributions": 0,
-                            "totalPullRequestContributions": 1,
-                            "totalPullRequestReviewContributions": 2,
-                            "restrictedContributionsCount": 0,
-                        },
-                    },
-                }
-            }
+def _nc_pool(n=35, days=300):
+    """``n`` newcomer-band authors outside the decision band, so only the newcomer draw searches them."""
+    return [w4_days(100 + i, days, f"nc{i:02d}", merged_after=5) for i in range(n)]
 
-    t = TwoTierTransport()
-    out, cost, rem = gql.fetch_two_tier_eligibility_batch(
-        ["active_pr_author", "commit_only", "young_author"],
-        t,
-        cutoff_by_login={
-            "active_pr_author": cutoff,
-            "commit_only": cutoff,
-            "young_author": cutoff,
-        },
-    )
-    assert len(t.queries) == 2
-    assert out["active_pr_author"]["public_event_count"] == 5
-    assert out["commit_only"]["public_event_count"] == 15
-    assert out["young_author"]["public_event_count"] == 0
-    assert cost == 2 and rem == 4998
+
+def _nc_search(login, days=300, veteran=False, zero=False):
+    number = int(login[2:]) + 100
+    in_window = w4_spr(number, _nc_in(days), merged=_nc_in(days - 5))
+    if zero:
+        return {"issueCount": 0, "nodes": []}
+    if veteran:
+        return {"nodes": [w4_spr(number + 900, _nc_in(400), merged=_nc_in(395)), in_window]}
+    return {"nodes": [in_window]}
+
+
+def _nc_users(logins):
+    return {login: {"createdAt": "2015-01-01T00:00:00Z",
+                    "contributionsCollection": {"contributionCalendar": {"totalContributions": 25}}}
+            for login in logins}
+
+
+def _nc_collect(tmp_path, fake):
+    raw = tmp_path / "raw"
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+    return read_envelope(raw / "author_history" / "acme__widget.json").data
+
+
+def test_a_zero_search_primary_stays_in_the_sample_as_unmeasured(tmp_path):
+    """A search that finds none of an author the window holds is a failed measurement (D3-G), not a veteran."""
+    prs = _nc_pool()
+    logins = sorted(f"nc{i:02d}" for i in range(35))
+    gone = gql._select_newcomer_sample(prs, NOW, truncated=False)[0]
+    fake = W4Transport([_w4_page(prs, False)], [2], [4990],
+                       {login: _nc_search(login, zero=login == gone) for login in logins}, _nc_users(logins))
+    data = _nc_collect(tmp_path, fake)
+    records = {r["login"]: r for r in data["author_records"]}
+    assert gone in records and records[gone]["history_unmeasured"] is True
+    assert gone in data["sampled_authors"]
+
+
+def test_failed_searches_still_reach_the_20_percent_gate(tmp_path):
+    """Every newcomer search finding nothing must refuse 1.3, not vanish from the count it is judged by."""
+    newcomers = _nc_pool()
+    cohort = [w4_days(800 + i, 120, f"co{i:02d}", merged_after=5) for i in range(10)]
+    logins = [f"nc{i:02d}" for i in range(35)]
+    searches = {login: _nc_search(login, zero=True) for login in logins}
+    for i in range(10):
+        searches[f"co{i:02d}"] = {"nodes": [w4_spr(800 + i, _nc_in(120), merged=_nc_in(115))]}
+    fake = W4Transport([_w4_page(newcomers + cohort, False)], [2], [4990], searches,
+                       _nc_users(logins + list(searches)))
+    fields = gql.derive_cohort_fields(_nc_collect(tmp_path, fake))
+    assert fields["authors_excluded_unmeasured"][0] == 20
+    assert fields["mr_first_rate"] == (None, "missing")
+
+
+def test_reserve_is_searched_promoted_and_measured(tmp_path):
+    """The reserve's own search runs when its authors are outside the 30 slots; an unconfirmed one is never promoted."""
+    prs = _nc_pool()
+    logins = sorted(f"nc{i:02d}" for i in range(35))
+    primary, reserve = gql._select_newcomer_candidates(prs, NOW, truncated=False)
+    veterans = set(primary[:8]) | set(reserve[:10])
+    fake = W4Transport([_w4_page(prs, False)], [2], [4990],
+                       {login: _nc_search(login, veteran=login in veterans) for login in logins}, _nc_users(logins))
+    data = _nc_collect(tmp_path, fake)
+    assert sorted(fake.searched_logins) == logins
+    assert not set(data["sampled_authors"]) & veterans
+    assert len(data["sampled_authors"]) == 17   # 12 primary + the 5 confirmed reserve
+    assert gql.derive_cohort_fields(data)["newcomer_cohort_author_count"] == (17, "derived")
+
+
+def test_promotion_takes_the_reserve_in_draw_order_not_by_name(tmp_path):
+    prs = _nc_pool()
+    logins = sorted(f"nc{i:02d}" for i in range(35))
+    primary, reserve = gql._select_newcomer_candidates(prs, NOW, truncated=False)
+    remaining = sorted(set(logins) - set(primary))
+    assert reserve == tuple(random.Random(gql.NEWCOMER_SAMPLE_SEED).sample(remaining, 15))
+    assert set(reserve[:3]) != set(sorted(reserve)[:3])     # or this test could not tell the two orders apart
+    fake = W4Transport([_w4_page(prs, False)], [2], [4990],
+                       {login: _nc_search(login, veteran=login in primary[:3]) for login in logins}, _nc_users(logins))
+    data = _nc_collect(tmp_path, fake)
+    assert set(data["sampled_authors"]) == (set(primary) - set(primary[:3])) | set(reserve[:3])
+
+
+def test_a_failed_project_guard_searches_no_reserve(tmp_path):
+    prs = _nc_pool()
+    logins = sorted(f"nc{i:02d}" for i in range(35))
+    primary, _reserve = gql._select_newcomer_candidates(prs, NOW, truncated=False)
+    fake = W4Transport([_w4_page(prs, False)], [2], [4990],
+                       {login: _nc_search(login, veteran=login in primary[:8]) for login in logins},
+                       _nc_users(logins), guard_count=0)
+    data = _nc_collect(tmp_path, fake)
+    assert sorted(fake.searched_logins) == sorted(primary)
+    assert set(data["sampled_authors"]) == set(primary)
+
+
+def test_a_pr_exactly_at_the_band_start_is_still_a_newcomer():
+    search = gql.AuthorSearch([w4_spr(1, _nc_in(365))], 1)
+    assert gql._is_confirmed_newcomer_from_search("nc01", [], search, NOW) is True
+
+
+def test_a_live_transport_asks_the_calendar_query():
+    """RFC-0028 parked the two-tier lookups: the transport the phone runs asks what every test transport asks."""
+    seen = []
+
+    class Live(gql.GhCliTransport):
+        def execute(self, query, variables):
+            seen.append(query)
+            return {"data": {"rateLimit": {"cost": 1, "remaining": 1},
+                             "u0": {"createdAt": "2015-01-01T00:00:00Z",
+                                    "contributionsCollection": {"contributionCalendar": {"totalContributions": 9}}}}}
+
+    assert gql._eligibility_with_cache(["alice"], Live(), NOW, None)[0]["alice"]["public_event_count"] == 9
+    assert seen and all("AuthorEligibilityBatch" in query and "contributionCalendar" in query for query in seen)
+
+
+# --- RFC-0028: 1.2's sample, collect side (the rule's own tests are in tests/core/test_dr90_sample.py) ----------------
+
+def test_collect_looks_up_only_the_draw_and_names_it(tmp_path):
+    prs = [w4_days(2000 + i, 120, f"u{i:04d}", closed_after=5) for i in range(600)]
+    raw = tmp_path / "raw"
+    write_envelope(raw / "pr_window" / "acme__widget.json", source="github-graphql:pr-window",
+                   data={"window_anchor": NOW.isoformat(), "prs": prs, "truncated": False, "window_days": 180},
+                   fetched_at=NOW.isoformat())
+    logins = [f"u{i:04d}" for i in range(600)]
+    searches = {login: {"nodes": [w4_spr(2000 + int(login[1:]), _nc_in(120), merged=_nc_in(115))]} for login in logins}
+    fake = W4Transport([_w4_page(prs, False)], [2], [4990], searches, _nc_users(logins))
+    data = _nc_collect(tmp_path, fake)
+    drawn = gates.dr90_band_logins(prs, NOW)
+    assert len(drawn) == 150
+    assert data["dr90_band_anchor"] == NOW.isoformat()
+    assert data["dr90_band_sha256"] == gates.dr90_band_digest(drawn)
+    records = {r["login"]: r for r in data["author_records"]}
+    looked_up = {login for login, r in records.items() if r.get("eligibility_looked_up", True)}
+    assert drawn <= looked_up and len(looked_up) <= 150 + gql.AUTHOR_SEARCH_CAP
+    assert bundle._dr90_decision_cohort({"prs": prs}, NOW, records, drawn=drawn)[1] == 150
+
+
+def test_a_history_that_looked_up_everyone_names_no_band(tmp_path):
+    """No stored window: every author is looked up, so derive must read the whole cohort."""
+    prs = [w4_days(2000 + i, 120, f"u{i:04d}", closed_after=5) for i in range(30)]
+    logins = [f"u{i:04d}" for i in range(30)]
+    searches = {login: {"nodes": [w4_spr(2000 + int(login[1:]), _nc_in(120), merged=_nc_in(115))]} for login in logins}
+    data = _nc_collect(tmp_path, W4Transport([_w4_page(prs, False)], [2], [4990], searches, _nc_users(logins)))
+    assert "dr90_band_sha256" not in data and "dr90_band_anchor" not in data
 
 
 # --- Q1: L1 (pr_window) -> L4 (author_history) window reuse & Cycle 2+ raw-stale reuse ------------------------------

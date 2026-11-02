@@ -1509,9 +1509,12 @@ def _dr90_decision_cohort(
     data: Mapping[str, Any],
     anchor: datetime.datetime,
     author_records: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    *,
+    drawn: Optional[frozenset[str]] = None,
 ) -> tuple[int, int, int, int, bool]:
     """1.2 DR_90's cohort and decision count over the raw pr_window envelope,
-    D-IN-3-adjusted.
+    D-IN-3-adjusted. RFC-0028: with ``drawn``, only those authors' PRs (the sample the
+    history looked up, :func:`porchlamp.core.gates.dr90_band_logins`).
 
     Reads the ``prs[]`` nodes alone (``createdAt``, ``mergedAt``,
     ``closedAt``, ``author``): #57, a PR belongs to the cohort when it is an
@@ -1593,10 +1596,8 @@ def _dr90_decision_cohort(
         login = raw_login or f"__no_author_pr_{pr.get('number')}"
         entries.append((login, created, pr))
 
-    real_logins = {login for login, _c, _pr in entries if not login.startswith("__no_author_pr_")}
-    if len(real_logins) > constants.DR90_AUTHOR_CAP_TRIGGER:
-        sampled_band = gates.dr90_band_logins(data.get("prs") or [], anchor)
-        entries = [(login, created, pr) for login, created, pr in entries if login in sampled_band]
+    if drawn is not None:
+        entries = [(login, created, pr) for login, created, pr in entries if login in drawn]
 
     gate_applied = author_records is not None
     if gate_applied:
@@ -1665,6 +1666,11 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     record's cohort (``dr90_band_anchor``) is refused the same way: the join would drop every author of this one's
     cohort that it never looked up.
 
+    RFC-0028: a record that narrowed its lookups names the band it looked up (``dr90_band_sha256``). 1.2 reads that band
+    when this ``pr_window`` gives the same one, says so in ``method`` when it is a sample, and refuses any other: it
+    would be reading a fraction of the sample and report no failure. A record without the key looked up every band
+    author, so it reads the whole cohort.
+
     #66 F1: it also refuses (``collector_failure``) an ``author_history``
     record cut short of the cohort's start, the instant ``window_anchor``
     minus 180 d of THIS ``pr_window`` record
@@ -1691,6 +1697,8 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     cohort_start = anchor - timedelta(days=_DR90_COHORT_START_DAYS)
     _ah_path, ah_data, _ah_fetched_at = _author_history_envelope(ctx)
     author_records: Optional[Mapping[str, Mapping[str, Any]]] = None
+    drawn: Optional[frozenset[str]] = None
+    band_total = 0
     if ah_data is not None:
         if _author_history_cut_short_at(ah_data, cohort_start):
             return Unmeasured(reason="collector_failure", detail=_author_history_cut_detail(ah_data, cohort_start))
@@ -1702,12 +1710,24 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
                         f"pr_window recorded at {band_anchor}, and this pr_window was recorded at "
                         f"{data.get('window_anchor')}: collect author_history again"),
             )
+        band_digest = ah_data.get("dr90_band_sha256")
+        if band_digest is not None:
+            band = gates.dr90_band_logins(data.get("prs") or [], anchor)
+            if gates.dr90_band_digest(band) != band_digest:
+                return Unmeasured(
+                    reason="collector_failure",
+                    detail=("author_history looked up eligibility for another draw of the decision cohort's authors "
+                            "than this pr_window gives: collect author_history again"),
+                )
+            band_total = len(gates.dr90_band_all_logins(data.get("prs") or [], anchor))
+            if len(band) < band_total:
+                drawn = band
         author_records = {
             str(record.get("login") or "").lower(): record
             for record in ah_data.get("author_records") or []
             if isinstance(record, Mapping)
         }
-    decided, cohort, raw_cohort, malformed, gate_applied = _dr90_decision_cohort(data, anchor, author_records)
+    decided, cohort, raw_cohort, malformed, gate_applied = _dr90_decision_cohort(data, anchor, author_records, drawn=drawn)
     min_n = constants.PARAM_MIN_N["dr90_decision_rate"]
     if cohort < min_n:
         detail = (
@@ -1723,6 +1743,8 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     relative = _relative_source(path, ctx.raw_root)
     ctx.referenced[relative] = source_hash
     method = _DR90_METHOD_PRIMARY if gate_applied else _DR90_METHOD_GATE_UNAPPLIED
+    if drawn is not None:
+        method = f"{constants.SAMPLE_METHOD_PREFIX}{len(drawn)}_of_{band_total}_authors"
     return Measured(
         value=round(decided / cohort, 4), n=cohort, window_start=window_start, window_end=window_end,
         method=method, source=relative, source_hash=source_hash, fetched_at=fetched_at,

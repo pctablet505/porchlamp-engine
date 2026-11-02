@@ -70,6 +70,13 @@ import {
 // (responsiveness), 4 (friction), 5 (leverage), 8 (owner/name — levels 6
 // TTFHR p75 and 7 last-commit-date are store-only, never in the row
 // contract; see docs/v2/06-UX-DESIGN.md).
+test("methodText: a sampled value says so, any other method prints as recorded (RFC-0028)", () => {
+  assert.equal(copy.methodText("sample:150_of_2989_authors"), "Measured on a random sample of 150 outside authors (2,989 in the period). ");
+  assert.equal(copy.methodText("primary"), "primary");
+  assert.equal(copy.methodText("proxy:din3_unapplied"), "proxy:din3_unapplied");
+  assert.equal(copy.methodText(undefined), "");
+});
+
 test("decidingTieLevel: level 1 (composite differs — not a genuine tie)", () => {
   const a = { porchlamp: 90.11, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "a", name: "a" };
   const b = { porchlamp: 88.5, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "b", name: "b" };
