@@ -139,19 +139,40 @@ input.control::placeholder {
 
 /* The theme toggle shows the theme in force, as tokens.css decides it: dark on bare :root, light for a system that
  * asks for light unless the reader chose dark, and the reader's choice (data-theme, set by theme-init.js before the
- * first paint). Drawn here rather than by a script, so it is right from the first paint on every page. */
-.theme-toggle::before {
-  content: "🌙";
+ * first paint). Styled here rather than by a script, so the right SVG icon shows from the first paint on every page. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-icon {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+  pointer-events: none;
+}
+
+.theme-icon-light {
+  display: none;
 }
 
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .theme-toggle::before {
-    content: "☀";
+  :root:not([data-theme="dark"]) .theme-icon-dark {
+    display: none;
+  }
+
+  :root:not([data-theme="dark"]) .theme-icon-light {
+    display: block;
   }
 }
 
-:root[data-theme="light"] .theme-toggle::before {
-  content: "☀";
+:root[data-theme="light"] .theme-icon-dark {
+  display: none;
+}
+
+:root[data-theme="light"] .theme-icon-light {
+  display: block;
 }
 
 /* ---- Primary nav (06 §2 Leaderboard/Matrix/Compare/Configure/Methodology) ---- */

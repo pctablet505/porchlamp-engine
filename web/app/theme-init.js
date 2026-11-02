@@ -5,7 +5,7 @@
 //
 // It is the one owner of the choice. It reads it (`porchlamp-theme` in localStorage, "light" or "dark"; anything else
 // follows the system), applies it as `data-theme` on <html>, which tokens.css themes by, and answers the header's
-// toggle (components/chrome.js draws it; components.css draws its icon from the theme in force). After a change it
+// toggle (components/chrome.js renders the inline SVG icons; components.css reveals the icon for the theme in force). After a change it
 // fires "porchlamp-themechange" on the document, so the app can redraw what CSS does not restyle (the matrix canvas).
 (() => {
   const KEY = "porchlamp-theme";
