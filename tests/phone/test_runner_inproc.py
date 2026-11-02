@@ -675,3 +675,49 @@ def test_inflight_env_is_the_layers_own(home, kw, monkeypatch):
     (home / "state" / "refresh" / R.REPAIR_MARKER).unlink()
     assert R.run_repair(home, gather, **kw) == 0
     assert seen == {"repair": ["1"]}
+
+
+def test_pre_main_done_refreshes_only_stale_releases_and_issues_counts_anchors(home, kw, logs):
+    """Q4: Before stamping MAIN.done, any releases (L2) or issues_counts (L3c) envelope whose data.window_anchor is
+    > 13 days older than now() is staged to raw-stale-...-anchor-.../ and re-collected, while fresh envelopes stay."""
+    stale_anchor = "2026-09-25T00:00:00Z"  # 16.5 days before NOW (2026-10-11T12:00:00Z) > 13 days
+    fresh_anchor = "2026-10-05T00:00:00Z"  # 6.5 days before NOW <= 13 days
+
+    def before(cols, n):
+        if cols == L2 and n == 1:
+            _put(home / "raw/releases/stale__repo.json", f'{{"data": {{"window_anchor": "{stale_anchor}"}}}}')
+            _put(home / "raw/releases/fresh__repo.json", f'{{"data": {{"window_anchor": "{fresh_anchor}"}}}}')
+        elif cols == "commits_365d,issues_counts" and n == 1:
+            _put(home / "raw/issues_counts/stale__issue.json", f'{{"data": {{"window_anchor": "{stale_anchor}"}}}}')
+            _put(home / "raw/issues_counts/fresh__issue.json", f'{{"data": {{"window_anchor": "{fresh_anchor}"}}}}')
+        elif cols == "releases":
+            assert not (home / "raw/releases/stale__repo.json").exists()
+            assert (home / "raw/releases/fresh__repo.json").exists()
+            _put(home / "raw/releases/stale__repo.json", f'{{"data": {{"window_anchor": "{FRESH}"}}}}')
+        elif cols == "issues_counts":
+            assert not (home / "raw/issues_counts/stale__issue.json").exists()
+            assert (home / "raw/issues_counts/fresh__issue.json").exists()
+            _put(home / "raw/issues_counts/stale__issue.json", f'{{"data": {{"window_anchor": "{FRESH}"}}}}')
+
+    g = Gather(before=before)
+    assert R.run_cycle(home, g, **kw) == 0
+    assert g.calls == [
+        PR,
+        "repair",
+        L0,
+        L2,
+        "governance",
+        "commits_365d,issues_counts",
+        L4,
+        "releases",
+        "issues_counts",
+        KEYLESS,
+    ]
+    assert _ex(home, "MAIN.done")
+    anchor_dirs = list(home.glob("raw-stale-*-anchor-*"))
+    assert len(anchor_dirs) == 1
+    assert (anchor_dirs[0] / "releases/stale__repo.json").is_file()
+    assert (anchor_dirs[0] / "issues_counts/stale__issue.json").is_file()
+    assert any("L2: anchor refresh COMPLETE" in line for line in logs)
+    assert any("L3c: anchor refresh COMPLETE" in line for line in logs)
+

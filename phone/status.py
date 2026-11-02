@@ -126,6 +126,8 @@ class Progress:
     TTL_S = 15.0
     SAMPLE_EVERY_S = 60.0
     KEEP_S = 3 * 3600.0
+    EMA_ALPHA = 0.3
+    EMA_BLEND = 0.5
 
     def __init__(self, home: Path | str, clock: Callable[[], float]) -> None:
         self.home = Path(home)
@@ -139,6 +141,8 @@ class Progress:
         self._active_s = 0.0
         self._last_tick: float | None = None
         self._samples: list[tuple[float, int]] = []
+        self._skip_base = 0
+        self._last_skipped = 0
         self._counted_at = -1e9
         self._cand_key: tuple[int, int] | None = None
         self._cand_n = 0
@@ -169,7 +173,8 @@ class Progress:
             self._cand_key, self._cand_n = key, n
         return self._cand_n
 
-    def tick(self, layer: str | None, run: int, checked: int, total: int, active: bool, force: bool = False) -> None:
+    def tick(self, layer: str | None, run: int, checked: int, total: int, active: bool, force: bool = False,
+             skipped: int = 0) -> None:
         now = self._clock()
         with self._lock:
             dt = 0.0 if self._last_tick is None else min(max(now - self._last_tick, 0.0), 30.0)
@@ -179,19 +184,35 @@ class Progress:
             if (layer, run) != (self.layer, self.run):
                 self.layer, self.run, self.done, self.total = layer, run, 0, 0
                 self._samples, self._counted_at = [], -1e9
+                self._skip_base, self._last_skipped = 0, 0
             if layer is None:
                 return
             if not force and now - self._counted_at < self.TTL_S:
                 return
             self._counted_at = now
             done, total = checked, total or self.candidates()
-            if done > self.done:
+            prev_done = self.done
+            if done > prev_done:
                 self.changed_ts = now
             self.done, self.total = done, total
-            if active and (not self._samples or done != self._samples[-1][1]
-                           or self._active_s - self._samples[-1][0] >= self.SAMPLE_EVERY_S):
-                self._samples.append((self._active_s, done))
-                self._samples = [s for s in self._samples if self._active_s - s[0] <= self.KEEP_S]
+            skipped = max(0, min(done, skipped))
+            delta_done = max(0, done - prev_done)
+            delta_skipped = max(0, skipped - self._last_skipped)
+            self._last_skipped = skipped
+            if active:
+                if done > 0 and done == skipped:
+                    # Pure initial skip burst before any active network repo completed: rebase sample origin.
+                    self._skip_base = skipped
+                    self._samples = [(self._active_s, 0)]
+                    return
+                if delta_done > 0 and delta_skipped == delta_done:
+                    # Mid-pass tick where only instant skips occurred and zero active repos completed.
+                    self._skip_base += delta_skipped
+                eff_done = max(0, done - self._skip_base)
+                if (not self._samples or eff_done != self._samples[-1][1]
+                        or self._active_s - self._samples[-1][0] >= self.SAMPLE_EVERY_S):
+                    self._samples.append((self._active_s, eff_done))
+                    self._samples = [s for s in self._samples if self._active_s - s[0] <= self.KEEP_S]
 
     def snapshot(self) -> tuple[int, int]:
         with self._lock:
@@ -207,7 +228,19 @@ class Progress:
         if len(samples) < 2 or samples[-1][0] - samples[0][0] < ETA_WARMUP_S:
             return "Estimate improves as it runs"
         span = samples[-1][0] - samples[0][0]
-        rate = (samples[-1][1] - samples[0][1]) / span
+        cum_rate = (samples[-1][1] - samples[0][1]) / span
+        if cum_rate <= 0:
+            return "Not enough progress yet to estimate"
+        ema: float | None = None
+        prev_t, prev_d = samples[0]
+        for t, d in samples[1:]:
+            dd = d - prev_d
+            dt = t - prev_t
+            if dd > 0 and dt > 0:
+                seg_rate = dd / dt
+                ema = seg_rate if ema is None else (self.EMA_ALPHA * seg_rate + (1.0 - self.EMA_ALPHA) * ema)
+                prev_t, prev_d = t, d
+        rate = cum_rate if ema is None else (self.EMA_BLEND * ema + (1.0 - self.EMA_BLEND) * cum_rate)
         if rate <= 0:
             return "Not enough progress yet to estimate"
         return eta_words((total - done) / rate)
