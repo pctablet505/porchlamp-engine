@@ -33,7 +33,7 @@ import tempfile
 import threading
 import zlib
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -166,7 +166,7 @@ class UserCache:
             ):
                 continue
             source = str(doc.get("source") or USER_CACHE_SOURCE)
-            rows.append((login, "User", account, events, str(doc["observed_at"]), source))
+            rows.append((login, "User", account, events, observed.astimezone(timezone.utc).isoformat(), source))
         if rows:
             with conn:
                 conn.executemany(
@@ -289,13 +289,18 @@ class UserCache:
             return False
 
         if self._use_sqlite:
+            obs_iso = (
+                observed_at.astimezone(timezone.utc).isoformat()
+                if observed_at.tzinfo is not None
+                else observed_at.isoformat()
+            )
             conn = self._ensure_db()
             with self._db_lock, conn:
                 conn.execute(
                     "INSERT OR REPLACE INTO users"
                     " (login, typename, account_created_at, public_event_count, observed_at, source)"
                     " VALUES (?, 'User', ?, ?, ?, ?)",
-                    (login, account, events, observed_at.isoformat(), USER_CACHE_SOURCE),
+                    (login, account, events, obs_iso, USER_CACHE_SOURCE),
                 )
             self._count("writes")
             return True
@@ -337,7 +342,12 @@ class UserCache:
             events = record.get("public_event_count")
             if not isinstance(account, str) or isinstance(events, bool) or not isinstance(events, int):
                 continue
-            rows.append((login, "User", account, events, observed_at.isoformat(), USER_CACHE_SOURCE))
+            obs_iso = (
+                observed_at.astimezone(timezone.utc).isoformat()
+                if observed_at.tzinfo is not None
+                else observed_at.isoformat()
+            )
+            rows.append((login, "User", account, events, obs_iso, USER_CACHE_SOURCE))
         if not rows:
             return 0
         conn = self._ensure_db()
@@ -390,47 +400,52 @@ def hydrate_from_author_history_dir(
     ah_dir = Path(raw_dir) / "author_history"
     if not ah_dir.is_dir():
         return 0
+    owns_cache = cache is None
     if cache is None:
         cache = UserCache(Path(raw_dir).parent / "state" / "users", backend="sqlite")
 
-    best_by_login: dict[str, tuple[dict[str, Any], datetime]] = {}
-    for path in sorted(ah_dir.glob("*.json")):
-        try:
-            doc = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        data = doc.get("data") if isinstance(doc, Mapping) else None
-        if not isinstance(data, Mapping):
-            continue
-        anchor_raw = data.get("window_anchor")
-        for rec in data.get("author_records") or []:
-            if not isinstance(rec, Mapping):
+    try:
+        best_by_login: dict[str, tuple[dict[str, Any], datetime]] = {}
+        for path in sorted(ah_dir.glob("*.json")):
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
                 continue
-            if rec.get("eligibility_unmeasured") or rec.get("eligibility_looked_up") is False:
+            data = doc.get("data") if isinstance(doc, Mapping) else None
+            if not isinstance(data, Mapping):
                 continue
-            login = str(rec.get("login") or "").lower()
-            if not _CACHEABLE_LOGIN.fullmatch(login):
-                continue
-            account = rec.get("account_created_at")
-            events = rec.get("public_event_count")
-            if not isinstance(account, str) or isinstance(events, bool) or not isinstance(events, int):
-                continue
-            obs_raw = rec.get("eligibility_observed_at") or anchor_raw
-            obs_dt = _parse_iso(obs_raw)
-            if obs_dt is None:
-                continue
-            prev = best_by_login.get(login)
-            if prev is None or obs_dt >= prev[1]:
-                best_by_login[login] = (
-                    {"account_created_at": account, "public_event_count": events, "eligibility_unmeasured": False},
-                    obs_dt,
-                )
+            anchor_raw = data.get("window_anchor")
+            for rec in data.get("author_records") or []:
+                if not isinstance(rec, Mapping):
+                    continue
+                if rec.get("eligibility_unmeasured") or rec.get("eligibility_looked_up") is False:
+                    continue
+                login = str(rec.get("login") or "").lower()
+                if not _CACHEABLE_LOGIN.fullmatch(login):
+                    continue
+                account = rec.get("account_created_at")
+                events = rec.get("public_event_count")
+                if not isinstance(account, str) or isinstance(events, bool) or not isinstance(events, int):
+                    continue
+                obs_raw = rec.get("eligibility_observed_at") or anchor_raw
+                obs_dt = _parse_iso(obs_raw)
+                if obs_dt is None:
+                    continue
+                prev = best_by_login.get(login)
+                if prev is None or obs_dt >= prev[1]:
+                    best_by_login[login] = (
+                        {"account_created_at": account, "public_event_count": events, "eligibility_unmeasured": False},
+                        obs_dt,
+                    )
 
-    if not best_by_login:
-        return 0
-    return cache.put_many(
-        (login, rec, obs_dt) for login, (rec, obs_dt) in sorted(best_by_login.items())
-    )
+        if not best_by_login:
+            return 0
+        return cache.put_many(
+            (login, rec, obs_dt) for login, (rec, obs_dt) in sorted(best_by_login.items())
+        )
+    finally:
+        if owns_cache:
+            cache.close()
 
 
 def export_sqlite_gz(cache: UserCache) -> bytes:
