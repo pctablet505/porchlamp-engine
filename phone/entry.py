@@ -214,11 +214,10 @@ class Engine:
             return 1
         return int(self.settings.value(runner.WORKER_SETTING[layer]))
 
-    def _set_inflight(self, values: dict[str, Any]) -> None:
-        """``PORCHLAMP_GH_INFLIGHT``: the largest worker setting among the selected steps (1 while pinned or when none
-        is selected); ``PORCHLAMP_GH_PPM``: :data:`GH_PPM`."""
-        wanted = [values[runner.WORKER_SETTING[layer]] for layer in values["layers"] if layer in runner.WORKER_SETTING]
-        os.environ[ghcli.INFLIGHT_ENV] = str(1 if self.pinned() else max(wanted, default=1))
+    def _set_inflight(self) -> None:
+        """``PORCHLAMP_GH_INFLIGHT`` 1 (the runner raises it per step, RB5 ruling 2); ``PORCHLAMP_GH_PPM``
+        :data:`GH_PPM`."""
+        os.environ[ghcli.INFLIGHT_ENV] = "1"
         os.environ[ghcli.PPM_ENV] = str(GH_PPM)
 
     def _gh_event(self, level: str, text: str) -> None:
@@ -234,7 +233,7 @@ class Engine:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(datetime.fromtimestamp(self.clock(), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") + "\n",
                             encoding="utf-8")
-            self._set_inflight(self.settings.get())
+            self._set_inflight()
 
     def is_working(self) -> bool:
         return (self.started and not self.stopped and self.runstate.mode == "running"
@@ -385,7 +384,7 @@ class Engine:
             os.environ["PORCHLAMP_GH"] = "http"
             os.environ["PORCHLAMP_ENGINE"] = str(ENGINE_ROOT)
             os.environ["PORCHLAMP_RATE_FLOOR"] = str(self.settings.value("rate_floor"))
-            self._set_inflight(self.settings.get())
+            self._set_inflight()
             ghcli.on_event = self._gh_event
             for hook in ("PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API", *TOKEN_ENV):
                 os.environ.pop(hook, None)   # the API host is fixed, and only the accepted token is used
@@ -742,8 +741,6 @@ class Engine:
                            "It lasts until the current cycle ends." if new[key] else "")
         if old["rate_floor"] != new["rate_floor"]:
             os.environ["PORCHLAMP_RATE_FLOOR"] = str(new["rate_floor"])
-        if any(old[key] != new[key] for key in ("l4_workers", "github_workers", "layers")):
-            self._set_inflight(new)
         if old["lan_mode"] != new["lan_mode"]:
             self.event("info", f"Workstation link set to {new['lan_mode']}", "", "network")
         if old["delivery_mode"] != new["delivery_mode"]:

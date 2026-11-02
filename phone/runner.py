@@ -75,6 +75,8 @@ REPAIR_MARKER = "L1.repaired"
 #: ``--workers``). Only these GitHub steps may: L1 stays at one (its heavy pages drew 15 of the phone's 16 limits one
 #: at a time), L2 until deps.dev's and ecosyste.ms's published limits are read, LK for good (pypistats allows about 5
 #: calls a minute per address). The repair after L1 always runs at one.
+#: ``porchlamp.collect.ghcli.INFLIGHT_ENV``: the requests in flight the GitHub transport allows; set per step.
+INFLIGHT_ENV = "PORCHLAMP_GH_INFLIGHT"
 WORKER_SETTING: dict[str, str] = {"L4": "l4_workers", "L0": "github_workers", "L3g": "github_workers",
                                   "L3c": "github_workers"}
 
@@ -367,6 +369,9 @@ def run_layer(
         log(line)
 
     side_by_side = ("--workers", str(workers)) if workers > 1 and layer in WORKER_SETTING else ()
+    # RB5 ruling 2: the GitHub transport's in-flight cap is this step's own (ghcli reads it on every request), so a
+    # step run one at a time never counts its limits toward the pin.
+    os.environ[INFLIGHT_ENV] = str(workers if side_by_side else 1)
     if side_by_side:
         log(f"{layer}: {workers} projects at once")
     prev: int | None = None
@@ -443,6 +448,7 @@ def run_repair(
         log("L1: replies already repaired -- skipping")
         return 0
     layer = "L1"
+    os.environ[INFLIGHT_ENV] = "1"   # the repair runs one request at a time (RB5 ruling 2)
     if state is not None:
         state.layer, state.collectors, state.run, state.max_runs = layer, ("pr_window",), 0, max_runs
         state.checked = state.stopped = state.pruned = state.failed = state.total = 0

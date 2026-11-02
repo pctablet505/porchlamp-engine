@@ -609,3 +609,26 @@ def test_a_line_printed_while_another_is_logged_stays_in_the_tee(capsys):
     assert sorted(logged) == ["first", "second"]
     assert sorted(tee.text().splitlines()) == ["first", "second"]
     assert "second" not in capsys.readouterr().out
+
+
+def test_inflight_env_is_the_layers_own(home, kw, monkeypatch):
+    """RB5 ruling 2: the GitHub transport's in-flight value is set per step before gather runs: the step's worker
+    count where it runs side by side (L0, L3g, L3c, L4), 1 everywhere else (L1, L2, LK and the repair). L1's
+    limits, taken one request at a time, then never count toward the pin."""
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "9")                 # put back after the test
+    seen: dict[str, list[str | None]] = {}
+
+    def gather(argv):
+        cols = "repair" if "--repair-replies" in argv else argv[3]
+        seen.setdefault(cols, []).append(R.os.environ.get("PORCHLAMP_GH_INFLIGHT"))
+        print("done: 1 clean, 0 with failures")
+        return 0
+
+    assert R.run_cycle(home, gather, workers=lambda layer: 3, **kw) == 0
+    assert seen == {PR: ["1"], "repair": ["1"], L0: ["3"], L2: ["1"], "governance": ["3"],
+                    "commits_365d,issues_counts": ["3"], L4: ["3"], KEYLESS: ["1"]}
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "9")
+    seen.clear()
+    (home / "state" / "refresh" / R.REPAIR_MARKER).unlink()
+    assert R.run_repair(home, gather, **kw) == 0
+    assert seen == {"repair": ["1"]}

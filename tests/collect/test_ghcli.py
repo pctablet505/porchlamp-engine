@@ -1192,6 +1192,51 @@ def test_a_primary_pause_does_not_lift_a_longer_secondary_hold(wire: Wire, throt
     assert [at for who, at in sent if who in ("B", "C")] == [NOW + 600, NOW + 600]
 
 
+def test_signals_one_at_a_time_never_count_toward_the_pin(wire: Wire, throttle: list,
+                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB5 ruling 2: three secondary limits while one request at a time was allowed (L1's usual limits), then one
+    more with three allowed, all within 24 h: not pinned. Only strikes taken with several in flight count."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    monkeypatch.setattr(ghcli, "_sleep", clock.sleep)
+    refused: set[int] = set()
+    wire.reply = lambda n, who: (403, {"retry-after": "30"}, SECONDARY_BODY) if n in refused \
+        else (200, {}, '{"data": {}}')
+    for k in range(4):
+        if k == 3:
+            monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
+        clock.t = NOW + k * 3600
+        refused.add(wire.n + 1)
+        assert ghcli.run(GQL_ARGS).returncode == 0
+    assert clock.sleeps == [60, 120, 240, 480]                          # the waits still double per signal
+    assert not ghcli._THROTTLE.pinned
+    assert [level for level, _ in throttle if level == "err"] == []
+
+
+def test_one_burst_of_refusals_counts_once(wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB5 S4: three requests in flight refused by one GitHub event (each was sent before the first refusal came
+    back) are one signal: one strike, one warn event, no pin; each of the three still waits the hold, then retries."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
+    gate = threading.Event()
+    wire.hold = gate
+    wire.reply = lambda n, who: (403, {"retry-after": "60"}, SECONDARY_BODY) if n <= 3 else (200, {}, '{"data": {}}')
+    workers = [threading.Thread(target=ghcli.run, args=(GQL_ARGS,), name=f"w{i}", daemon=True) for i in range(3)]
+    for t in workers:
+        t.start()
+    assert _wait_until(lambda: wire.in_flight == 3)
+    clock.t = NOW + 5                                                   # the answers come back after all three left
+    gate.set()
+    for t in workers:
+        t.join(10)
+    assert not any(t.is_alive() for t in workers)
+    assert wire.n == 6
+    assert len(ghcli._THROTTLE.strikes) == 1
+    assert [level for level, _ in throttle] == ["warn"]
+    assert not ghcli._THROTTLE.pinned
+
+
 def test_a_thread_waiting_a_hold_stops_at_a_stop(wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
     """RB5 OP1: with the engine's gate and no test sleep, a thread waiting another thread's hold is a GitHub wait the
     phone can see (``rate_state``), and a stop ends it within about a second."""

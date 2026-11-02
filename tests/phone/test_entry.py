@@ -792,24 +792,23 @@ def test_upload_token_is_redacted_everywhere_tested_and_uploads_finished_cycle(t
 
 
 def test_inflight_env_follows_settings_and_pin_file(tmp_path, monkeypatch):
-    """T22 (D4): the engine tells the GitHub transport how many requests may be in flight: the largest worker setting
-    of the selected steps, 1 while the pin file exists, and 70 GraphQL points a minute. The transport's pin event
-    writes the pin file, the collector's steps then run one project at a time, and a restart keeps it until the next
-    cycle retires the file. A hold is a timeline event, the hourly line goes to the technical log only."""
+    """T22 (D4, RB5 ruling 2): the engine starts the GitHub transport at one request in flight and 70 GraphQL points
+    a minute; the runner raises the in-flight value per step (its worker setting), so a settings change moves no
+    process-wide value. The transport's pin event writes the pin file, the collector's steps then run one project at
+    a time, and a restart keeps it until the next cycle retires the file. A hold is a timeline event, the hourly line
+    goes to the technical log only."""
     monkeypatch.setattr(ghcli, "on_event", None)                     # put back after the test
     r = Rig(tmp_path, facts=LOOPBACK)
     steps = ("L1", "L0", "L2", "L3g", "L3c", "L4", "LK")
     env = lambda: (os.environ.get("PORCHLAMP_GH_INFLIGHT"), os.environ.get("PORCHLAMP_GH_PPM"))  # noqa: E731
-    assert env() == ("3", "70")
+    assert env() == ("1", "70")
     assert [r.eng.workers_for(step) for step in steps] == [1, 1, 1, 1, 1, 3, 1]
     r.eng.settings_set(json.dumps({"l4_workers": 2}))
-    assert env() == ("2", "70")
+    assert env() == ("1", "70") and r.eng.workers_for("L4") == 2
     r.eng.settings_set(json.dumps({"l4_workers": 1, "github_workers": 2}))
-    assert env() == ("2", "70") and [r.eng.workers_for(step) for step in steps] == [1, 2, 1, 2, 2, 1, 1]
-    r.eng.settings_set(json.dumps({"layers": ["L1", "L2", "LK"]}))          # no selected step runs side by side
+    assert env() == ("1", "70") and [r.eng.workers_for(step) for step in steps] == [1, 2, 1, 2, 2, 1, 1]
+    r.eng.settings_set(json.dumps({"l4_workers": 3, "github_workers": 1}))
     assert env() == ("1", "70")
-    r.eng.settings_set(json.dumps({"layers": list(steps), "l4_workers": 3, "github_workers": 1}))
-    assert env() == ("3", "70")
 
     seen: list[dict] = []
     monkeypatch.setattr(runner, "run_forever", lambda home, main, **kwargs: seen.append(kwargs))

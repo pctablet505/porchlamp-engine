@@ -16,7 +16,7 @@ The HTTPS transport is also the one throttle of the process (D4): at most ``PORC
 (1-3, default 1), GraphQL paced to ``PORCHLAMP_GH_PPM`` points a minute, and every thread held when GitHub signals a
 limit: a 429, a 403 with ``retry-after`` or a secondary-limit message, or a GraphQL 200 whose error names one. After a
 signal, or six 502/504 answers in five minutes, it sends one request at a time for a while; the third signal in a day
-pins it there for the process.
+taken while several requests may be in flight pins it there for the process (requests refused together count once).
 """
 
 from __future__ import annotations
@@ -513,6 +513,8 @@ class _Throttle:
         self.hold_until = 0.0
         self.degraded_until = 0.0
         self.strikes: deque[float] = deque()            # secondary-limit signal times, the last PIN_WINDOW_S
+        self.pin_strikes: deque[float] = deque()        # ... of them, those taken while several could be in flight
+        self._last_signal = float("-inf")               # when the last signal (a new GitHub event) came
         self.fivexx: deque[float] = deque()             # GitHub 502/504 times, the last STORM_WINDOW_S
         self.points: deque[tuple[float, int]] = deque()  # GraphQL (time, cost), the last PPM_WINDOW_S
         self.pinned = False
@@ -602,31 +604,45 @@ class _Throttle:
         for level, text in told:
             _emit(level, text)
 
-    def signal(self, wait: float, why: str) -> tuple[float, float]:
-        """A secondary limit (``why`` names the answer). The k-th within 24 h holds every thread for
-        ``min(wait * 2**(k-1), HOLD_MAX)`` and sends one request at a time for ``min(DEGRADE_S * 2**(k-1),
-        DEGRADE_MAX)``; the PIN_STRIKES-th pins one at a time when more than one was allowed. Returns ``(seconds to
-        wait, the hold's end)``: the calling thread waits them itself, then calls :meth:`clear_hold`."""
+    def signal(self, wait: float, why: str, sent_at: float) -> tuple[float, float]:
+        """A secondary limit (``why`` names the answer) to a request sent at ``sent_at``. The k-th within 24 h holds
+        every thread for ``min(wait * 2**(k-1), HOLD_MAX)`` and sends one request at a time for ``min(DEGRADE_S *
+        2**(k-1), DEGRADE_MAX)``. A request sent before the last signal came was refused by that same GitHub event
+        (RB5: requests in flight refused together): it extends the hold, with no new strike and no new event. Only
+        strikes taken while more than one request may be in flight count toward the pin: the PIN_STRIKES-th of them
+        within 24 h pins one at a time. Returns ``(seconds to wait, the hold's end)``: the calling thread waits them
+        itself, then calls :meth:`clear_hold`."""
         told: list[tuple[str, str]] = []
         with self._cond:
             now = _now()
-            while self.strikes and self.strikes[0] <= now - PIN_WINDOW_S:
-                self.strikes.popleft()
+            for times in (self.strikes, self.pin_strikes):
+                while times and times[0] <= now - PIN_WINDOW_S:
+                    times.popleft()
+            if sent_at < self._last_signal:
+                k = max(len(self.strikes), 1)
+                self.hold_until = max(self.hold_until, now + min(wait * 2 ** (k - 1), HOLD_MAX))
+                held, until = self.hold_until - now, self.hold_until
+                self._cond.notify_all()
+                return held, until
             self.strikes.append(now)
+            self._last_signal = now
             k = len(self.strikes)
             self.hold_until = max(self.hold_until, now + min(wait * 2 ** (k - 1), HOLD_MAX))
             degrade = min(DEGRADE_S * 2 ** (k - 1), DEGRADE_MAX)
             self.degraded_until = max(self.degraded_until, now + degrade)
             several = _inflight_setting() > 1
+            if several:
+                self.pin_strikes.append(now)
             if several and not self.pinned:
                 self._limited = True
             held = self.hold_until - now
             told.append(("warn", f"GitHub secondary limit ({why}): every request waits {math.ceil(held)} s"
                                  + (f", then one at a time for {degrade // 60} min" if several and not self.pinned
                                     else "")))
-            if k >= PIN_STRIKES and several and not self.pinned:
+            if len(self.pin_strikes) >= PIN_STRIKES and not self.pinned:
                 self.pinned = True
-                told.append(("err", f"{k} GitHub secondary limits in 24 h: one request at a time from now on"))
+                told.append(("err", f"{len(self.pin_strikes)} GitHub secondary limits in 24 h with several requests "
+                                    "in flight: one request at a time from now on"))
             until = self.hold_until
             self._cond.notify_all()
         for level, text in told:
@@ -1025,6 +1041,7 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
         _gate(resource, token_idx)
         throttle = _THROTTLE
         throttle.acquire(is_graphql)
+        sent_at = _now()
         answered = graphql_points = 0
         t0 = time.perf_counter()
         try:
@@ -1094,7 +1111,7 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
         if _secondary_signal(status, resp_headers, text, is_graphql):
             # D4: every thread holds, this one waits the hold and retries (at most MAX_RETRIES times, as before).
             seconds, reason = _signal_wait(resp_headers)
-            held, until = throttle.signal(seconds, f"HTTP {status}, {reason}")
+            held, until = throttle.signal(seconds, f"HTTP {status}, {reason}", sent_at)
             if attempts < MAX_RETRIES:
                 attempts += 1
                 key = _header(resp_headers, "x-ratelimit-resource") or resource
