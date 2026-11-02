@@ -19,6 +19,7 @@ import io
 import itertools
 import json
 import re
+import sqlite3
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -27,10 +28,11 @@ from types import ModuleType
 
 import pytest
 
-from phone import httpgate
+from phone import httpgate, runner
 from porchlamp.collect import fingerprint, net
 from porchlamp.collect import github_graphql as gql
 from porchlamp.collect.envelope import write_envelope
+from porchlamp.collect.user_cache import UserCache
 from tests.helpers.gate import installed, loopback_gate
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -350,14 +352,44 @@ def test_identical_after_masking_shared_authors(tmp_path, monkeypatch, frozen, w
     a, b = _envelopes(one), _envelopes(many)
     assert sorted(a) == sorted(b) == EXPECTED_FILES
     assert {k: _masked(v) for k, v in a.items()} == {k: _masked(v) for k, v in b.items()}
-    users_a, users_b = _files(one / "state" / "users"), _files(many / "state" / "users")
-    assert len(users_a) == 47 and sorted(users_a) == sorted(users_b)
+    assert not (one / "state" / "users").exists()  # the collector writes SQLite, no JSON file per login
+    users_a, users_b = _cache_rows(one), _cache_rows(many)
+    assert len(users_a) == 47 and users_a == users_b
 
-    def values(blob: bytes) -> tuple:
-        doc = json.loads(blob)
-        return doc["account_created_at"], doc["public_event_count"]
 
-    assert {k: values(v) for k, v in users_a.items()} == {k: values(v) for k, v in users_b.items()}
+def _cache_rows(root: Path) -> dict[str, tuple]:
+    """login -> (account date, count): the values reused across projects; ``observed_at`` may differ by project."""
+    conn = sqlite3.connect(f"file:{root / 'state' / 'users.sqlite'}?mode=ro", uri=True)
+    try:
+        return {row[0]: row[1:] for row in conn.execute(
+            "SELECT login, account_created_at, public_event_count FROM users")}
+    finally:
+        conn.close()
+
+
+def test_envelopes_are_byte_identical_on_the_json_and_sqlite_caches(tmp_path, monkeypatch, frozen) -> None:
+    """The backend is storage only: the same run writes the same bytes, shared authors and cache reuse included."""
+    on_json, on_sqlite = _root(tmp_path, "json"), _root(tmp_path, "sqlite")
+    g = _gather(monkeypatch, on_json)
+    g._USER_CACHE = UserCache(on_json / "state" / "users")  # no database on disk: the JSON layout
+    assert _run(monkeypatch, on_json, 1, shared=True, module=g)[0] == 0
+    assert _run(monkeypatch, on_sqlite, 1, shared=True)[0] == 0
+    assert len(_files(on_json / "state" / "users")) == 47 and not (on_json / "state" / "users.sqlite").exists()
+    assert (on_sqlite / "state" / "users.sqlite").is_file() and not (on_sqlite / "state" / "users").exists()
+    assert _envelopes(on_json) == _envelopes(on_sqlite)
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_a_corrupt_user_cache_database_does_not_fail_the_collection(tmp_path, monkeypatch, frozen, workers) -> None:
+    """Before the rework every project failed; run_layer's two agreeing runs then marked L4 complete with nothing
+    fetched, in seconds, see the next test."""
+    clean, broken = _root(tmp_path, "clean"), _root(tmp_path, "broken")
+    (broken / "state").mkdir()
+    (broken / "state" / "users.sqlite").write_bytes(b"not a database " * 500)
+    assert _run(monkeypatch, clean, workers, shared=False)[0] == 0
+    assert _run(monkeypatch, broken, workers, shared=False)[0] == 0
+    assert _envelopes(clean) == _envelopes(broken)
+    assert len(list((broken / "state").glob("users.sqlite.corrupt-*"))) == 1
 
 
 @pytest.mark.parametrize("workers", [2, 3])
@@ -658,3 +690,21 @@ def test_a_worker_whose_fail_line_cannot_be_written_still_reports(tmp_path, monk
     assert returned == [(3, 1)]
     assert sorted(below.lines) == [f"{o}/{n} [pypi]: OK\n" for o, n in projects[1:]]
     assert raised.wait(5) and escaped == [OSError]
+
+
+def test_a_corrupt_user_cache_database_cannot_end_the_step_with_nothing_fetched(tmp_path, monkeypatch, frozen) -> None:
+    def step(root: Path) -> list[str]:
+        g = _gather(monkeypatch, root)
+        script = ScriptedGitHub(False)
+        monkeypatch.setattr(gql.GhCliTransport, "execute", lambda self, query, variables: script.execute(query, variables))
+        logs: list[str] = []
+        assert runner.run_layer(root, "L4", "author_history", g.main, log=logs.append, free_gb=lambda _home: 100.0) == 0
+        return logs
+
+    clean, broken = _root(tmp_path, "clean"), _root(tmp_path, "broken")
+    (broken / "state").mkdir()
+    (broken / "state" / "users.sqlite").write_bytes(b"not a database " * 500)
+    step(clean)
+    logs = step(broken)
+    assert _envelopes(broken) and _envelopes(broken) == _envelopes(clean)
+    assert any("SQLite failed (DatabaseError)" in line for line in logs)

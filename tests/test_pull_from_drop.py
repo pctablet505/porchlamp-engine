@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import os
+import sqlite3
 import tarfile
 from pathlib import Path
 
@@ -490,6 +491,56 @@ def test_a_candidate_row_that_is_not_a_path_segment_or_has_a_bad_ecosystem_exits
         ])
         assert rc == 0
         assert (dest / "raw" / "candidates.jsonl").read_text(encoding="utf-8") == text
+    finally:
+        srv.close()
+        blob_srv.close()
+
+
+def _release_with_l4(releases: list, blobs: dict, envelope: bytes) -> None:
+    arc = _pack_tar_gz([("raw/author_history/acme__one.json", envelope)])
+    manifest = json.dumps({
+        "generated_at": "2026-10-28T04:00:00Z",
+        "main_done": "2026-10-28T04:00:00Z",
+        "layers": {"L4": {"archive": "L4.tar.gz", "bytes": len(arc), "sha256": hashlib.sha256(arc).hexdigest(),
+                          "completed_at": "2026-10-28T04:00:00Z"}},
+        "candidates_sha256": None,
+    }).encode("utf-8")
+    blobs[1], blobs[2] = arc, manifest
+    releases.append({
+        "id": 77, "tag_name": "cycle-2026-10-28-a40000000000", "draft": False, "prerelease": False,
+        "assets": [{"id": 1, "name": "L4.tar.gz", "size": len(arc), "state": "uploaded"},
+                   {"id": 2, "name": "manifest.json", "size": len(manifest), "state": "uploaded"}],
+    })
+
+
+def test_a_pull_of_l4_fills_the_user_cache_and_a_cache_failure_does_not_fail_the_pull(tmp_path, capsys):
+    srv, blob_srv, releases, blobs, _, _ = _make_drop_server()
+    try:
+        _release_with_l4(releases, blobs, json.dumps({"data": {"author_records": [
+            {"login": "alice", "account_created_at": "2018-01-01T00:00:00Z", "public_event_count": 12,
+             "eligibility_unmeasured": False, "eligibility_observed_at": "2026-10-01T00:00:00+00:00"},
+            5,
+        ]}}).encode("utf-8"))
+        token_file = tmp_path / "tok"
+        token_file.write_text(READ_PAT + "\n", encoding="utf-8")
+        args = ["--repo", DROP_REPO, "--token-file", str(token_file), "--api-base", srv.url]
+
+        dest = tmp_path / "dest"
+        assert pull_mod.main([*args, "--dest", str(dest)]) == 0
+        conn = sqlite3.connect(f"file:{dest / 'state' / 'users.sqlite'}?mode=ro&immutable=1", uri=True)
+        assert conn.execute("SELECT login, public_event_count FROM users").fetchall() == [("alice", 12)]
+        conn.close()
+        assert "user_cache: 1 logins from L4" in capsys.readouterr().out
+
+        broken = tmp_path / "broken"
+        (broken / "state" / "users.sqlite").mkdir(parents=True)  # sqlite3 cannot open a folder
+        (broken / "raw" / "author_history").mkdir(parents=True)  # something to set aside
+        assert pull_mod.main([*args, "--dest", str(broken)]) == 0
+        assert "user_cache: not updated" in capsys.readouterr().out
+        assert (broken / "state" / "pulled" / "L4.sha256").is_file()
+        assert (broken / "raw" / "author_history" / "acme__one.json").is_file()
+        assert pull_mod.main([*args, "--dest", str(broken), "--layers", "L4"]) == 0  # not exit 5
+        assert "L4: unchanged" in capsys.readouterr().out
     finally:
         srv.close()
         blob_srv.close()

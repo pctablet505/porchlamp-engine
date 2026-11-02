@@ -185,45 +185,19 @@ def _push_candidates(base: str, token: str, file: Path) -> None:
     _log(f"candidates: pushed {len(body)} bytes")
 
 
-def _push_user_cache(base: str, token: str, dest: Path) -> None:
-    from porchlamp.collect.user_cache import UserCache, export_sqlite_gz, hydrate_from_author_history_dir
-
-    cache = UserCache(dest / "state" / "users", backend="sqlite")
+def _hydrate_user_cache(dest: Path) -> None:
+    """The lookups of the L4 just pulled go into this root's user cache. Best effort: the layer is already pulled and
+    marked, the cache is not evidence, and a failure here must not make the same pull fail (exit 5) when it is run
+    again."""
     try:
-        hydrate_from_author_history_dir(dest / "raw", cache=cache)
-        body = export_sqlite_gz(cache)
-    finally:
-        cache.close()
-    if len(body) > CANDIDATES_CAP:
-        raise PullError(1, "user cache archive is over the 8 MiB cap")
-    with _request(f"{base}/state/users.sqlite.gz", token, "PUT", {"Content-Type": "application/gzip"}, body) as resp:
-        resp.read()
-    _log(f"user_cache: pushed {len(body)} bytes")
+        from porchlamp.collect.user_cache import hydrate_from_author_history_dir
 
-
-def _pull_user_cache(base: str, token: str, dest: Path) -> None:
-    from porchlamp.collect.user_cache import UserCache, import_sqlite_gz
-
-    resp, nonce = _open(f"{base}/state/users.sqlite.gz", token)
-    with resp:
-        raw = resp.read()
-        mac = resp.headers.get(MAC_HEADER)
-        status = resp.status
-    if not verify_response(token, nonce, status, raw, mac):
-        raise PullError(1, "GET state/users.sqlite.gz: reply signature missing or wrong; nothing used")
-    cache = UserCache(dest / "state" / "users", backend="sqlite")
-    try:
-        imported = import_sqlite_gz(cache, raw)
-    except ValueError as exc:
-        raise PullError(3, f"user_cache: invalid sqlite.gz payload ({exc})") from None
-    finally:
-        cache.close()
-    _log(f"user_cache: pulled {imported} records ({len(raw)} bytes)")
+        _log(f"user_cache: {hydrate_from_author_history_dir(dest / 'raw')} logins from L4")
+    except Exception as exc:  # review-ok: gate-cache - not evidence, the pull has already succeeded
+        _log(f"user_cache: not updated ({type(exc).__name__})")
 
 
 def pull(base: str, token: str, dest: Path, wanted: list[str] | None) -> None:
-    from porchlamp.collect.user_cache import hydrate_from_author_history_dir
-
     manifest = _get_json(f"{base}/manifest.json", token)
     layers = manifest["layers"]
     todo = [layer for layer in LAYERS if layer in layers and (wanted is None or layer in wanted)]
@@ -247,11 +221,11 @@ def pull(base: str, token: str, dest: Path, wanted: list[str] | None) -> None:
     for layer, entry, part, members, resumed in plan:
         _set_aside(dest, layer)
         count = _extract(part, members, dest)
-        if layer == "L4":
-            hydrate_from_author_history_dir(dest / "raw")
         _write_text(pulled_dir / f"{layer}.sha256", entry["sha256"])
         _write_text(dest / "state" / "refresh" / f"{layer}.complete", entry["completed_at"])
         part.unlink()
+        if layer == "L4":
+            _hydrate_user_cache(dest)
         note = f" (resumed at {resumed})" if resumed else ""
         _log(f"{layer}: pulled files={count} bytes={entry['bytes']}{note}")
     main_done = manifest.get("main_done")
@@ -267,8 +241,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dest", type=Path)
     parser.add_argument("--layers", default=None, help="comma-separated layer names; default all listed")
     parser.add_argument("--push-candidates", type=Path, default=None)
-    parser.add_argument("--push-user-cache", action="store_true", help="push state/users.sqlite.gz to phone")
-    parser.add_argument("--pull-user-cache", action="store_true", help="pull state/users.sqlite.gz from phone")
     args = parser.parse_args(argv)
     base = args.url.rstrip("/")
     try:
@@ -280,12 +252,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.dest is None:
             raise PullError(1, "--dest is required unless --push-candidates is given")
-        if args.push_user_cache:
-            _push_user_cache(base, token, args.dest)
-            return 0
-        if args.pull_user_cache:
-            _pull_user_cache(base, token, args.dest)
-            return 0
         wanted = args.layers.split(",") if args.layers else None
         if wanted and any(layer not in LAYERS for layer in wanted):
             raise PullError(1, "unknown layer in --layers")
