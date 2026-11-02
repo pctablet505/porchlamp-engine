@@ -538,7 +538,7 @@ class _Throttle:
         served = 0.0
         while True:
             hold_wait = pace_wait = 0.0
-            admitted = False
+            admitted = slot_wait = False
             told: list[tuple[str, str]] = []
             with self._cond:
                 now = _now()
@@ -548,10 +548,13 @@ class _Throttle:
                 else:
                     cap = self.cap(now)
                     if self._limited and cap > 1:
+                        # RB5 S6: told before this request is counted (the next pass admits it), so a write that
+                        # raises leaves no slot counted
                         self._limited = False
                         told.append(("log", f"back to {cap} requests at once"))
-                    if self.in_flight >= cap:
+                    elif self.in_flight >= cap:
                         self._cond.wait(SLOT_WAIT_S)  # a release wakes it; then every rule is read again
+                        slot_wait = True
                     else:
                         ppm = _ppm_setting() if is_graphql else 0
                         if ppm:
@@ -572,6 +575,8 @@ class _Throttle:
                 served = hold
             elif pace_wait:
                 _sleep_for(pace_wait)
+            elif slot_wait:
+                net.sleep(0)  # RB5 follow-up 11: a stop ends a wait for a free slot (outside the lock)
 
     def release(self, status: int, points: int) -> None:
         """One request ended with ``status`` (0: no answer) and cost ``points`` GraphQL points."""

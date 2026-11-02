@@ -1304,3 +1304,63 @@ def test_a_request_that_fails_on_the_wire_gives_its_slot_back(wire: Wire, thrott
     with pytest.raises(subprocess.TimeoutExpired):
         ghcli.run(GQL_ARGS)
     assert ghcli._THROTTLE.in_flight == 0
+
+
+class _BrokenStderr:
+    """``sys.stderr`` that cannot be written (RB5 S6)."""
+
+    def write(self, text: str) -> int:
+        raise OSError(5, "Input/output error")
+
+    def flush(self) -> None:
+        pass
+
+
+def test_the_back_to_n_line_failing_leaves_no_slot_counted(throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB5 S6 (follow-up 11a): after a secondary limit's one-at-a-time spell, the next request writes "back to 3
+    requests at once" on stderr. If that write raises, the request is not sent and no slot stays counted; the next
+    request is admitted without the line again."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
+    t = ghcli._THROTTLE
+    t.signal(60.0, "HTTP 429, retry-after 60 s", clock.now())
+    clock.t = NOW + ghcli.DEGRADE_S + 1                                  # the hold and the spell are over
+    with monkeypatch.context() as m:
+        m.setattr("sys.stderr", _BrokenStderr())
+        with pytest.raises(OSError):
+            t.acquire(True)
+    assert t.in_flight == 0
+    t.acquire(True)
+    assert t.in_flight == 1 and not [text for _, text in throttle if text.startswith("back to")]
+
+
+def test_a_stop_ends_a_wait_for_a_free_slot(throttle: list) -> None:
+    """RB5 follow-up 11b: with the cap (1) full, a thread waiting in ``acquire`` for a slot stops at a stop within
+    about a second, with no slot counted, though no request ends meanwhile (checked by name, never a hang)."""
+    t = ghcli._THROTTLE
+    t.acquire(True)                                                     # the one slot is taken and stays taken
+    outcome: list[str] = []
+
+    def waiting() -> None:
+        try:
+            t.acquire(True)
+            outcome.append("admitted")
+        except httpgate.Stopped:
+            outcome.append("stopped")
+
+    gate = loopback_gate()
+    waiter = threading.Thread(target=waiting, daemon=True)
+    with installed(gate):
+        waiter.start()
+        time.sleep(0.3)
+        assert not outcome                                              # it waits for the slot
+        began = time.monotonic()
+        gate.stop()
+        waiter.join(3)
+        stopped_in = time.monotonic() - began
+        if waiter.is_alive():
+            t.release(200, 0)                                           # let it go, then fail by name
+            waiter.join(3)
+            pytest.fail("the slot wait did not end at the stop")
+    assert outcome == ["stopped"] and stopped_in < 1.5 and t.in_flight == 1
