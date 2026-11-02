@@ -550,6 +550,24 @@ MIN_PUBLIC_EVENTS: int = 5
 #: dropped, most recent first).
 AUTHOR_CAP_FRACTION: float = 0.20
 
+#: RFC-0028 (D-IN-3 / D-IN-4): L4 author-history cohort sampling and two-tier
+#: eligibility constants (#89, Q2b / Q9 / Q11).
+#: Retained confirmed newcomer-cohort size (5.2 conversion, 5.3 RR_90).
+NEWCOMER_SAMPLE_SIZE: int = 20
+#: Seeded newcomer-band candidates searched (after 0-cost <90d and non-User
+#: pre-filtering) to retain up to :data:`NEWCOMER_SAMPLE_SIZE` confirmed true
+#: newcomers without reducing 1.3 MR_first's 30-slot decision-cohort budget.
+NEWCOMER_CANDIDATE_CAP: int = 35
+#: Distinct outside authors in 1.2 DR_90's [anchor-180d, anchor-90d) band above
+#: which deterministic author sampling (:data:`DR90_AUTHOR_SAMPLE_CAP`) applies.
+DR90_AUTHOR_CAP_TRIGGER: int = 500
+#: Deterministic sample size of distinct DR_90 band outside authors when a
+#: repository exceeds :data:`DR90_AUTHOR_CAP_TRIGGER` (95% MoE <= +-2.6%).
+DR90_AUTHOR_SAMPLE_CAP: int = 300
+#: Batch width for Tier-1 D-IN-3 eligibility lookups (createdAt + earliest 5 PRs
+#: and earliest 5 issues) before escalating ambiguous accounts to Tier 2.
+ELIGIBILITY_TIER1_BATCH_SIZE: int = 50
+
 #: Pillar names and frozen pillar weights (02 section 4; O-2: unchanged at
 #: 25/25/20/15/15). Defined here (ahead of its alphabetical neighbours)
 #: because ``PERSONA_PRESETS`` below needs ``PILLAR_WEIGHTS`` already bound.
@@ -710,8 +728,11 @@ def constants_dict() -> dict[str, object]:
         "COHORT_RATE_SLOPE": COHORT_RATE_SLOPE,
         "COMMIT_CAP": COMMIT_CAP,
         "COMPOSITE_DECIMALS": COMPOSITE_DECIMALS,
+        "DR90_AUTHOR_CAP_TRIGGER": DR90_AUTHOR_CAP_TRIGGER,
+        "DR90_AUTHOR_SAMPLE_CAP": DR90_AUTHOR_SAMPLE_CAP,
         "DX_PROXY_MIN_N": DX_PROXY_MIN_N,
         "ELEPHANT_SLOPE": ELEPHANT_SLOPE,
+        "ELIGIBILITY_TIER1_BATCH_SIZE": ELIGIBILITY_TIER1_BATCH_SIZE,
         "EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE": EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE,
         "EVIDENCE_GATE_REQUIRED_PILLARS": EVIDENCE_GATE_REQUIRED_PILLARS,
         "FIRST_TIMER_MIN_DECIDED_PRS": FIRST_TIMER_MIN_DECIDED_PRS,
@@ -744,6 +765,8 @@ def constants_dict() -> dict[str, object]:
         "MIN_POPULATION": MIN_POPULATION,
         "MIN_PUBLIC_EVENTS": MIN_PUBLIC_EVENTS,
         "MONO_TOLERANCE": MONO_TOLERANCE,
+        "NEWCOMER_CANDIDATE_CAP": NEWCOMER_CANDIDATE_CAP,
+        "NEWCOMER_SAMPLE_SIZE": NEWCOMER_SAMPLE_SIZE,
         "NOT_APPLICABLE_RULES": NOT_APPLICABLE_RULES,
         "NO_CEILING_MIN_COVERAGE": NO_CEILING_MIN_COVERAGE,
         "OPENSSF_PROXY_MIN_SIGNALS": OPENSSF_PROXY_MIN_SIGNALS,

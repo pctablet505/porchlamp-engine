@@ -1593,6 +1593,11 @@ def _dr90_decision_cohort(
         login = raw_login or f"__no_author_pr_{pr.get('number')}"
         entries.append((login, created, pr))
 
+    real_logins = {login for login, _c, _pr in entries if not login.startswith("__no_author_pr_")}
+    if len(real_logins) > constants.DR90_AUTHOR_CAP_TRIGGER:
+        sampled_band = gates.dr90_band_logins(data.get("prs") or [], anchor)
+        entries = [(login, created, pr) for login, created, pr in entries if login in sampled_band]
+
     gate_applied = author_records is not None
     if gate_applied:
         entries = [
