@@ -297,11 +297,35 @@ def test_a_new_pass_starts_the_estimate_afresh(tmp_path):
         r.eng.tick()
     assert r.status()["progress"]["eta_text"] == "About 10 minutes left in this step"
     rs.run = 2                                                          # what run_layer does at the start of a pass
-    rs.checked = rs.stopped = rs.pruned = rs.failed = rs.total = 0
+    rs.checked = rs.stopped = rs.pruned = rs.clean = rs.failed = rs.total = 0
     r.clock.advance(15)
     r.eng.tick()
     p = r.status()["progress"]
     assert p["done"] == 0 and p["eta_text"] == "Estimate improves as it runs"
+
+
+def test_eta_excludes_initial_skip_burst_and_blends_ema_with_cumulative_rate(tmp_path):
+    """Q8: Fast --skip-ineligible / clean skip bursts at the start of a step do not inflate the active rate,
+    and an early slow monster repo recovers via EMA blending instead of staying stuck at multi-day ETAs."""
+    r = Rig(tmp_path, candidates=620)
+    r.run_on("L4")
+    rs = r.eng.runstate
+    # 500 repos are skipped instantaneously in the first tick (before any active network repo completes).
+    r.clock.advance(15)
+    for _ in range(300):
+        runner.count_line(rs, "o/r [pypi]: SKIP (selected collectors clean)")
+    for _ in range(200):
+        runner.count_line(rs, "o/r [pypi]: SKIP (ineligible: stale)")
+    r.eng.tick()
+    assert rs.checked == 500 and rs.clean == 300 and rs.pruned == 200
+    # Next 80 active repos complete at 1 repo per 15s (20 minutes of active work); 40 repos remain.
+    for _ in range(80):
+        r.clock.advance(15)
+        runner.count_line(rs, "o/r [pypi]: OK")
+        r.eng.tick()
+    # True active rate is 80 / 1200s (4 repos/min), so 40 remaining repos = 10 minutes left (not ~1 minute from 580/1215s).
+    assert r.status()["progress"]["eta_text"] == "About 10 minutes left in this step"
+
 
 
 # ---- waiting, retrying ----------------------------------------------------------------------------------------------
