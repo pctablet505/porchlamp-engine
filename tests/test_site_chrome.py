@@ -681,6 +681,49 @@ def test_a_stored_theme_shows_on_a_static_and_an_app_page_and_the_toggle_switche
     assert result["app"] == {"theme": "light", "after": "dark", "stored": "dark"}, result["app"]
 
 
+_STORE_THEME = "win.localStorage.setItem('porchlamp-theme', '%s'); return win.localStorage.getItem('porchlamp-theme');"
+_FORGET_THEME = "win.localStorage.removeItem('porchlamp-theme'); return win.localStorage.getItem('porchlamp-theme');"
+_TOGGLE_ICONS = """
+const toggle = await until(() => doc.querySelector('[data-theme-toggle]'), 8000);
+if (!toggle) return { missing: 'the theme toggle' };
+const read = () => [...toggle.querySelectorAll('svg')].filter((icon) => win.getComputedStyle(icon).display !== 'none').map((icon) => ({
+  icon: icon.getAttribute('class').split(' ').pop(),
+  drawing: icon.firstElementChild.tagName,
+  width: Math.round(icon.getBoundingClientRect().width),
+  followsText: win.getComputedStyle(icon).stroke === win.getComputedStyle(toggle).color,
+  hidden: icon.getAttribute('aria-hidden'),
+}));
+const first = read();
+const box = toggle.getBoundingClientRect();
+const hit = doc.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === toggle;
+toggle.click();
+await sleep(200);
+return { first, after: read(), hit, name: toggle.getAttribute('aria-label') };
+"""
+_MOON = {"icon": "theme-icon-dark", "drawing": "path", "width": 15, "followsText": True, "hidden": "true"}
+_SUN = {"icon": "theme-icon-light", "drawing": "circle", "width": 15, "followsText": True, "hidden": "true"}
+
+
+@pytest.mark.parametrize("flags, unset", [((), _SUN), (("--force-dark-mode",), _MOON)], ids=["system-light", "system-dark"])
+def test_the_toggle_shows_one_icon_the_theme_in_force_on_a_static_and_an_app_page(built, tmp_path, flags, unset):
+    if ui_browser.find_chrome() is None:
+        if os.environ.get("PORCHLAMP_ALLOW_MISSING_CHROME") == "1":
+            pytest.skip("no Chrome or Chromium found (PORCHLAMP_ALLOW_MISSING_CHROME=1)")
+        pytest.fail("no Chrome or Chromium on PATH; the theme check is a real gate (or set PORCHLAMP_ALLOW_MISSING_CHROME=1)")
+    view = {"width": 1280, "height": 800}
+    cases = []
+    for path in ("/black-holes/", "/methodology/"):
+        for choice, store in (("none", _FORGET_THEME), ("dark", _STORE_THEME % "dark"), ("light", _STORE_THEME % "light")):
+            cases.append({"name": f"store {path} {choice}", "path": path, "script": store, **view})
+            cases.append({"name": f"{path} {choice}", "path": path, "script": _TOGGLE_ICONS, **view})
+    result = ui_browser.probe(built[0], cases, tmp_path, flags=flags)
+    for path in ("/black-holes/", "/methodology/"):
+        for choice, first in (("none", unset), ("dark", _MOON), ("light", _SUN)):
+            got = result[f"{path} {choice}"]
+            after = _SUN if first is _MOON else _MOON
+            assert got == {"first": [first], "after": [after], "hit": True, "name": "Toggle light/dark theme"}, (flags, path, choice, got)
+
+
 # --------------------------------------------------------------------------- #
 # 8. Addresses shared by copy.js and the Python pages
 # --------------------------------------------------------------------------- #
