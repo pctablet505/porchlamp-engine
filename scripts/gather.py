@@ -127,12 +127,13 @@ _USER_CACHE: Optional[UserCache] = None
 
 def _user_cache() -> UserCache:
     """The D-COL-5 user cache (``08``), one per process, at
-    ``<data_root>/state/users`` -- derived from ``DATA`` on every call, so
+    ``<data_root>/state/users.sqlite`` (with ``root`` kept at ``<data_root>/state/users``
+    for legacy JSON auto-migration) -- derived from ``DATA`` on every call, so
     a caller that points ``DATA`` elsewhere gets a cache beside it."""
     global _USER_CACHE
     root = DATA.parent / "state" / "users"
     if _USER_CACHE is None or _USER_CACHE.root != root:
-        _USER_CACHE = UserCache(root)
+        _USER_CACHE = UserCache(root, backend="sqlite")
     return _USER_CACHE
 
 
