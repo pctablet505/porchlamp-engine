@@ -885,3 +885,21 @@ def test_l4_reuse_l1_setting_reaches_the_collector(api, monkeypatch):
     assert json.loads(entry.settings_set(json.dumps({"l4_reuse_l1": False})))["ok"] is True
     assert os.environ[runner.L4_REUSE_ENV] == "0"
     entry.stop()
+
+
+def test_the_monitor_restarts_the_collector_when_the_anchor_refresh_budget_is_spent(tmp_path, monkeypatch):
+    """Q4: a refresh waiting on the network or the token must not hold MAIN.done for ever: the restarted collector finds
+    the budget spent. Once only, and never before the deadline."""
+    r = Rig(tmp_path)
+    r.run_on("L2")
+    restarts: list[int] = []
+    monkeypatch.setattr(r.eng, "restart_collector", lambda: restarts.append(1))
+    r.eng.runstate.refresh_deadline = r.clock() + 60
+    r.eng.tick()
+    assert restarts == []
+    r.clock.advance(60)
+    r.eng.tick()
+    assert restarts == [1] and r.eng.runstate.refresh_deadline is None
+    r.clock.advance(60)
+    r.eng.tick()
+    assert restarts == [1]

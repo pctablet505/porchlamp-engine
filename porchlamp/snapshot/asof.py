@@ -18,8 +18,10 @@ reads (the candidates list), and ``R`` and ``I`` the newest ``releases`` and ``i
 among files anchored after ``A`` ("this cycle": on the phone, L2 and L3c always run after L1). Then
 ``as_of = max(A, R - 14 d, I - 14 d)``, rounded UP to the whole minute. Normally that is ``A`` rounded
 up, which is the smallest valid value and so loses the least of every 180-day window. It never reads
-``author_history`` or the end of collection, so the length of the contributor-history step does not
-move it. It has no value when the lower bound is above the oldest this-cycle anchor plus 14 days, or
+``author_history`` or the end of collection. The length of a cycle moves it in one way only: when the
+phone finds a ``releases`` or ``issues_counts`` file more than 13 days old before ``MAIN.done``, it fetches that file again
+(``phone.runner.refresh_stale_anchors``), so ``R`` or ``I`` can land more than 14 days after ``A``, and every window then
+loses the difference. It has no value when the lower bound is above the oldest this-cycle anchor plus 14 days, or
 when a collector has no this-cycle file; the caller refuses to build then.
 
 Everything here is pure: no wall clock, no printing, no writes. The CLI (``porchlamp.snapshot.cli``)

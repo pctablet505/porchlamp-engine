@@ -137,6 +137,8 @@ class Progress:
         self.run = 0
         self.done = 0
         self.total = 0
+        self.skipped = 0
+        self._skip_start = 0
         self.changed_ts: float | None = None
         self._active_s = 0.0
         self._last_tick: float | None = None
@@ -180,7 +182,7 @@ class Progress:
             if active:
                 self._active_s += dt
             if (layer, run) != (self.layer, self.run):
-                self.layer, self.run, self.done, self.total = layer, run, 0, 0
+                self.layer, self.run, self.done, self.total, self.skipped, self._skip_start = layer, run, 0, 0, 0, 0
                 self._samples, self._counted_at = [], -1e9
             if layer is None:
                 return
@@ -193,6 +195,9 @@ class Progress:
             self.done, self.total = done, total
             skipped = max(0, min(done, skipped))
             eff_done = max(0, done - skipped)
+            self.skipped = skipped
+            if eff_done == 0:
+                self._skip_start = skipped  # a pure-skip start says nothing about the mix still to come
             if active:
                 if done > 0 and eff_done == 0:
                     # Pure initial skip burst before any active network repo completed: rebase sample origin.
@@ -209,7 +214,8 @@ class Progress:
 
     def eta_text(self) -> str:
         with self._lock:
-            done, total, samples = self.done, self.total, list(self._samples)
+            done, total, skipped, skip_start, samples = (self.done, self.total, self.skipped, self._skip_start,
+                                                         list(self._samples))
         if total <= 0:
             return ""
         if done >= total:
@@ -232,7 +238,10 @@ class Progress:
         rate = cum_rate if ema is None else (self.EMA_BLEND * ema + (1.0 - self.EMA_BLEND) * cum_rate)
         if rate <= 0:
             return "Not enough progress yet to estimate"
-        return eta_words((total - done) / rate)
+        # The rate counts fetched projects, so only the share of the remaining projects that get fetched takes time.
+        seen = done - skip_start
+        fetched_share = (done - skipped) / seen if seen > 0 else 1.0
+        return eta_words((total - done) * fetched_share / rate)
 
 
 class DataSize:

@@ -328,6 +328,59 @@ def test_eta_excludes_initial_skip_burst_and_blends_ema_with_cumulative_rate(tmp
 
 
 
+def test_eta_counts_only_the_share_of_the_remaining_projects_that_get_fetched(tmp_path):
+    """Q8: pruned projects are spread through the list (48% of the lines of L3c on 2026-10-28/29, 75% of the repair's), so
+    a good part of what is left takes no time. The rate counts fetched projects, so the remaining count must too."""
+    r = Rig(tmp_path, candidates=280)
+    r.run_on("L3c")
+    rs = r.eng.runstate
+    for _ in range(100):                                                # 25 minutes: one fetched and one pruned every 15 s
+        r.clock.advance(15)
+        runner.count_line(rs, "o/r [pypi]: OK")
+        runner.count_line(rs, "o/r [pypi]: SKIP (ineligible: stale)")
+        r.eng.tick()
+    # 200 of 280 checked at 4 fetched a minute: 80 left, of which about 40 get fetched: 10 minutes, not 20.
+    assert r.status()["progress"]["eta_text"] == "About 10 minutes left in this step"
+
+
+def _eta_after(progress, clock, steps):
+    """Feed ``progress`` steps of (seconds, projects): a tick every 15 s, and the projects done at the end of the step."""
+    for seconds, more in steps:
+        for _ in range(int(seconds // 15)):
+            clock.advance(15)
+            progress.tick("L4", 1, progress.done, 149, active=True)
+        clock.advance(15)
+        progress.tick("L4", 1, progress.done + more, 149, active=True)
+    return progress.eta_text()
+
+
+def test_eta_blends_the_recent_rate_with_the_rate_of_the_step_after_one_slow_project(tmp_path):
+    """Q8: one project of two hours, then 40 at one per 15 s: neither the step's rate alone (About 6 hours) nor the recent
+    rate alone (About 27 minutes). One more slow project then moves the estimate by a step, not to the slow rate."""
+    r = Rig(tmp_path)
+    p, clock = r.eng.progress, r.clock
+    assert _eta_after(p, clock, [(7200, 1)] + [(0, 1)] * 40) == "About 50 minutes left in this step"
+    assert _eta_after(p, clock, [(480, 1)]) == "About 1 hour left in this step"
+
+
+def test_eta_leaves_out_the_time_of_a_pure_skip_start(tmp_path):
+    """Q8: a start of the pass where every project is skipped is not fetch time: the rate starts at the first fetch."""
+    r = Rig(tmp_path, candidates=325)
+    r.run_on("L3c")
+    rs = r.eng.runstate
+    for i in range(120):                                                # 30 minutes in which 100 projects are skipped
+        r.clock.advance(15)
+        if i < 100:
+            runner.count_line(rs, "o/r [pypi]: SKIP (ineligible: stale)")
+        r.eng.tick()
+    for _ in range(160):                                                # 40 minutes at 4 fetched a minute
+        r.clock.advance(15)
+        runner.count_line(rs, "o/r [pypi]: OK")
+        r.eng.tick()
+    # 260 of 325 checked: 65 left, and all were fetched since the start: at 4 a minute, about 16 minutes.
+    assert r.status()["progress"]["eta_text"] == "About 16 minutes left in this step"
+
+
 # ---- waiting, retrying ----------------------------------------------------------------------------------------------
 def test_waiting_for_the_github_limit_names_the_clock_time_the_calls_left_and_the_floor(rig):
     rig.run_on("L1")

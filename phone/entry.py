@@ -673,6 +673,7 @@ class Engine:
                            active=working or self.gate.rate_state() is not None,
                            skipped=rs.pruned + rs.clean)
         self._stuck_check(now, working)
+        self._refresh_budget_check(now)
         self.stats.flush(force=False)
         self.datasize.maybe_refresh()
 
@@ -693,6 +694,19 @@ class Engine:
             self.event("warn", "No progress for 25 minutes", "The collector was restarted.")
             self.log("stuck: no progress for 25 minutes; restarting the collector thread once")
             self.restart_collector()
+
+    def _refresh_budget_check(self, now: float) -> None:
+        """The stale-anchor refresh waits on the network, the token and GitHub's holds like any step, but MAIN.done must
+        not wait with it for ever: at the end of its budget the collector restarts, the new start finds the budget
+        spent, and MAIN.done follows. Every record stays in place, so nothing is lost by stopping it."""
+        deadline = self.runstate.refresh_deadline
+        if deadline is None or now < deadline:
+            return
+        self.runstate.refresh_deadline = None
+        self.event("warn", "Refreshing older records ran out of time",
+                   "What was not fetched keeps its record. The cycle carries on.")
+        self.log("anchor refresh: budget spent; restarting the collector thread once")
+        self.restart_collector()
 
     # ---- callbacks ---------------------------------------------------------------------------------------------------
     def _rate_wait_ended(self, resource: str, seconds: float) -> None:
