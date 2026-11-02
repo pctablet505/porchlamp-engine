@@ -532,9 +532,11 @@ class _Throttle:
             return 1
         return _inflight_setting()
 
-    def acquire(self, is_graphql: bool) -> None:
+    def acquire(self, is_graphql: bool) -> float:
         """Wait while another thread's hold is in force, while the requests in flight fill the cap, and (GraphQL)
-        while the last minute's points reach ``PORCHLAMP_GH_PPM``; then count this request in flight."""
+        while the last minute's points reach ``PORCHLAMP_GH_PPM``; then count this request in flight. Returns the
+        admission time, read under the lock: the request's ``sent_at`` for :meth:`signal` (RB6 F2: a time read after
+        this returns could fall after another thread's signal, and count one GitHub event twice)."""
         served = 0.0
         while True:
             hold_wait = pace_wait = 0.0
@@ -569,7 +571,7 @@ class _Throttle:
             for level, text in told:
                 _emit(level, text)
             if admitted:
-                return
+                return now
             if hold_wait:
                 net.rate_wait("graphql" if is_graphql else "core", 0, hold_wait, _sleep)
                 served = hold
@@ -1068,8 +1070,7 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
 
         _gate(resource, token_idx)
         throttle = _THROTTLE
-        throttle.acquire(is_graphql)
-        sent_at = _now()
+        sent_at = throttle.acquire(is_graphql)
         answered = graphql_points = 0
         t0 = time.perf_counter()
         try:

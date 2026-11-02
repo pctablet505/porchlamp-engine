@@ -1278,7 +1278,7 @@ def test_a_burst_with_different_retry_afters_holds_until_the_longest(
     clock.t = NOW + 5                                                   # the answers come back after all three left
     for n in retry:
         answer[n].set()
-        assert _wait_until(lambda: len(signalled) == n), n
+        assert _wait_until(lambda n=n: len(signalled) == n), n
     try:
         assert signalled == [NOW + 5 + 120, NOW + 5 + 300, NOW + 5 + 300]
         assert ghcli._THROTTLE.hold_until == NOW + 5 + 300
@@ -1289,6 +1289,54 @@ def test_a_burst_with_different_retry_afters_holds_until_the_longest(
         for t in workers:
             t.join(10)
     assert not any(t.is_alive() for t in workers) and wire.n == 6
+
+
+def test_a_request_admitted_before_a_signal_folds_however_late_it_reads_the_clock(
+        wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB6 F2 (E4): B is admitted while A's request is out, then descheduled before its send time is taken. A's
+    refusal comes back and counts; only then does B go on, and GitHub refuses B for the same event. B's send time is
+    its admission (taken under the throttle's lock), so B's refusal folds: one strike, one warn event."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
+    a_answer, b_admitted, b_go = threading.Event(), threading.Event(), threading.Event()
+    sent: dict[str, int] = {}
+
+    def reply(n: int, who: str) -> tuple:
+        sent[who] = sent.get(who, 0) + 1
+        if sent[who] > 1:
+            return 200, {}, '{"data": {}}'
+        if who == "A":
+            a_answer.wait(10)
+        return 403, {"retry-after": "60"}, SECONDARY_BODY
+
+    real_acquire = ghcli._THROTTLE.acquire
+
+    def acquire(is_graphql: bool):
+        admitted = real_acquire(is_graphql)
+        if threading.current_thread().name == "B" and not b_admitted.is_set():
+            b_admitted.set()
+            b_go.wait(10)                                               # descheduled right after its admission
+        return admitted
+
+    wire.reply = reply
+    monkeypatch.setattr(ghcli._THROTTLE, "acquire", acquire)
+    a = threading.Thread(target=ghcli.run, args=(GQL_ARGS,), name="A", daemon=True)
+    b = threading.Thread(target=ghcli.run, args=(GQL_ARGS,), name="B", daemon=True)
+    a.start()
+    assert _wait_until(lambda: wire.in_flight == 1)
+    b.start()
+    assert b_admitted.wait(10)
+    clock.t = NOW + 5                                                   # A's refusal comes back and counts
+    a_answer.set()
+    assert _wait_until(lambda: len(ghcli._THROTTLE.strikes) == 1)
+    clock.t = NOW + 6
+    b_go.set()
+    a.join(10)
+    b.join(10)
+    assert not a.is_alive() and not b.is_alive() and wire.n == 4
+    assert len(ghcli._THROTTLE.strikes) == 1
+    assert [level for level, _ in throttle] == ["warn"]
 
 
 def test_a_thread_waiting_a_hold_stops_at_a_stop(wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
