@@ -1072,7 +1072,7 @@ def _run_pool(repos: list[tuple[str, str, str]], loop: _Loop, workers: int) -> t
     key and, when heavy (:func:`_heavy`), only while no heavy repo is in flight. Every worker adopts the caller's
     cancel binding first, so a stop or a watchdog restart reaches each at its next request. The user cache is made
     before any worker starts. ``ok`` and ``fail`` are summed here; an exception that escapes :func:`_one` is that
-    repo's FAIL line. A ``BaseException`` (``Stopped``, ``KeyboardInterrupt``) stops the dispatch, waits up to
+    repo's FAIL line, and every worker reports, even one whose FAIL line cannot be written. A ``BaseException`` (``Stopped``, ``KeyboardInterrupt``) stops the dispatch, waits up to
     :data:`POOL_STOP_WAIT_S` for the repos in flight, and is raised again."""
     binding = net.binding()
     if loop.selected is not None and "author_history" in loop.selected:
@@ -1080,16 +1080,20 @@ def _run_pool(repos: list[tuple[str, str, str]], loop: _Loop, workers: int) -> t
     results: queue.Queue = queue.Queue()
 
     def work(i: int, owner: str, name: str, eco: str) -> None:
-        net.bind(binding)
+        # RB5 S7: the result is queued in the ``finally``, whatever happens here, so the main thread never waits for
+        # a worker that died: a FAIL line that cannot be written (OSError, a full disk under the tee) still counts the
+        # repo as failed, and its error is raised in this thread afterwards.
+        outcome: Optional[tuple[int, int]] = (0, 1)
+        error: Optional[BaseException] = None
         try:
-            outcome: tuple[int, int] = _one(i, owner, name, eco, loop)
+            net.bind(binding)
+            outcome = _one(i, owner, name, eco, loop)
         except Exception as e:  # review-ok: gate-network — an escape is that repo's FAIL, as in the loop's except
             print(f"{owner}/{name} [{eco}]: FAIL {e}")
-            outcome = (0, 1)
         except BaseException as e:  # review-ok: a stop is handed to the main thread, which raises it again
-            results.put((i, None, e))
-            return
-        results.put((i, outcome, None))
+            outcome, error = None, e
+        finally:
+            results.put((i, outcome, error))
 
     pending = list(enumerate(repos, 1))
     in_flight: dict[int, tuple[str, bool]] = {}

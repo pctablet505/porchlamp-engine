@@ -604,3 +604,55 @@ def test_workers_refused_with_dirty_priority_repair_force(
             g.main(argv)
         assert info.value.code == 2, argv
         assert "--workers" in capsys.readouterr().err
+
+
+def test_a_worker_whose_fail_line_cannot_be_written_still_reports(tmp_path, monkeypatch) -> None:
+    """RB5 S7 (follow-up item 7): o2's collector raises, and writing its FAIL line raises too (``OSError``: a full
+    disk under the tee's technical log). The worker still reports, so the pool counts o2 as failed, dispatches the
+    other projects, and returns (within 5 s, checked by name, never a hang); the write error is still raised in the
+    worker's own thread, after it reported, not swallowed."""
+    projects = [("o2", "r2"), ("o4", "r4"), ("o6", "r6"), ("o8", "r8")]
+    g = _gather(monkeypatch, _root(tmp_path, "s7", projects))
+
+    def one(i: int, owner: str, name: str, eco: str, loop) -> tuple[int, int]:
+        if owner == "o2":
+            raise RuntimeError("the collector broke")
+        print(f"{owner}/{name} [{eco}]: OK")
+        return 1, 0
+
+    class FullDisk:
+        def __init__(self) -> None:
+            self.lines: list[str] = []
+
+        def write(self, text: str) -> int:
+            if "FAIL" in text:
+                raise OSError(28, "No space left on device")
+            self.lines.append(text)
+            return len(text)
+
+        def flush(self) -> None:
+            pass
+
+    escaped: list[type] = []
+    raised = threading.Event()
+
+    def hook(args) -> None:
+        escaped.append(args.exc_type)
+        raised.set()
+
+    below = FullDisk()
+    monkeypatch.setattr(g, "_one", one)
+    monkeypatch.setattr(sys, "stdout", below)
+    monkeypatch.setattr(threading, "excepthook", hook)
+    loop = g._Loop(a=None, selected=None, screen=False, fp_result=None, dirty_map=None, clean_label="")
+    returned: list[tuple[int, int]] = []
+    pool = threading.Thread(
+        target=lambda: returned.append(g._run_pool([(o, n, "pypi") for o, n in projects], loop, 2)),
+        daemon=True,
+    )
+    pool.start()
+    pool.join(5)
+    assert not pool.is_alive(), "S7: _run_pool still waits for the worker whose FAIL line raised"
+    assert returned == [(3, 1)]
+    assert sorted(below.lines) == [f"{o}/{n} [pypi]: OK\n" for o, n in projects[1:]]
+    assert raised.wait(5) and escaped == [OSError]
