@@ -592,10 +592,11 @@ def next_due(home: Path, every_days: float) -> float | None:
 
 def _retire_markers(home: Path, now: Callable[[], float], log: Callable[[str], object]) -> None:
     """Rename (never delete) the markers of the previous cycle into state/refresh-prev/ (a D4 concurrency pin,
-    ``*.pinned``, lasts one cycle the same way)."""
+    ``*.pinned``, lasts one cycle the same way: retiring it also lifts the GitHub transport's pin in this process)."""
     state = home / "state" / "refresh"
     prev = home / "state" / "refresh-prev"
     stamp = datetime.fromtimestamp(now(), timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    unpinned = False
     for p in sorted(state.glob("*")):
         if not p.is_file() or not (p.suffix in (".complete", ".staged", ".repaired", ".pinned")
                                    or p.name == "MAIN.done"):
@@ -606,6 +607,12 @@ def _retire_markers(home: Path, now: Callable[[], float], log: Callable[[str], o
             target = prev / f"{p.name}.{stamp}"
         p.rename(target)
         log(f"retired marker {p.name} -> {target}")
+        unpinned = unpinned or p.suffix == ".pinned"
+    # RB5 follow-up 8: the transport keeps its pin in memory, so without this a step at 3 workers would still have one
+    # request in flight until the app restarts. A transport not loaded in this process holds no pin.
+    transport = sys.modules.get("porchlamp.collect.ghcli")
+    if unpinned and transport is not None:
+        transport._THROTTLE.unpin()
 
 
 def _value(v):

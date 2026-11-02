@@ -319,6 +319,30 @@ def test_waiting_for_the_github_limit_names_the_clock_time_the_calls_left_and_th
     assert (s["github"]["calls_left"], s["github"]["limit"], s["github"]["resets_in_s"]) == (500, 5000, 2280)
 
 
+def test_a_hold_for_githubs_secondary_limit_says_slow_down_with_no_call_count(rig, monkeypatch):
+    """RB5 follow-up 9: during a hold GitHub's secondary limit set (thousands of calls are left), the words say GitHub
+    asked the collector to slow down and when it carries on, with no call count and no hourly limit. A primary limit
+    that then outlasts it gives the hourly-limit words back."""
+    from porchlamp.collect import ghcli
+
+    throttle = ghcli._Throttle()
+    monkeypatch.setattr(ghcli, "_THROTTLE", throttle)
+    monkeypatch.setattr(ghcli, "on_event", None)
+    rig.run_on("L4")
+    rig.eng.gate.feed_budget({"x-ratelimit-remaining": "4200", "x-ratelimit-limit": "5000",
+                              "x-ratelimit-reset": str(int(T0 + 2280)), "x-ratelimit-resource": "graphql"})
+    throttle.signal(600.0, "HTTP 403, retry-after", ghcli._now())
+    rig.eng.gate._rates[0] = ("graphql", T0 + 600)
+    s = rig.status()
+    assert s["state"] == "waiting" and s["reason"]["code"] == "rate_limit"
+    assert s["headline"] == "GitHub asked the collector to slow down"
+    assert s["detail"] == f"It carries on by itself at {rig.at(600)}, in 10 minutes."
+    assert "calls" not in s["detail"] and "hourly" not in s["headline"] + s["detail"]
+    assert datetime.fromisoformat(s["reason"]["resume_at"]).timestamp() == pytest.approx(T0 + 600, abs=1)
+    throttle.hold(3600.0)                                               # a primary limit outlasts the secondary hold
+    assert rig.status()["headline"] == "Waiting for GitHub's hourly limit"
+
+
 def test_no_wifi_says_wifi_lost_at_the_time_it_was_lost_and_waits_for_it_to_return(rig):
     rig.run_on("L1")
     rig.clock.advance(7 * 60)

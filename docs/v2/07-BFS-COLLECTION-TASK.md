@@ -296,7 +296,9 @@ Notes per phase:
   (`state/refresh/concurrency.pinned`, retired when the next cycle starts). The
   runner sets `PORCHLAMP_GH_INFLIGHT` for each step: its worker count where it
   runs side by side, 1 everywhere else. To
-  go back to one at a time by hand, set `l4_workers` to 1.
+  go back to one at a time by hand, set `l4_workers` to 1 with the app
+  force-stopped: settings are read once, at start, so a running app ignores an
+  adb edit of `settings.json`, and its next settings save overwrites it.
 
 ## 8. Phase 5 — refresh the cheap layer (only if the calendar says so)
 

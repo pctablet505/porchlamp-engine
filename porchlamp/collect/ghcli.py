@@ -511,6 +511,7 @@ class _Throttle:
         self._cond = threading.Condition()
         self.in_flight = 0
         self.hold_until = 0.0
+        self.hold_secondary = False                     # the hold in force was set by a secondary limit
         self.degraded_until = 0.0
         self.strikes: deque[float] = deque()            # secondary-limit signal times, the last PIN_WINDOW_S
         self.pin_strikes: deque[float] = deque()        # ... of them, those taken while several could be in flight
@@ -531,13 +532,15 @@ class _Throttle:
             return 1
         return _inflight_setting()
 
-    def acquire(self, is_graphql: bool) -> None:
+    def acquire(self, is_graphql: bool) -> float:
         """Wait while another thread's hold is in force, while the requests in flight fill the cap, and (GraphQL)
-        while the last minute's points reach ``PORCHLAMP_GH_PPM``; then count this request in flight."""
+        while the last minute's points reach ``PORCHLAMP_GH_PPM``; then count this request in flight. Returns the
+        admission time, read under the lock: the request's ``sent_at`` for :meth:`signal` (RB6 F2: a time read after
+        this returns could fall after another thread's signal, and count one GitHub event twice)."""
         served = 0.0
         while True:
             hold_wait = pace_wait = 0.0
-            admitted = False
+            admitted = slot_wait = False
             told: list[tuple[str, str]] = []
             with self._cond:
                 now = _now()
@@ -547,10 +550,13 @@ class _Throttle:
                 else:
                     cap = self.cap(now)
                     if self._limited and cap > 1:
+                        # RB5 S6: told before this request is counted (the next pass admits it), so a write that
+                        # raises leaves no slot counted
                         self._limited = False
                         told.append(("log", f"back to {cap} requests at once"))
-                    if self.in_flight >= cap:
+                    elif self.in_flight >= cap:
                         self._cond.wait(SLOT_WAIT_S)  # a release wakes it; then every rule is read again
+                        slot_wait = True
                     else:
                         ppm = _ppm_setting() if is_graphql else 0
                         if ppm:
@@ -565,12 +571,14 @@ class _Throttle:
             for level, text in told:
                 _emit(level, text)
             if admitted:
-                return
+                return now
             if hold_wait:
                 net.rate_wait("graphql" if is_graphql else "core", 0, hold_wait, _sleep)
                 served = hold
             elif pace_wait:
                 _sleep_for(pace_wait)
+            elif slot_wait:
+                net.sleep(0)  # RB5 follow-up 11: a stop ends a wait for a free slot (outside the lock)
 
     def release(self, status: int, points: int) -> None:
         """One request ended with ``status`` (0: no answer) and cost ``points`` GraphQL points."""
@@ -620,14 +628,14 @@ class _Throttle:
                     times.popleft()
             if sent_at < self._last_signal:
                 k = max(len(self.strikes), 1)
-                self.hold_until = max(self.hold_until, now + min(wait * 2 ** (k - 1), HOLD_MAX))
+                self._raise_hold(now + min(wait * 2 ** (k - 1), HOLD_MAX), secondary=True)
                 held, until = self.hold_until - now, self.hold_until
                 self._cond.notify_all()
                 return held, until
             self.strikes.append(now)
             self._last_signal = now
             k = len(self.strikes)
-            self.hold_until = max(self.hold_until, now + min(wait * 2 ** (k - 1), HOLD_MAX))
+            self._raise_hold(now + min(wait * 2 ** (k - 1), HOLD_MAX), secondary=True)
             degrade = min(DEGRADE_S * 2 ** (k - 1), DEGRADE_MAX)
             self.degraded_until = max(self.degraded_until, now + degrade)
             several = _inflight_setting() > 1
@@ -652,9 +660,15 @@ class _Throttle:
     def hold(self, seconds: float) -> float:
         """A primary-limit wait of ``seconds`` that every thread obeys (no strike); returns the hold's end."""
         with self._cond:
-            self.hold_until = max(self.hold_until, _now() + seconds)
+            self._raise_hold(_now() + seconds, secondary=False)
             self._cond.notify_all()
             return self.hold_until
+
+    def _raise_hold(self, until: float, secondary: bool) -> None:
+        """Hold every thread until ``until`` unless a hold in force lasts longer; the one that ends last names the
+        kind (:attr:`hold_secondary`). The caller holds ``_cond``."""
+        if until > self.hold_until:
+            self.hold_until, self.hold_secondary = until, secondary
 
     def clear_hold(self, until: float) -> None:
         """The thread that set the hold ending at ``until`` has waited it: lift it, unless a later one extended it."""
@@ -663,8 +677,24 @@ class _Throttle:
                 self.hold_until = 0.0
             self._cond.notify_all()
 
+    def unpin(self) -> None:
+        """The pin's cycle is over (the phone retired its pin file at the next cycle's start): several requests may
+        be in flight again, and the strikes toward the pin start afresh. A hold in force and the plain strikes (which
+        size the next hold) stay."""
+        with self._cond:
+            self.pinned = False
+            self.pin_strikes.clear()
+            self._cond.notify_all()
+
 
 _THROTTLE = _Throttle()
+
+
+def secondary_hold() -> bool:
+    """Whether a hold is in force and GitHub's secondary limit set it, not the hourly limit (the phone's status words
+    during a GitHub wait, RB5 follow-up 9)."""
+    throttle = _THROTTLE
+    return throttle.hold_secondary and throttle.hold_until > _now()
 
 
 def _secondary_messages(text: str) -> list[str]:
@@ -1040,8 +1070,7 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
 
         _gate(resource, token_idx)
         throttle = _THROTTLE
-        throttle.acquire(is_graphql)
-        sent_at = _now()
+        sent_at = throttle.acquire(is_graphql)
         answered = graphql_points = 0
         t0 = time.perf_counter()
         try:

@@ -1237,6 +1237,108 @@ def test_one_burst_of_refusals_counts_once(wire: Wire, throttle: list, monkeypat
     assert not ghcli._THROTTLE.pinned
 
 
+def test_a_burst_with_different_retry_afters_holds_until_the_longest(
+        wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB6 F1: three requests in flight refused by one GitHub event, with ``retry-after`` 120, 300 and 60 s, answered
+    in that order. The two later refusals fold into the first (one strike, one warn event, no pin), and each still
+    extends the hold: it ends at the longest, 300 s after the answers came. No thread clears its hold before the
+    whole burst is in (their waits block until then)."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
+    retry = {1: "120", 2: "300", 3: "60"}
+    answer = {n: threading.Event() for n in retry}
+
+    def reply(n: int, who: str) -> tuple:
+        if n in retry:
+            answer[n].wait(10)
+            return 403, {"retry-after": retry[n]}, SECONDARY_BODY
+        return 200, {}, '{"data": {}}'
+
+    signalled: list[float] = []
+    real_signal = ghcli._THROTTLE.signal
+
+    def signal(wait: float, why: str, sent_at: float) -> tuple[float, float]:
+        held, until = real_signal(wait, why, sent_at)
+        signalled.append(until)
+        return held, until
+
+    burst_in = threading.Event()
+
+    def sleep(seconds: float) -> None:
+        burst_in.wait(10)
+
+    wire.reply = reply
+    monkeypatch.setattr(ghcli._THROTTLE, "signal", signal)
+    monkeypatch.setattr(ghcli, "_sleep", sleep)
+    workers = [threading.Thread(target=ghcli.run, args=(GQL_ARGS,), name=f"w{i}", daemon=True) for i in range(3)]
+    for t in workers:
+        t.start()
+    assert _wait_until(lambda: wire.in_flight == 3)
+    clock.t = NOW + 5                                                   # the answers come back after all three left
+    for n in retry:
+        answer[n].set()
+        assert _wait_until(lambda n=n: len(signalled) == n), n
+    try:
+        assert signalled == [NOW + 5 + 120, NOW + 5 + 300, NOW + 5 + 300]
+        assert ghcli._THROTTLE.hold_until == NOW + 5 + 300
+        assert len(ghcli._THROTTLE.strikes) == 1 and not ghcli._THROTTLE.pinned
+        assert [level for level, _ in throttle] == ["warn"]
+    finally:
+        burst_in.set()
+        for t in workers:
+            t.join(10)
+    assert not any(t.is_alive() for t in workers) and wire.n == 6
+
+
+def test_a_request_admitted_before_a_signal_folds_however_late_it_reads_the_clock(
+        wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB6 F2 (E4): B is admitted while A's request is out, then descheduled before its send time is taken. A's
+    refusal comes back and counts; only then does B go on, and GitHub refuses B for the same event. B's send time is
+    its admission (taken under the throttle's lock), so B's refusal folds: one strike, one warn event."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
+    a_answer, b_admitted, b_go = threading.Event(), threading.Event(), threading.Event()
+    sent: dict[str, int] = {}
+
+    def reply(n: int, who: str) -> tuple:
+        sent[who] = sent.get(who, 0) + 1
+        if sent[who] > 1:
+            return 200, {}, '{"data": {}}'
+        if who == "A":
+            a_answer.wait(10)
+        return 403, {"retry-after": "60"}, SECONDARY_BODY
+
+    real_acquire = ghcli._THROTTLE.acquire
+
+    def acquire(is_graphql: bool):
+        admitted = real_acquire(is_graphql)
+        if threading.current_thread().name == "B" and not b_admitted.is_set():
+            b_admitted.set()
+            b_go.wait(10)                                               # descheduled right after its admission
+        return admitted
+
+    wire.reply = reply
+    monkeypatch.setattr(ghcli._THROTTLE, "acquire", acquire)
+    a = threading.Thread(target=ghcli.run, args=(GQL_ARGS,), name="A", daemon=True)
+    b = threading.Thread(target=ghcli.run, args=(GQL_ARGS,), name="B", daemon=True)
+    a.start()
+    assert _wait_until(lambda: wire.in_flight == 1)
+    b.start()
+    assert b_admitted.wait(10)
+    clock.t = NOW + 5                                                   # A's refusal comes back and counts
+    a_answer.set()
+    assert _wait_until(lambda: len(ghcli._THROTTLE.strikes) == 1)
+    clock.t = NOW + 6
+    b_go.set()
+    a.join(10)
+    b.join(10)
+    assert not a.is_alive() and not b.is_alive() and wire.n == 4
+    assert len(ghcli._THROTTLE.strikes) == 1
+    assert [level for level, _ in throttle] == ["warn"]
+
+
 def test_a_thread_waiting_a_hold_stops_at_a_stop(wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
     """RB5 OP1: with the engine's gate and no test sleep, a thread waiting another thread's hold is a GitHub wait the
     phone can see (``rate_state``), and a stop ends it within about a second."""
@@ -1304,3 +1406,63 @@ def test_a_request_that_fails_on_the_wire_gives_its_slot_back(wire: Wire, thrott
     with pytest.raises(subprocess.TimeoutExpired):
         ghcli.run(GQL_ARGS)
     assert ghcli._THROTTLE.in_flight == 0
+
+
+class _BrokenStderr:
+    """``sys.stderr`` that cannot be written (RB5 S6)."""
+
+    def write(self, text: str) -> int:
+        raise OSError(5, "Input/output error")
+
+    def flush(self) -> None:
+        pass
+
+
+def test_the_back_to_n_line_failing_leaves_no_slot_counted(throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RB5 S6 (follow-up 11a): after a secondary limit's one-at-a-time spell, the next request writes "back to 3
+    requests at once" on stderr. If that write raises, the request is not sent and no slot stays counted; the next
+    request is admitted without the line again."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
+    t = ghcli._THROTTLE
+    t.signal(60.0, "HTTP 429, retry-after 60 s", clock.now())
+    clock.t = NOW + ghcli.DEGRADE_S + 1                                  # the hold and the spell are over
+    with monkeypatch.context() as m:
+        m.setattr("sys.stderr", _BrokenStderr())
+        with pytest.raises(OSError):
+            t.acquire(True)
+    assert t.in_flight == 0
+    t.acquire(True)
+    assert t.in_flight == 1 and not [text for _, text in throttle if text.startswith("back to")]
+
+
+def test_a_stop_ends_a_wait_for_a_free_slot(throttle: list) -> None:
+    """RB5 follow-up 11b: with the cap (1) full, a thread waiting in ``acquire`` for a slot stops at a stop within
+    about a second, with no slot counted, though no request ends meanwhile (checked by name, never a hang)."""
+    t = ghcli._THROTTLE
+    t.acquire(True)                                                     # the one slot is taken and stays taken
+    outcome: list[str] = []
+
+    def waiting() -> None:
+        try:
+            t.acquire(True)
+            outcome.append("admitted")
+        except httpgate.Stopped:
+            outcome.append("stopped")
+
+    gate = loopback_gate()
+    waiter = threading.Thread(target=waiting, daemon=True)
+    with installed(gate):
+        waiter.start()
+        time.sleep(0.3)
+        assert not outcome                                              # it waits for the slot
+        began = time.monotonic()
+        gate.stop()
+        waiter.join(3)
+        stopped_in = time.monotonic() - began
+        if waiter.is_alive():
+            t.release(200, 0)                                           # let it go, then fail by name
+            waiter.join(3)
+            pytest.fail("the slot wait did not end at the stop")
+    assert outcome == ["stopped"] and stopped_in < 1.5 and t.in_flight == 1
