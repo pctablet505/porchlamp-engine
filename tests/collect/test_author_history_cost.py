@@ -274,6 +274,138 @@ def test_the_band_logins_are_the_authors_of_the_prs_1_2_counts():
     assert (kept, entries) == (3, 3)    # the PR with no author has no record: the gate drops it, the three authors stay
 
 
+# --- RFC-0028: Q11 (DR90 > 500 sampling to 300), Q9 (newcomer reserve 35 -> 20), Q2b (two-tier eligibility) ----------
+
+
+def test_dr90_band_logins_caps_above_500_to_deterministic_300_and_cohort_agrees():
+    """RFC-0028 (Q11): <= 500 distinct DR_90 band authors are kept in full; > 500 are deterministically sampled
+    to 300 using PR_SAMPLE_SEED, and bundle._dr90_decision_cohort evaluates the exact same 300-author sample."""
+    prs_500 = [w4_days(1000 + i, 120, f"u{i:04d}", closed_after=5) for i in range(500)]
+    assert len(gates.dr90_band_logins(prs_500, NOW)) == 500
+
+    prs_600 = [w4_days(2000 + i, 120, f"u{i:04d}", closed_after=5) for i in range(600)]
+    sampled = gates.dr90_band_logins(prs_600, NOW)
+    assert len(sampled) == gates.DR90_AUTHOR_SAMPLE_CAP == 300
+    assert sampled == gates.dr90_band_logins(list(reversed(prs_600)), NOW)
+
+    records = {login: {"login": login, "account_created_at": "2015-01-01T00:00:00Z", "public_event_count": 50}
+               for login in sampled}
+    decided, kept, entries, malformed, gate = bundle._dr90_decision_cohort({"prs": prs_600}, NOW, records)
+    assert (decided, kept, entries, malformed, gate) == (300, 300, 300, 0, True)
+
+
+def test_newcomer_pre_filters_young_and_non_user_and_promotes_reserve_up_to_20(tmp_path):
+    """RFC-0028 (Q9): _select_newcomer_sample excludes <90d accounts and non-User actors at 0 GraphQL cost,
+    and collect_author_history searches up to 15 reserve candidates (NEWCOMER_CANDIDATE_CAP = 35) when primary
+    candidates have prior PRs before anchor - 365 d, retaining 20 confirmed newcomers."""
+    young_pr = w4_days(1, 200, "young_acc")
+    young_pr["author"]["createdAt"] = (NOW - timedelta(days=250)).isoformat()  # 50d old at PR (< 90d)
+    org_pr = w4_days(2, 200, "some_org")
+    org_pr["author"]["__typename"] = "Organization"
+    valid_pr = w4_days(3, 200, "valid_newcomer")
+    assert gql._select_newcomer_sample([young_pr, org_pr, valid_pr], NOW, truncated=False) == ("valid_newcomer",)
+
+    # 35 eligible newcomer-band candidates: 8 of the primary 20 have a prior PR at NOW - 400 d (repeat contributors).
+    prs = [w4_days(100 + i, 220, f"nc{i:02d}", merged_after=5) for i in range(35)]
+    primary, reserve = gql._select_newcomer_candidates(prs, NOW, truncated=False)
+    assert len(primary) == 20 and len(reserve) == 15
+    disqualified = set(primary[:8])
+
+    searches = {}
+    for login in primary + reserve:
+        pr_num = int(login[2:]) + 100
+        in_win = w4_spr(pr_num, (NOW - timedelta(days=220)).isoformat(), merged=(NOW - timedelta(days=215)).isoformat())
+        if login in disqualified:
+            older = w4_spr(pr_num + 900, (NOW - timedelta(days=400)).isoformat(), merged=(NOW - timedelta(days=395)).isoformat())
+            searches[login] = {"nodes": [older, in_win]}
+        else:
+            searches[login] = {"nodes": [in_win]}
+    users = {
+        login: {"createdAt": "2015-01-01T00:00:00Z",
+                "contributionsCollection": {"contributionCalendar": {"totalContributions": 25}}}
+        for login in primary + reserve
+    }
+    fake = W4Transport([_w4_page(prs, False)], [2], [4990], searches, users)
+    raw = tmp_path / "raw"
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+    data = read_envelope(raw / "author_history" / "acme__widget.json").data
+    assert len(data["sampled_authors"]) == 20
+    assert not (set(data["sampled_authors"]) & disqualified)
+    fields = gql.derive_cohort_fields(data)
+    assert fields["newcomer_cohort_author_count"] == (20, "derived")
+
+
+def test_two_tier_eligibility_settles_active_at_tier1_and_escalates_ambiguous_to_bounded_tier2():
+    """RFC-0028 (Q2b): Tier 1 batches 50 logins with earliest 5 PRs/issues and settles accounts with >= 5 prior
+    events (or < 90d age at cutoff); only ambiguous accounts (< 5 prior PR/issue events and >= 90d age) escalate
+    to Tier 2 scalar contributionsCollection(from:, to:) bounded to the PR creation timestamp."""
+    cutoff = NOW - timedelta(days=100)
+    early_ts = (NOW - timedelta(days=300)).isoformat()
+
+    class TwoTierTransport:
+        def __init__(self) -> None:
+            self.queries: list[tuple[str, dict]] = []
+
+        def execute(self, query: str, variables: dict) -> dict:
+            self.queries.append((query, dict(variables)))
+            if "AuthorEligibilityTier1Batch" in query:
+                return {
+                    "data": {
+                        "rateLimit": {"cost": 1, "remaining": 4999},
+                        "u0": {
+                            "createdAt": "2018-01-01T00:00:00Z",
+                            "pullRequests": {"totalCount": 3, "nodes": [{"createdAt": early_ts}] * 3},
+                            "issues": {"totalCount": 2, "nodes": [{"createdAt": early_ts}] * 2},
+                        },
+                        "u1": {
+                            "createdAt": "2018-01-01T00:00:00Z",
+                            "pullRequests": {"totalCount": 1, "nodes": [{"createdAt": early_ts}]},
+                            "issues": {"totalCount": 0, "nodes": []},
+                        },
+                        "u2": {
+                            "createdAt": (cutoff - timedelta(days=30)).isoformat(),  # < 90d at cutoff
+                            "pullRequests": {"totalCount": 0, "nodes": []},
+                            "issues": {"totalCount": 0, "nodes": []},
+                        },
+                    }
+                }
+            assert "AuthorEligibilityTier2Batch" in query
+            assert "contributionCalendar" not in query
+            assert variables["l0"] == "commit_only"
+            assert variables["to0"] == cutoff.isoformat()
+            return {
+                "data": {
+                    "rateLimit": {"cost": 1, "remaining": 4998},
+                    "u0": {
+                        "createdAt": "2018-01-01T00:00:00Z",
+                        "contributionsCollection": {
+                            "totalCommitContributions": 12,
+                            "totalIssueContributions": 0,
+                            "totalPullRequestContributions": 1,
+                            "totalPullRequestReviewContributions": 2,
+                            "restrictedContributionsCount": 0,
+                        },
+                    },
+                }
+            }
+
+    t = TwoTierTransport()
+    out, cost, rem = gql.fetch_two_tier_eligibility_batch(
+        ["active_pr_author", "commit_only", "young_author"],
+        t,
+        cutoff_by_login={
+            "active_pr_author": cutoff,
+            "commit_only": cutoff,
+            "young_author": cutoff,
+        },
+    )
+    assert len(t.queries) == 2
+    assert out["active_pr_author"]["public_event_count"] == 5
+    assert out["commit_only"]["public_event_count"] == 15
+    assert out["young_author"]["public_event_count"] == 0
+    assert cost == 2 and rem == 4998
+
+
 # --- Q1: L1 (pr_window) -> L4 (author_history) window reuse & Cycle 2+ raw-stale reuse ------------------------------
 
 def _landing_pr(number: int, days_ago: int, login: str, *, state: str = "MERGED") -> dict:
