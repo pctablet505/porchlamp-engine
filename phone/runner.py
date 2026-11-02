@@ -72,10 +72,15 @@ LAYER_FLAGS: dict[str, tuple[str, ...]] = {
 #: Written when the repair after step 1 is done in this cycle (:func:`run_repair`).
 REPAIR_MARKER = "L1.repaired"
 
-#: Q4: Refresh releases (L2) and issues_counts (L3c) envelopes whose window_anchor drifted > 13 days behind now
-#: before stamping MAIN.done, so the 14-day snapshot as_of guard (porchlamp.snapshot.asof) never fails on long cycles.
+#: Q4 (owner's ruling, 2026-11-02): before MAIN.done, fetch again every releases (L2) and issues_counts (L3c) envelope
+#: whose window_anchor is more than 13 days behind now. Known cost: ``porchlamp.snapshot.asof`` takes the newest of these
+#: anchors minus 14 days, so a refresh that fires moves the snapshot's as_of later than the newest pull-request record.
 STALE_ANCHOR_REFRESH_DAYS = 13
 ANCHOR_REFRESH_LAYERS: tuple[tuple[str, str], ...] = (("L2", "releases"), ("L3c", "issues_counts"))
+#: ``state/refresh/anchors.started``: when this cycle's refresh first found a stale envelope. It outlives a restart.
+ANCHOR_REFRESH_MARKER = "anchors.started"
+#: How long the refresh may hold MAIN.done back, from that time. A full refresh is about 15 phone hours.
+ANCHOR_REFRESH_BUDGET_S = 48 * 3600.0
 
 #: D4 (rollout 2026-11-01): the setting that says how many projects a step fetches side by side (gather.py
 #: ``--workers``). Only these GitHub steps may: L1 stays at one (its heavy pages drew 15 of the phone's 16 limits one
@@ -115,7 +120,8 @@ class RunState:
         self.checked = 0                 # repo lines of this gather run (reset at each run): looked at in this pass
         self.stopped = 0                 # ... of which stopped at the black-hole check
         self.pruned = 0                  # ... of which ineligible
-        self.clean = 0                   # ... of which skipped as already clean on disk
+        self.clean = 0                   # ... of which skipped by the repair or the refresh ("no cut record", "clean fingerprint");
+        #                                  an ordinary pass prints OK for a record already on disk, so it never counts one
         self.failed = 0                  # ... of which failed (retried in the next pass)
         self.total = 0                   # the run's repo count from gather's "repos: N" line; 0 = not yet known
         self.cycle_started: float | None = None
@@ -124,6 +130,7 @@ class RunState:
         self.last_rc: int | None = None
         self.last_failure: str | None = None
         self.finished_at: float | None = None   # when the last cycle of this run completed
+        self.refresh_deadline: float | None = None  # a stale-anchor refresh is running and must end by this time
 
 
 def count_line(state: RunState, line: str) -> None:
@@ -556,47 +563,26 @@ def _stale_anchor_files(
     return stale
 
 
-def _stage_stale_anchor_files(
-    home: Path,
-    layer: str,
-    collector: str,
-    files: list[Path],
-    now: Callable[[], float],
-    log: Callable[[str], object],
-) -> list[tuple[Path, Path]]:
-    ts = datetime.fromtimestamp(now(), timezone.utc)
-    base = home / f"raw-stale-{ts:%Y-%m-%d}-anchor-{ts:%H%M%SZ}"
-    candidate = base
-    seq = 2
-    while any(_lexists(candidate / collector / src.name) for src in files):
-        candidate = home / f"{base.name}-{seq}"
-        seq += 1
-    dst_dir = candidate / collector
-    dst_dir.mkdir(parents=True, exist_ok=True)
-    staged: list[tuple[Path, Path]] = []
+def _anchor_refresh_started(marker_dir: Path, now: Callable[[], float]) -> float:
+    """When this cycle's refresh first found a stale envelope: the marker's time, written once."""
+    marker = marker_dir / ANCHOR_REFRESH_MARKER
+    started = marker_ts(marker)
+    if started is None:
+        _write_marker(marker, now)
+        started = marker_ts(marker)
+    return now() if started is None else started
+
+
+def _keep_old_anchor_files(home: Path, collector: str, files: list[Path], started: float) -> None:
+    """Copy each old envelope to ``raw-stale-<date>-anchor-<time>/``, one folder a cycle. A copy, never a move: ``raw/``
+    stays whole whatever happens next, also for an older APK that knows nothing of this folder."""
+    ts = datetime.fromtimestamp(started, timezone.utc)
+    folder = home / f"raw-stale-{ts:%Y-%m-%d}-anchor-{ts:%H%M%SZ}" / collector
+    folder.mkdir(parents=True, exist_ok=True)
     for src in files:
-        dst = dst_dir / src.name
-        src.rename(dst)
-        staged.append((src, dst))
-    log(f"{layer}: staged {len(files)} stale {collector} anchor(s) (> {STALE_ANCHOR_REFRESH_DAYS}d old) -> {dst_dir}")
-    return staged
-
-
-def _restore_unfetched_anchor_files(
-    staged: list[tuple[Path, Path]],
-    layer: str,
-    collector: str,
-    log: Callable[[str], object],
-) -> int:
-    restored = 0
-    for orig, backup in staged:
-        if not orig.is_file() and backup.is_file():
-            orig.parent.mkdir(parents=True, exist_ok=True)
-            backup.rename(orig)
-            restored += 1
-    if restored:
-        log(f"{layer}: restored {restored} unfetched {collector} anchor envelope(s) from staging")
-    return restored
+        dst = folder / src.name
+        if not dst.exists():
+            shutil.copy2(src, dst)
 
 
 def refresh_stale_anchors(
@@ -613,13 +599,19 @@ def refresh_stale_anchors(
     notify: Notify | None = None,
     workers: Callable[[str], int] | None = None,
     max_age_days: float = STALE_ANCHOR_REFRESH_DAYS,
-) -> int:
-    """Q4: Before stamping MAIN.done, refresh any releases (L2) or issues_counts (L3c) envelopes whose
-    ``data.window_anchor`` drifted more than ``max_age_days`` (13 days) behind ``now()``.
+) -> None:
+    """Q4: Before MAIN.done, fetch again the releases (L2) and issues_counts (L3c) envelopes whose ``data.window_anchor``
+    is more than ``max_age_days`` behind ``now()``, then rebuild the layer's ``.complete`` marker and archive.
 
-    Only the stale envelope files are staged to ``raw-stale-...-anchor-.../`` (rename, never delete) and re-fetched,
-    after which the layer's ``.complete`` marker and ``.tar.gz`` archive are rebuilt. Any staged envelope that could
-    not be re-fetched is restored to ``raw/<collector>/`` so a refresh error never drops an existing record.
+    **No record leaves ``raw/``.** gather fetches the listed repos in place (``--refetch-keys``), and an envelope is
+    replaced by a complete new one or not at all, so a crash, a stop, a failed fetch or a rollback to an older APK always
+    finds every record. A new start works out what is still stale; it needs nothing from the start before.
+
+    **It never stops the cycle.** A run that raises or prints no done line, the disk floor and two runs that agree end
+    the layer's refresh, and MAIN.done follows; what was not fetched keeps its record. Whatever else holds a request back
+    (no network, a rejected token, a limit) can last only until ``ANCHOR_REFRESH_BUDGET_S`` after the marker: the app's
+    monitor then restarts the collector (:attr:`RunState.refresh_deadline`), and the new start finds the budget spent. A
+    stop (``BaseException``) goes through: nothing needs putting back, and the next start carries on.
     """
     home = Path(home)
     marker_dir = home / "state" / "refresh"
@@ -632,67 +624,86 @@ def refresh_stale_anchors(
             count_line(state, line)
         log(line)
 
-    for layer, collector in ANCHOR_REFRESH_LAYERS:
-        if not selected(layer):
-            continue
-        stale = _stale_anchor_files(home, collector, now(), max_age_days=max_age_days)
-        if not stale:
-            continue
-        staged = _stage_stale_anchor_files(home, layer, collector, stale, now, log)
-        w = workers(layer) if workers else 1
-        side_by_side = ("--workers", str(w)) if w > 1 and layer in WORKER_SETTING else ()
-        os.environ[INFLIGHT_ENV] = str(w if side_by_side else 1)
-        if state is not None:
-            state.layer, state.collectors, state.run, state.max_runs = layer, (collector,), 0, max_runs
-            state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
-        prev: int | None = None
-        confirmed = False
-        try:
+    def still_stale(collector: str, at: float) -> list[Path]:
+        return _stale_anchor_files(home, collector, at, max_age_days=max_age_days)
+
+    try:
+        for layer, collector in ANCHOR_REFRESH_LAYERS:
+            # A layer that did not run this cycle holds another cycle's files, and it must get no marker of this one.
+            if not selected(layer) or not (marker_dir / f"{layer}.complete").is_file():
+                continue
+            checked_at = now()  # fixed for the layer: what turns 13 days old meanwhile does not lengthen this refresh
+            stale = still_stale(collector, checked_at)
+            if not stale:
+                continue
+            started = _anchor_refresh_started(marker_dir, now)
+            deadline = started + ANCHOR_REFRESH_BUDGET_S
+            if now() >= deadline:
+                log(f"{layer}: anchor refresh out of time: {len(stale)} {collector} record(s) stay as they are")
+                continue
+            free = free_gb(home)
+            if free < min_free_gb:  # before the copy: it must not take the last bytes MAIN.done needs
+                log(f"{layer}: anchor refresh ended: free disk {free:.1f} GB under {min_free_gb} GB")
+                continue
+            if state is not None:
+                state.refresh_deadline = deadline
+            _keep_old_anchor_files(home, collector, stale, started)
+            # Before the first fetch: a process that dies from here on still leaves the archive marked out of date.
+            _write_marker(marker_dir / f"{layer}.complete", now)
+            w = workers(layer) if workers else 1
+            side_by_side = ("--workers", str(w)) if w > 1 and layer in WORKER_SETTING else ()
+            os.environ[INFLIGHT_ENV] = str(w if side_by_side else 1)
+            if state is not None:
+                state.layer, state.collectors, state.run, state.max_runs = layer, (collector,), 0, max_runs
+                state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
+            prev: int | None = None
             for run in range(1, max_runs + 1):
                 if state is not None:
                     state.run = run
                     state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
+                keys = [path.stem for path in still_stale(collector, checked_at)]
+                if not keys:
+                    break
+                if now() >= deadline:
+                    log(f"{layer}: anchor refresh out of time: {len(keys)} {collector} record(s) stay as they are")
+                    break
                 free = free_gb(home)
                 if free < min_free_gb:
-                    log(f"{layer}: BLOCKED free disk {free:.1f} GB under {min_free_gb} GB")
-                    return 6
-                log(f"{layer}: === anchor refresh run {run} of {max_runs} (collectors: {collector}) ===")
+                    log(f"{layer}: anchor refresh ended: free disk {free:.1f} GB under {min_free_gb} GB")
+                    break
+                log(f"{layer}: === anchor refresh run {run} of {max_runs} ({len(keys)} {collector} records) ===")
                 tee = _Tee(counted)
                 try:
                     with contextlib.redirect_stdout(tee):  # type: ignore[arg-type]
-                        gather_main(["--all", "--graphql-bulk", "--collectors", collector, *LAYER_FLAGS.get(layer, ()),
-                                     *side_by_side])
+                        gather_main(["--all", "--graphql-bulk", "--collectors", collector,
+                                     "--refetch-keys", ",".join(keys), *side_by_side])
                 except (Exception, SystemExit):
                     tee.finish()
                     log(f"{layer}: anchor refresh raised in run {run}")
                     log(traceback.format_exc())
-                    return 3
+                    break
                 tee.finish()
                 found = _DONE.findall(tee.text())
                 if not found:
                     log(f"{layer}: anchor refresh run {run} printed no done line")
-                    return 4
-                clean, fail = int(found[-1][0]), int(found[-1][1])
-                log(f"{layer}: anchor refresh run {run} summary: {clean} clean, {fail} with failures")
-                if (fail == 0 and clean > 0) or (prev is not None and fail == prev):
-                    restored = _restore_unfetched_anchor_files(staged, layer, collector, log)
-                    _write_marker(marker_dir / f"{layer}.complete", now)
-                    refreshed_n = len(stale) - restored
-                    log(f"{layer}: anchor refresh COMPLETE ({refreshed_n} stale {collector} record(s) refreshed)")
-                    try:
-                        archive.build_archive(home, layer)
-                    except OSError as exc:
-                        log(f"archive for {layer} not built: {exc}; the pull builds it")
-                    confirmed = True
+                    break
+                fail = int(found[-1][1])
+                log(f"{layer}: anchor refresh run {run} summary: {found[-1][0]} clean, {fail} with failures")
+                if fail == 0 or (prev is not None and fail == prev):
                     break
                 prev = fail
-            if not confirmed:
-                log(f"{layer}: anchor refresh NOT confirmed after {max_runs} runs")
-                return 2
-        finally:
-            if not confirmed:
-                _restore_unfetched_anchor_files(staged, layer, collector, log)
-    return 0
+            left = len(still_stale(collector, checked_at))
+            log(f"{layer}: anchor refresh done: {len(stale) - left} of {len(stale)} {collector} record(s) fetched again")
+            _write_marker(marker_dir / f"{layer}.complete", now)
+            try:
+                archive.build_archive(home, layer)
+            except OSError as exc:
+                log(f"archive for {layer} not built: {exc}; the pull builds it")
+    except (Exception, SystemExit):
+        log("anchor refresh gave up; every record it did not fetch stays as it was")
+        log(traceback.format_exc())
+    if state is not None:
+        state.refresh_deadline = None
 
 
 def run_cycle(
@@ -746,10 +757,7 @@ def run_cycle(
                 return rc
     main_done = home / "state" / "refresh" / "MAIN.done"
     if not main_done.is_file():  # a keyless resume must not re-stamp the MAIN time
-        rc = refresh_stale_anchors(home, gather_main, layers=layers, workers=workers, **kw)
-        if rc:
-            log(f"cycle stopped at stale-anchor refresh with rc {rc}")
-            return rc
+        refresh_stale_anchors(home, gather_main, layers=layers, workers=workers, **kw)
         _write_marker(main_done, now)
     layer, cols = KEYLESS_LAYER
     if not selected(layer):
@@ -794,7 +802,7 @@ def _retire_markers(home: Path, now: Callable[[], float], log: Callable[[str], o
     stamp = datetime.fromtimestamp(now(), timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     unpinned = False
     for p in sorted(state.glob("*")):
-        if not p.is_file() or not (p.suffix in (".complete", ".staged", ".repaired", ".pinned")
+        if not p.is_file() or not (p.suffix in (".complete", ".staged", ".repaired", ".pinned", ".started")
                                    or p.name == "MAIN.done"):
             continue
         prev.mkdir(parents=True, exist_ok=True)

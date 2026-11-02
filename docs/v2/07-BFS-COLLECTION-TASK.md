@@ -143,6 +143,11 @@ AS_OF="$(.venv/bin/python -m porchlamp.snapshot as-of --data-dir data --print)" 
 - `as-of` picks the snapshot's reference time: the newest `pr_window` record's time, rounded up to the minute, and only
   when every guard accepts it (README, "Pick as_of"). Never pass the wall clock: a `releases` or `issues_counts` file
   more than 14 days from `--as-of` silently drops `openssf_criticality` for its project, and no later step refuses it.
+- A phone cycle fetches again, before `MAIN.done`, every `releases` and `issues_counts` file more than 13 days old
+  (`phone/runner.py`, `refresh_stale_anchors`). That is rare: from the start of L2 to the end of L4 must take over 13 days.
+  When it happens `as-of` moves later than the newest `pr_window` record (its report says `set by:` which file set it), and
+  every 180-day window loses that many days: 1.9 days moved about 3,400 of the 4,040 ranks, by 2 places at the median, on
+  the 2026-10-31 data.
 - When `as-of` exits 1, nothing is built, and its report (on stderr) says why. After L0 and L1 that is expected: there
   is no valid time until L2 and L3 have fetched `releases` and `issues_counts` after `pr_window`, so skip Steps B–D for
   that layer and go on to the next one. After L3 or L4, a `FAIL` line means stop and report it in STATUS.md.

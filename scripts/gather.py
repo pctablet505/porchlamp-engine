@@ -1191,6 +1191,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                          "(commits_365d at 1,000, author_history and pr_window at 500): the repos that have "
                          "one, and of each only its cut collectors; --collectors narrows it further. "
                          "A record cut at today's cap is left alone")
+    ap.add_argument("--refetch-keys", default=None, metavar="KEYS",
+                    help="fetch again, in place, the selected collectors of these owner__name keys (comma-separated), "
+                         "and skip every other repo: an envelope is replaced by a complete new one or not at all "
+                         "(the phone's stale-anchor refresh). Needs --all and --collectors")
     ap.add_argument("--repair-replies", action="store_true",
                     help="read again, and only, the pull requests of each stored pr_window record whose reply lists "
                          "or timeline the query before RFC-0022 stopped at its size (reviews 10, comments 20, "
@@ -1230,6 +1234,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     if a.refetch_cut and (a.force or a.dirty or a.fingerprint_only or a.screen_ineligible):
         ap.error("--refetch-cut already picks the repos and the collectors: "
                  "not with --force, --dirty, --fingerprint-only or --screen-ineligible")
+    if a.refetch_keys is not None:
+        if not (a.all and a.collectors):
+            ap.error("--refetch-keys needs --all and --collectors")
+        if a.force or a.dirty or a.fingerprint_only or a.screen_ineligible or a.skip_ineligible or a.refetch_cut \
+                or a.repair_replies:
+            ap.error("--refetch-keys already picks the repos: not with --force, --dirty, --fingerprint-only, "
+                     "--screen-ineligible, --skip-ineligible, --refetch-cut or --repair-replies")
     if a.repair_replies and (a.force or a.dirty or a.fingerprint_only or a.screen_ineligible or a.skip_ineligible
                              or a.refetch_cut or a.collectors or a.priority_keys):
         ap.error("--repair-replies picks the repos and reads only pr_window: "
@@ -1313,6 +1324,10 @@ def _run_main(a: argparse.Namespace) -> int:
         from porchlamp.collect.cut_records import legacy_cut_collectors
 
         dirty_map = {f"{owner}__{name}": legacy_cut_collectors(DATA, owner, name) for owner, name, _eco in repos}
+    if a.refetch_keys is not None:
+        wanted = set(a.refetch_keys.split(","))
+        dirty_map = {f"{owner}__{name}": selected if f"{owner}__{name}" in wanted else frozenset()
+                     for owner, name, _eco in repos}
     clean_label = "no cut record" if a.refetch_cut else "clean fingerprint"
 
     ok = fail = 0

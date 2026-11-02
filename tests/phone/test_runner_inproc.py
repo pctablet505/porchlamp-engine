@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import contextlib
+import errno
+import json
 import re
 import sys
+import tarfile
 import types
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+from phone import archive
 from phone import runner as R
 
 NOW = datetime(2026, 10, 11, 12, tzinfo=timezone.utc).timestamp()
@@ -677,61 +681,349 @@ def test_inflight_env_is_the_layers_own(home, kw, monkeypatch):
     assert seen == {"repair": ["1"]}
 
 
-def test_pre_main_done_refreshes_only_stale_releases_and_issues_counts_anchors(home, kw, logs):
-    """Q4: Before stamping MAIN.done, any releases (L2) or issues_counts (L3c) envelope whose data.window_anchor is
-    > 13 days older than now() is staged to raw-stale-...-anchor-.../ and re-collected, while fresh envelopes stay."""
-    stale_anchor = "2026-09-25T00:00:00Z"  # 16.5 days before NOW (2026-10-11T12:00:00Z) > 13 days
-    fresh_anchor = "2026-10-05T00:00:00Z"  # 6.5 days before NOW <= 13 days
+# ---- Q4: the stale-anchor refresh before MAIN.done -----------------------------------------------------------------
+DAY = 86400.0
+#: 16.5 days and 6.5 days before NOW.
+OLD_ANCHOR, YOUNG_ANCHOR = "2026-09-25T00:00:00Z", "2026-10-05T00:00:00Z"
+
+
+def _env(anchor: str, gen: str = "old") -> str:
+    return json.dumps({"data": {"window_anchor": anchor, "gen": gen}})
+
+
+def _anchor(home: Path, collector: str, key: str) -> str:
+    return json.loads((home / "raw" / collector / f"{key}.json").read_text())["data"]["window_anchor"]
+
+
+def _gen(home: Path, collector: str, key: str) -> str:
+    return json.loads((home / "raw" / collector / f"{key}.json").read_text())["data"]["gen"]
+
+
+def _layers_done(home: Path) -> None:
+    for layer, _cols in R.MAIN_LAYERS:
+        _mark(home, f"{layer}.complete")
+        _mark(home, f"{layer}.staged")
+    _mark(home, R.REPAIR_MARKER)
+
+
+def _stale_home(home: Path) -> None:
+    _layers_done(home)
+    for collector, name in (("releases", "repo"), ("issues_counts", "issue")):
+        _put(home / "raw" / collector / f"stale__{name}.json", _env(OLD_ANCHOR))
+        _put(home / "raw" / collector / f"fresh__{name}.json", _env(YOUNG_ANCHOR))
+
+
+def _files(home: Path) -> dict[str, list[str]]:
+    return {c: sorted(p.name for p in (home / "raw" / c).glob("*.json")) for c in ("releases", "issues_counts")}
+
+
+class Refetch:
+    """gather.main as ``--refetch-keys`` runs it: each listed key is replaced by a fresh envelope unless ``fail(key, n)``
+    says no (the old file stays, a FAIL line); the keyless layer only prints its done line. ``during(n)`` runs inside."""
+
+    def __init__(self, home, fail=lambda key, n: False, during=None, stamp=FRESH):
+        self.home, self.fail, self.during, self.stamp = home, fail, during, stamp
+        self.calls: list[str] = []
+        self.keys: list[tuple[str, list[str]]] = []
+        self.files_at_call: list[dict[str, list[str]]] = []
+        self.main_done_at_call: list[bool] = []
+
+    def __call__(self, argv):
+        cols = argv[3]
+        self.calls.append(cols)
+        self.main_done_at_call.append(_ex(self.home, "MAIN.done"))
+        if "--refetch-keys" not in argv:
+            print("done: 1 clean, 0 with failures")
+            return 0
+        keys = argv[argv.index("--refetch-keys") + 1].split(",")
+        self.keys.append((cols, keys))
+        self.files_at_call.append(_files(self.home))
+        n = len(self.keys)
+        if self.during:
+            self.during(n)
+        bad = 0
+        for key in keys:
+            if self.fail(key, n):
+                bad += 1
+            else:
+                _put(self.home / "raw" / cols / f"{key}.json", _env(self.stamp, "new"))
+        print(f"done: 1 clean, {bad} with failures")
+        return 0
+
+
+def test_refresh_fetches_again_only_the_stale_envelopes_before_main_done_and_every_file_stays_in_raw(home, kw):
+    """Q4: gather gets the stale keys and nothing leaves ``raw/``: a process killed at any moment finds every record."""
+    _stale_home(home)
+    before = _files(home)
+    g = Refetch(home)
+    assert R.run_cycle(home, g, **kw) == 0
+    assert g.keys == [("releases", ["stale__repo"]), ("issues_counts", ["stale__issue"])]
+    assert g.files_at_call == [before, before]                                    # all still there while gather runs
+    assert g.calls == ["releases", "issues_counts", KEYLESS]
+    assert g.main_done_at_call == [False, False, True]                            # MAIN.done after the refresh
+    assert _gen(home, "releases", "stale__repo") == _gen(home, "issues_counts", "stale__issue") == "new"
+    assert _gen(home, "releases", "fresh__repo") == _gen(home, "issues_counts", "fresh__issue") == "old"
+    kept = next(home.glob("raw-stale-*-anchor-*"))                                # the old record is kept, as a copy
+    assert json.loads((kept / "releases/stale__repo.json").read_text())["data"]["gen"] == "old"
+    assert json.loads((kept / "issues_counts/stale__issue.json").read_text())["data"]["gen"] == "old"
+    assert (home / "state/refresh/L2.complete").read_text().strip() == "2026-10-11T12:00:00Z"
+    assert (home / "state/refresh/L3c.complete").read_text().strip() == "2026-10-11T12:00:00Z"
+    for layer, member in (("L2", "raw/releases/stale__repo.json"), ("L3c", "raw/issues_counts/stale__issue.json")):
+        with tarfile.open(home / "archives" / f"{layer}.tar.gz") as tar:
+            assert json.loads(tar.extractfile(member).read())["data"]["gen"] == "new"
+
+
+@pytest.mark.parametrize("age_s, stale", [(13 * DAY + 1, True), (13 * DAY - 1, False)])
+def test_refresh_threshold_is_thirteen_days(home, kw, age_s, stale):
+    _layers_done(home)
+    anchor = datetime.fromtimestamp(NOW - age_s, timezone.utc).isoformat()
+    _put(home / "raw/releases/o__r.json", _env(anchor))
+    g = Refetch(home)
+    assert R.run_cycle(home, g, **kw) == 0
+    assert g.keys == ([("releases", ["o__r"])] if stale else [])
+
+
+def test_refresh_is_not_run_when_main_done_is_there_nor_for_a_layer_not_selected(home, kw):
+    _stale_home(home)
+    g = Refetch(home)
+    assert R.run_cycle(home, g, layers=lambda: ["L1", "L0", "L3g", "L3c", "L4", "LK"], **kw) == 0
+    assert g.keys == [("issues_counts", ["stale__issue"])]                        # L2 is not selected
+    assert _gen(home, "releases", "stale__repo") == "old"
+    (home / "state/refresh/LK.complete").unlink()
+    g = Refetch(home)
+    assert R.run_cycle(home, g, **kw) == 0                                        # a keyless resume: MAIN.done is there
+    assert g.keys == [] and g.calls == [KEYLESS]
+
+
+def test_a_layer_that_did_not_run_this_cycle_is_not_refreshed_and_gets_no_marker(home, kw):
+    """Switched on during L4: its files are another cycle's, and a marker would say the layer ran."""
+    _stale_home(home)
+    (home / "state/refresh/L2.complete").unlink()
+    (home / "state/refresh/L2.staged").unlink()
+    asked = {"n": 0}
+
+    def selection():
+        asked["n"] += 1
+        return ["L1", "L0", "L3g", "L3c", "L4", "LK"] if asked["n"] <= 6 else ["L1", "L0", "L2", "L3g", "L3c", "L4", "LK"]
+
+    g = Refetch(home)
+    assert R.run_cycle(home, g, layers=selection, **kw) == 0
+    assert g.keys == [("issues_counts", ["stale__issue"])]
+    assert not _ex(home, "L2.complete") and _gen(home, "releases", "stale__repo") == "old"
+
+
+class _Killed(BaseException):
+    """Stands for a stop (``phone.httpgate.Stopped`` is a ``BaseException`` too): nothing may catch it on the way out."""
+
+
+def test_a_stop_during_the_refresh_goes_through_and_the_next_start_carries_on(home, kw):
+    _stale_home(home)
+    before = _files(home)
+
+    def stop(n):
+        raise _Killed
+
+    g = Refetch(home, during=stop)
+    with pytest.raises(_Killed):
+        R.run_cycle(home, g, **kw)
+    assert _files(home) == before and not _ex(home, "MAIN.done")
+    g = Refetch(home)
+    assert R.run_cycle(home, g, **kw) == 0
+    assert g.keys == [("releases", ["stale__repo"]), ("issues_counts", ["stale__issue"])]
+    assert _ex(home, "MAIN.done") and _gen(home, "releases", "stale__repo") == "new"
+
+
+def test_a_process_dead_after_part_of_the_fetches_leaves_the_archive_marked_out_of_date(home, kw):
+    """What was fetched before the death reaches the pull: the marker is written before the first fetch."""
+    _stale_home(home)
+    archive.build_archive(home, "L2")
+
+    def stop(n):
+        _put(home / "raw/releases/stale__repo.json", _env(FRESH, "new"))
+        raise _Killed
+
+    with pytest.raises(_Killed):
+        R.run_cycle(home, Refetch(home, during=stop), **kw)
+    manifest = archive.write_manifest(home)
+    with tarfile.open(home / "archives/L2.tar.gz") as tar:
+        assert json.loads(tar.extractfile("raw/releases/stale__repo.json").read())["data"]["gen"] == "new"
+    assert manifest["layers"]["L2"]["files"] == 2
+
+
+def test_a_pull_during_the_refresh_does_not_freeze_the_archive(home, kw):
+    """The marker is written again at the end, so an archive built meanwhile is not taken for current."""
+    _stale_home(home)
+    clock = {"t": NOW}
+
+    def tick():
+        clock["t"] += 5.0
+        return clock["t"]
+
+    def pull(n):
+        if n == 1:
+            archive.build_archive(home, "L2")
+
+    fkw = {**kw, "now": tick}
+    assert R.run_cycle(home, Refetch(home, during=pull), **fkw) == 0
+    with tarfile.open(home / "archives/L2.tar.gz") as tar:
+        assert json.loads(tar.extractfile("raw/releases/stale__repo.json").read())["data"]["gen"] == "new"
+
+
+@pytest.mark.parametrize("failure", ["raises", "exits", "no_done_line"])
+def test_a_refresh_that_fails_never_stops_the_cycle(home, kw, logs, failure):
+    """MAIN.done, the keyless step and the upload after it never wait on a failed refresh: the records stay as they were."""
+    _stale_home(home)
+    before = _files(home)
+    calls: list[str] = []
+
+    def g(argv):
+        calls.append(argv[3])
+        if argv[3] in ("releases", "issues_counts"):
+            if failure == "raises":
+                raise RuntimeError("HTTP 401")
+            if failure == "exits":
+                raise SystemExit(2)
+            print("no summary line")
+            return 0
+        print("done: 1 clean, 0 with failures")
+        return 0
+
+    assert R.run_cycle(home, g, **kw) == 0
+    assert calls == ["releases", "issues_counts", KEYLESS]
+    assert _ex(home, "MAIN.done") and _ex(home, "LK.complete") and _files(home) == before
+    assert _gen(home, "releases", "stale__repo") == "old"
+
+
+def test_a_copy_that_fails_never_stops_the_cycle_and_nothing_moved(home, kw, logs, monkeypatch):
+    _stale_home(home)
+    before = _files(home)
+
+    def full(src, dst):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(R.shutil, "copy2", full)
+    g = Refetch(home)
+    assert R.run_cycle(home, g, **kw) == 0
+    assert g.keys == [] and _ex(home, "MAIN.done") and _files(home) == before
+    assert any("anchor refresh gave up" in line for line in logs)
+
+
+def test_the_disk_floor_ends_the_refresh_not_the_cycle(home, kw, logs):
+    _stale_home(home)
+    before = _files(home)
+    g = Refetch(home)
+    free = iter([1.0, 1.0, 100.0])                                                # the refresh's two layers, then LK
+    fkw = {**kw, "free_gb": lambda _h: next(free)}
+    assert R.run_cycle(home, g, **fkw) == 0
+    assert g.keys == [] and g.calls == [KEYLESS] and _ex(home, "MAIN.done") and _files(home) == before
+    assert not list(home.glob("raw-stale-*-anchor-*"))                            # no copy under the floor either
+
+
+def test_the_disk_floor_is_read_again_before_each_refresh_run(home, kw, logs):
+    _stale_home(home)
+    g = Refetch(home, fail=lambda key, n: True)
+    free = iter([100.0, 100.0, 1.0, 1.0, 100.0])                                  # L2 start, run 1, run 2; L3c start; LK
+    assert R.run_cycle(home, g, **{**kw, "free_gb": lambda _h: next(free)}) == 0
+    assert g.keys == [("releases", ["stale__repo"])] and _ex(home, "MAIN.done")
+
+
+def test_two_refresh_runs_that_agree_end_the_layer_and_failed_records_stay(home, kw):
+    _stale_home(home)
+    g = Refetch(home, fail=lambda key, n: key == "stale__repo")
+    assert R.run_cycle(home, g, **kw) == 0
+    assert g.keys[:2] == [("releases", ["stale__repo"]), ("releases", ["stale__repo"])] and len(g.keys) == 3
+    assert _gen(home, "releases", "stale__repo") == "old" and _ex(home, "MAIN.done")
+
+
+def test_a_failure_count_that_keeps_changing_ends_at_max_runs_and_main_done_follows(home, kw):
+    _stale_home(home)
+    for i in range(6):
+        _put(home / f"raw/releases/more{i}__r.json", _env(OLD_ANCHOR))
+    counts = {1: 3, 2: 2, 3: 1}                                                  # 3, 2, 1 failures: no two runs agree
+
+    def fail(key, n):
+        wanted = counts.get(n, 0)
+        seen = fail.seen.setdefault(n, 0)
+        fail.seen[n] = seen + 1
+        return seen < wanted
+
+    fail.seen = {}
+    g = Refetch(home, fail=fail)
+    assert R.run_cycle(home, g, max_runs=3, **kw) == 0
+    assert [cols for cols, _keys in g.keys].count("releases") == 3 and _ex(home, "MAIN.done")
+
+
+def test_a_second_run_lists_only_what_is_still_stale_at_the_time_the_layer_was_checked(home, kw):
+    """What turns 13 days old during the refresh does not lengthen it: L2's anchors cross the line all the time."""
+    _layers_done(home)
+    _put(home / "raw/releases/a__r.json", _env(OLD_ANCHOR))
+    nearly = datetime.fromtimestamp(NOW - 13 * DAY + 60, timezone.utc).isoformat()
+    _put(home / "raw/releases/b__r.json", _env(nearly))
+    clock = {"t": NOW}
+
+    def during(n):
+        clock["t"] = NOW + 3600.0                                                 # b is past 13 days from now on
+
+    g = Refetch(home, fail=lambda key, n: n == 1, during=during)
+    assert R.run_cycle(home, g, **{**kw, "now": lambda: clock["t"]}) == 0
+    assert g.keys == [("releases", ["a__r"]), ("releases", ["a__r"])]
+    assert _gen(home, "releases", "b__r") == "old"
+
+
+def test_the_budget_counts_from_the_first_stale_envelope_of_the_cycle_across_restarts(home, kw, logs):
+    _stale_home(home)
+    stamp = "2026-10-11T12:00:00Z"
+    with pytest.raises(_Killed):
+        R.run_cycle(home, Refetch(home, during=lambda n: (_ for _ in ()).throw(_Killed())), **kw)
+    marker = home / "state/refresh" / R.ANCHOR_REFRESH_MARKER
+    assert marker.read_text().strip() == stamp
+    later = {**kw, "now": lambda: NOW + R.ANCHOR_REFRESH_BUDGET_S - 60}
+    with pytest.raises(_Killed):
+        R.run_cycle(home, Refetch(home, during=lambda n: (_ for _ in ()).throw(_Killed())), **later)
+    assert marker.read_text().strip() == stamp                                    # a new start does not move it
+    spent = {**kw, "now": lambda: NOW + R.ANCHOR_REFRESH_BUDGET_S}
+    marked = (home / "state/refresh/L2.complete").read_text()
+    g = Refetch(home)
+    assert R.run_cycle(home, g, **spent) == 0
+    assert g.keys == [] and _ex(home, "MAIN.done") and _gen(home, "releases", "stale__repo") == "old"
+    assert (home / "state/refresh/L2.complete").read_text() == marked             # nothing touched: no marker, no archive
+    assert any("anchor refresh out of time" in line for line in logs)
+
+
+def test_the_budget_also_ends_the_runs_of_a_layer_and_sets_the_monitors_deadline(home, kw, logs):
+    _stale_home(home)
+    state = R.RunState()
+    clock = {"t": NOW}
+    seen = []
+
+    def during(n):
+        seen.append(state.refresh_deadline)
+        clock["t"] = NOW + R.ANCHOR_REFRESH_BUDGET_S
+
+    g = Refetch(home, fail=lambda key, n: True, during=during)
+    assert R.run_cycle(home, g, state=state, **{**kw, "now": lambda: clock["t"]}) == 0
+    assert seen == [NOW + R.ANCHOR_REFRESH_BUDGET_S]                              # one run, with the deadline set
+    assert state.refresh_deadline is None and _ex(home, "MAIN.done")
+
+
+def test_the_refresh_marker_is_retired_with_the_cycle_so_the_next_cycle_has_its_own_budget(home, kw):
+    _stale_home(home)
+    assert R.run_cycle(home, Refetch(home), **kw) == 0
+    assert (home / "state/refresh" / R.ANCHOR_REFRESH_MARKER).is_file()
+    R._retire_markers(home, kw["now"], kw["log"])
+    assert not (home / "state/refresh" / R.ANCHOR_REFRESH_MARKER).exists()
+
+
+def test_every_pass_starts_with_a_clean_count_of_zero(home, kw):
+    """Q8: the clean count feeds the status estimate (pruned + clean = skipped), so each pass counts its own."""
+    state = R.RunState()
+    seen = []
 
     def before(cols, n):
-        if cols == L2 and n == 1:
-            _put(home / "raw/releases/stale__repo.json", f'{{"data": {{"window_anchor": "{stale_anchor}"}}}}')
-            _put(home / "raw/releases/fresh__repo.json", f'{{"data": {{"window_anchor": "{fresh_anchor}"}}}}')
-        elif cols == "commits_365d,issues_counts" and n == 1:
-            _put(home / "raw/issues_counts/stale__issue.json", f'{{"data": {{"window_anchor": "{stale_anchor}"}}}}')
-            _put(home / "raw/issues_counts/fresh__issue.json", f'{{"data": {{"window_anchor": "{fresh_anchor}"}}}}')
-        elif cols == "releases":
-            assert not (home / "raw/releases/stale__repo.json").exists()
-            assert (home / "raw/releases/fresh__repo.json").exists()
-            _put(home / "raw/releases/stale__repo.json", f'{{"data": {{"window_anchor": "{FRESH}"}}}}')
-        elif cols == "issues_counts":
-            assert not (home / "raw/issues_counts/stale__issue.json").exists()
-            assert (home / "raw/issues_counts/fresh__issue.json").exists()
-            _put(home / "raw/issues_counts/stale__issue.json", f'{{"data": {{"window_anchor": "{FRESH}"}}}}')
+        seen.append((cols, n, state.clean))
+        print("o/r [pypi]: SKIP (no cut record)")
 
-    g = Gather(before=before)
-    assert R.run_cycle(home, g, **kw) == 0
-    assert g.calls == [
-        PR,
-        "repair",
-        L0,
-        L2,
-        "governance",
-        "commits_365d,issues_counts",
-        L4,
-        "releases",
-        "issues_counts",
-        KEYLESS,
-    ]
-    assert _ex(home, "MAIN.done")
-    anchor_dirs = list(home.glob("raw-stale-*-anchor-*"))
-    assert len(anchor_dirs) == 1
-    assert (anchor_dirs[0] / "releases/stale__repo.json").is_file()
-    assert (anchor_dirs[0] / "issues_counts/stale__issue.json").is_file()
-    assert any("L2: anchor refresh COMPLETE" in line for line in logs)
-    assert any("L3c: anchor refresh COMPLETE" in line for line in logs)
-
-
-def test_failed_anchor_refresh_restores_staged_envelopes_so_no_record_is_lost(home, kw, logs):
-    """Q4: If refresh_stale_anchors fails mid-run, any staged stale envelope that was not re-fetched is restored
-    back to raw/<collector>/ so no repository loses its existing record."""
-    stale_anchor = "2026-09-25T00:00:00Z"
-    _put(home / "raw/releases/stale__repo.json", f'{{"data": {{"window_anchor": "{stale_anchor}"}}}}')
-
-    def failing_gather(argv: list[str]) -> None:
-        raise RuntimeError("network lost during anchor refresh")
-
-    assert R.refresh_stale_anchors(home, failing_gather, **kw) == 3
-    assert (home / "raw/releases/stale__repo.json").is_file()
-    assert any("restored 1 unfetched releases anchor envelope(s)" in line for line in logs)
-
+    g = Gather(rule=lambda c, n: 1 if n == 1 else 0, before=before)
+    assert R.run_layer(home, "L1", PR, g, state=state, **kw) == 0
+    assert R.run_repair(home, g, state=state, **kw) == 0
+    assert seen == [(PR, 1, 0), (PR, 2, 0), ("repair", 1, 0), ("repair", 2, 0)]
