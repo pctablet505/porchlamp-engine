@@ -185,6 +185,18 @@ def _push_candidates(base: str, token: str, file: Path) -> None:
     _log(f"candidates: pushed {len(body)} bytes")
 
 
+def _hydrate_user_cache(dest: Path) -> None:
+    """The lookups of the L4 just pulled go into this root's user cache. Best effort: the layer is already pulled and
+    marked, the cache is not evidence, and a failure here must not make the same pull fail (exit 5) when it is run
+    again."""
+    try:
+        from porchlamp.collect.user_cache import hydrate_from_author_history_dir
+
+        _log(f"user_cache: {hydrate_from_author_history_dir(dest / 'raw')} logins from L4")
+    except Exception as exc:  # review-ok: gate-cache - not evidence, the pull has already succeeded
+        _log(f"user_cache: not updated ({type(exc).__name__})")
+
+
 def pull(base: str, token: str, dest: Path, wanted: list[str] | None) -> None:
     manifest = _get_json(f"{base}/manifest.json", token)
     layers = manifest["layers"]
@@ -212,6 +224,8 @@ def pull(base: str, token: str, dest: Path, wanted: list[str] | None) -> None:
         _write_text(pulled_dir / f"{layer}.sha256", entry["sha256"])
         _write_text(dest / "state" / "refresh" / f"{layer}.complete", entry["completed_at"])
         part.unlink()
+        if layer == "L4":
+            _hydrate_user_cache(dest)
         note = f" (resumed at {resumed})" if resumed else ""
         _log(f"{layer}: pulled files={count} bytes={entry['bytes']}{note}")
     main_done = manifest.get("main_done")

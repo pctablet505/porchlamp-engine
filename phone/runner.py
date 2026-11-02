@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import importlib
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -71,6 +72,11 @@ LAYER_FLAGS: dict[str, tuple[str, ...]] = {
 #: Written when the repair after step 1 is done in this cycle (:func:`run_repair`).
 REPAIR_MARKER = "L1.repaired"
 
+#: Q4: Refresh releases (L2) and issues_counts (L3c) envelopes whose window_anchor drifted > 13 days behind now
+#: before stamping MAIN.done, so the 14-day snapshot as_of guard (porchlamp.snapshot.asof) never fails on long cycles.
+STALE_ANCHOR_REFRESH_DAYS = 13
+ANCHOR_REFRESH_LAYERS: tuple[tuple[str, str], ...] = (("L2", "releases"), ("L3c", "issues_counts"))
+
 #: D4 (rollout 2026-11-01): the setting that says how many projects a step fetches side by side (gather.py
 #: ``--workers``). Only these GitHub steps may: L1 stays at one (its heavy pages drew 15 of the phone's 16 limits one
 #: at a time), L2 until deps.dev's and ecosyste.ms's published limits are read, LK for good (pypistats allows about 5
@@ -109,6 +115,7 @@ class RunState:
         self.checked = 0                 # repo lines of this gather run (reset at each run): looked at in this pass
         self.stopped = 0                 # ... of which stopped at the black-hole check
         self.pruned = 0                  # ... of which ineligible
+        self.clean = 0                   # ... of which skipped as already clean on disk
         self.failed = 0                  # ... of which failed (retried in the next pass)
         self.total = 0                   # the run's repo count from gather's "repos: N" line; 0 = not yet known
         self.cycle_started: float | None = None
@@ -120,7 +127,7 @@ class RunState:
 
 
 def count_line(state: RunState, line: str) -> None:
-    """Count one gather output line: ``repos: N`` sets the total; a repo line is checked, and maybe stopped, pruned or failed."""
+    """Count one gather output line: ``repos: N`` sets the total; a repo line is checked, and maybe stopped, pruned, clean or failed."""
     m = _REPOS.match(line)
     if m:
         state.total = int(m.group(1))
@@ -128,7 +135,7 @@ def count_line(state: RunState, line: str) -> None:
     m = _OUTCOME.match(line)
     if m:
         state.checked += 1
-        if m.lastgroup in ("stopped", "pruned", "failed"):
+        if m.lastgroup in ("stopped", "pruned", "clean", "failed"):
             setattr(state, m.lastgroup, getattr(state, m.lastgroup) + 1)
 
 
@@ -358,7 +365,7 @@ def run_layer(
         return 0
     if state is not None:
         state.layer, state.collectors, state.run, state.max_runs = layer, tuple(collectors.split(",")), 0, max_runs
-        state.checked = state.stopped = state.pruned = state.failed = state.total = 0
+        state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
     _note(notify, "step_start", layer=layer)
     if not (marker_dir / f"{layer}.staged").exists():
         rc = _stage(home, layer, [c for c in collectors.split(",") if c], now, log)
@@ -380,7 +387,7 @@ def run_layer(
     for run in range(1, max_runs + 1):
         if state is not None:
             state.run = run
-            state.checked = state.stopped = state.pruned = state.failed = state.total = 0
+            state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
         free = free_gb(home)
         if free < min_free_gb:
             log(f"{layer}: BLOCKED free disk {free:.1f} GB under {min_free_gb} GB")
@@ -453,7 +460,7 @@ def run_repair(
     os.environ[INFLIGHT_ENV] = "1"   # the repair runs one request at a time (RB5 ruling 2)
     if state is not None:
         state.layer, state.collectors, state.run, state.max_runs = layer, ("pr_window",), 0, max_runs
-        state.checked = state.stopped = state.pruned = state.failed = state.total = 0
+        state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
     _note(notify, "repair_start", layer=layer)
 
     def counted(line: str) -> None:
@@ -466,7 +473,7 @@ def run_repair(
     for run in range(1, max_runs + 1):
         if state is not None:
             state.run = run
-            state.checked = state.stopped = state.pruned = state.failed = state.total = 0
+            state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
         free = free_gb(home)
         if free < min_free_gb:
             log(f"{layer}: BLOCKED free disk {free:.1f} GB under {min_free_gb} GB")
@@ -503,6 +510,189 @@ def run_repair(
         prev = fail
     log(f"{layer}: repair NOT confirmed after {max_runs} runs")
     return 2
+
+
+def _parse_iso_ts(raw: object) -> float | None:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _stale_anchor_files(
+    home: Path,
+    collector: str,
+    now_ts: float,
+    max_age_days: float = STALE_ANCHOR_REFRESH_DAYS,
+) -> list[Path]:
+    folder = home / "raw" / collector
+    if not folder.is_dir():
+        return []
+    cutoff_s = max_age_days * 86400.0
+    stale: list[Path] = []
+    for path in sorted(folder.glob("*.json")):
+        if path.name.startswith("."):
+            continue
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(doc, dict):
+            continue
+        data = doc.get("data")
+        if not isinstance(data, dict):
+            continue
+        anchor_ts = _parse_iso_ts(data.get("window_anchor"))
+        if anchor_ts is not None and now_ts - anchor_ts > cutoff_s:
+            stale.append(path)
+    return stale
+
+
+def _stage_stale_anchor_files(
+    home: Path,
+    layer: str,
+    collector: str,
+    files: list[Path],
+    now: Callable[[], float],
+    log: Callable[[str], object],
+) -> list[tuple[Path, Path]]:
+    ts = datetime.fromtimestamp(now(), timezone.utc)
+    base = home / f"raw-stale-{ts:%Y-%m-%d}-anchor-{ts:%H%M%SZ}"
+    candidate = base
+    seq = 2
+    while any(_lexists(candidate / collector / src.name) for src in files):
+        candidate = home / f"{base.name}-{seq}"
+        seq += 1
+    dst_dir = candidate / collector
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    staged: list[tuple[Path, Path]] = []
+    for src in files:
+        dst = dst_dir / src.name
+        src.rename(dst)
+        staged.append((src, dst))
+    log(f"{layer}: staged {len(files)} stale {collector} anchor(s) (> {STALE_ANCHOR_REFRESH_DAYS}d old) -> {dst_dir}")
+    return staged
+
+
+def _restore_unfetched_anchor_files(
+    staged: list[tuple[Path, Path]],
+    layer: str,
+    collector: str,
+    log: Callable[[str], object],
+) -> int:
+    restored = 0
+    for orig, backup in staged:
+        if not orig.is_file() and backup.is_file():
+            orig.parent.mkdir(parents=True, exist_ok=True)
+            backup.rename(orig)
+            restored += 1
+    if restored:
+        log(f"{layer}: restored {restored} unfetched {collector} anchor envelope(s) from staging")
+    return restored
+
+
+def refresh_stale_anchors(
+    home,
+    gather_main: GatherMain,
+    *,
+    max_runs: int = 60,
+    min_free_gb: float = 2.0,
+    free_gb: Callable[[Path], float] = shutil_free,
+    log: Callable[[str], object] = print,
+    now: Callable[[], float] = time.time,
+    layers: Callable[[], Iterable[str]] | None = None,
+    state: RunState | None = None,
+    notify: Notify | None = None,
+    workers: Callable[[str], int] | None = None,
+    max_age_days: float = STALE_ANCHOR_REFRESH_DAYS,
+) -> int:
+    """Q4: Before stamping MAIN.done, refresh any releases (L2) or issues_counts (L3c) envelopes whose
+    ``data.window_anchor`` drifted more than ``max_age_days`` (13 days) behind ``now()``.
+
+    Only the stale envelope files are staged to ``raw-stale-...-anchor-.../`` (rename, never delete) and re-fetched,
+    after which the layer's ``.complete`` marker and ``.tar.gz`` archive are rebuilt. Any staged envelope that could
+    not be re-fetched is restored to ``raw/<collector>/`` so a refresh error never drops an existing record.
+    """
+    home = Path(home)
+    marker_dir = home / "state" / "refresh"
+
+    def selected(layer: str) -> bool:
+        return layers is None or layer in set(layers())
+
+    def counted(line: str) -> None:
+        if state is not None:
+            count_line(state, line)
+        log(line)
+
+    for layer, collector in ANCHOR_REFRESH_LAYERS:
+        if not selected(layer):
+            continue
+        stale = _stale_anchor_files(home, collector, now(), max_age_days=max_age_days)
+        if not stale:
+            continue
+        staged = _stage_stale_anchor_files(home, layer, collector, stale, now, log)
+        w = workers(layer) if workers else 1
+        side_by_side = ("--workers", str(w)) if w > 1 and layer in WORKER_SETTING else ()
+        os.environ[INFLIGHT_ENV] = str(w if side_by_side else 1)
+        if state is not None:
+            state.layer, state.collectors, state.run, state.max_runs = layer, (collector,), 0, max_runs
+            state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
+        prev: int | None = None
+        confirmed = False
+        try:
+            for run in range(1, max_runs + 1):
+                if state is not None:
+                    state.run = run
+                    state.checked = state.stopped = state.pruned = state.clean = state.failed = state.total = 0
+                free = free_gb(home)
+                if free < min_free_gb:
+                    log(f"{layer}: BLOCKED free disk {free:.1f} GB under {min_free_gb} GB")
+                    return 6
+                log(f"{layer}: === anchor refresh run {run} of {max_runs} (collectors: {collector}) ===")
+                tee = _Tee(counted)
+                try:
+                    with contextlib.redirect_stdout(tee):  # type: ignore[arg-type]
+                        gather_main(["--all", "--graphql-bulk", "--collectors", collector, *LAYER_FLAGS.get(layer, ()),
+                                     *side_by_side])
+                except (Exception, SystemExit):
+                    tee.finish()
+                    log(f"{layer}: anchor refresh raised in run {run}")
+                    log(traceback.format_exc())
+                    return 3
+                tee.finish()
+                found = _DONE.findall(tee.text())
+                if not found:
+                    log(f"{layer}: anchor refresh run {run} printed no done line")
+                    return 4
+                clean, fail = int(found[-1][0]), int(found[-1][1])
+                log(f"{layer}: anchor refresh run {run} summary: {clean} clean, {fail} with failures")
+                if (fail == 0 and clean > 0) or (prev is not None and fail == prev):
+                    restored = _restore_unfetched_anchor_files(staged, layer, collector, log)
+                    _write_marker(marker_dir / f"{layer}.complete", now)
+                    refreshed_n = len(stale) - restored
+                    log(f"{layer}: anchor refresh COMPLETE ({refreshed_n} stale {collector} record(s) refreshed)")
+                    try:
+                        archive.build_archive(home, layer)
+                    except OSError as exc:
+                        log(f"archive for {layer} not built: {exc}; the pull builds it")
+                    confirmed = True
+                    break
+                prev = fail
+            if not confirmed:
+                log(f"{layer}: anchor refresh NOT confirmed after {max_runs} runs")
+                return 2
+        finally:
+            if not confirmed:
+                _restore_unfetched_anchor_files(staged, layer, collector, log)
+    return 0
 
 
 def run_cycle(
@@ -556,6 +746,10 @@ def run_cycle(
                 return rc
     main_done = home / "state" / "refresh" / "MAIN.done"
     if not main_done.is_file():  # a keyless resume must not re-stamp the MAIN time
+        rc = refresh_stale_anchors(home, gather_main, layers=layers, workers=workers, **kw)
+        if rc:
+            log(f"cycle stopped at stale-anchor refresh with rc {rc}")
+            return rc
         _write_marker(main_done, now)
     layer, cols = KEYLESS_LAYER
     if not selected(layer):

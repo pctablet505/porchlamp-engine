@@ -28,7 +28,7 @@ SAMPLE_SNAPSHOT = {
     "snapshot_id": "2026-10-27",
     "as_of": "2026-10-22T22:47:00+00:00",
     "benchmark_version": "2.0.0-rc1",
-    "constants_hash": "de2c71c1d7bad01ff749cd81560974ce5199352075feeeda6d805a8d52dd2332",
+    "constants_hash": "53d310de9fae44586159118e9d2251f7aeb59de551187c7a79825a498aa03c9e",
     "manifest_root": "8425233e71eb0000000000000000000000000000000000000000000000000000",
     "canonical_dump_hash": "7142a0d012d40000000000000000000000000000000000000000000000000000",
     "counts": {"rated": 3028, "gated": 5092, "unrated": 2880, "total": 11000},
@@ -71,7 +71,7 @@ def test_render_readme_and_citation_cff_are_deterministic_and_exact():
     assert "We could not judge 184 busy projects yet" in readme
     assert "`data/2026-10-27/`" in readme
     assert "- **Snapshot ID:** `2026-10-27` (measured as of `2026-10-22T22:47:00+00:00`, benchmark `2.0.0-rc1`)" in readme
-    assert "`constants_hash: de2c71c1d7ba\u2026`" in readme
+    assert "`constants_hash: 53d310de9fae\u2026`" in readme
 
     cff = pub_mod.render_citation_cff(SAMPLE_SNAPSHOT, SAMPLE_REPORT)
     assert 'version: "2026-10-27"' in cff

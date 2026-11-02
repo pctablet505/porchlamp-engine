@@ -117,6 +117,17 @@ export function renderChip(fields) {
  * none on a page the app does not draw), the search and the theme toggle. The search is a real form to the
  * rankings, so it works before the app has started and on pages without it.
  */
+export const THEME_TOGGLE_ICONS_SVG =
+  `<svg class="theme-icon theme-icon-dark" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" ` +
+  `stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">` +
+  `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>` +
+  `</svg>` +
+  `<svg class="theme-icon theme-icon-light" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" ` +
+  `stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">` +
+  `<circle cx="12" cy="12" r="4.5"/>` +
+  `<path d="M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77"/>` +
+  `</svg>`;
+
 export function renderHeader({ snapshot = null, controls = "", search = true } = {}) {
   const home = escapeHtml(routePath("ranked"));
   return (
@@ -127,7 +138,7 @@ export function renderHeader({ snapshot = null, controls = "", search = true } =
     `<form class="header-filter-group" data-header-search-group="true" role="search" action="${home}" method="get"${hidden(search)}>` +
     `<input class="control" type="search" name="q" data-search-input="true" placeholder="${escapeHtml(copy.SEARCH_PLACEHOLDER)}" aria-label="${escapeHtml(copy.SEARCH_LABEL)}">` +
     `</form>` +
-    `<button type="button" class="icon-button theme-toggle" data-theme-toggle="true" aria-label="${escapeHtml(copy.THEME_TOGGLE_LABEL)}" title="${escapeHtml(copy.THEME_TOGGLE_LABEL)}"></button>` +
+    `<button type="button" class="icon-button theme-toggle" data-theme-toggle="true" aria-label="${escapeHtml(copy.THEME_TOGGLE_LABEL)}" title="${escapeHtml(copy.THEME_TOGGLE_LABEL)}">${THEME_TOGGLE_ICONS_SVG}</button>` +
     `</div>`
   );
 }

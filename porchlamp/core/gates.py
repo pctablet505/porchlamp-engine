@@ -38,6 +38,7 @@ could itself drift.
 from __future__ import annotations
 
 import math
+import random
 import re
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
@@ -439,12 +440,19 @@ def is_bot_actor_node(actor: object) -> bool:
 #: (:func:`dr90_band_logins`) to look up only those whose eligibility 1.2 reads.
 DR90_COHORT_START_DAYS = 180
 DR90_COHORT_END_DAYS = 90
+#: RFC-0028 (Q11): distinct DR_90 band author trigger and deterministic sample cap.
+DR90_AUTHOR_CAP_TRIGGER: int = constants.DR90_AUTHOR_CAP_TRIGGER
+DR90_AUTHOR_SAMPLE_CAP: int = constants.DR90_AUTHOR_SAMPLE_CAP
 
 
 def dr90_band_logins(prs: Iterable[object], anchor: datetime) -> frozenset[str]:
     """The lower-cased logins of the authors of 1.2 DR_90's cohort PRs: outside PRs (:func:`is_outside_pr`) opened in
     [``anchor`` - 180 d, ``anchor`` - 90 d). A PR with an unreadable ``createdAt`` or no author login adds none.
-    These are the authors whose D-IN-3 eligibility 1.2 joins; no other ``author_history`` record is read by it."""
+    These are the authors whose D-IN-3 eligibility 1.2 joins; no other ``author_history`` record is read by it.
+
+    RFC-0028 (Q11): when a repository has more than :data:`DR90_AUTHOR_CAP_TRIGGER` (500) distinct outside authors
+    in the DR_90 band, returns a deterministic ``PR_SAMPLE_SEED`` sample of :data:`DR90_AUTHOR_SAMPLE_CAP` (300)
+    distinct authors (95% MoE <= +-2.6%)."""
     start = anchor - timedelta(days=DR90_COHORT_START_DAYS)
     end = anchor - timedelta(days=DR90_COHORT_END_DAYS)
     logins: set[str] = set()
@@ -457,6 +465,11 @@ def dr90_band_logins(prs: Iterable[object], anchor: datetime) -> frozenset[str]:
         login = str((pr.get("author") or {}).get("login") or "").lower()  # type: ignore[union-attr]
         if login:
             logins.add(login)
+    if len(logins) > DR90_AUTHOR_CAP_TRIGGER:
+        sampled = random.Random(constants.PR_SAMPLE_SEED).sample(
+            sorted(logins), DR90_AUTHOR_SAMPLE_CAP
+        )
+        return frozenset(sampled)
     return frozenset(logins)
 
 

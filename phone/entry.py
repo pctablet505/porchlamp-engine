@@ -670,7 +670,8 @@ class Engine:
         layer = rs.layer if rs.mode == "running" else None
         working = self.is_working()
         self.progress.tick(layer, rs.run, rs.checked, rs.total,
-                           active=working or self.gate.rate_state() is not None)
+                           active=working or self.gate.rate_state() is not None,
+                           skipped=rs.pruned + rs.clean)
         self._stuck_check(now, working)
         self.stats.flush(force=False)
         self.datasize.maybe_refresh()

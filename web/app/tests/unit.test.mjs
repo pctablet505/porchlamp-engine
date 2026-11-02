@@ -3267,6 +3267,9 @@ test("header: the brand links home, the search is a form to the rankings, and th
   assert.ok(page.includes('<form class="header-filter-group" data-header-search-group="true" role="search" action="/" method="get"><input class="control" type="search" name="q"'), "the search works without the app");
   assert.ok(page.includes('title="2026-10-17 · benchmark 2.0.0-rc1"><span data-v="header.snapshot_id">2026-10-17</span>'), "the chip names the snapshot");
   assert.ok(page.includes('data-theme-toggle="true" aria-label="Toggle light/dark theme"'), "the toggle (theme-init.js answers it)");
+  assert.ok(page.includes('<svg class="theme-icon theme-icon-dark"') && page.includes('<svg class="theme-icon theme-icon-light"'), "the toggle carries inline SVG moon and sun icons");
+  const css = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles", "components.css"), "utf8");
+  assert.ok(!css.includes("🌙") && !css.includes("☀"), "components.css uses SVG theme icons instead of OS emoji/glyphs");
   assert.ok(!page.includes("<select"), "a page the app does not draw has no selects");
   for (const view of ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "notfound"]) {
     const header = renderAppHeader(view, snapshot);

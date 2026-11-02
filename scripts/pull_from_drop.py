@@ -618,6 +618,8 @@ def pull_from_drop(
                 _write_text(pulled_dir / f"{layer}.sha256", str(entry["sha256"]))
                 _write_text(dest / "state" / "refresh" / f"{layer}.complete", completed_at)
                 pulled_layers.append(layer)
+                if layer == "L4":
+                    _hydrate_user_cache(dest)
                 _log(f"{layer}: pulled files={count} bytes={entry['bytes']}")
             finally:
                 arc_path.unlink(missing_ok=True)
@@ -654,6 +656,18 @@ def pull_from_drop(
         "pulled_layers": pulled_layers,
         "reason": "pulled",
     }
+
+
+def _hydrate_user_cache(dest: Path) -> None:
+    """The lookups of the L4 just pulled go into this root's user cache. Best effort: the layer is already pulled and
+    marked, the cache is not evidence, and a failure here must not make the same pull fail (exit 5) when it is run
+    again."""
+    try:
+        from porchlamp.collect.user_cache import hydrate_from_author_history_dir
+
+        _log(f"user_cache: {hydrate_from_author_history_dir(dest / 'raw')} logins from L4")
+    except Exception as exc:  # review-ok: gate-cache - not evidence, the pull has already succeeded
+        _log(f"user_cache: not updated ({type(exc).__name__})")
 
 
 def _read_token(token_file: Path | None) -> str:
