@@ -389,6 +389,7 @@ class Engine:
             os.environ["PORCHLAMP_GH"] = "http"
             os.environ["PORCHLAMP_ENGINE"] = str(ENGINE_ROOT)
             os.environ["PORCHLAMP_RATE_FLOOR"] = str(self.settings.value("rate_floor"))
+            os.environ[runner.L4_REUSE_ENV] = "1" if self.settings.value("l4_reuse_l1") else "0"
             self._set_inflight()
             ghcli.on_event = self._gh_event
             for hook in ("PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API", *TOKEN_ENV):
@@ -746,6 +747,8 @@ class Engine:
                            "It lasts until the current cycle ends." if new[key] else "")
         if old["rate_floor"] != new["rate_floor"]:
             os.environ["PORCHLAMP_RATE_FLOOR"] = str(new["rate_floor"])
+        if old["l4_reuse_l1"] != new["l4_reuse_l1"]:
+            os.environ[runner.L4_REUSE_ENV] = "1" if new["l4_reuse_l1"] else "0"
         if old["lan_mode"] != new["lan_mode"]:
             self.event("info", f"Workstation link set to {new['lan_mode']}", "", "network")
         if old["delivery_mode"] != new["delivery_mode"]:

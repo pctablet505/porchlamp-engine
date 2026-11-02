@@ -867,3 +867,21 @@ def test_one_hold_waited_by_three_threads_is_one_timeline_event(tmp_path):
     r.eng.gate.rate_wait("core", 0, 120, lambda _s: r.clock.advance(120))
     assert waited() == ["Waited 2 minutes for GitHub's hourly limit, then carried on",
                         "Waited 4 minutes for GitHub's hourly limit, then carried on"]
+
+
+def test_l4_reuse_l1_setting_reaches_the_collector(api, monkeypatch):
+    """#89 Q1: a settings file edited by adb is read at start; a change through the app takes effect at the next project.
+    The name the engine sets is the one the collector reads."""
+    from porchlamp.collect import github_graphql
+
+    assert runner.L4_REUSE_ENV == github_graphql.L4_REUSE_L1_ENV
+    monkeypatch.setenv(runner.L4_REUSE_ENV, "stale")
+    (api / "porchlamp" / "config").mkdir(parents=True, exist_ok=True)
+    (api / "porchlamp" / "config" / "settings.json").write_text(json.dumps({"l4_reuse_l1": False}), encoding="utf-8")
+    entry.start(str(api), None, LAN)
+    assert os.environ[runner.L4_REUSE_ENV] == "0"
+    assert json.loads(entry.settings_set(json.dumps({"l4_reuse_l1": True})))["ok"] is True
+    assert os.environ[runner.L4_REUSE_ENV] == "1"
+    assert json.loads(entry.settings_set(json.dumps({"l4_reuse_l1": False})))["ok"] is True
+    assert os.environ[runner.L4_REUSE_ENV] == "0"
+    entry.stop()

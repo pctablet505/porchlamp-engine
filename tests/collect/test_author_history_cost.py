@@ -10,16 +10,21 @@ savings moves a score (engine issue #89, phase 1).
 """
 from __future__ import annotations
 
+import json
+import re
+import shutil
 import subprocess
-from datetime import timedelta
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
 
 import pytest
 
 from porchlamp.collect import github_graphql as gql
 from porchlamp.collect.envelope import read_envelope, write_envelope
-from porchlamp.core import gates
+from porchlamp.core import gates, landing
 from porchlamp.derive import bundle
-from tests.collect.test_pr_window import NOW, W4Transport, _w4_page, w4_days, w4_pr, w4_spr
+from tests.collect.test_pr_window import NOW, W4Transport, _w4_page, w4_days, w4_spr
 
 NETWORK_DROP = RuntimeError("gh api graphql rc=1: gh: [Errno 103] Software caused connection abort")
 NO_DNS = RuntimeError("gh api graphql rc=1: gh: <urlopen error [Errno 7] No address associated with hostname>")
@@ -339,9 +344,9 @@ def test_pr_window_seeds_180d_prs_and_resumes_author_window_at_cursor(tmp_path):
     assert all("reviews" not in p and "comments" not in p for p in ah_data["prs"])
 
 
-def test_pr_window_exhausted_skips_author_window_calls_completely(tmp_path):
+def test_pr_window_exhausted_walks_no_page(tmp_path):
     """Q1: when pr_window already exhausted the repository's PRs (window_exhausted=True), collect_author_history
-    makes 0 AuthorWindow GraphQL calls."""
+    walks no page: one PR's worth of the query for the repository's name and total."""
     raw = tmp_path / "raw"
     pr_recent = _landing_pr(10, 120, "ext1")
     pr_overflow = gql._shape_author_window_pr(_landing_pr(9, 240, "new1"))
@@ -362,9 +367,9 @@ def test_pr_window_exhausted_skips_author_window_calls_completely(tmp_path):
         fetched_at=NOW.isoformat(),
     )
     fake = W4Transport(
-        [],
-        [],
-        [],
+        [_w4_page([], False)],
+        [1],
+        [4990],
         {"ext1": {"nodes": []}, "new1": {"nodes": []}},
         {
             u: {"createdAt": "2018-01-01T00:00:00Z", "contributionsCollection": {"contributionCalendar": {"totalContributions": 20}}}
@@ -373,138 +378,9 @@ def test_pr_window_exhausted_skips_author_window_calls_completely(tmp_path):
         guard_count=2,
     )
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
-    assert sum(1 for q, _ in fake.calls if "pullRequests(states" in q) == 0
+    assert [v.get("first") for q, v in fake.calls if "pullRequests(states" in q] == [1]
     ah_data = read_envelope(raw / "author_history" / "acme__widget.json").data
     assert [p["number"] for p in ah_data["prs"]] == [10, 9]
-
-
-def test_cycle_2_reuses_raw_stale_tail_and_refreshes_only_open_prs(tmp_path):
-    """Q1 Cycle 2+: when raw-stale-*/author_history/<key>.json has an uncut 365-d window within 180d of now,
-    settled [365d, 180d) PRs are reused directly and only previously-OPEN PRs in [365d, 180d) are refreshed by number."""
-    raw = tmp_path / "raw"
-    stale_ah = tmp_path / "raw-stale-2026-10-01" / "author_history" / "acme__widget.json"
-    prev_anchor = NOW - timedelta(days=30)
-    pr_settled_old = gql._shape_author_window_pr(_landing_pr(5, 260, "settled_user", state="MERGED"))
-    pr_was_open_old = gql._shape_author_window_pr(_landing_pr(6, 220, "open_user", state="OPEN"))
-    write_envelope(
-        stale_ah,
-        source="github-graphql:author-history",
-        data={
-            "window_anchor": prev_anchor.isoformat(),
-            "window_days": 365,
-            "cap": 50000,
-            "count": 2,
-            "truncated": False,
-            "prs": [pr_was_open_old, pr_settled_old],
-            "name_with_owner": "acme/widget",
-            "pull_requests_total": 1000,
-            "sampled_authors": [],
-            "author_records": [],
-        },
-        fetched_at=prev_anchor.isoformat(),
-    )
-    pr_fresh = _landing_pr(10, 100, "fresh_user", state="MERGED")
-    write_envelope(
-        raw / "pr_window" / "acme__widget.json",
-        source="github-graphql:pr-window",
-        data={
-            "window_anchor": NOW.isoformat(),
-            "window_days": 180,
-            "cap": 2000,
-            "count": 1,
-            "truncated": False,
-            "prs": [pr_fresh],
-            "window_end_cursor": "cursor-page-k",
-            "boundary_overflow_prs": [],
-            "window_exhausted": False,
-        },
-        fetched_at=NOW.isoformat(),
-    )
-
-    refreshed_pr6 = gql._shape_author_window_pr(_landing_pr(6, 220, "open_user", state="MERGED"))
-
-    class StaleReuseTransport(W4Transport):
-        def execute(self, query: str, variables: dict) -> dict:
-            if "AuthorWindowPrsByNumber" in query:
-                self.calls.append((query, dict(variables)))
-                assert variables["n0"] == 6
-                return {
-                    "data": {
-                        "rateLimit": {"cost": 1, "remaining": 4995},
-                        "r": {"p0": refreshed_pr6},
-                    }
-                }
-            return super().execute(query, variables)
-
-    logins = ("fresh_user", "open_user", "settled_user")
-    fake = StaleReuseTransport(
-        [],
-        [],
-        [],
-        {u: {"nodes": []} for u in logins},
-        {
-            u: {"createdAt": "2018-01-01T00:00:00Z", "contributionsCollection": {"contributionCalendar": {"totalContributions": 20}}}
-            for u in logins
-        },
-    )
-    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
-    assert sum(1 for q, _ in fake.calls if "pullRequests(states" in q) == 0
-    assert sum(1 for q, _ in fake.calls if "AuthorWindowPrsByNumber" in q) == 1
-    ah_data = read_envelope(raw / "author_history" / "acme__widget.json").data
-    by_num = {p["number"]: p for p in ah_data["prs"]}
-    assert sorted(by_num) == [5, 6, 10]
-    assert by_num[6]["state"] == "MERGED"
-
-
-# --- Q2a: Local 0-call D-IN-3 eligibility pre-filters ----------------------------------------------------------------
-
-def test_local_eligibility_prefilter_resolves_non_users_young_accounts_and_5_pr_veterans_at_zero_cost(tmp_path):
-    """Q2a: Mannequin/Organization actors, accounts < 90d old at their latest in-window PR, and User accounts
-    with >= 5 PRs in the repo (window + search) and >= 90d age at their earliest in-window PR are resolved locally
-    with 0 AuthorEligibilityBatch calls."""
-    young_created = (NOW - timedelta(days=140)).isoformat()
-    vet_created = "2018-01-01T00:00:00Z"
-    prs = [
-        # Non-User actor (Mannequin) -> locally ineligible
-        w4_pr(1, (NOW - timedelta(days=120)).isoformat(), "mannequin1", author_typ="Mannequin", author_created=None),
-        # Young account: created 140d ago, PR opened 100d ago (age at PR = 40d < 90d) -> locally ineligible
-        w4_pr(2, (NOW - timedelta(days=100)).isoformat(), "young1", author_typ="User", author_created=young_created),
-        # Active veteran: 5 distinct PRs in window, account created in 2018 -> locally eligible
-        *[w4_pr(10 + i, (NOW - timedelta(days=110 + i)).isoformat(), "vet5", author_typ="User", author_created=vet_created)
-          for i in range(5)],
-        # Search veteran: 2 PRs in window + 3 older PRs in per-author search = 5 distinct PRs -> locally eligible
-        w4_pr(30, (NOW - timedelta(days=115)).isoformat(), "vet_search", author_typ="User", author_created=vet_created),
-        w4_pr(31, (NOW - timedelta(days=125)).isoformat(), "vet_search", author_typ="User", author_created=vet_created),
-        # Ambiguous 1-PR old User -> still queried via AuthorEligibilityBatch
-        w4_pr(99, (NOW - timedelta(days=130)).isoformat(), "ambig1", author_typ="User", author_created=vet_created),
-    ]
-    raw = tmp_path / "raw"
-    fake = W4Transport(
-        [_w4_page(prs, False)],
-        [2],
-        [4990],
-        {
-            **{u: {"nodes": []} for u in ("mannequin1", "young1", "vet5", "ambig1")},
-            "vet_search": {
-                "issueCount": 5,
-                "nodes": [
-                    {"number": 20 + i, "createdAt": "2024-01-01T00:00:00Z", "closedAt": "2024-01-02T00:00:00Z",
-                     "mergedAt": "2024-01-02T00:00:00Z", "state": "MERGED"}
-                    for i in range(3)
-                ],
-            },
-        },
-        # Only ambig1 is in users; if mannequin1, young1, vet5, or vet_search were queried, W4Transport would fail!
-        {"ambig1": {"createdAt": vet_created, "contributionsCollection": {"contributionCalendar": {"totalContributions": 12}}}},
-    )
-    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
-    assert fake.eligibility_batch_sizes == [1]
-    recs = {r["login"]: r for r in read_envelope(raw / "author_history" / "acme__widget.json").data["author_records"]}
-    assert recs["mannequin1"]["account_created_at"] is None and recs["mannequin1"]["public_event_count"] == 0
-    assert recs["young1"]["account_created_at"] == young_created and recs["young1"]["public_event_count"] == 0
-    assert recs["vet5"]["account_created_at"] == vet_created and recs["vet5"]["public_event_count"] == 5
-    assert recs["vet_search"]["account_created_at"] == vet_created and recs["vet_search"]["public_event_count"] == 5
-    assert recs["ambig1"]["public_event_count"] == 12
 
 
 # --- Q5: Append-only 5-page checkpointing and resume -----------------------------------------------------------------
@@ -554,3 +430,417 @@ def test_author_window_checkpoint_flushes_every_5_pages_and_resumes_on_retry(tmp
     assert res.cost_points == 14
     assert res.name_with_owner == "acme/widget" and res.pull_requests_total == 7
 
+
+
+# --- #89 Q1 and Q5: the same PR list by two roads, on a scripted GitHub --------------------------------------------
+
+class ListGitHub:
+    """One repository's PR list, newest first, cursors ``c<offset>``, as L1 and L4 both read it. ``refused``: GitHub
+    will not read the first stored cursor it is given (its words, measured 2026-11-02). ``raise_at``: one failure at that offset.
+    ``heavy_at``: one 502 for a full page at that offset."""
+
+    def __init__(self, nodes, *, name_with_owner=None, refused=False, raise_at=None, heavy_at=None):
+        self.nodes = nodes
+        self.name_with_owner = name_with_owner
+        self.refused = refused
+        self.raise_at = raise_at
+        self.heavy_at = heavy_at
+        self.pages: list[tuple[str, Optional[str], int]] = []
+        self.search_queries: list[str] = []
+
+    def execute(self, query: str, variables: dict) -> dict:
+        kind = query.split("(")[0].replace("query ", "").strip()
+        if kind in ("PrWindow", "PrWindowLight", "AuthorWindow"):
+            after = variables.get("after")
+            if kind == "AuthorWindow" and after and self.refused:
+                self.refused = False    # the stored cursor; a walk's own fresh cursors are read
+                return {"errors": [{"message": "The cursor does not appear to be a valid cursor."}], "data": None}
+            start = int(after[1:]) if after else 0
+            first = variables["first"]
+            if kind == "AuthorWindow" and self.raise_at is not None and start >= self.raise_at:
+                self.raise_at = None
+                raise RuntimeError("gh api graphql rc=1: HTTP 401: interrupted")
+            if self.heavy_at == start and first == gql.PAGE_SIZE:
+                self.heavy_at = None
+                raise RuntimeError("gh api graphql rc=1: HTTP 502: Bad Gateway")
+            self.pages.append((kind, after, first))
+            chunk = self.nodes[start:start + first]
+            end = start + len(chunk)
+            empty = {"totalCount": 0, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
+            extra = {"isDraft": False, "mergedBy": None}
+            if kind == "PrWindow":
+                extra.update(reviews=empty, comments=empty, reviewThreads={"totalCount": 0})
+            repo: dict = {"pullRequests": {
+                "pageInfo": {"hasNextPage": end < len(self.nodes), "endCursor": f"c{end}"},
+                "nodes": [dict(n) if kind == "AuthorWindow" else {**n, **extra} for n in chunk]}}
+            if kind == "AuthorWindow":
+                repo["nameWithOwner"] = self.name_with_owner or f"{variables['owner']}/{variables['name']}"
+                repo["total"] = {"totalCount": len(self.nodes)}
+            return {"data": {"rateLimit": {"cost": 2, "remaining": 4000}, "r": repo}}
+        if kind == "PrRepliesBatch":
+            empty = {"totalCount": 0, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
+            aliases = {f"p{i}": {"number": variables[f"n{i}"], "reviews": empty, "comments": empty,
+                                 "reviewThreads": {"totalCount": 0}}
+                       for i in range(sum(1 for k in variables if re.fullmatch(r"n\d+", k)))}
+            return {"data": {"rateLimit": {"cost": 1}, "r": aliases}}
+        if kind == "AuthorPrsSearchBatch":
+            data: dict = {"rateLimit": {"cost": 1, "remaining": 4000}}
+            real = self.name_with_owner
+            for i in range(sum(1 for k in variables if k.startswith("q"))):
+                q = variables[f"q{i}"]
+                self.search_queries.append(q)
+                found = real is None or q.startswith(f"repo:{real} ")
+                data[f"s{i}"] = ({"issueCount": len(self.nodes) if found else 0} if " author:" not in q
+                                 else {"issueCount": 1 if found else 0, "nodes": []})
+            return {"data": data}
+        if kind == "AuthorEligibilityBatch":
+            data = {"rateLimit": {"cost": 1, "remaining": 4000}}
+            for i in range(len(variables)):
+                data[f"u{i}"] = {"createdAt": "2018-01-01T00:00:00Z",
+                                 "contributionsCollection": {"contributionCalendar": {"totalContributions": 9}}}
+            return {"data": data}
+        raise AssertionError(f"unscripted query {kind}")
+
+
+def _listed(count: int, hours: float = 12.0, *, closer: bool = False) -> list[dict]:
+    """``count`` PRs, one every ``hours``, newest first, by forty outside authors, each with the landing fields."""
+    nodes = []
+    for j in range(count):
+        created = NOW - timedelta(days=1) - timedelta(hours=hours * j)
+        closed = (created + timedelta(days=1)).isoformat()
+        event = {"__typename": "ClosedEvent", "createdAt": closed, "actor": {"__typename": "User", "login": "m"},
+                 "closer": {"__typename": "Commit", "oid": "abc"} if closer else None}
+        nodes.append({
+            "number": 100000 - j, "createdAt": created.isoformat(), "closedAt": closed, "mergedAt": None, "state": "CLOSED",
+            "author": {"__typename": "User", "login": f"u{j % 40}", "createdAt": "2018-01-01T00:00:00Z"},
+            "authorAssociation": "NONE", "labels": {"nodes": []},
+            "timelineItems": {"nodes": [{"__typename": "ReadyForReviewEvent", "createdAt": created.isoformat()}, event]}})
+    return nodes
+
+
+def _walk_nodes(nodes: list[dict]) -> list[dict]:
+    """What ``AUTHOR_WINDOW_QUERY`` holds of each node: the timeline's latest close event, not the ready-for-review."""
+    out = []
+    for node in nodes:
+        events = [e for e in node["timelineItems"]["nodes"] if e["__typename"] == "ClosedEvent"]
+        out.append({**node, "timelineItems": {"nodes": events[-1:]}})
+    return out
+
+
+def _collect_both(tmp_path, nodes, **github):
+    """The history a seeded walk records, then the one a walk from the first page records, at one instant."""
+    raw = tmp_path / "seeded" / "raw"
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW, transport=ListGitHub(nodes, **github)) == "ok"
+    seeded = ListGitHub(_walk_nodes(nodes), **github)
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=seeded) == "ok"
+    whole_raw = tmp_path / "whole" / "raw"
+    shutil.copytree(raw / "pr_window", whole_raw / "pr_window")
+    env = whole_raw / "pr_window" / "acme__widget.json"
+    envelope = read_envelope(env)
+    data = {k: v for k, v in envelope.data.items()
+            if k not in ("window_end_cursor", "boundary_overflow_prs", "window_exhausted")}
+    write_envelope(env, source=envelope.source, data=data, fetched_at=envelope.fetched_at)
+    whole = ListGitHub(_walk_nodes(nodes), **github)
+    assert gql.collect_author_history(whole_raw, "acme", "widget", now=NOW, transport=whole) == "ok"
+    return (read_envelope(raw / "author_history" / "acme__widget.json").data, seeded,
+            read_envelope(whole_raw / "author_history" / "acme__widget.json").data, whole)
+
+
+def _masked_history(data: dict) -> dict:
+    return {k: v for k, v in data.items() if k not in ("cost_points", "rate_limit_remaining", "reused_pr_window_anchor")}
+
+
+@pytest.mark.parametrize("count, hours, older", [
+    (150, 12.0, "older than a year"),   # the 180-d line falls mid page
+    (800, 12.0, "older than a year"),   # 360 PRs in the window: several pages
+    (720, 6.0, "older than a year"),    # the line falls on the first PR of a page
+    (725, 6.0, "older than a year"),
+    (60, 12.0, "the list ends"),        # the list ends inside the window's last page
+    (359, 12.0, "the list ends"),       # the list ends exactly with a page
+    (400, 12.0, "the list ends"),
+])
+def test_a_seeded_history_equals_a_walk_from_the_first_page(tmp_path, count, hours, older):
+    """#89 Q1: L1's PRs, the rest of L1's last page and the walk from L1's cursor are the same record, in the same order,
+    as a walk from page 1: no PR lost, none twice, every field equal."""
+    nodes = _listed(count, hours)
+    if older == "older than a year":
+        nodes = nodes + [
+            {**_listed(1)[0], "number": 1000 - j, "createdAt": (NOW - timedelta(days=370 + j)).isoformat()} for j in range(150)]
+    seeded, seeded_github, whole, whole_github = _collect_both(tmp_path, nodes)
+    assert _masked_history(seeded) == _masked_history(whole)
+    assert [p["number"] for p in seeded["prs"]] == [p["number"] for p in whole["prs"]]
+    assert len({p["number"] for p in seeded["prs"]}) == len(seeded["prs"])
+    assert sum(1 for k, _a, _f in seeded_github.pages if k == "AuthorWindow") <= sum(
+        1 for k, _a, _f in whole_github.pages if k == "AuthorWindow")
+
+
+def test_a_seeded_history_equals_the_walk_when_the_crossing_page_needs_the_ladder(tmp_path):
+    """#89 Q1 with #95: a 502 on the page that crosses 180 d is read again smaller; the resume point is that smaller
+    page's, and the seeded record is still the whole one."""
+    nodes = _listed(900)
+    raw = tmp_path / "seeded" / "raw"
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW, transport=ListGitHub(nodes, heavy_at=300)) == "ok"
+    prw = read_envelope(raw / "pr_window" / "acme__widget.json").data
+    assert prw["window_end_cursor"] == "c400"                   # page boundaries do not move under the ladder (#96)
+    assert [p["number"] for p in prw["boundary_overflow_prs"]] == [n["number"] for n in nodes[prw["count"]:400]]
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=ListGitHub(_walk_nodes(nodes))) == "ok"
+    seeded = read_envelope(raw / "author_history" / "acme__widget.json").data
+    want = [n["number"] for n in nodes if gql._parse_iso(n["createdAt"]) >= NOW - timedelta(days=365)]
+    assert [p["number"] for p in seeded["prs"]] == want
+
+
+def test_l1_records_where_its_walk_stopped_on_the_crossing_page():
+    """#89 Q1: the page that crosses 180 d gives its end cursor, and its PRs older than 180 d in L4's shape."""
+    nodes = _listed(500)
+    result = gql.fetch_pr_window("acme", "widget", NOW, ListGitHub(nodes))
+    in_window = [n for n in nodes if gql._parse_iso(n["createdAt"]) >= NOW - timedelta(days=180)]
+    assert [p["number"] for p in result.prs] == [n["number"] for n in in_window]
+    assert result.window_end_cursor == "c400" and result.window_exhausted is False
+    assert [p["number"] for p in result.boundary_overflow_prs] == [n["number"] for n in nodes[len(in_window):400]]
+    assert all("reviews" not in p and "isDraft" not in p for p in result.boundary_overflow_prs)
+
+
+def test_l1_says_the_list_ended_when_no_page_is_left():
+    """#89 Q1: no cursor, and ``window_exhausted``, both when the window holds the whole list and when the list ends on
+    the crossing page."""
+    whole = gql.fetch_pr_window("acme", "widget", NOW, ListGitHub(_listed(50)))
+    assert whole.window_exhausted is True and whole.window_end_cursor is None and whole.boundary_overflow_prs == ()
+    crossing = gql.fetch_pr_window("acme", "widget", NOW, ListGitHub(_listed(380)))
+    assert crossing.window_exhausted is True and crossing.window_end_cursor is None
+    assert len(crossing.boundary_overflow_prs) == 380 - len(crossing.prs) > 0
+
+
+def test_l1_records_where_its_light_walk_stopped():
+    """#89 Q1: a window over the full-field cap goes on with the light query; the resume point is that walk's."""
+    nodes = _listed(1200, 2.0)        # 12 PRs a day: 2,160 in 180 d would not fit 1,200: the list ends
+    capped = gql.fetch_pr_window("acme", "widget", NOW, ListGitHub(nodes), cap=200, sample_cap=100)
+    assert capped.sampled is True and capped.window_exhausted is True
+    longer = _listed(3000, 2.0)
+    capped = gql.fetch_pr_window("acme", "widget", NOW, ListGitHub(longer), cap=200, sample_cap=100)
+    in_window = sum(1 for n in longer if gql._parse_iso(n["createdAt"]) >= NOW - timedelta(days=180))
+    assert capped.sampled is True and len(capped.prs) == in_window
+    assert capped.window_end_cursor == f"c{(in_window // 100 + 1) * 100}" and capped.window_exhausted is False
+    assert len(capped.boundary_overflow_prs) == (in_window // 100 + 1) * 100 - in_window
+
+
+def _cursor_envelope(raw: Path, nodes: list[dict], at: datetime) -> dict:
+    """The ``pr_window`` record of ``nodes`` collected at ``at``."""
+    assert gql.collect_pr_window(raw, "acme", "widget", now=at, transport=ListGitHub(nodes)) == "ok"
+    return read_envelope(raw / "pr_window" / "acme__widget.json").data
+
+
+@pytest.mark.parametrize("age, seeded", [(timedelta(days=14), True), (timedelta(days=14, seconds=1), False)])
+def test_an_l1_record_is_reused_up_to_14_days(tmp_path, age, seeded):
+    """#89 Q1: at most :data:`constants.WINDOW_STALENESS_DAYS` of read shift; older walks from page 1."""
+    nodes = _listed(900)
+    raw = tmp_path / "raw"
+    _cursor_envelope(raw, nodes, NOW)
+    github = ListGitHub(_walk_nodes(nodes))
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW + age, transport=github) == "ok"
+    first_after = next(a for k, a, _f in github.pages if k == "AuthorWindow")
+    assert (first_after is not None) is seeded
+
+
+def test_an_l1_record_without_landing_fields_is_not_reused(tmp_path):
+    """#89 Q1: a PR without the landing fields would read GitHub's merges alone: the whole window is walked."""
+    nodes = _listed(900)
+    raw = tmp_path / "raw"
+    data = _cursor_envelope(raw, nodes, NOW)
+    for pr in data["prs"]:
+        pr.pop("labels"), pr.pop("timelineItems")
+    write_envelope(raw / "pr_window" / "acme__widget.json", source="github-graphql:pr-window", data=data,
+                   fetched_at=NOW.isoformat())
+    github = ListGitHub(_walk_nodes(nodes))
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=github) == "ok"
+    assert next(a for k, a, _f in github.pages if k == "AuthorWindow") is None
+
+
+def test_a_seeded_pr_keeps_its_latest_close_event(tmp_path):
+    """#89 Q1 with RFC-0015: a PR landed by a commit reads landed from L1's node as from the walk's."""
+    nodes = _listed(900, closer=True)
+    seeded, _s, whole, _w = _collect_both(tmp_path, nodes)
+    recent = [p for p in seeded["prs"] if gql._parse_iso(p["createdAt"]) >= NOW - timedelta(days=180)]
+    assert recent and all(landing.is_landed(p) for p in recent)
+    assert seeded["prs"] == whole["prs"]
+
+
+def test_an_exhausted_window_still_reads_the_repository_own_name_and_total(tmp_path):
+    """#89 Q1 with D3-G (live 2026-11-02, BraveOPotato/FckSignups, moved to NoSignups: 12 of 12 authors unmeasured): the
+    searches are asked under the repository's own name, from one PR's worth of the window query."""
+    nodes = _listed(380)    # 190 days: the list ends on the page that crosses 180 d, and the cohorts hold authors
+    seeded, github, whole, _w = _collect_both(tmp_path, nodes, name_with_owner="newowner/newname")
+    assert [(k, a, f) for k, a, f in github.pages if k == "AuthorWindow"] == [("AuthorWindow", None, 1)]
+    assert all(q.startswith("repo:newowner/newname ") for q in github.search_queries) and github.search_queries
+    assert seeded["name_with_owner"] == "newowner/newname" and seeded["pull_requests_total"] == 380
+    assert not any(r["history_unmeasured"] for r in seeded["author_records"])
+    assert _masked_history(seeded) == _masked_history(whole)
+
+
+def test_a_refused_cursor_costs_a_full_walk_not_the_project(tmp_path):
+    """#89 Q1: a cursor's format is GitHub's to change. One it will not read means the whole window, as with no cursor."""
+    nodes = _listed(900)
+    raw = tmp_path / "raw"
+    _cursor_envelope(raw, nodes, NOW)
+    github = ListGitHub(_walk_nodes(nodes), refused=True)
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=github) == "ok"
+    want = [n["number"] for n in nodes if gql._parse_iso(n["createdAt"]) >= NOW - timedelta(days=365)]
+    assert [p["number"] for p in read_envelope(raw / "author_history" / "acme__widget.json").data["prs"]] == want
+
+
+def test_the_off_switch_walks_from_the_first_page(tmp_path, monkeypatch):
+    """#89 Q1: with the phone's ``l4_reuse_l1`` off the record is the whole walk's, cursor or no cursor; on, it reuses."""
+    nodes = _listed(900)
+    raw = tmp_path / "raw"
+    _cursor_envelope(raw, nodes, NOW)
+    monkeypatch.setenv(gql.L4_REUSE_L1_ENV, "0")
+    off = ListGitHub(_walk_nodes(nodes))
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=off) == "ok"
+    assert next(a for k, a, _f in off.pages if k == "AuthorWindow") is None
+    (raw / "author_history" / "acme__widget.json").unlink()
+    monkeypatch.setenv(gql.L4_REUSE_L1_ENV, "1")
+    on = ListGitHub(_walk_nodes(nodes))
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=on) == "ok"
+    assert next(a for k, a, _f in on.pages if k == "AuthorWindow") is not None
+
+
+# --- #89 Q5: failure paths of the page checkpoint ----------------------------------------------------------------------
+
+def _ckpt(root: Path) -> Path:
+    return root / "state" / "partial" / "author_history" / "acme__widget.pages.jsonl"
+
+
+@pytest.mark.parametrize("how", ["switch off", "record older than 14 d"])
+def test_the_checkpoint_of_a_seeded_walk_is_dropped_when_its_seed_is_gone(tmp_path, monkeypatch, how):
+    """#89 Q1 x Q5: a seeded walk's lines hold only PRs below its cursor. Resumed without the seed they would be a record
+    with no recent PR at all, and ``truncated`` false."""
+    nodes = _listed(2000, 4.0)
+    root = tmp_path / "r"
+    raw = root / "raw"
+    _cursor_envelope(raw, nodes, NOW)
+    first_at = NOW + timedelta(days=13, hours=23)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        gql.collect_author_history(raw, "acme", "widget", now=first_at, transport=ListGitHub(_walk_nodes(nodes), raise_at=1700))
+    assert _ckpt(root).is_file()
+    second_at = first_at
+    if how == "switch off":
+        monkeypatch.setenv(gql.L4_REUSE_L1_ENV, "0")
+    else:
+        second_at = NOW + timedelta(days=14, hours=1)
+    assert gql.collect_author_history(raw, "acme", "widget", now=second_at, transport=ListGitHub(_walk_nodes(nodes))) == "ok"
+    data = read_envelope(raw / "author_history" / "acme__widget.json").data
+    want = [n["number"] for n in nodes if second_at - timedelta(days=365) <= gql._parse_iso(n["createdAt"]) <= second_at]
+    assert [p["number"] for p in data["prs"]] == want
+
+
+def test_a_checkpoint_that_could_not_be_written_loses_no_pr(tmp_path, monkeypatch):
+    """#89 Q5: a full disk at one flush keeps that flush's PRs for the next line: no line skips any."""
+    nodes = _listed(2600, 4.0)
+    path = tmp_path / "state" / "partial" / "author_history" / "acme__widget.pages.jsonl"
+    real_open = Path.open
+    failures = [OSError(28, "No space left on device")]
+
+    def full_once(self, *args, **kwargs):
+        if self == path and failures:
+            raise failures.pop()
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", full_once)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        gql.fetch_author_window("acme", "widget", NOW, ListGitHub(_walk_nodes(nodes), raise_at=1200), checkpoint_path=path)
+    assert not failures and path.is_file()
+    res = gql.fetch_author_window("acme", "widget", NOW, ListGitHub(_walk_nodes(nodes)), checkpoint_path=path)
+    want = [n["number"] for n in nodes if gql._parse_iso(n["createdAt"]) >= NOW - timedelta(days=365)]
+    assert [p["number"] for p in res.prs] == want
+
+
+@pytest.mark.parametrize("content", [
+    b'{"window_anchor":"2026-09-12T00:00:00+00:00"\xff\xfe\n',
+    b'{"window_anchor":"2026-09-12T00:00:00+00:00","start_after":null,"after":"c500","cost_delta":"x","prs":[]}\n',
+    b'[1, 2, 3]\n',
+    b'\x00\x00\x00\x00',
+])
+def test_an_unreadable_checkpoint_is_dropped_and_the_walk_starts_over(tmp_path, content):
+    """#89 Q5: no checkpoint may fail its project: that would fail every run, and for good, as only success removes it."""
+    nodes = _listed(300)
+    root = tmp_path / "r"
+    _ckpt(root).parent.mkdir(parents=True)
+    _ckpt(root).write_bytes(content)
+    assert gql.collect_author_history(root / "raw", "acme", "widget", now=NOW, transport=ListGitHub(_walk_nodes(nodes))) == "ok"
+    assert not _ckpt(root).exists()
+    assert read_envelope(root / "raw" / "author_history" / "acme__widget.json").data["count"] == 300
+
+
+@pytest.mark.parametrize("torn_bytes", [1000, 1])    # mid line; or a whole record that lost only its newline
+def test_a_torn_last_line_is_cut_so_the_next_flush_counts(tmp_path, torn_bytes):
+    """#89 Q5: a line torn by a crash is dropped and cut away; a later flush, appended after it, is read again."""
+    nodes = _listed(2600, 4.0)
+    path = tmp_path / "ckpt.jsonl"
+    with pytest.raises(RuntimeError, match="interrupted"):
+        gql.fetch_author_window("acme", "widget", NOW, ListGitHub(_walk_nodes(nodes), raise_at=1200), checkpoint_path=path)
+    blob = path.read_bytes()
+    assert blob.count(b"\n") == 2
+    path.write_bytes(blob[:-torn_bytes])
+    second = ListGitHub(_walk_nodes(nodes), raise_at=1700)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        gql.fetch_author_window("acme", "widget", NOW, second, checkpoint_path=path)
+    assert second.pages[0][1] == "c500"
+    third = ListGitHub(_walk_nodes(nodes))
+    res = gql.fetch_author_window("acme", "widget", NOW, third, checkpoint_path=path)
+    assert third.pages[0][1] == "c1500"
+    want = [n["number"] for n in nodes if gql._parse_iso(n["createdAt"]) >= NOW - timedelta(days=365)]
+    assert [p["number"] for p in res.prs] == want
+
+
+def test_collect_removes_the_checkpoint_once_the_envelope_is_written(tmp_path):
+    """#89 Q5: a crash leaves the file, the next success removes it."""
+    nodes = _listed(2600, 4.0)
+    root = tmp_path / "r"
+    with pytest.raises(RuntimeError, match="interrupted"):
+        gql.collect_author_history(root / "raw", "acme", "widget", now=NOW, transport=ListGitHub(_walk_nodes(nodes), raise_at=1200))
+    assert _ckpt(root).is_file()
+    assert gql.collect_author_history(root / "raw", "acme", "widget", now=NOW, transport=ListGitHub(_walk_nodes(nodes))) == "ok"
+    assert not _ckpt(root).exists()
+
+
+def test_a_checkpoint_older_than_14_days_is_dropped(tmp_path):
+    """#89 Q5: pages read more than 14 days ago are not joined to today's."""
+    nodes = _listed(2600, 4.0)
+    path = tmp_path / "ckpt.jsonl"
+    with pytest.raises(RuntimeError, match="interrupted"):
+        gql.fetch_author_window("acme", "widget", NOW, ListGitHub(_walk_nodes(nodes), raise_at=1200), checkpoint_path=path)
+    later = ListGitHub(_walk_nodes(nodes))
+    gql.fetch_author_window("acme", "widget", NOW + timedelta(days=14, seconds=1), later, checkpoint_path=path)
+    assert later.pages[0][1] is None
+    assert json.loads(path.read_text().splitlines()[0])["window_anchor"] == (NOW + timedelta(days=14, seconds=1)).isoformat()
+
+
+def test_each_checkpoint_line_holds_only_its_own_prs(tmp_path):
+    """#89 Q5: a line is a delta: five pages' PRs, none repeated."""
+    nodes = _listed(2600, 4.0)
+    path = tmp_path / "ckpt.jsonl"
+    with pytest.raises(RuntimeError, match="interrupted"):
+        gql.fetch_author_window("acme", "widget", NOW, ListGitHub(_walk_nodes(nodes), raise_at=1200), checkpoint_path=path)
+    lines = [json.loads(line) for line in path.read_text().splitlines()]
+    assert [len(line["prs"]) for line in lines] == [500, 500]
+    assert not {p["number"] for p in lines[0]["prs"]} & {p["number"] for p in lines[1]["prs"]}
+
+
+def test_a_seeded_record_names_the_pr_window_it_reused(tmp_path, monkeypatch):
+    """#89 Q1: a record says when its newest PRs were read; a record walked from page 1, with the switch off or after a
+    refused cursor, does not."""
+    nodes = _listed(900)
+    raw = tmp_path / "raw"
+    anchor = _cursor_envelope(raw, nodes, NOW)["window_anchor"]
+    target = raw / "author_history" / "acme__widget.json"
+    later = NOW + timedelta(days=9)
+    assert gql.collect_author_history(raw, "acme", "widget", now=later, transport=ListGitHub(_walk_nodes(nodes))) == "ok"
+    assert read_envelope(target).data["reused_pr_window_anchor"] == anchor
+    assert read_envelope(target).data["window_anchor"] == later.isoformat()
+    target.unlink()
+    github = ListGitHub(_walk_nodes(nodes), refused=True)
+    assert gql.collect_author_history(raw, "acme", "widget", now=later, transport=github) == "ok"
+    assert "reused_pr_window_anchor" not in read_envelope(target).data
+    target.unlink()
+    monkeypatch.setenv(gql.L4_REUSE_L1_ENV, "0")
+    assert gql.collect_author_history(raw, "acme", "widget", now=later, transport=ListGitHub(_walk_nodes(nodes))) == "ok"
+    assert "reused_pr_window_anchor" not in read_envelope(target).data

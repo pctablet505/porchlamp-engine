@@ -77,6 +77,8 @@ REPAIR_MARKER = "L1.repaired"
 #: calls a minute per address). The repair after L1 always runs at one.
 #: ``porchlamp.collect.ghcli.INFLIGHT_ENV``: the requests in flight the GitHub transport allows; set per step.
 INFLIGHT_ENV = "PORCHLAMP_GH_INFLIGHT"
+#: ``porchlamp.collect.github_graphql.L4_REUSE_L1_ENV``: "0" when the ``l4_reuse_l1`` setting is off.
+L4_REUSE_ENV = "PORCHLAMP_L4_REUSE_L1"
 WORKER_SETTING: dict[str, str] = {"L4": "l4_workers", "L0": "github_workers", "L3g": "github_workers",
                                   "L3c": "github_workers"}
 
