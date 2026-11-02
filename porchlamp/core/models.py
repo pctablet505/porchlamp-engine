@@ -143,11 +143,11 @@ def measured_problems(value: Measured) -> list[str]:
         field = getattr(value, name)
         if not _optional_iso(field):
             problems.append(f"measured.{name} must be an ISO date string or null")
-    if value.method != constants.METHOD_PRIMARY and not (
-        value.method.startswith(constants.PROXY_METHOD_PREFIX)
-        and len(value.method) > len(constants.PROXY_METHOD_PREFIX)
+    if value.method != constants.METHOD_PRIMARY and not any(
+        value.method.startswith(prefix) and len(value.method) > len(prefix)
+        for prefix in (constants.PROXY_METHOD_PREFIX, constants.SAMPLE_METHOD_PREFIX)
     ):
-        problems.append(f"measured.method must be 'primary' or 'proxy:<name>', got {value.method!r}")
+        problems.append(f"measured.method must be 'primary', 'proxy:<name>' or 'sample:<name>', got {value.method!r}")
     if not _nonempty_str(value.source):
         problems.append("measured.source must be a non-empty envelope path")
     elif not is_relative_envelope_source(value.source):

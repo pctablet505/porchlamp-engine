@@ -503,7 +503,7 @@ function parametersBlock(rec, mode, opts) {
             }
             const hasWindow = r.window_start && r.window_end;
             const source = r.source
-              ? `${e(r.method || "")}<span class="project-mono" title="${e(r.source_sha256 || "")}">${e(r.source)}</span>`
+              ? `${e(copy.methodText(r.method))}<span class="project-mono" title="${e(r.source_sha256 || "")}">${e(r.source)}</span>`
               : copy.MISSING_VALUE;
             return (
               `<tr>${name}` +

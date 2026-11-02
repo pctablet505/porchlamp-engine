@@ -37,6 +37,7 @@ could itself drift.
 """
 from __future__ import annotations
 
+import hashlib
 import math
 import random
 import re
@@ -440,22 +441,18 @@ def is_bot_actor_node(actor: object) -> bool:
 #: (:func:`dr90_band_logins`) to look up only those whose eligibility 1.2 reads.
 DR90_COHORT_START_DAYS = 180
 DR90_COHORT_END_DAYS = 90
-#: RFC-0028 (Q11): distinct DR_90 band author trigger and deterministic sample cap.
-DR90_AUTHOR_CAP_TRIGGER: int = constants.DR90_AUTHOR_CAP_TRIGGER
-DR90_AUTHOR_SAMPLE_CAP: int = constants.DR90_AUTHOR_SAMPLE_CAP
+#: A cohort PR counts as decided when merged or closed within this many days of opening, inclusive.
+DR90_DECISION_WINDOW_DAYS = 90
 
 
-def dr90_band_logins(prs: Iterable[object], anchor: datetime) -> frozenset[str]:
-    """The lower-cased logins of the authors of 1.2 DR_90's cohort PRs: outside PRs (:func:`is_outside_pr`) opened in
-    [``anchor`` - 180 d, ``anchor`` - 90 d). A PR with an unreadable ``createdAt`` or no author login adds none.
-    These are the authors whose D-IN-3 eligibility 1.2 joins; no other ``author_history`` record is read by it.
-
-    RFC-0028 (Q11): when a repository has more than :data:`DR90_AUTHOR_CAP_TRIGGER` (500) distinct outside authors
-    in the DR_90 band, returns a deterministic ``PR_SAMPLE_SEED`` sample of :data:`DR90_AUTHOR_SAMPLE_CAP` (300)
-    distinct authors (95% MoE <= +-2.6%)."""
+def _dr90_band_authors(prs: Iterable[object], anchor: datetime) -> dict[str, tuple[int, int]]:
+    """``{lower-cased login: (cohort PRs, decided cohort PRs)}`` of 1.2 DR_90's cohort: outside PRs
+    (:func:`is_outside_pr`) opened in [``anchor`` - 180 d, ``anchor`` - 90 d). A PR with an unreadable ``createdAt`` or
+    no author login adds none."""
     start = anchor - timedelta(days=DR90_COHORT_START_DAYS)
     end = anchor - timedelta(days=DR90_COHORT_END_DAYS)
-    logins: set[str] = set()
+    window = timedelta(days=DR90_DECISION_WINDOW_DAYS)
+    counts: dict[str, list[int]] = {}
     for pr in prs:
         if not is_outside_pr(pr):
             continue
@@ -463,14 +460,61 @@ def dr90_band_logins(prs: Iterable[object], anchor: datetime) -> frozenset[str]:
         if created is None or not (start <= created < end):
             continue
         login = str((pr.get("author") or {}).get("login") or "").lower()  # type: ignore[union-attr]
-        if login:
-            logins.add(login)
-    if len(logins) > DR90_AUTHOR_CAP_TRIGGER:
-        sampled = random.Random(constants.PR_SAMPLE_SEED).sample(
-            sorted(logins), DR90_AUTHOR_SAMPLE_CAP
-        )
-        return frozenset(sampled)
-    return frozenset(logins)
+        if not login:
+            continue
+        row = counts.setdefault(login, [0, 0])
+        row[0] += 1
+        for field in ("mergedAt", "closedAt"):
+            done = _parse_iso_opt(pr.get(field))  # type: ignore[union-attr]
+            if done is not None and created <= done <= created + window:
+                row[1] += 1
+                break
+    return {login: (row[0], row[1]) for login, row in counts.items()}
+
+
+def dr90_sample_applies(authors: Mapping[str, tuple[int, int]]) -> bool:
+    """RFC-0028: whether 1.2 reads a random :data:`~porchlamp.core.constants.DR90_SAMPLE_AUTHORS` of these authors
+    (:func:`_dr90_band_authors`) instead of all of them. Only above :data:`~porchlamp.core.constants.DR90_SAMPLE_MIN_AUTHORS`,
+    and only where the sample cannot change the score: ``min(100, RATE_SLOPE * r)`` stays saturated at the band's rate
+    less :data:`~porchlamp.core.constants.DR90_SAMPLE_Z` standard errors less
+    :data:`~porchlamp.core.constants.DR90_SAMPLE_GATE_MARGIN`.
+
+    1.2 counts PRs and a sample draws authors, so the standard error is the ratio estimator's over the authors' own
+    counts: an author with many PRs widens it, which a binomial on the rate alone would not show. Everything here comes
+    from the stored ``pr_window``, so collect and derive answer alike, and the integers make the answer independent of
+    the order of the PRs."""
+    n = len(authors)
+    if n <= constants.DR90_SAMPLE_MIN_AUTHORS:
+        return False
+    total = sum(prs for prs, _decided in authors.values())
+    decided = sum(done for _prs, done in authors.values())
+    residual = sum((total * done - decided * prs) ** 2 for prs, done in authors.values())
+    variance = residual * n * n / ((n - 1) * total ** 4)
+    size = constants.DR90_SAMPLE_AUTHORS
+    error = constants.DR90_SAMPLE_Z * math.sqrt((1 - size / n) * variance / size)
+    return decided / total - error - constants.DR90_SAMPLE_GATE_MARGIN >= 100 / constants.RATE_SLOPE
+
+
+def dr90_band_all_logins(prs: Iterable[object], anchor: datetime) -> frozenset[str]:
+    """The lower-cased logins of every author of 1.2 DR_90's cohort (:func:`_dr90_band_authors`), whether or not 1.2
+    samples them."""
+    return frozenset(_dr90_band_authors(prs, anchor))
+
+
+def dr90_band_logins(prs: Iterable[object], anchor: datetime) -> frozenset[str]:
+    """The authors whose D-IN-3 eligibility 1.2 DR_90 reads: every author of its cohort, or where
+    :func:`dr90_sample_applies` a ``PR_SAMPLE_SEED`` draw of them over the sorted logins. A pure function of the stored
+    ``pr_window``; collect looks these up and derive reads them. No other ``author_history`` record is read by 1.2."""
+    authors = _dr90_band_authors(prs, anchor)
+    if dr90_sample_applies(authors):
+        return frozenset(random.Random(constants.PR_SAMPLE_SEED).sample(sorted(authors), constants.DR90_SAMPLE_AUTHORS))
+    return frozenset(authors)
+
+
+def dr90_band_digest(logins: Iterable[str]) -> str:
+    """What an ``author_history`` record stores of the band it looked up (``dr90_band_sha256``), so that 1.2 can refuse
+    a record whose lookups came from another draw instead of silently reading a fraction of them."""
+    return hashlib.sha256(",".join(sorted(logins)).encode("utf-8")).hexdigest()
 
 
 def is_outside_pr(pr: object) -> bool:
