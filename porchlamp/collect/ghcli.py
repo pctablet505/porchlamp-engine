@@ -82,8 +82,9 @@ DEGRADE_MAX = 14400
 #: The phone saw 7 in 5 minutes before its 2026-10-30 limit; one at a time it averaged 43 an hour.
 STORM_COUNT = 6
 STORM_WINDOW_S = 300
-#: The third signal within 24 h, while more than one request may be in flight, pins one at a time for the process.
-PIN_STRIKES = 3
+#: The first secondary limit taken while more than one request may be in flight pins one at a time for the process;
+#: the phone keeps it for the cycle (D5, 2026-11-02: a second refusal 2.4 min after the first, at one in flight).
+PIN_STRIKES = 1
 PIN_WINDOW_S = 86400
 #: How often the throttle tells its own rate ("GitHub, last hour: ...").
 REPORT_EVERY_S = 3600
@@ -649,8 +650,8 @@ class _Throttle:
                                     else "")))
             if len(self.pin_strikes) >= PIN_STRIKES and not self.pinned:
                 self.pinned = True
-                told.append(("err", f"{len(self.pin_strikes)} GitHub secondary limits in 24 h with several requests "
-                                    "in flight: one request at a time from now on"))
+                told.append(("err", "GitHub secondary limit with several requests in flight: one request at a time "
+                                    "from now on"))
             until = self.hold_until
             self._cond.notify_all()
         for level, text in told:

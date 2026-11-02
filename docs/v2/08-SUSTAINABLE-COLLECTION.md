@@ -71,8 +71,9 @@ sent while limited. So `gather.py --workers` runs up to 3 projects side by side
 behind one throttle in the transport (`ghcli`): at most `PORCHLAMP_GH_INFLIGHT`
 requests in flight (the phone: 1 for L4 by default), `PORCHLAMP_GH_PPM` GraphQL points a
 minute (70), every thread held on a secondary-limit signal and then one request
-at a time, pinned there after the third signal in a day taken while several
-requests could be in flight (requests refused together count once). The same measurement
+at a time; the first secondary limit taken while several requests may be in
+flight pins one at a time for the rest of the cycle (requests refused together
+count once; D5). The same measurement
 found 15-login eligibility batches at GitHub's 10-second limit (4 of 12 timed
 out), so a batch is now 8 logins.
 
