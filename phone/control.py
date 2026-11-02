@@ -48,9 +48,10 @@ DEFAULTS: dict[str, Any] = {
     "lan_mode": "manual",
     "delivery_mode": "lan",
     "drop_repo": "",
-    # D4 (rollout 2026-11-01): projects fetched side by side. L4 at up to 3 (the account sustained 3 for 8.8 h on
-    # 2026-10-10/11); L0, L3g and L3c at up to 2 once the phone's REST call counts allow it (default 1).
-    "l4_workers": 3,
+    # D5 (2026-11-02 dry run): at 3, two GitHub secondary limits in 12 minutes and 1.06-1.36 times as fast; default 1,
+    # with a supervised step-up to 2 by a settings edit (D5-dryrun.md). L0, L3g and L3c at up to 2 once the phone's REST
+    # call counts allow it (default 1).
+    "l4_workers": 1,
     "github_workers": 1,
 }
 INT_RANGES: dict[str, tuple[int, int]] = {

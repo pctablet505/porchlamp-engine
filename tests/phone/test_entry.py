@@ -802,7 +802,7 @@ def test_inflight_env_follows_settings_and_pin_file(tmp_path, monkeypatch):
     steps = ("L1", "L0", "L2", "L3g", "L3c", "L4", "LK")
     env = lambda: (os.environ.get("PORCHLAMP_GH_INFLIGHT"), os.environ.get("PORCHLAMP_GH_PPM"))  # noqa: E731
     assert env() == ("1", "70")
-    assert [r.eng.workers_for(step) for step in steps] == [1, 1, 1, 1, 1, 3, 1]
+    assert [r.eng.workers_for(step) for step in steps] == [1, 1, 1, 1, 1, 1, 1]
     r.eng.settings_set(json.dumps({"l4_workers": 2}))
     assert env() == ("1", "70") and r.eng.workers_for("L4") == 2
     r.eng.settings_set(json.dumps({"l4_workers": 1, "github_workers": 2}))

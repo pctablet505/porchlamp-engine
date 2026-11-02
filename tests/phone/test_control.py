@@ -24,7 +24,7 @@ def test_the_defaults_are_the_contracts_and_the_lan_is_manual_and_overrides_are_
     assert s.get() == {"network": "wifi", "battery_pause_pct": 20, "battery_override": False, "heat_pause_c": 40,
                        "heat_override": False, "timeout_streak": 5, "interval_days": 28,
                        "layers": ["L1", "L0", "L2", "L3g", "L3c", "L4", "LK"], "rate_floor": 500,
-                       "lan_mode": "manual", "delivery_mode": "lan", "drop_repo": "", "l4_workers": 3,
+                       "lan_mode": "manual", "delivery_mode": "lan", "drop_repo": "", "l4_workers": 1,
                        "github_workers": 1}
     assert s.get() == DEFAULTS and s.get() is not DEFAULTS and s.get()["layers"] is not DEFAULTS["layers"]
 
@@ -540,10 +540,10 @@ def test_upload_scope_obeys_pause_and_device_rules_without_the_collector_token(t
 
 
 def test_worker_settings_ranges_and_defaults(tmp_path):
-    """T21 (D4): ``l4_workers`` (projects at once in step L4) is 1-3, default 3; ``github_workers`` (L0, L3g, L3c) is
+    """T21 (D4): ``l4_workers`` (projects at once in step L4) is 1-3, default 1; ``github_workers`` (L0, L3g, L3c) is
     1-2, default 1. Anything else is refused with the range, and nothing is saved."""
     s = Settings(tmp_path / "settings.json")
-    assert (s.value("l4_workers"), s.value("github_workers")) == (3, 1)
+    assert (s.value("l4_workers"), s.value("github_workers")) == (1, 1)
     for key, low, high in (("l4_workers", 1, 3), ("github_workers", 1, 2)):
         for good in (low, high):
             assert s.set({key: good})["ok"] is True and s.value(key) == good
