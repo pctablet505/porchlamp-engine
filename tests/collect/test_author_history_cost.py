@@ -460,7 +460,8 @@ def test_cycle_2_reuses_raw_stale_tail_and_refreshes_only_open_prs(tmp_path):
 
 def test_local_eligibility_prefilter_resolves_non_users_young_accounts_and_5_pr_veterans_at_zero_cost(tmp_path):
     """Q2a: Mannequin/Organization actors, accounts < 90d old at their latest in-window PR, and User accounts
-    with >= 5 in-window PRs and >= 90d age at their earliest PR are resolved locally with 0 AuthorEligibilityBatch calls."""
+    with >= 5 PRs in the repo (window + search) and >= 90d age at their earliest in-window PR are resolved locally
+    with 0 AuthorEligibilityBatch calls."""
     young_created = (NOW - timedelta(days=140)).isoformat()
     vet_created = "2018-01-01T00:00:00Z"
     prs = [
@@ -471,6 +472,9 @@ def test_local_eligibility_prefilter_resolves_non_users_young_accounts_and_5_pr_
         # Active veteran: 5 distinct PRs in window, account created in 2018 -> locally eligible
         *[w4_pr(10 + i, (NOW - timedelta(days=110 + i)).isoformat(), "vet5", author_typ="User", author_created=vet_created)
           for i in range(5)],
+        # Search veteran: 2 PRs in window + 3 older PRs in per-author search = 5 distinct PRs -> locally eligible
+        w4_pr(30, (NOW - timedelta(days=115)).isoformat(), "vet_search", author_typ="User", author_created=vet_created),
+        w4_pr(31, (NOW - timedelta(days=125)).isoformat(), "vet_search", author_typ="User", author_created=vet_created),
         # Ambiguous 1-PR old User -> still queried via AuthorEligibilityBatch
         w4_pr(99, (NOW - timedelta(days=130)).isoformat(), "ambig1", author_typ="User", author_created=vet_created),
     ]
@@ -479,8 +483,18 @@ def test_local_eligibility_prefilter_resolves_non_users_young_accounts_and_5_pr_
         [_w4_page(prs, False)],
         [2],
         [4990],
-        {u: {"nodes": []} for u in ("mannequin1", "young1", "vet5", "ambig1")},
-        # Only ambig1 is in users; if mannequin1, young1, or vet5 were queried, W4Transport would fail!
+        {
+            **{u: {"nodes": []} for u in ("mannequin1", "young1", "vet5", "ambig1")},
+            "vet_search": {
+                "issueCount": 5,
+                "nodes": [
+                    {"number": 20 + i, "createdAt": "2024-01-01T00:00:00Z", "closedAt": "2024-01-02T00:00:00Z",
+                     "mergedAt": "2024-01-02T00:00:00Z", "state": "MERGED"}
+                    for i in range(3)
+                ],
+            },
+        },
+        # Only ambig1 is in users; if mannequin1, young1, vet5, or vet_search were queried, W4Transport would fail!
         {"ambig1": {"createdAt": vet_created, "contributionsCollection": {"contributionCalendar": {"totalContributions": 12}}}},
     )
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
@@ -489,6 +503,7 @@ def test_local_eligibility_prefilter_resolves_non_users_young_accounts_and_5_pr_
     assert recs["mannequin1"]["account_created_at"] is None and recs["mannequin1"]["public_event_count"] == 0
     assert recs["young1"]["account_created_at"] == young_created and recs["young1"]["public_event_count"] == 0
     assert recs["vet5"]["account_created_at"] == vet_created and recs["vet5"]["public_event_count"] == 5
+    assert recs["vet_search"]["account_created_at"] == vet_created and recs["vet_search"]["public_event_count"] == 5
     assert recs["ambig1"]["public_event_count"] == 12
 
 

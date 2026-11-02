@@ -2130,7 +2130,7 @@ def fetch_author_window(owner: str, name: str, now: datetime,
             if ckpt_total is not None:
                 pull_requests_total = ckpt_total
 
-    first_page = name_with_owner is None and pull_requests_total is None
+    first_page = name_with_owner is None or pull_requests_total is None
     sizer = _PageSizer(page_size)
     pages_since_ckpt = 0
     ckpt_cost_delta = 0
@@ -2823,6 +2823,7 @@ def _prefilter_local_eligibility(
     window_prs: Sequence[dict],
     now: datetime,
     user_cache: Optional[UserCache] = None,
+    author_records: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> tuple[dict[str, dict], list[str]]:
     """Resolve D-IN-3 eligibility locally at 0 GraphQL cost (#89 Q2a) before calling
     :func:`_eligibility_with_cache`:
@@ -2831,8 +2832,9 @@ def _prefilter_local_eligibility(
        ``"Organization"``) are confirmed ineligible.
     2. Accounts younger than :data:`constants.MIN_ACCOUNT_AGE_DAYS` at their latest in-window PR creation date
        (``latest_pr_created_at - author.createdAt < 90 d``) are confirmed ineligible for every PR in this window.
-    3. ``User`` accounts with at least :data:`constants.MIN_PUBLIC_EVENTS` (5) distinct PRs in ``window_prs`` and
-       at least :data:`constants.MIN_ACCOUNT_AGE_DAYS` of account age at their earliest in-window PR are confirmed
+    3. ``User`` accounts with at least :data:`constants.MIN_PUBLIC_EVENTS` (5) distinct PRs in the repository
+       (across ``window_prs`` and ``author_records`` from search/light-history) and at least
+       :data:`constants.MIN_ACCOUNT_AGE_DAYS` of account age at their earliest in-window PR are confirmed
        eligible (each PR creation is itself a public contribution) and written to ``user_cache``.
     """
     if not logins:
@@ -2841,6 +2843,7 @@ def _prefilter_local_eligibility(
     typenames: dict[str, set[str]] = {}
     created_at_by_login: dict[str, str] = {}
     pr_numbers_by_login: dict[str, set[Any]] = {}
+    history_total_by_login: dict[str, int] = {}
     earliest_pr_by_login: dict[str, datetime] = {}
     latest_pr_by_login: dict[str, datetime] = {}
 
@@ -2869,6 +2872,23 @@ def _prefilter_local_eligibility(
             num if num is not None else pr.get("createdAt")
         )
 
+    for rec in author_records or ():
+        if not isinstance(rec, Mapping):
+            continue
+        login = str(rec.get("login") or "").lower()
+        if not login or login not in target_set:
+            continue
+        htotal = rec.get("history_total")
+        if isinstance(htotal, int) and not isinstance(htotal, bool) and htotal > 0:
+            history_total_by_login[login] = max(history_total_by_login.get(login, 0), htotal)
+        for hist_pr in rec.get("prs") or ():
+            if not isinstance(hist_pr, Mapping):
+                continue
+            num = hist_pr.get("number")
+            key = num if num is not None else hist_pr.get("createdAt")
+            if key is not None:
+                pr_numbers_by_login.setdefault(login, set()).add(key)
+
     min_age = timedelta(days=constants.MIN_ACCOUNT_AGE_DAYS)
     now_iso = now.isoformat()
     resolved: dict[str, dict] = {}
@@ -2889,7 +2909,10 @@ def _prefilter_local_eligibility(
         acct_dt = _parse_iso(acct_iso)
         latest_pr = latest_pr_by_login.get(login)
         earliest_pr = earliest_pr_by_login.get(login)
-        pr_count = len(pr_numbers_by_login.get(login) or ())
+        pr_count = max(
+            len(pr_numbers_by_login.get(login) or ()),
+            history_total_by_login.get(login, 0),
+        )
 
         if acct_dt is not None and latest_pr is not None and latest_pr - acct_dt < min_age:
             resolved[login] = {
@@ -3112,7 +3135,9 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     read = set() if band is None else band[1] | search_sample | set(newcomers)
     skipped = set() if band is None else set(needed) - read
     elig_candidates = [login for login in needed if login not in reused_elig and login not in skipped]
-    local_elig, elig_needed = _prefilter_local_eligibility(elig_candidates, window.prs, now, user_cache)
+    local_elig, elig_needed = _prefilter_local_eligibility(
+        elig_candidates, window.prs, now, user_cache, author_records=author_records
+    )
     elig, elig_cost, elig_remaining = _eligibility_with_cache(elig_needed, t, now, user_cache)
     cost += elig_cost
     if elig_remaining is not None:
