@@ -150,6 +150,7 @@ input.control::placeholder {
   width: 1.15em;
   height: 1.15em;
   flex: none;
+  pointer-events: none;
 }
 
 .theme-icon-light {
