@@ -644,7 +644,9 @@ def test_a_worker_whose_fail_line_cannot_be_written_still_reports(tmp_path, monk
     monkeypatch.setattr(g, "_one", one)
     monkeypatch.setattr(sys, "stdout", below)
     monkeypatch.setattr(threading, "excepthook", hook)
-    loop = g._Loop(a=None, selected=None, screen=False, fp_result=None, dirty_map=None, clean_label="")
+    loop = g._Loop(
+        a=None, selected=None, screen=False, fp_result=None, dirty_map=None, clean_label=""
+    )
     returned: list[tuple[int, int]] = []
     pool = threading.Thread(
         target=lambda: returned.append(g._run_pool([(o, n, "pypi") for o, n in projects], loop, 2)),
