@@ -575,6 +575,49 @@ def test_a_new_cycle_retires_the_concurrency_pin(home, fkw):
     assert (home / "state" / "refresh-prev" / "concurrency.pinned").read_text().strip() == "2026-09-20T10:00:00Z"
 
 
+def _pinned_throttle(monkeypatch: pytest.MonkeyPatch):
+    """A fresh process-wide GitHub throttle pinned the way a cycle pins it: three secondary limits, each a new GitHub
+    event, while three requests may be in flight (``PORCHLAMP_GH_INFLIGHT=3``)."""
+    from porchlamp.collect import ghcli
+
+    clock = [NOW]
+    throttle = ghcli._Throttle()
+    monkeypatch.setattr(ghcli, "_THROTTLE", throttle)
+    monkeypatch.setattr(ghcli, "_now", lambda: clock[0])
+    monkeypatch.setattr(ghcli, "on_event", None)
+    monkeypatch.setenv(R.INFLIGHT_ENV, "3")
+    for _ in range(3):
+        clock[0] += 1.0
+        throttle.signal(60.0, "HTTP 403, retry-after", clock[0])
+    assert throttle.pinned
+    return throttle
+
+
+def test_a_new_cycle_that_retires_the_pin_file_unpins_the_transport(home, monkeypatch):
+    """RB5 follow-up 8: the pin file's retirement at the next cycle's start also lifts the transport's pin in this
+    process, so a step at 3 workers has 3 requests in flight again (the hold and the plain strikes stay)."""
+    throttle = _pinned_throttle(monkeypatch)
+    later = NOW + 28 * 86400.0                                         # the next cycle: every degrade has run out
+    strikes, hold = list(throttle.strikes), throttle.hold_until
+    _mark(home, "MAIN.done")
+    _mark(home, "concurrency.pinned", "2026-10-11T12:00:03Z")
+    assert throttle.cap(later) == 1                                    # pinned until the file is retired
+    R._retire_markers(home, lambda: later, lambda line: None)
+    assert not _ex(home, "concurrency.pinned")
+    assert throttle.cap(later) == 3 and not throttle.pinned and not throttle.pin_strikes
+    assert list(throttle.strikes) == strikes and throttle.hold_until == hold
+
+
+def test_a_cycle_start_with_no_pin_file_leaves_a_live_pin(home, monkeypatch):
+    """RB5 follow-up 8: a cycle start that retires no pin file (other markers only) leaves a pin the transport holds
+    in this process, whose file is not written yet."""
+    throttle = _pinned_throttle(monkeypatch)
+    _mark(home, "MAIN.done")
+    R._retire_markers(home, lambda: NOW + 10.0, lambda line: None)
+    assert not _ex(home, "MAIN.done")
+    assert throttle.pinned and len(throttle.pin_strikes) == 3 and throttle.cap(NOW + 28 * 86400.0) == 1
+
+
 def test_a_line_printed_while_another_is_logged_stays_in_the_tee(capsys):
     """D4: worker threads print repo lines while the runner logs another. The tee used to swap ``sys.stdout`` for the
     whole process while it logged a line, so a line another thread printed meanwhile went to the real stdout and

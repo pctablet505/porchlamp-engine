@@ -663,6 +663,15 @@ class _Throttle:
                 self.hold_until = 0.0
             self._cond.notify_all()
 
+    def unpin(self) -> None:
+        """The pin's cycle is over (the phone retired its pin file at the next cycle's start): several requests may
+        be in flight again, and the strikes toward the pin start afresh. A hold in force and the plain strikes (which
+        size the next hold) stay."""
+        with self._cond:
+            self.pinned = False
+            self.pin_strikes.clear()
+            self._cond.notify_all()
+
 
 _THROTTLE = _Throttle()
 
