@@ -159,3 +159,107 @@ def test_concurrent_puts_of_one_login_both_succeed(tmp_path, monkeypatch):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["octocat.json"]
     assert json.loads((tmp_path / "octocat.json").read_text())["public_event_count"] in (40, 41)
     assert cache.stats["writes"] == 2
+
+
+# --- Q3: SQLite backend, JSON migration, author_history hydration, and LAN gzip sync ---------------------------------
+
+def test_sqlite_backend_roundtrip_and_auto_migration_from_json(tmp_path):
+    """Q3: UserCache with backend='sqlite' writes to state/users.sqlite in WAL mode, auto-imports existing
+    state/users/*.json files, and subsequent UserCache(root) calls auto-detect users.sqlite."""
+    users_dir = tmp_path / "state" / "users"
+    legacy = UserCache(users_dir)
+    assert legacy.put("legacy_user", MEASURED, NOW - timedelta(days=5)) is True
+    assert (users_dir / "legacy_user.json").is_file()
+
+    sqlite_cache = UserCache(users_dir, backend="sqlite")
+    assert sqlite_cache.put("fresh_user", {**MEASURED, "public_event_count": 99}, NOW) is True
+    assert (tmp_path / "state" / "users.sqlite").is_file()
+    assert sqlite_cache.get("legacy_user", NOW)["public_event_count"] == 40
+    assert sqlite_cache.get("fresh_user", NOW)["public_event_count"] == 99
+    assert sqlite_cache.count_rows() == 2
+    sqlite_cache.close()
+
+    # Auto-detects users.sqlite even without backend="sqlite"
+    auto_cache = UserCache(users_dir)
+    assert auto_cache.get("fresh_user", NOW)["public_event_count"] == 99
+    auto_cache.close()
+
+
+def test_hydrate_from_author_history_dir_populates_sqlite_with_newest_observations(tmp_path):
+    """Q3: hydrate_from_author_history_dir extracts measured author_records from raw/author_history/*.json
+    into state/users.sqlite and skips unmeasured or unlooked-up records."""
+    from porchlamp.collect.envelope import write_envelope
+    from porchlamp.collect.user_cache import hydrate_from_author_history_dir
+
+    raw_dir = tmp_path / "raw"
+    older = NOW - timedelta(days=10)
+    write_envelope(
+        raw_dir / "author_history" / "acme__one.json",
+        source="github-graphql:author-history",
+        data={
+            "window_anchor": older.isoformat(),
+            "author_records": [
+                {"login": "alice", "account_created_at": "2018-01-01T00:00:00Z", "public_event_count": 12,
+                 "eligibility_unmeasured": False, "eligibility_observed_at": older.isoformat()},
+                {"login": "skipped_user", "account_created_at": None, "public_event_count": None,
+                 "eligibility_unmeasured": False, "eligibility_looked_up": False},
+                {"login": "unmeasured_user", "account_created_at": None, "public_event_count": None,
+                 "eligibility_unmeasured": True},
+            ],
+        },
+        fetched_at=older.isoformat(),
+    )
+    write_envelope(
+        raw_dir / "author_history" / "acme__two.json",
+        source="github-graphql:author-history",
+        data={
+            "window_anchor": NOW.isoformat(),
+            "author_records": [
+                {"login": "alice", "account_created_at": "2018-01-01T00:00:00Z", "public_event_count": 25,
+                 "eligibility_unmeasured": False, "eligibility_observed_at": NOW.isoformat()},
+                {"login": "bob", "account_created_at": "2019-06-01T00:00:00Z", "public_event_count": 8,
+                 "eligibility_unmeasured": False},
+            ],
+        },
+        fetched_at=NOW.isoformat(),
+    )
+
+    count = hydrate_from_author_history_dir(raw_dir)
+    assert count == 2
+    cache = UserCache(tmp_path / "state" / "users")
+    assert cache.get("alice", NOW) == {
+        "account_created_at": "2018-01-01T00:00:00Z",
+        "public_event_count": 25,
+        "observed_at": NOW.isoformat(),
+    }
+    assert cache.get("bob", NOW)["public_event_count"] == 8
+    assert cache.get("skipped_user", NOW) is None
+    assert cache.get("unmeasured_user", NOW) is None
+    cache.close()
+
+
+def test_export_and_import_sqlite_gz_merges_by_newer_observed_at(tmp_path):
+    """Q3: export_sqlite_gz and import_sqlite_gz round-trip SQLite user caches and keep newer observations."""
+    import pytest
+    from porchlamp.collect.user_cache import export_sqlite_gz, import_sqlite_gz
+
+    src_cache = UserCache(tmp_path / "src" / "state" / "users", backend="sqlite")
+    src_cache.put("alice", {"account_created_at": "2018-01-01T00:00:00Z", "public_event_count": 50}, NOW)
+    src_cache.put("carol", {"account_created_at": "2020-01-01T00:00:00Z", "public_event_count": 15}, NOW - timedelta(days=20))
+    gz_bytes = export_sqlite_gz(src_cache)
+    src_cache.close()
+
+    dst_cache = UserCache(tmp_path / "dst" / "state" / "users", backend="sqlite")
+    # dst has an older observation for alice and a newer observation for carol
+    dst_cache.put("alice", {"account_created_at": "2018-01-01T00:00:00Z", "public_event_count": 10}, NOW - timedelta(days=5))
+    dst_cache.put("carol", {"account_created_at": "2020-01-01T00:00:00Z", "public_event_count": 99}, NOW)
+
+    imported = import_sqlite_gz(dst_cache, gz_bytes)
+    assert imported == 2
+    assert dst_cache.get("alice", NOW)["public_event_count"] == 50
+    assert dst_cache.get("carol", NOW)["public_event_count"] == 99
+
+    with pytest.raises(ValueError):
+        import_sqlite_gz(dst_cache, b"not-gzip-bytes")
+    dst_cache.close()
+

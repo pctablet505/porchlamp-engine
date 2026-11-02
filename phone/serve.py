@@ -281,6 +281,8 @@ class PhoneHandler(BaseHTTPRequestHandler):
             return self._json(200, write_manifest(self.home))
         if path == "/log.txt":
             return self._log_txt()
+        if path == "/state/users.sqlite.gz":
+            return self._get_user_cache_gz()
         if path.startswith("/archive/"):
             return self._archive(path[len("/archive/"):])
         return self._reply(404)
@@ -289,8 +291,11 @@ class PhoneHandler(BaseHTTPRequestHandler):
         body = self._authenticate()
         if body is None:
             return
-        if self._path() == "/config/candidates.jsonl":
+        path = self._path()
+        if path == "/config/candidates.jsonl":
             return self._put_candidates(body)
+        if path == "/state/users.sqlite.gz":
+            return self._put_user_cache_gz(body)
         return self._reply(404)
 
     def _method_not_allowed(self) -> None:
@@ -361,6 +366,33 @@ class PhoneHandler(BaseHTTPRequestHandler):
         if not validate_candidates(body):
             return self._reply(400)  # nothing is written
         _atomic_write(self.home / "raw" / "candidates.jsonl", body)
+        return self._reply(204)
+
+    def _get_user_cache_gz(self) -> None:
+        from porchlamp.collect.user_cache import UserCache, export_sqlite_gz
+
+        db_path = self.home / "state" / "users.sqlite"
+        users_dir = self.home / "state" / "users"
+        if not db_path.is_file() and not (users_dir.is_dir() and any(users_dir.glob("*.json"))):
+            return self._reply(404)
+        cache = UserCache(users_dir, backend="sqlite")
+        try:
+            body = export_sqlite_gz(cache)
+        finally:
+            cache.close()
+        mac = response_mac(self.server.token, self._nonce, 200, body)  # type: ignore[attr-defined]
+        return self._reply(200, body, ctype="application/gzip", extra=[(MAC_HEADER, mac)])
+
+    def _put_user_cache_gz(self, body: bytes) -> None:
+        from porchlamp.collect.user_cache import UserCache, import_sqlite_gz
+
+        cache = UserCache(self.home / "state" / "users", backend="sqlite")
+        try:
+            import_sqlite_gz(cache, body)
+        except ValueError:
+            return self._reply(400)
+        finally:
+            cache.close()
         return self._reply(204)
 
     def send_response(self, code: int, message: str | None = None) -> None:
