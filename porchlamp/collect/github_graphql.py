@@ -2239,12 +2239,12 @@ def fetch_two_tier_eligibility_batch(
     tier2_batch_size: int = ELIGIBILITY_BATCH_SIZE,
 ) -> tuple[dict[str, dict], int, Optional[int]]:
     """Two-tier PR-time-bounded D-IN-3 eligibility lookup (RFC-0028, Q2b):
-    1. Queries ``logins`` in Tier-1 batches of width ``tier1_batch_size`` (50) using
+    1. Queries ``logins`` in Tier-1 batches of width ``tier1_batch_size`` (30) using
        :func:`_eligibility_tier1_batch_query` (``createdAt`` + earliest 5 PRs and 5 issues).
     2. Immediately resolves accounts with >= 5 prior PR/issue events (or age < 90 d at
        ``cutoff_by_login[login]``).
     3. Escalates only ambiguous accounts (< 5 prior PR/issue events and age >= 90 d)
-       to Tier-2 batches of width ``tier2_batch_size`` (8) using
+       to Tier-2 batches of width ``tier2_batch_size`` (15) using
        :func:`_eligibility_tier2_batch_query` bounded to ``[cutoff - 365 d, cutoff]``
        when ``cutoff_by_login`` is supplied."""
     out: dict[str, dict] = {}
@@ -2254,22 +2254,20 @@ def fetch_two_tier_eligibility_batch(
     tier2_needed: list[str] = []
     tier1_prior: dict[str, int] = {}
 
-    for start in range(0, len(unique_logins), tier1_batch_size):
-        chunk = unique_logins[start:start + tier1_batch_size]
+    def _run_tier1(chunk: Sequence[str]) -> list[str]:
+        nonlocal cost, remaining
         query = _eligibility_tier1_batch_query(len(chunk))
         variables = {f"l{i}": login for i, login in enumerate(chunk)}
         try:
             doc = _execute_waiting_for_the_network(transport, query, variables)
         except (RuntimeError, subprocess.TimeoutExpired):
-            for login in chunk:
-                out[login] = {"account_created_at": None, "public_event_count": None,
-                              "eligibility_unmeasured": True}
-            continue
+            return list(chunk)
         data = doc.get("data") or {}
         rl = data.get("rateLimit") or {}
         cost += int(rl.get("cost") or 0)
         if rl.get("remaining") is not None:
             remaining = int(rl["remaining"])
+        unresolved: list[str] = []
         for i, login in enumerate(chunk):
             cutoff = cutoff_by_login.get(login) if cutoff_by_login else None
             rec, prior, escalate = _resolve_tier1_eligibility_node(data.get(f"u{i}"), cutoff)
@@ -2279,11 +2277,24 @@ def fetch_two_tier_eligibility_batch(
                 tier2_needed.append(login)
                 tier1_prior[login] = prior
             else:
-                out[login] = {"account_created_at": None, "public_event_count": None,
-                              "eligibility_unmeasured": True}
+                unresolved.append(login)
+        return unresolved
 
-    for start in range(0, len(tier2_needed), tier2_batch_size):
-        chunk = tier2_needed[start:start + tier2_batch_size]
+    for start in range(0, len(unique_logins), tier1_batch_size):
+        pool = _run_tier1(unique_logins[start:start + tier1_batch_size])
+        for retry_width in ELIGIBILITY_RETRY_WIDTHS:
+            if not pool:
+                break
+            next_pool: list[str] = []
+            for r_start in range(0, len(pool), retry_width):
+                next_pool.extend(_run_tier1(pool[r_start:r_start + retry_width]))
+            pool = next_pool
+        for login in pool:
+            out[login] = {"account_created_at": None, "public_event_count": None,
+                          "eligibility_unmeasured": True}
+
+    def _run_tier2(chunk: Sequence[str]) -> list[str]:
+        nonlocal cost, remaining
         bounded = bool(cutoff_by_login and all(login in cutoff_by_login for login in chunk))
         query = _eligibility_tier2_batch_query(len(chunk), bounded=bounded)
         variables = {f"l{i}": login for i, login in enumerate(chunk)}
@@ -2296,22 +2307,33 @@ def fetch_two_tier_eligibility_batch(
         try:
             doc = _execute_waiting_for_the_network(transport, query, variables)
         except (RuntimeError, subprocess.TimeoutExpired):
-            for login in chunk:
-                out[login] = {"account_created_at": None, "public_event_count": None,
-                              "eligibility_unmeasured": True}
-            continue
+            return list(chunk)
         data = doc.get("data") or {}
         rl = data.get("rateLimit") or {}
         cost += int(rl.get("cost") or 0)
         if rl.get("remaining") is not None:
             remaining = int(rl["remaining"])
+        unresolved: list[str] = []
         for i, login in enumerate(chunk):
             rec = _resolve_tier2_eligibility_node(data.get(f"u{i}"), tier1_prior.get(login, 0))
             if rec is not None:
                 out[login] = rec
             else:
-                out[login] = {"account_created_at": None, "public_event_count": None,
-                              "eligibility_unmeasured": True}
+                unresolved.append(login)
+        return unresolved
+
+    for start in range(0, len(tier2_needed), tier2_batch_size):
+        pool = _run_tier2(tier2_needed[start:start + tier2_batch_size])
+        for retry_width in ELIGIBILITY_RETRY_WIDTHS:
+            if not pool:
+                break
+            next_pool = []
+            for r_start in range(0, len(pool), retry_width):
+                next_pool.extend(_run_tier2(pool[r_start:r_start + retry_width]))
+            pool = next_pool
+        for login in pool:
+            out[login] = {"account_created_at": None, "public_event_count": None,
+                          "eligibility_unmeasured": True}
 
     return out, cost, remaining
 
@@ -2541,11 +2563,16 @@ def _search_guard_passes(search_count: Optional[int], pull_requests_total: Optio
 
 def _eligibility_with_cache(logins: Sequence[str], transport: GraphqlTransport,
                             now: datetime, user_cache: Optional[UserCache],
+                            *,
+                            cutoff_by_login: Optional[Mapping[str, datetime]] = None,
+                            two_tier: Optional[bool] = None,
                             ) -> tuple[dict[str, dict], int, Optional[int]]:
     """D-IN-3 eligibility for ``logins``, reading and filling the D-COL-5
     user cache (:mod:`porchlamp.collect.user_cache`) when one is given.
 
-    Only logins the cache cannot answer go to :func:`_fetch_eligibility_batch`.
+    Only logins the cache cannot answer go to :func:`fetch_two_tier_eligibility_batch`
+    (when ``two_tier`` is True or ``transport`` is a live :class:`GhCliTransport`)
+    or :func:`_fetch_eligibility_batch`.
     Every returned record carries ``eligibility_observed_at``: ``now`` for a
     value fetched by this call, the original lookup time for a value the
     cache supplied, ``None`` when the lookup failed.
@@ -2556,8 +2583,15 @@ def _eligibility_with_cache(logins: Sequence[str], transport: GraphqlTransport,
             hit = user_cache.get(login, now)
             if hit is not None:
                 cached[login] = hit
-    fetched, cost, remaining = _fetch_eligibility_batch(
-        [login for login in logins if login not in cached], transport, ELIGIBILITY_BATCH_SIZE)
+    uncached = [login for login in logins if login not in cached]
+    use_two_tier = two_tier if two_tier is not None else isinstance(transport, GhCliTransport)
+    if use_two_tier:
+        fetched, cost, remaining = fetch_two_tier_eligibility_batch(
+            uncached, transport, cutoff_by_login=cutoff_by_login,
+            tier1_batch_size=ELIGIBILITY_TIER1_BATCH_SIZE, tier2_batch_size=ELIGIBILITY_BATCH_SIZE,
+        )
+    else:
+        fetched, cost, remaining = _fetch_eligibility_batch(uncached, transport, ELIGIBILITY_BATCH_SIZE)
     out: dict[str, dict] = {}
     for login, record in fetched.items():
         measured = not record["eligibility_unmeasured"]
@@ -2832,7 +2866,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
                     retained.append(cand)
             sample = tuple(sorted(retained))
             newcomers = sorted(set(sample))
-            needed = sorted(set(decision_logins) | set(newcomers) | set(reserve_newcomers))
+            needed = sorted(set(decision_logins) | set(newcomers))
         for login in needed:
             record = {
                 "login": login, "account_created_at": None, "public_event_count": None,
@@ -2857,7 +2891,19 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     read = set() if band is None else band[1] | search_sample | set(newcomers)
     skipped = set() if band is None else set(needed) - read
     elig_needed = [login for login in needed if login not in reused_elig and login not in skipped]
-    elig, elig_cost, elig_remaining = _eligibility_with_cache(elig_needed, t, now, user_cache)
+    cutoff_by_login: dict[str, datetime] = {}
+    for pr in window.prs:
+        login = _login_of(pr)
+        if not login:
+            continue
+        created = _parse_iso(pr.get("createdAt"))
+        if created is not None:
+            prev_dt = cutoff_by_login.get(login)
+            if prev_dt is None or created < prev_dt:
+                cutoff_by_login[login] = created
+    elig, elig_cost, elig_remaining = _eligibility_with_cache(
+        elig_needed, t, now, user_cache, cutoff_by_login=cutoff_by_login
+    )
     cost += elig_cost
     if elig_remaining is not None:
         remaining = elig_remaining
