@@ -69,6 +69,8 @@ def test_render_readme_and_citation_cff_are_deterministic_and_exact():
     assert "Measured on the 2026-10-27 snapshot of 11,000 projects:" in readme
     assert "567 (13.6%) left most of them with no human reply" in readme
     assert "We could not judge 184 busy projects yet" in readme
+    one = {**SAMPLE_REPORT, "values": {**SAMPLE_REPORT["values"], "undecided_cut": "1"}}
+    assert "We could not judge 1 busy project yet: we hold only\n  its newest" in pub_mod.render_readme(SAMPLE_SNAPSHOT, one)
     assert "`data/2026-10-27/`" in readme
     assert "- **Snapshot ID:** `2026-10-27` (measured as of `2026-10-22T22:47:00+00:00`, benchmark `2.0.0-rc1`)" in readme
     assert "`constants_hash: 093cefd6c2f4\u2026`" in readme

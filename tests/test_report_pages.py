@@ -1557,6 +1557,11 @@ def test_projects_whose_pr_record_is_cut_get_their_own_measurement_bullet(built)
     assert all(f"{{{slot}}}" in record["sentences"]["method"][3] for slot in ("undecided_cut", "pr_cap", "window_start"))
     _facts, record, alone = bullets(0, 2001, [300])
     assert len(alone) == 4 and alone[2].startswith("We could not judge 2,001 busy projects yet: we hold only the newest 300 ")
+    facts, _record, one = bullets(0, 1, [500])
+    assert one[2] == (
+        f"We could not judge 1 busy project yet: we hold only its newest 500 pull requests, and they do not "
+        f"reach back to {facts.window_start.day} {facts.window_start:%B}."
+    )
     _facts, record, none = bullets(0, 0, [])
     assert len(none) == 3 and not any("could not judge" in bullet for bullet in none)
     assert "undecided_cut" not in record["values"] and "pr_cap" not in record["values"]
