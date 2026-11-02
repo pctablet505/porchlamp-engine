@@ -417,7 +417,9 @@ def run_layer(
             return 4
         clean, fail = int(found[-1][0]), int(found[-1][1])
         log(f"{layer}: run {run} summary: {clean} clean, {fail} with failures")
-        if (fail == 0 and clean > 0) or (prev is not None and fail == prev):
+        # A failure that hits every project repeats its count too, and that is not a finished step: failures with nothing
+        # clean never complete it. Two runs that checked nothing at all still do.
+        if (fail == 0 and clean > 0) or (prev is not None and fail == prev and (clean > 0 or fail == 0)):
             _write_marker(marker_dir / f"{layer}.complete", now)
             log(f"{layer}: COMPLETE, " + ("a run with no failure" if fail == 0 and clean > 0
                                             else f"two runs agree on {fail} failures"))

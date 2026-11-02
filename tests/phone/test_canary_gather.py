@@ -60,6 +60,12 @@ def echoing_github():
                    "x-ratelimit-reset": str(int(time.time()) + 3600)}
         if path == "/graphql":
             return 200, headers, json.dumps(FAKE_META)
+        if path.startswith("/repos/psf/requests/"):  # one project collects, or a step where all fail never completes
+            if "/git/trees/" in path:
+                return 200, headers, json.dumps({"tree": [], "truncated": False})
+            if path.endswith("/actions/runs"):
+                return 200, headers, json.dumps({"total_count": 0, "workflow_runs": []})
+            return 200, headers, json.dumps([])
         return 403, headers, json.dumps({"message": "denied for " + req.headers.get("authorization", "")})
 
     return respond
