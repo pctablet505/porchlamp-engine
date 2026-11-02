@@ -61,15 +61,19 @@ account's own record says otherwise (D4, 2026-11-02). On 2026-10-10/11 three L4
 gatherers ran side by side on this account for 8.8 h at about 4,700 points an
 hour, with one short burst of refusals and no penalty after; on 2026-11-02 GitHub
 served 3 requests in flight at 2.4–3.0 times the rate of one, with no limit
-signal in 158 requests. The enforced limits are 100 requests in flight, 2,000
+signal in 158 requests. A workstation dry run at 3 in flight later that day
+drew two secondary-limit refusals in 12 minutes, after 10-second timeouts on
+eligibility lookups, and ran only 1.06–1.36 times as fast as one at a time
+(D5, 2026-11-02). The enforced limits are 100 requests in flight, 2,000
 GraphQL points a minute, 60 s of GraphQL CPU a minute and 5,000 points an hour;
 "make requests serially" is GitHub's advice, and the ban risk is for requests
 sent while limited. So `gather.py --workers` runs up to 3 projects side by side
 behind one throttle in the transport (`ghcli`): at most `PORCHLAMP_GH_INFLIGHT`
-requests in flight (the phone: 3 for L4), `PORCHLAMP_GH_PPM` GraphQL points a
+requests in flight (the phone: 1 for L4 by default), `PORCHLAMP_GH_PPM` GraphQL points a
 minute (70), every thread held on a secondary-limit signal and then one request
-at a time, pinned there after the third signal in a day taken while several
-requests could be in flight (requests refused together count once). The same measurement
+at a time; the first secondary limit taken while several requests may be in
+flight pins one at a time for the rest of the cycle (requests refused together
+count once; D5). The same measurement
 found 15-login eligibility batches at GitHub's 10-second limit (4 of 12 timed
 out), so a batch is now 8 logins.
 

@@ -284,15 +284,15 @@ Notes per phase:
   one at a time, so rule 3 (one `gather.py` process) still holds. GitHub's
   requests in flight are capped by `PORCHLAMP_GH_INFLIGHT` (1-3, unset 1) and
   GraphQL by `PORCHLAMP_GH_PPM` points a minute. On the phone, L4 runs at the
-  `l4_workers` setting (1-3, default 3) and L0, L3g and L3c at `github_workers`
+  `l4_workers` setting (1-3, default 1) and L0, L3g and L3c at `github_workers`
   (1-2, default 1); L1, L2 and LK always run one at a time. The back-off: on any
   GitHub secondary-limit signal (a 429, a 403 with `retry-after` or a
   "secondary rate limit" message, a GraphQL error naming one) every request waits
   max(`retry-after`, 60 s), doubling with each signal in 24 h up to 1 h, then
   goes one request at a time for 30 min (doubling up to 4 h); six GitHub
-  502/504 answers in 5 minutes also give one at a time for 30 min; the third
-  signal in 24 h taken while a step runs side by side (requests refused
-  together count once) pins one at a time for the rest of the cycle
+  502/504 answers in 5 minutes also give one at a time for 30 min; the first
+  secondary limit taken while several requests may be in flight (requests
+  refused together count once) pins one at a time for the rest of the cycle
   (`state/refresh/concurrency.pinned`, retired when the next cycle starts). The
   runner sets `PORCHLAMP_GH_INFLIGHT` for each step: its worker count where it
   runs side by side, 1 everywhere else. To

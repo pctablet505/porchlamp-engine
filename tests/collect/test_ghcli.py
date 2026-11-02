@@ -1069,14 +1069,14 @@ def test_graphql_points_per_minute_pacing(wire: Wire, throttle: list, monkeypatc
     assert wire.n == 5
 
 
-def test_three_signals_in_a_day_pin_one_at_a_time(wire: Wire, throttle: list,
-                                                  monkeypatch: pytest.MonkeyPatch) -> None:
-    """T7: the third secondary limit within 24 h, with more than one request allowed at once, pins one at a time for
-    the rest of the process and tells it once as an error; the waits double (60, 120, 240 s)."""
+def test_three_signals_one_at_a_time_do_not_pin(wire: Wire, throttle: list,
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """T7 (its second half since D5, whose first secondary limit with several in flight pins: see
+    ``test_the_first_secondary_limit_with_several_in_flight_pins``): one request at a time already, three secondary
+    limits within 24 h do not pin."""
     clock = Clock()
     monkeypatch.setattr(ghcli, "_now", clock.now)
     monkeypatch.setattr(ghcli, "_sleep", clock.sleep)
-    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
     refused: set[int] = set()
 
     def reply(n: int, who: str) -> tuple:
@@ -1086,24 +1086,29 @@ def test_three_signals_in_a_day_pin_one_at_a_time(wire: Wire, throttle: list,
 
     wire.reply = reply
     for k in range(3):
-        clock.t = NOW + k * 2 * 3600
-        refused.add(wire.n + 1)
-        assert ghcli.run(GQL_ARGS).returncode == 0
-    assert clock.sleeps == [60, 120, 240]
-    assert [level for level, _ in throttle if level == "err"] == ["err"]
-    clock.t = NOW + 4 * 3600 + 5 * 3600                   # past every hold and every 30-minute (doubled) drop
-    assert _most_at_once(wire, expect=1) == (1, 1)
-
-    # one request at a time already: three signals do not pin
-    if hasattr(ghcli, "_Throttle"):
-        monkeypatch.setattr(ghcli, "_THROTTLE", ghcli._Throttle())
-    throttle.clear()
-    monkeypatch.delenv("PORCHLAMP_GH_INFLIGHT")
-    for k in range(3):
         clock.t = NOW + 20 * 3600 + k * 3600
         refused.add(wire.n + 1)
         assert ghcli.run(GQL_ARGS).returncode == 0
     assert [level for level, _ in throttle if level == "err"] == []
+
+
+def test_the_first_secondary_limit_with_several_in_flight_pins(wire: Wire, throttle: list,
+                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """D5 (2026-11-02 dry run: a second refusal 2.4 min after the first, at one in flight): the first secondary limit
+    taken while more than one request may be in flight pins one at a time for the rest of the process, told once as
+    an error naming the secondary limit; past the hold and the 30-minute drop, still one at a time."""
+    clock = Clock()
+    monkeypatch.setattr(ghcli, "_now", clock.now)
+    monkeypatch.setattr(ghcli, "_sleep", clock.sleep)
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "2")
+    wire.reply = lambda n, who: (403, {"retry-after": "60"}, SECONDARY_BODY) if n == 1 else (200, {}, '{"data": {}}')
+    assert ghcli.run(GQL_ARGS).returncode == 0
+    assert clock.sleeps == [60] and wire.n == 2
+    assert ghcli._THROTTLE.pinned
+    assert [text for level, text in throttle if level == "err"] == [
+        "GitHub secondary limit with several requests in flight: one request at a time from now on"]
+    clock.t = NOW + 60 + 1800 + 60                                      # past the hold and the 30-minute drop
+    assert _most_at_once(wire, expect=1) == (1, 1)
 
 
 def test_the_hourly_line_counts_requests_points_and_the_most_at_once(wire: Wire, throttle: list,
@@ -1194,8 +1199,9 @@ def test_a_primary_pause_does_not_lift_a_longer_secondary_hold(wire: Wire, throt
 
 def test_signals_one_at_a_time_never_count_toward_the_pin(wire: Wire, throttle: list,
                                                          monkeypatch: pytest.MonkeyPatch) -> None:
-    """RB5 ruling 2: three secondary limits while one request at a time was allowed (L1's usual limits), then one
-    more with three allowed, all within 24 h: not pinned. Only strikes taken with several in flight count."""
+    """RB5 ruling 2: three secondary limits while one request at a time was allowed (L1's usual limits) do not pin;
+    the fourth, with three allowed, pins (D5: the first with several in flight), all within 24 h. Only strikes taken
+    with several in flight count."""
     clock = Clock()
     monkeypatch.setattr(ghcli, "_now", clock.now)
     monkeypatch.setattr(ghcli, "_sleep", clock.sleep)
@@ -1208,14 +1214,17 @@ def test_signals_one_at_a_time_never_count_toward_the_pin(wire: Wire, throttle: 
         clock.t = NOW + k * 3600
         refused.add(wire.n + 1)
         assert ghcli.run(GQL_ARGS).returncode == 0
+        if k == 2:
+            assert not ghcli._THROTTLE.pinned and [level for level, _ in throttle if level == "err"] == []
     assert clock.sleeps == [60, 120, 240, 480]                          # the waits still double per signal
-    assert not ghcli._THROTTLE.pinned
-    assert [level for level, _ in throttle if level == "err"] == []
+    assert ghcli._THROTTLE.pinned and len(ghcli._THROTTLE.pin_strikes) == 1
+    assert [level for level, _ in throttle if level == "err"] == ["err"]
 
 
 def test_one_burst_of_refusals_counts_once(wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
     """RB5 S4: three requests in flight refused by one GitHub event (each was sent before the first refusal came
-    back) are one signal: one strike, one warn event, no pin; each of the three still waits the hold, then retries."""
+    back) are one signal: one strike, one warn event, and (several in flight, D5) the pin with one error event; each
+    of the three still waits the hold, then retries."""
     clock = Clock()
     monkeypatch.setattr(ghcli, "_now", clock.now)
     monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
@@ -1233,14 +1242,15 @@ def test_one_burst_of_refusals_counts_once(wire: Wire, throttle: list, monkeypat
     assert not any(t.is_alive() for t in workers)
     assert wire.n == 6
     assert len(ghcli._THROTTLE.strikes) == 1
-    assert [level for level, _ in throttle] == ["warn"]
-    assert not ghcli._THROTTLE.pinned
+    assert [level for level, _ in throttle] == ["warn", "err"]
+    assert ghcli._THROTTLE.pinned
 
 
 def test_a_burst_with_different_retry_afters_holds_until_the_longest(
         wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
     """RB6 F1: three requests in flight refused by one GitHub event, with ``retry-after`` 120, 300 and 60 s, answered
-    in that order. The two later refusals fold into the first (one strike, one warn event, no pin), and each still
+    in that order. The two later refusals fold into the first (one strike, one warn event, and the pin with one error
+    event, D5), and each still
     extends the hold: it ends at the longest, 300 s after the answers came. No thread clears its hold before the
     whole burst is in (their waits block until then)."""
     clock = Clock()
@@ -1282,8 +1292,8 @@ def test_a_burst_with_different_retry_afters_holds_until_the_longest(
     try:
         assert signalled == [NOW + 5 + 120, NOW + 5 + 300, NOW + 5 + 300]
         assert ghcli._THROTTLE.hold_until == NOW + 5 + 300
-        assert len(ghcli._THROTTLE.strikes) == 1 and not ghcli._THROTTLE.pinned
-        assert [level for level, _ in throttle] == ["warn"]
+        assert len(ghcli._THROTTLE.strikes) == 1 and ghcli._THROTTLE.pinned
+        assert [level for level, _ in throttle] == ["warn", "err"]
     finally:
         burst_in.set()
         for t in workers:
@@ -1295,7 +1305,8 @@ def test_a_request_admitted_before_a_signal_folds_however_late_it_reads_the_cloc
         wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
     """RB6 F2 (E4): B is admitted while A's request is out, then descheduled before its send time is taken. A's
     refusal comes back and counts; only then does B go on, and GitHub refuses B for the same event. B's send time is
-    its admission (taken under the throttle's lock), so B's refusal folds: one strike, one warn event."""
+    its admission (taken under the throttle's lock), so B's refusal folds: one strike, one warn event (and A's pin,
+    D5: one error event)."""
     clock = Clock()
     monkeypatch.setattr(ghcli, "_now", clock.now)
     monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
@@ -1336,7 +1347,7 @@ def test_a_request_admitted_before_a_signal_folds_however_late_it_reads_the_cloc
     b.join(10)
     assert not a.is_alive() and not b.is_alive() and wire.n == 4
     assert len(ghcli._THROTTLE.strikes) == 1
-    assert [level for level, _ in throttle] == ["warn"]
+    assert [level for level, _ in throttle] == ["warn", "err"]
 
 
 def test_a_thread_waiting_a_hold_stops_at_a_stop(wire: Wire, throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1419,15 +1430,19 @@ class _BrokenStderr:
 
 
 def test_the_back_to_n_line_failing_leaves_no_slot_counted(throttle: list, monkeypatch: pytest.MonkeyPatch) -> None:
-    """RB5 S6 (follow-up 11a): after a secondary limit's one-at-a-time spell, the next request writes "back to 3
+    """RB5 S6 (follow-up 11a): after a storm's one-at-a-time spell (six 502s in 5 minutes; a secondary limit with
+    several in flight now pins instead, D5), the next request writes "back to 3
     requests at once" on stderr. If that write raises, the request is not sent and no slot stays counted; the next
     request is admitted without the line again."""
     clock = Clock()
     monkeypatch.setattr(ghcli, "_now", clock.now)
     monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "3")
     t = ghcli._THROTTLE
-    t.signal(60.0, "HTTP 429, retry-after 60 s", clock.now())
-    clock.t = NOW + ghcli.DEGRADE_S + 1                                  # the hold and the spell are over
+    for _ in range(ghcli.STORM_COUNT):
+        t.acquire(True)
+        t.release(502, 0)
+    assert not t.pinned and t.cap(clock.now()) == 1
+    clock.t = NOW + ghcli.DEGRADE_S + 1                                  # the spell is over
     with monkeypatch.context() as m:
         m.setattr("sys.stderr", _BrokenStderr())
         with pytest.raises(OSError):
