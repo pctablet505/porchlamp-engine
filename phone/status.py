@@ -566,6 +566,10 @@ def _words(e: Any, *, now: float, reason: Any, layer: str | None, idx: int, n_st
                 "No repo list yet.")
     if rate is not None:
         left = max(0.0, rate[1] - now)
+        if e.secondary_hold():                      # GitHub's secondary limit: thousands of calls may be left
+            return ("waiting", "rate_limit", "GitHub asked the collector to slow down",
+                    f"It carries on by itself at {clock_text(rate[1])}, in {span_text(left)}.",
+                    "GitHub asked the collector to slow down.")
         budget = e.gate.budget()
         calls = (f"Only {int(budget['remaining']):,} calls are left, and it keeps {s['rate_floor']:,} for you. "
                  if budget else "")

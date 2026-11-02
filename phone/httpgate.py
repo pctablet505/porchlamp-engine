@@ -324,7 +324,10 @@ class Gate:
         self._lock = threading.Lock()
         self._budget: dict[str, dict[str, float]] = {}
         self._rates: dict[int, tuple[str, float]] = {}   # thread id -> (resource, resume epoch) of its rate wait
+        self._rates_since = 0.0                         # when the rate waits in progress began (the first of them)
         self.progress_ts: float = clock()
+        # Told once when the last of overlapping rate waits ends, with the seconds since the first began: one GitHub
+        # hold is one call, however many threads waited it out (RB5 follow-up 9).
         self.on_rate_wait_end: Callable[[str, float], object] | None = None
 
     # ---- logging ----------------------------------------------------------------------------------------------
@@ -578,6 +581,8 @@ class Gate:
         until = started + seconds
         me = threading.get_ident()
         with self._lock:
+            if not self._rates:
+                self._rates_since = started
             self._rates[me] = (resource, until)
         self.log(f"waiting {int(seconds)}s for the GitHub {resource} reset (remaining {remaining})")
         try:
@@ -593,8 +598,9 @@ class Gate:
         finally:
             with self._lock:
                 self._rates.pop(me, None)
-        if self.on_rate_wait_end is not None:
-            self.on_rate_wait_end(resource, self.clock() - started)
+                since = None if self._rates else self._rates_since
+        if since is not None and self.on_rate_wait_end is not None:
+            self.on_rate_wait_end(resource, self.clock() - since)
 
     def sleep(self, seconds: float) -> None:
         """A stop-aware sleep (used where the engine must not hold a stop back)."""

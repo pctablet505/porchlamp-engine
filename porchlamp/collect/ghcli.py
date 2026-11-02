@@ -511,6 +511,7 @@ class _Throttle:
         self._cond = threading.Condition()
         self.in_flight = 0
         self.hold_until = 0.0
+        self.hold_secondary = False                     # the hold in force was set by a secondary limit
         self.degraded_until = 0.0
         self.strikes: deque[float] = deque()            # secondary-limit signal times, the last PIN_WINDOW_S
         self.pin_strikes: deque[float] = deque()        # ... of them, those taken while several could be in flight
@@ -620,14 +621,14 @@ class _Throttle:
                     times.popleft()
             if sent_at < self._last_signal:
                 k = max(len(self.strikes), 1)
-                self.hold_until = max(self.hold_until, now + min(wait * 2 ** (k - 1), HOLD_MAX))
+                self._raise_hold(now + min(wait * 2 ** (k - 1), HOLD_MAX), secondary=True)
                 held, until = self.hold_until - now, self.hold_until
                 self._cond.notify_all()
                 return held, until
             self.strikes.append(now)
             self._last_signal = now
             k = len(self.strikes)
-            self.hold_until = max(self.hold_until, now + min(wait * 2 ** (k - 1), HOLD_MAX))
+            self._raise_hold(now + min(wait * 2 ** (k - 1), HOLD_MAX), secondary=True)
             degrade = min(DEGRADE_S * 2 ** (k - 1), DEGRADE_MAX)
             self.degraded_until = max(self.degraded_until, now + degrade)
             several = _inflight_setting() > 1
@@ -652,9 +653,15 @@ class _Throttle:
     def hold(self, seconds: float) -> float:
         """A primary-limit wait of ``seconds`` that every thread obeys (no strike); returns the hold's end."""
         with self._cond:
-            self.hold_until = max(self.hold_until, _now() + seconds)
+            self._raise_hold(_now() + seconds, secondary=False)
             self._cond.notify_all()
             return self.hold_until
+
+    def _raise_hold(self, until: float, secondary: bool) -> None:
+        """Hold every thread until ``until`` unless a hold in force lasts longer; the one that ends last names the
+        kind (:attr:`hold_secondary`). The caller holds ``_cond``."""
+        if until > self.hold_until:
+            self.hold_until, self.hold_secondary = until, secondary
 
     def clear_hold(self, until: float) -> None:
         """The thread that set the hold ending at ``until`` has waited it: lift it, unless a later one extended it."""
@@ -674,6 +681,13 @@ class _Throttle:
 
 
 _THROTTLE = _Throttle()
+
+
+def secondary_hold() -> bool:
+    """Whether a hold is in force and GitHub's secondary limit set it, not the hourly limit (the phone's status words
+    during a GitHub wait, RB5 follow-up 9)."""
+    throttle = _THROTTLE
+    return throttle.hold_secondary and throttle.hold_until > _now()
 
 
 def _secondary_messages(text: str) -> list[str]:

@@ -203,6 +203,11 @@ class Engine:
     def _pin_path(self) -> Path:
         return self.home / "state" / "refresh" / PIN_FILE
 
+    def secondary_hold(self) -> bool:
+        """A GitHub hold is in force and GitHub's secondary limit set it, not the hourly limit (the transport's own
+        record of its hold, for the status words)."""
+        return ghcli.secondary_hold()
+
     def pinned(self) -> bool:
         """The transport pinned one request at a time in this cycle (the pin file exists)."""
         return self._pin_path().is_file()

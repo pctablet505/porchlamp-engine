@@ -839,3 +839,31 @@ def test_inflight_env_follows_settings_and_pin_file(tmp_path, monkeypatch):
     assert not pin.exists() and r.eng.workers_for("L4") == 2
     r.eng.stop()
     assert ghcli.on_event is None                                          # a stopped engine hears no more events
+
+
+def test_one_hold_waited_by_three_threads_is_one_timeline_event(tmp_path):
+    """RB5 follow-up 9: three collector threads wait out one GitHub hold together (the thread that set it and two
+    that met it before sending). The timeline gets one "Waited" entry for the hold, timed from the first wait's start,
+    not one per thread; a later hold gets its own."""
+    r = Rig(tmp_path)
+    arrived = threading.Barrier(3, action=lambda: r.clock.advance(240), timeout=10)
+
+    def wait_with_the_others(_seconds: float) -> None:
+        arrived.wait()
+
+    def waiting() -> None:
+        r.eng.gate.rate_wait("graphql", 0, 240, wait_with_the_others)
+
+    def waited() -> list[str]:
+        return [e["text"] for e in r.eng.timeline.list(0, 50) if e["text"].startswith("Waited ")]
+
+    threads = [threading.Thread(target=waiting, daemon=True) for _ in range(3)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+    assert not any(thread.is_alive() for thread in threads)
+    assert waited() == ["Waited 4 minutes for GitHub's hourly limit, then carried on"]
+    r.eng.gate.rate_wait("core", 0, 120, lambda _s: r.clock.advance(120))
+    assert waited() == ["Waited 2 minutes for GitHub's hourly limit, then carried on",
+                        "Waited 4 minutes for GitHub's hourly limit, then carried on"]
