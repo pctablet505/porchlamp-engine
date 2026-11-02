@@ -181,7 +181,8 @@ when `defaultBranchRef.target.oid` moved since the last fetch. `dependents`,
 monthly, incremental (`Accept: application/vnd.github.star+json`, newest
 first, stop at the watermark).
 
-**D-COL-5 Author facts are global and cached.** `data/state/users/<login>.json`:
+**D-COL-5 Author facts are global and cached.** `data/state/users.sqlite` (WAL;
+the older `data/state/users/<login>.json` files stay readable and are imported):
 `createdAt` (immutable), `__typename`, public-event count (TTL 90 d),
 eligibility. A login is looked up **once across the whole universe**; a repo's
 `author_history` becomes a join of its PR ledger with the user cache. The

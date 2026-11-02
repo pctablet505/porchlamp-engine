@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import io
 import json
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -395,3 +396,62 @@ def test_pull_exit_3_when_the_phone_sends_more_than_the_manifest_says(tmp_path, 
         relay.close()
     assert proc.returncode == 3, (proc.returncode, proc.stderr)
     assert not (dest / "raw").exists() and not list((dest / "pull-tmp").glob("*.part"))
+
+
+# --- the user cache after a pull of L4 (rv-103) ------------------------------------------------------------------
+
+def _author_history(login: str, count: int = 12) -> bytes:
+    return json.dumps({"source": "github-graphql:author-history", "data": {"author_records": [
+        {"login": login, "account_created_at": "2018-01-01T00:00:00Z", "public_event_count": count,
+         "eligibility_unmeasured": False, "eligibility_observed_at": "2026-10-01T00:00:00+00:00"}]}}).encode()
+
+
+def _l4_home(tmp_path, members: dict) -> Path:
+    home = make_home(tmp_path / "home", layers=("L1",), files_per=1)
+    marker = home / "state" / "refresh" / "L4.complete"
+    marker.write_text(MARKER_TEXT + "\n", encoding="utf-8")
+    _plant_archive(home, "L4", members)
+    return home
+
+
+def test_pull_of_l4_fills_the_user_cache_and_leaves_raw_as_extracted(tmp_path, serving):
+    good = {"raw/author_history/acme__one.json": _author_history("alice")}
+    base, token_file = serving(_l4_home(tmp_path, good))
+    dest = tmp_path / "dest"
+    done = _pull(base, token_file, dest, "--layers", "L4")
+    assert done.returncode == 0, done.stderr
+    assert "user_cache: 1 logins from L4" in done.stdout
+    conn = sqlite3.connect(f"file:{dest / 'state' / 'users.sqlite'}?mode=ro&immutable=1", uri=True)
+    assert conn.execute("SELECT login, public_event_count FROM users").fetchall() == [("alice", 12)]
+    conn.close()
+    assert _raw_tree(dest) == good
+    assert (dest / "state" / "pulled" / "L4.sha256").is_file()
+    assert (dest / "state" / "refresh" / "L4.complete").is_file()
+
+
+def test_a_cache_failure_after_extraction_does_not_fail_the_pull_or_its_second_run(tmp_path, serving):
+    """The layer is pulled and marked. Before: exit 1, no marker, and the next run on the same day stops at exit 5
+    because the set-aside folder exists."""
+    good = {"raw/author_history/acme__one.json": _author_history("alice")}
+    base, token_file = serving(_l4_home(tmp_path, good))
+    dest = tmp_path / "dest"
+    (dest / "state").mkdir(parents=True)
+    (dest / "raw" / "author_history").mkdir(parents=True)  # something to set aside
+    (dest / "state" / "users.sqlite").mkdir()  # sqlite3 cannot open a folder: "unable to open database file"
+    first = _pull(base, token_file, dest, "--layers", "L4")
+    assert first.returncode == 0, first.stderr
+    assert "user_cache: not updated" in first.stdout
+    assert (dest / "state" / "pulled" / "L4.sha256").is_file()
+    second = _pull(base, token_file, dest, "--layers", "L4")
+    assert second.returncode == 0, second.stderr
+    assert "L4: unchanged" in second.stdout
+
+
+def test_a_malformed_envelope_does_not_fail_the_pull(tmp_path, serving):
+    members = {"raw/author_history/acme__bad.json": json.dumps({"data": {"author_records": 5}}).encode(),
+               "raw/author_history/acme__one.json": _author_history("alice")}
+    base, token_file = serving(_l4_home(tmp_path, members))
+    dest = tmp_path / "dest"
+    done = _pull(base, token_file, dest, "--layers", "L4")
+    assert done.returncode == 0, done.stderr
+    assert "user_cache: 1 logins from L4" in done.stdout
