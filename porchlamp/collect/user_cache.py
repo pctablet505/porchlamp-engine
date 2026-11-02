@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -71,6 +72,12 @@ class UserCache:
             "hits": 0, "misses": 0, "expired": 0, "unreadable": 0,
             "uncacheable": 0, "writes": 0,
         }
+        # D4: projects in flight on several threads share one cache; a count is a read-modify-write.
+        self._stats_lock = threading.Lock()
+
+    def _count(self, name: str) -> None:
+        with self._stats_lock:
+            self.stats[name] += 1
 
     def _path(self, login: str) -> Optional[Path]:
         if not _CACHEABLE_LOGIN.fullmatch(login):
@@ -87,15 +94,15 @@ class UserCache:
         """
         path = self._path(login)
         if path is None:
-            self.stats["uncacheable"] += 1
+            self._count("uncacheable")
             return None
         try:
             doc = json.loads(path.read_text())
         except FileNotFoundError:
-            self.stats["misses"] += 1
+            self._count("misses")
             return None
         except (OSError, ValueError):
-            self.stats["unreadable"] += 1
+            self._count("unreadable")
             return None
         observed = _parse_iso(doc.get("observed_at")) if isinstance(doc, dict) else None
         account = doc.get("account_created_at") if isinstance(doc, dict) else None
@@ -103,12 +110,12 @@ class UserCache:
         if (observed is None or not isinstance(account, str)
                 or isinstance(events, bool) or not isinstance(events, int)
                 or (doc.get("login") is not None and doc.get("login") != login)):
-            self.stats["unreadable"] += 1
+            self._count("unreadable")
             return None
         if observed > now or now - observed > self.ttl:
-            self.stats["expired"] += 1
+            self._count("expired")
             return None
-        self.stats["hits"] += 1
+        self._count("hits")
         return {"account_created_at": account, "public_event_count": events,
                 "observed_at": doc["observed_at"]}
 
@@ -116,7 +123,9 @@ class UserCache:
         """Store one measured record; returns whether it was written.
 
         Written atomically (temporary file, then ``os.replace``), so a
-        reader never sees half a record.
+        reader never sees half a record. The temporary name carries the
+        process and the thread (D4): two projects in flight that store the
+        same author each replace the record with a whole file of their own.
         """
         path = self._path(login)
         if path is None or record.get("eligibility_unmeasured"):
@@ -126,7 +135,7 @@ class UserCache:
         if not isinstance(account, str) or isinstance(events, bool) or not isinstance(events, int):
             return False
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         try:
             tmp.write_text(json.dumps({
                 "login": login, "typename": "User", "account_created_at": account,
@@ -137,7 +146,7 @@ class UserCache:
         except BaseException:
             tmp.unlink(missing_ok=True)
             raise
-        self.stats["writes"] += 1
+        self._count("writes")
         return True
 
     def summary(self) -> str:

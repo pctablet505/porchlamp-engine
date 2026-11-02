@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 import sys
 import types
@@ -531,3 +532,103 @@ def test_main_layers_keep_the_order_the_as_of_rule_needs():
     # The as_of rule (porchlamp.snapshot.asof) needs L2 and L3c right after L1 and L4 last: reordering moves the
     # releases/issues_counts anchors out of 14 days of the newest pull-request record.
     assert [layer for layer, _ in R.MAIN_LAYERS] == ["L1", "L0", "L2", "L3g", "L3c", "L4"]
+
+
+# ---- D4: projects side by side in the GitHub steps that may use it ----------------------------------------------
+def test_workers_flag_only_for_l4_l0_l3g_l3c(home, kw, logs):
+    """T20: with ``workers`` saying 3 for every step, only L0, L3g, L3c and L4 run gather with ``--workers 3`` (and
+    say so once); L1 (its heavy pages draw GitHub's limits one at a time), L2 (third-party hosts) and LK (pypistats'
+    5 calls a minute) never get the flag, nor does the repair after L1. At 1 no step gets it."""
+    argvs: dict[str, list[list[str]]] = {}
+
+    def gather(argv):
+        cols = "repair" if "--repair-replies" in argv else argv[3]
+        argvs.setdefault(cols, []).append(list(argv))
+        print("done: 1 clean, 0 with failures")
+        return 0
+
+    assert R.run_cycle(home, gather, workers=lambda layer: 3, **kw) == 0
+    flagged = {cols for cols, runs in argvs.items() if any("--workers" in argv for argv in runs)}
+    assert flagged == {L0, L4, "governance", "commits_365d,issues_counts"}
+    assert all(argv[-2:] == ["--workers", "3"] for cols in flagged for argv in argvs[cols])
+    assert {PR, "repair", L2, KEYLESS} <= set(argvs)
+    assert [line for line in logs if line.endswith("projects at once")] == [
+        "L0: 3 projects at once", "L3g: 3 projects at once", "L3c: 3 projects at once", "L4: 3 projects at once"]
+
+    other = home.parent / "other"
+    other.mkdir()
+    argvs.clear()
+    logs.clear()
+    assert R.run_cycle(other, gather, workers=lambda layer: 1, **kw) == 0
+    assert argvs and not any("--workers" in argv for runs in argvs.values() for argv in runs)
+    assert not any(line.endswith("projects at once") for line in logs)
+
+
+def test_a_new_cycle_retires_the_concurrency_pin(home, fkw):
+    """D4: a pin to one request at a time (``state/refresh/concurrency.pinned``) lasts one cycle: the next cycle's
+    start renames it into ``refresh-prev`` with the other markers, never deletes it."""
+    _mark(home, "MAIN.done")
+    _mark(home, "concurrency.pinned", "2026-09-20T10:00:00Z")
+    with pytest.raises(_Stop):
+        R.run_forever(home, Gather(lambda c, n: _Stop()), sleep=_raise_stop, **fkw)
+    assert not _ex(home, "concurrency.pinned")
+    assert (home / "state" / "refresh-prev" / "concurrency.pinned").read_text().strip() == "2026-09-20T10:00:00Z"
+
+
+def test_a_line_printed_while_another_is_logged_stays_in_the_tee(capsys):
+    """D4: worker threads print repo lines while the runner logs another. The tee used to swap ``sys.stdout`` for the
+    whole process while it logged a line, so a line another thread printed meanwhile went to the real stdout and
+    was never counted or logged."""
+    import threading
+    import time
+
+    logged: list[str] = []
+    in_log, printed = threading.Event(), threading.Event()
+
+    def slow_log(line: str) -> None:
+        logged.append(line)
+        if line == "first":
+            in_log.set()
+            printed.wait(5)
+            time.sleep(0.2)              # the other thread's print happens while this line is being logged
+
+    def second() -> None:
+        printed.set()
+        print("second")
+
+    tee = R._Tee(slow_log)
+    with contextlib.redirect_stdout(tee):
+        a = threading.Thread(target=print, args=("first",))
+        a.start()
+        assert in_log.wait(5)
+        b = threading.Thread(target=second)
+        b.start()
+        b.join(5)
+        a.join(5)
+    tee.finish()
+    assert sorted(logged) == ["first", "second"]
+    assert sorted(tee.text().splitlines()) == ["first", "second"]
+    assert "second" not in capsys.readouterr().out
+
+
+def test_inflight_env_is_the_layers_own(home, kw, monkeypatch):
+    """RB5 ruling 2: the GitHub transport's in-flight value is set per step before gather runs: the step's worker
+    count where it runs side by side (L0, L3g, L3c, L4), 1 everywhere else (L1, L2, LK and the repair). L1's
+    limits, taken one request at a time, then never count toward the pin."""
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "9")                 # put back after the test
+    seen: dict[str, list[str | None]] = {}
+
+    def gather(argv):
+        cols = "repair" if "--repair-replies" in argv else argv[3]
+        seen.setdefault(cols, []).append(R.os.environ.get("PORCHLAMP_GH_INFLIGHT"))
+        print("done: 1 clean, 0 with failures")
+        return 0
+
+    assert R.run_cycle(home, gather, workers=lambda layer: 3, **kw) == 0
+    assert seen == {PR: ["1"], "repair": ["1"], L0: ["3"], L2: ["1"], "governance": ["3"],
+                    "commits_365d,issues_counts": ["3"], L4: ["3"], KEYLESS: ["1"]}
+    monkeypatch.setenv("PORCHLAMP_GH_INFLIGHT", "9")
+    seen.clear()
+    (home / "state" / "refresh" / R.REPAIR_MARKER).unlink()
+    assert R.run_repair(home, gather, **kw) == 0
+    assert seen == {"repair": ["1"]}

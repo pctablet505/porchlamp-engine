@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import time
 import traceback
 from collections.abc import Iterable
@@ -69,6 +70,15 @@ LAYER_FLAGS: dict[str, tuple[str, ...]] = {
 
 #: Written when the repair after step 1 is done in this cycle (:func:`run_repair`).
 REPAIR_MARKER = "L1.repaired"
+
+#: D4 (rollout 2026-11-01): the setting that says how many projects a step fetches side by side (gather.py
+#: ``--workers``). Only these GitHub steps may: L1 stays at one (its heavy pages drew 15 of the phone's 16 limits one
+#: at a time), L2 until deps.dev's and ecosyste.ms's published limits are read, LK for good (pypistats allows about 5
+#: calls a minute per address). The repair after L1 always runs at one.
+#: ``porchlamp.collect.ghcli.INFLIGHT_ENV``: the requests in flight the GitHub transport allows; set per step.
+INFLIGHT_ENV = "PORCHLAMP_GH_INFLIGHT"
+WORKER_SETTING: dict[str, str] = {"L4": "l4_workers", "L0": "github_workers", "L3g": "github_workers",
+                                  "L3c": "github_workers"}
 
 PAGE = 25
 _DONE = re.compile(r"done: (\d+) clean, (\d+) with failures")
@@ -206,32 +216,46 @@ def apply_pagesize() -> None:
 
 
 class _Tee:
-    """Captures stdout for one gather run and logs each complete line as it arrives."""
+    """Captures stdout for one gather run and logs each complete line as it arrives.
+
+    Several gather worker threads write here at once (D4): writes and the log are serialized by one lock. While a line
+    is being logged, what the logging thread itself writes (``log=print``) goes to the real stdout, never back into the
+    tee; ``sys.stdout`` is no longer swapped for the whole process meanwhile, which sent another thread's line past
+    the tee."""
 
     def __init__(self, log: Callable[[str], object]) -> None:
         self._log = log
         self._out = sys.stdout  # the real stdout: log=print must not write back into this tee
         self._parts: list[str] = []
         self._partial = ""
+        self._lock = threading.Lock()
+        self._logging = threading.local()
 
     def _emit(self, line: str) -> None:
-        with contextlib.redirect_stdout(self._out):
+        self._logging.active = True
+        try:
             self._log(line)
+        finally:
+            self._logging.active = False
 
     def write(self, s: str) -> int:
-        self._parts.append(s)
-        *lines, self._partial = (self._partial + s).split("\n")
-        for line in lines:
-            self._emit(line)
+        if getattr(self._logging, "active", False):
+            return self._out.write(s)
+        with self._lock:
+            self._parts.append(s)
+            *lines, self._partial = (self._partial + s).split("\n")
+            for line in lines:
+                self._emit(line)
         return len(s)
 
     def flush(self) -> None:
         """No-op: print(flush=True) must not split a line in the log."""
 
     def finish(self) -> None:
-        if self._partial:
-            self._emit(self._partial)
-            self._partial = ""
+        with self._lock:
+            if self._partial:
+                self._emit(self._partial)
+                self._partial = ""
 
     def text(self) -> str:
         return "".join(self._parts)
@@ -312,8 +336,12 @@ def run_layer(
     now: Callable[[], float] = time.time,
     state: RunState | None = None,
     notify: Notify | None = None,
+    workers: int = 1,
 ) -> int:
     """Run one layer until a run has no failure, or two consecutive runs agree on the failure count.
+
+    ``workers`` above 1 runs gather with ``--workers`` (projects side by side, D4) when the layer is one of
+    :data:`WORKER_SETTING`'s; any other layer runs one project at a time whatever it says.
 
     A run with no failure ends the layer at once: every project has its record, so a second run would only check
     them all again. A run that checked nothing (``done: 0 clean``) is no proof, so it still needs a second run.
@@ -340,6 +368,12 @@ def run_layer(
             count_line(state, line)
         log(line)
 
+    side_by_side = ("--workers", str(workers)) if workers > 1 and layer in WORKER_SETTING else ()
+    # RB5 ruling 2: the GitHub transport's in-flight cap is this step's own (ghcli reads it on every request), so a
+    # step run one at a time never counts its limits toward the pin.
+    os.environ[INFLIGHT_ENV] = str(workers if side_by_side else 1)
+    if side_by_side:
+        log(f"{layer}: {workers} projects at once")
     prev: int | None = None
     for run in range(1, max_runs + 1):
         if state is not None:
@@ -353,7 +387,8 @@ def run_layer(
         tee = _Tee(counted)
         try:
             with contextlib.redirect_stdout(tee):  # type: ignore[arg-type]
-                gather_main(["--all", "--graphql-bulk", "--collectors", collectors, *LAYER_FLAGS.get(layer, ())])
+                gather_main(["--all", "--graphql-bulk", "--collectors", collectors, *LAYER_FLAGS.get(layer, ()),
+                             *side_by_side])
         except (Exception, SystemExit):
             tee.finish()
             log(f"{layer}: gatherer raised in run {run}")
@@ -413,6 +448,7 @@ def run_repair(
         log("L1: replies already repaired -- skipping")
         return 0
     layer = "L1"
+    os.environ[INFLIGHT_ENV] = "1"   # the repair runs one request at a time (RB5 ruling 2)
     if state is not None:
         state.layer, state.collectors, state.run, state.max_runs = layer, ("pr_window",), 0, max_runs
         state.checked = state.stopped = state.pruned = state.failed = state.total = 0
@@ -479,11 +515,14 @@ def run_cycle(
     layers: Callable[[], Iterable[str]] | None = None,
     state: RunState | None = None,
     notify: Notify | None = None,
+    workers: Callable[[str], int] | None = None,
 ) -> int:
     """MAIN_LAYERS in order, then KEYLESS_LAYER. 0 only if every selected layer completes.
 
     ``layers`` returns the owner's selection; it is read before each layer, so a change takes effect at the next
-    layer boundary. A layer that is not selected is skipped (its marker, if any, is left alone).
+    layer boundary. A layer that is not selected is skipped (its marker, if any, is left alone). ``workers(layer)``
+    says how many projects the layer fetches side by side (read before each layer; :func:`run_layer` honours it only
+    for :data:`WORKER_SETTING`'s layers); None is one at a time.
     """
     home = Path(home)
     kw = {
@@ -504,7 +543,7 @@ def run_cycle(
         if not selected(layer):
             log(f"{layer}: not selected -- skipping")
             continue
-        rc = run_layer(home, layer, cols, gather_main, **kw)
+        rc = run_layer(home, layer, cols, gather_main, workers=workers(layer) if workers else 1, **kw)
         if rc:
             log(f"cycle stopped at {layer} with rc {rc}")
             return rc
@@ -520,7 +559,7 @@ def run_cycle(
     if not selected(layer):
         log(f"{layer}: not selected -- skipping")
         return 0
-    return run_layer(home, layer, cols, gather_main, **kw)
+    return run_layer(home, layer, cols, gather_main, workers=workers(layer) if workers else 1, **kw)
 
 
 def _cycle_open(home: Path) -> Path:
@@ -552,12 +591,14 @@ def next_due(home: Path, every_days: float) -> float | None:
 
 
 def _retire_markers(home: Path, now: Callable[[], float], log: Callable[[str], object]) -> None:
-    """Rename (never delete) the markers of the previous cycle into state/refresh-prev/."""
+    """Rename (never delete) the markers of the previous cycle into state/refresh-prev/ (a D4 concurrency pin,
+    ``*.pinned``, lasts one cycle the same way)."""
     state = home / "state" / "refresh"
     prev = home / "state" / "refresh-prev"
     stamp = datetime.fromtimestamp(now(), timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     for p in sorted(state.glob("*")):
-        if not p.is_file() or not (p.suffix in (".complete", ".staged", ".repaired") or p.name == "MAIN.done"):
+        if not p.is_file() or not (p.suffix in (".complete", ".staged", ".repaired", ".pinned")
+                                   or p.name == "MAIN.done"):
             continue
         prev.mkdir(parents=True, exist_ok=True)
         target = prev / p.name
@@ -587,6 +628,7 @@ def run_forever(
     state: RunState | None = None,
     notify: Notify | None = None,
     ready: Callable[[], bool] | None = None,
+    workers: Callable[[str], int] | None = None,
 ) -> None:
     """Each pass: resume a cycle in progress (cycle.open), else start a new one when MAIN.done
     is missing or old, else say it is idle and sleep.
@@ -598,7 +640,7 @@ def run_forever(
     ``every_days`` and ``layers`` may be callables, read afresh on every pass, so the owner's settings apply
     without a restart. While idle the runner logs "Idle, next cycle due DATE" (at most once an hour).
     ``ready`` is asked before a cycle starts or resumes (never while idle): False means "the repo list is not here
-    yet", and the runner waits ``poll_s`` and asks again.
+    yet", and the runner waits ``poll_s`` and asks again. ``workers(layer)`` goes to :func:`run_cycle`.
     """
     home = Path(home)
     last_idle_log = -IDLE_LOG_EVERY_S
@@ -640,7 +682,8 @@ def run_forever(
             continue
         if state is not None:
             state.mode, state.idle_next_due = "running", None
-        rc = run_cycle(home, gather_main, log=log, now=now, layers=layers, state=state, notify=notify)
+        rc = run_cycle(home, gather_main, log=log, now=now, layers=layers, state=state, notify=notify,
+                       workers=workers)
         if state is not None:
             state.last_rc = rc
         if rc == 0:

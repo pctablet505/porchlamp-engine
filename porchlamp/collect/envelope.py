@@ -35,6 +35,7 @@ import enum
 import hashlib
 import json
 import os
+import threading
 from collections.abc import Mapping, Sequence, Set as AbstractSet
 from dataclasses import dataclass
 from pathlib import Path
@@ -252,8 +253,11 @@ def write_envelope(
     # complete new one, never a half-written file. Existence means "done"
     # everywhere in this codebase, so a torn file left in place would be treated
     # as a completed fetch forever. The temp file is removed if the write fails,
-    # so an interrupted write leaves no ".tmp-*" litter behind.
-    tmp = target.with_name(f"{target.name}.tmp-{os.getpid()}")
+    # so an interrupted write leaves no ".tmp-*" litter behind. The temp name
+    # carries the process and the thread (D4): two writers of one target (an old
+    # worker after a watchdog restart, and the new collector) each replace it
+    # with a complete file of their own instead of renaming each other's.
+    tmp = target.with_name(f"{target.name}.tmp-{os.getpid()}-{threading.get_ident()}")
     try:
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, target)

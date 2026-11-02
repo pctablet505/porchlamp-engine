@@ -142,3 +142,40 @@ def test_keyless_404_is_recorded_as_404(gather: ModuleType,
     assert path.is_file(), "the chosen policy is to record an authoritative 404"
     assert json.loads(path.read_text(encoding="utf-8"))["http_status"] == 404
     assert status["depsdev"] == "fail"
+
+
+def test_concurrent_writes_of_one_target_leave_one_complete_file(tmp_path: Path,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """T19 (D4): two writers of one envelope at once (an old worker after a watchdog restart finishing the project
+    the new collector also fetched). Each writes its own temporary file and replaces the target with it, so both
+    succeed and the target is one of the two envelopes, whole and matching its hash, with no temporary file left."""
+    import threading
+
+    barrier = threading.Barrier(2, timeout=10)
+    real_write_text = Path.write_text
+
+    def write_then_meet(self: Path, data: str, *args: object, **kwargs: object) -> int:
+        written = real_write_text(self, data, *args, **kwargs)
+        barrier.wait()                       # both temporary files are written before either is renamed
+        return written
+
+    monkeypatch.setattr(Path, "write_text", write_then_meet)
+    target = tmp_path / "author_history" / "o__r.json"
+    errors: list[BaseException] = []
+
+    def write(n: int) -> None:
+        try:
+            write_envelope(target, source="github-graphql:author-history", data={"n": n, "pad": "x" * 4096},
+                           fetched_at="2026-11-02T00:00:00+00:00")
+        except Exception as exc:  # the failure under test: collected, then asserted absent
+            errors.append(exc)
+
+    threads = [threading.Thread(target=write, args=(n,)) for n in (1, 2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(15)
+    assert errors == []
+    envelope = read_envelope(target)
+    assert envelope.data["n"] in (1, 2) and envelope.recorded_sha256 == envelope.computed_sha256
+    assert sorted(p.name for p in target.parent.iterdir()) == ["o__r.json"]

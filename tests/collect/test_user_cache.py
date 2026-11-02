@@ -123,3 +123,39 @@ def test_put_cleans_up_temp_file_on_replace_failure(tmp_path, monkeypatch):
         cache.put("octocat", MEASURED, NOW)
     assert list(tmp_path.iterdir()) == []
 
+
+
+def test_concurrent_puts_of_one_login_both_succeed(tmp_path, monkeypatch):
+    """T18 (D4): two projects in flight store the same author at once. Each thread writes its own temporary file,
+    so neither ``os.replace`` finds its file gone (with one name per process, the loser raised
+    ``FileNotFoundError`` and its whole project failed); the record left is one of the two, whole."""
+    import threading
+    from pathlib import Path
+
+    barrier = threading.Barrier(2, timeout=10)
+    real_write_text = Path.write_text
+
+    def write_then_meet(self, data, *args, **kwargs):
+        written = real_write_text(self, data, *args, **kwargs)
+        barrier.wait()                       # both temporary files are written before either is renamed
+        return written
+
+    monkeypatch.setattr(Path, "write_text", write_then_meet)
+    cache = UserCache(tmp_path)
+    results, errors = [], []
+
+    def put(events):
+        try:
+            results.append(cache.put("octocat", {**MEASURED, "public_event_count": events}, NOW))
+        except Exception as exc:  # the failure under test: collected, then asserted absent
+            errors.append(exc)
+
+    threads = [threading.Thread(target=put, args=(events,)) for events in (40, 41)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(15)
+    assert errors == [] and results == [True, True]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["octocat.json"]
+    assert json.loads((tmp_path / "octocat.json").read_text())["public_event_count"] in (40, 41)
+    assert cache.stats["writes"] == 2

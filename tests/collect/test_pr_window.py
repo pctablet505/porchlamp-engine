@@ -1612,7 +1612,7 @@ def test_collect_author_history_search_cap_marks_unsampled_authors(tmp_path):
     assert sorted(fake.searched_logins) == sorted(sampled)
     assert fake.search_batch_sizes == [25, 25, 1]   # the guard and 24 authors, 25, then the last one
     assert set(sampled) == set(gql._seeded_sample(sorted(recs), gql.AUTHOR_SEARCH_CAP))
-    assert fake.n_eligibility_batch_calls == 4  # ceil(60 / 15): every author, uncapped
+    assert fake.n_eligibility_batch_calls == -(-60 // gql.ELIGIBILITY_BATCH_SIZE)  # every author, uncapped
 
 
 def test_dr90_unaffected_by_search_cap(tmp_path):
@@ -2196,7 +2196,7 @@ def test_fetch_eligibility_batch_partial_batch_keeps_resolved_retries_only_error
     users["q13"] = None
     users["q14"] = None
     fake = W4Transport([], [], [], {}, users)
-    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake)
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, batch_size=15)  # a 15-wide batch, as written
     # fresh(15, 11 resolve) -> retry@5(4 unresolved: q11/q12 now resolve at
     # n=4<=10, q13/q14 stay null) -> retry@1(q13 alone, q14 alone).
     assert fake.eligibility_batch_sizes == [15, 4, 1, 1]
@@ -2224,7 +2224,7 @@ def test_fetch_eligibility_batch_deleted_account_confirmed_at_width_1():
     users = {login: good for login in logins}
     users["p07"] = None
     fake = W4Transport([], [], [], {}, users)
-    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake)
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, batch_size=15)  # a 15-wide batch, as written
     assert fake.eligibility_batch_sizes == [15, 1, 1]
     assert out["p07"] == {"account_created_at": None, "public_event_count": None,
                           "eligibility_unmeasured": True}
@@ -2272,18 +2272,20 @@ def test_fetch_eligibility_batch_resource_limited_halves_width_for_rest_of_run()
     assert all(not out[login]["eligibility_unmeasured"] for login in logins)
 
 
-def test_fetch_eligibility_batch_width_16_splits_15_plus_1():
-    """Fresh mutant (F2): ELIGIBILITY_BATCH_SIZE 15 vs 16 must be tellable
-    apart — 16 logins at width 15 split into batches of 15 then 1, not one
-    16-wide call (which is exactly what a 15->16 mutation would produce)."""
-    logins = [f"w{i:02d}" for i in range(16)]
+def test_fetch_eligibility_batch_width_9_splits_8_plus_1():
+    """Fresh mutant (F2): ELIGIBILITY_BATCH_SIZE 8 vs 9 must be tellable
+    apart — 9 logins at width 8 split into batches of 8 then 1, not one
+    9-wide call (which is exactly what an 8->9 mutation would produce).
+    D4 (2026-11-02): 8, not 15; a third of the 15-login batches hit GitHub's
+    10-second timeout."""
+    logins = [f"w{i:02d}" for i in range(9)]
     good = {"createdAt": "2015-01-01T00:00:00Z",
            "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}}
     users = {login: good for login in logins}
     fake = W4Transport([], [], [], {}, users)
     out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, batch_size=gql.ELIGIBILITY_BATCH_SIZE)
-    assert fake.eligibility_batch_sizes == [15, 1]
-    assert len(out) == 16
+    assert fake.eligibility_batch_sizes == [8, 1]
+    assert len(out) == 9
 
 
 def test_fetch_eligibility_batch_cost_accumulates_across_batches():
@@ -2302,7 +2304,7 @@ def test_fetch_eligibility_batch_cost_accumulates_across_batches():
     assert remaining == 480
 
 
-def test_fetch_eligibility_batch_width_15_resolves_every_alias():
+def test_fetch_eligibility_batch_width_8_resolves_every_alias():
     """At ELIGIBILITY_BATCH_SIZE width every alias resolves when the
     accounts in the batch stay within GitHub's resource budget."""
     logins = [f"e{i:02d}" for i in range(gql.ELIGIBILITY_BATCH_SIZE)]
@@ -2311,7 +2313,7 @@ def test_fetch_eligibility_batch_width_15_resolves_every_alias():
             for login in logins}
     fake = W4Transport([], [], [], {}, users)
     out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, gql.ELIGIBILITY_BATCH_SIZE)
-    assert fake.eligibility_batch_sizes == [15]
+    assert fake.eligibility_batch_sizes == [8]
     assert all(not out[login]["eligibility_unmeasured"] for login in logins)
     assert all(out[login]["account_created_at"] == "2015-01-01T00:00:00Z" for login in logins)
     assert cost == 1
@@ -4005,3 +4007,83 @@ def test_cut_pr_per_measure_guards_withhold_unsettled_4_3_4_1_gr14_and_ttfhr():
     assert gates.zero_response_counts(gr_records, NOW) == (0, 1)
     assert gates.zero_response_counts(gate_evidence._ghost_rate_prs_from_nodes(prs), NOW) == (0, 1)
 
+
+
+# ---- D4: 8-login eligibility batches; a login's record depends only on its own alias ----------------------------
+def _mixed_eligibility_users(n: int = 21) -> tuple[list[str], dict]:
+    """``n`` logins: most resolve (each with its own values), every 7th from the 4th is a deleted account (null at
+    every width), every 7th from the 6th is over GitHub's resource budget in a batch of more than 5."""
+    logins = [f"m{i:02d}" for i in range(n)]
+    users: dict = {}
+    for i, login in enumerate(logins):
+        doc = {"createdAt": f"20{10 + i % 10}-0{1 + i % 9}-01T00:00:00Z",
+               "contributionsCollection": {"contributionCalendar": {"totalContributions": 10 * i + 1}}}
+        users[login] = None if i % 7 == 3 else ResolvesBelowWidth(5, doc) if i % 7 == 5 else doc
+    return logins, users
+
+
+def test_eligibility_records_do_not_depend_on_the_batch_width():
+    """D4 value invariance of ELIGIBILITY_BATCH_SIZE 15 -> 8: each login's record is read from its own alias only
+    (``u{i}`` paired with ``l{i}``), and an alias a batch left null is read again narrower, so the same logins give
+    the same records at any width; only the number of calls (and their points) differs."""
+    logins, users = _mixed_eligibility_users()
+    outs, calls = {}, {}
+    for width in (1, 5, 8, 15, 21):
+        fake = W4Transport([], [], [], {}, users)
+        outs[width], _cost, _remaining = gql._fetch_eligibility_batch(logins, fake, batch_size=width)
+        calls[width] = len(fake.eligibility_batch_sizes)
+    assert all(out == outs[1] for out in outs.values())
+    assert len(outs[8]) == 21
+    assert sorted(login for login, r in outs[8].items() if r["eligibility_unmeasured"]) == ["m03", "m10", "m17"]
+    assert outs[8]["m05"]["public_event_count"] == 51
+    assert outs[8]["m20"]["account_created_at"] == "2010-03-01T00:00:00Z"
+    assert len(set(calls.values())) > 1                        # the widths really differ in their calls
+
+
+def test_author_history_records_are_the_same_at_eligibility_batches_of_8_and_15(tmp_path, monkeypatch):
+    """D4: the whole collector at the old and the new batch size writes the same author records (20 decision-cohort
+    authors: 15 + 5 calls before, 8 + 8 + 4 now)."""
+    authors = [f"a{i:02d}" for i in range(20)]
+    prs = [w4_days(100 + i, 150, login, closed_after=5) for i, login in enumerate(authors)]
+    users = {login: {"createdAt": f"20{10 + i % 10}-0{1 + i % 9}-01T00:00:00Z",       # each author its own values
+                     "contributionsCollection": {"contributionCalendar": {"totalContributions": 7 * i + 3}}}
+             for i, login in enumerate(authors)}
+    records, sizes = {}, {}
+    for width in (15, 8):
+        monkeypatch.setattr(gql, "ELIGIBILITY_BATCH_SIZE", width)
+        fake = W4Transport([_w4_page(prs, False)], [3], [4990], {login: {"nodes": []} for login in authors}, users)
+        raw = tmp_path / f"width{width}" / "raw"
+        assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+        records[width] = read_envelope(raw / "author_history" / f"{KEY}.json").data["author_records"]
+        sizes[width] = fake.eligibility_batch_sizes
+    assert sizes == {15: [15, 5], 8: [8, 8, 4]}
+    assert len(records[8]) == 20 and records[8] == records[15]
+    assert {r["login"]: r["public_event_count"] for r in records[8]} == {a: 7 * i + 3 for i, a in enumerate(authors)}
+
+
+def test_a_network_wait_ends_at_a_stop():
+    """D4: the wait before a page or batch is read again after a network failure (up to 300 s) is stop-aware, so a
+    stop or a watchdog restart reaches a worker thread inside it within a second, not after the wait."""
+    import threading
+    import time
+
+    from phone import httpgate
+    from tests.helpers.gate import installed, loopback_gate
+
+    outcome: list[str] = []
+
+    def wait() -> None:
+        try:
+            gql._wait(60)
+            outcome.append("waited")
+        except httpgate.Stopped:
+            outcome.append("stopped")
+
+    with installed(loopback_gate()) as gate:
+        worker = threading.Thread(target=wait, daemon=True)
+        began = time.monotonic()
+        worker.start()
+        time.sleep(0.2)
+        gate.stop()
+        worker.join(3)
+    assert outcome == ["stopped"] and time.monotonic() - began < 2.5

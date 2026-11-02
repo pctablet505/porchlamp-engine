@@ -12,7 +12,8 @@ import pytest
 from phone import httpgate, runner
 
 ENV_NAMES = ("GH_TOKEN", "GITHUB_TOKEN", "PORCHLAMP_GH", "PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API",
-             "PORCHLAMP_RATE_FLOOR", "PORCHLAMP_ENGINE", "PORCHLAMP_DATA_ROOT")
+             "PORCHLAMP_RATE_FLOOR", "PORCHLAMP_ENGINE", "PORCHLAMP_DATA_ROOT",
+             "PORCHLAMP_GH_INFLIGHT", "PORCHLAMP_GH_PPM")   # D4: the engine sets the GitHub throttle's settings
 
 
 @pytest.fixture

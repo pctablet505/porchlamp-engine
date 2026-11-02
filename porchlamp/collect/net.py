@@ -34,3 +34,24 @@ def rate_wait(resource: str, remaining: int, seconds: float,
         _gate.rate_wait(resource, remaining, seconds, sleep)
     else:
         (sleep or time.sleep)(seconds)
+
+
+def binding() -> Any:
+    """This thread's cancel binding (the event that stops its requests), to hand to a worker thread; None without a
+    gate or when the thread has none."""
+    return _gate.binding() if _gate is not None else None
+
+
+def bind(event: Any) -> None:
+    """Adopt ``event`` (from :func:`binding` in the thread that starts this one) as this thread's cancel binding, so a
+    stop or a watchdog restart of the collector reaches this worker at its next request or wait."""
+    if _gate is not None:
+        _gate.bind(event)
+
+
+def sleep(seconds: float) -> None:
+    """Sleep ``seconds``; through the gate a stop (or this thread's cancel binding) ends it within a second."""
+    if _gate is not None:
+        _gate.sleep(seconds)
+    else:
+        time.sleep(seconds)

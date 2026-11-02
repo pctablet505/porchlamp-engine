@@ -11,6 +11,12 @@ lies in the future, the transport sleeps until that reset.
 Only ``https://api.github.com`` ever receives the Authorization header. ``PORCHLAMP_GH_API`` is a test hook: it is
 honoured only together with ``PORCHLAMP_ALLOW_TEST_API=1`` and only for a loopback host, and the header is not sent to
 it. Redirects are never followed by urllib: a same-origin one is followed here (3 hops at most), any other is refused.
+
+The HTTPS transport is also the one throttle of the process (D4): at most ``PORCHLAMP_GH_INFLIGHT`` requests in flight
+(1-3, default 1), GraphQL paced to ``PORCHLAMP_GH_PPM`` points a minute, and every thread held when GitHub signals a
+limit: a 429, a 403 with ``retry-after`` or a secondary-limit message, or a GraphQL 200 whose error names one. After a
+signal, or six 502/504 answers in five minutes, it sends one request at a time for a while; the third signal in a day
+taken while several requests may be in flight pins it there for the process (requests refused together count once).
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -49,6 +56,43 @@ REDIRECT_CODES = (301, 302, 307, 308)
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 #: The only origin that is sent the Authorization header.
 AUTH_BASE = DEFAULT_BASE
+
+# D4 (rollout 2026-11-01, D4-concurrency.md): the throttle's settings. Transport constants, not scored definitions:
+# ``porchlamp/core/constants.py`` and its hash are untouched.
+#: Environment variable: GitHub requests this process keeps in flight at most, read on every request and clamped to
+#: 1..INFLIGHT_MAX; unset or not a number means 1. The phone sets it from its worker settings.
+INFLIGHT_ENV = "PORCHLAMP_GH_INFLIGHT"
+#: The most requests in flight ever allowed: what this account sustained for 8.8 h on 2026-10-10/11, 3% of GitHub's
+#: documented cap of 100 concurrent requests.
+INFLIGHT_MAX = 3
+#: Environment variable: GraphQL points the last 60 s may have spent before the next GraphQL request waits; unset or
+#: 0 means no pacing. The phone sets 70 (4,200 an hour, under the account's busiest measured hour of 4,908).
+PPM_ENV = "PORCHLAMP_GH_PPM"
+#: The window of the points pacing, seconds.
+PPM_WINDOW_S = 60
+#: GitHub's GraphQL page: after a secondary limit without ``retry-after``, "wait for at least one minute".
+SECONDARY_MIN_WAIT = 60
+#: The longest hold: a wait doubles with each signal in 24 h, up to an hour.
+HOLD_MAX = 3600
+#: After a signal (or a storm of timeouts), one request at a time for 30 minutes...
+DEGRADE_S = 1800
+#: ... doubling with each signal in 24 h, up to 4 hours.
+DEGRADE_MAX = 14400
+#: Six GitHub 502/504 answers within five minutes are a storm: one request at a time for DEGRADE_S, with no hold.
+#: The phone saw 7 in 5 minutes before its 2026-10-30 limit; one at a time it averaged 43 an hour.
+STORM_COUNT = 6
+STORM_WINDOW_S = 300
+#: The third signal within 24 h, while more than one request may be in flight, pins one at a time for the process.
+PIN_STRIKES = 3
+PIN_WINDOW_S = 86400
+#: How often the throttle tells its own rate ("GitHub, last hour: ...").
+REPORT_EVERY_S = 3600
+#: How long a thread waiting for a free slot sleeps before it looks again (a release wakes it at once).
+SLOT_WAIT_S = 1.0
+#: ``on_event(level, text)``, set by the phone engine: ``"log"`` is a log line (the hourly rate, a storm, the way back),
+#: ``"warn"`` a hold for a secondary limit, ``"err"`` the pin. Every text also goes to stderr.
+on_event: Callable[[str, str], object] | None = None
+_SECONDARY = re.compile(r"secondary rate limit|abuse", re.IGNORECASE)
 
 
 class _Limit(NamedTuple):
@@ -417,12 +461,263 @@ def _record(headers: Any, default: str, token_idx: int | None = None) -> None:
         return
 
 
-def _pause(resource: str, remaining: int, seconds: float, token_idx: int | None = None) -> None:
-    wait = max(MIN_WAIT, seconds)
-    sys.stderr.write(
-        f"ghcli: waiting {math.ceil(wait)}s for the {resource} reset "
-        f"(remaining {remaining})\n"
-    )
+def _emit(level: str, text: str) -> None:
+    """Tell a throttle event: always on stderr, and to ``on_event`` when the engine set one. No header, URL or token
+    is ever part of ``text``."""
+    sys.stderr.write(f"ghcli: {text}\n")
+    callback = on_event
+    if callback is not None:
+        with contextlib.suppress(Exception):  # review-ok: a failing log callback must not fail the request it reports
+            callback(level, text)
+
+
+def _inflight_setting() -> int:
+    """``PORCHLAMP_GH_INFLIGHT`` clamped to 1..INFLIGHT_MAX; unset or not a number is 1."""
+    try:
+        wanted = int(os.environ.get(INFLIGHT_ENV, "1"))
+    except ValueError:
+        return 1
+    return min(max(wanted, 1), INFLIGHT_MAX)
+
+
+def _ppm_setting() -> int:
+    """``PORCHLAMP_GH_PPM``; unset, not a number, or under 1 is 0 (no pacing)."""
+    try:
+        return max(int(os.environ.get(PPM_ENV, "0")), 0)
+    except ValueError:
+        return 0
+
+
+def _sleep_for(seconds: float) -> None:
+    """A stop-aware sleep (through the gate when there is one); a test's recording ``_sleep`` replaces it."""
+    if _sleep is not None:
+        _sleep(seconds)
+    else:
+        net.sleep(seconds)
+
+
+class _Throttle:
+    """The process-wide GitHub throttle (D4). One ``Condition`` guards every field.
+
+    ``acquire`` before a request and ``release`` after it; ``signal`` on a secondary limit, ``hold`` on a primary one.
+    A hold stops every thread before it sends, the one that set it included (RB5: a call that gave up after its last
+    retry leaves its hold for its own next call too). The thread that set a hold waits it in its retry path and
+    clears it afterwards, unless a later hold extended it. A thread waiting in ``acquire`` serves a hold once: it
+    goes on when the hold it waited for is still the hold in force, so a clock that does not move cannot make it
+    wait forever.
+    """
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self.in_flight = 0
+        self.hold_until = 0.0
+        self.degraded_until = 0.0
+        self.strikes: deque[float] = deque()            # secondary-limit signal times, the last PIN_WINDOW_S
+        self.pin_strikes: deque[float] = deque()        # ... of them, those taken while several could be in flight
+        self._last_signal = float("-inf")               # when the last signal (a new GitHub event) came
+        self.fivexx: deque[float] = deque()             # GitHub 502/504 times, the last STORM_WINDOW_S
+        self.points: deque[tuple[float, int]] = deque()  # GraphQL (time, cost), the last PPM_WINDOW_S
+        self.pinned = False
+        self._limited = False                           # one at a time because of a signal or a storm
+        self._hour_start: float | None = None
+        self._hour_requests = 0
+        self._hour_points = 0
+        self._hour_most = 0
+
+    def cap(self, now: float | None = None) -> int:
+        """Requests allowed in flight now: 1 while pinned or after a signal or a storm, else the setting."""
+        now = _now() if now is None else now
+        if self.pinned or now < self.degraded_until:
+            return 1
+        return _inflight_setting()
+
+    def acquire(self, is_graphql: bool) -> None:
+        """Wait while another thread's hold is in force, while the requests in flight fill the cap, and (GraphQL)
+        while the last minute's points reach ``PORCHLAMP_GH_PPM``; then count this request in flight."""
+        served = 0.0
+        while True:
+            hold_wait = pace_wait = 0.0
+            admitted = False
+            told: list[tuple[str, str]] = []
+            with self._cond:
+                now = _now()
+                hold = self.hold_until
+                if hold > now and hold > served:
+                    hold_wait = hold - now
+                else:
+                    cap = self.cap(now)
+                    if self._limited and cap > 1:
+                        self._limited = False
+                        told.append(("log", f"back to {cap} requests at once"))
+                    if self.in_flight >= cap:
+                        self._cond.wait(SLOT_WAIT_S)  # a release wakes it; then every rule is read again
+                    else:
+                        ppm = _ppm_setting() if is_graphql else 0
+                        if ppm:
+                            while self.points and self.points[0][0] <= now - PPM_WINDOW_S:
+                                self.points.popleft()
+                            if sum(cost for _, cost in self.points) >= ppm:
+                                pace_wait = self.points[0][0] + PPM_WINDOW_S - now
+                        if not pace_wait:
+                            self.in_flight += 1
+                            self._hour_most = max(self._hour_most, self.in_flight)
+                            admitted = True
+            for level, text in told:
+                _emit(level, text)
+            if admitted:
+                return
+            if hold_wait:
+                net.rate_wait("graphql" if is_graphql else "core", 0, hold_wait, _sleep)
+                served = hold
+            elif pace_wait:
+                _sleep_for(pace_wait)
+
+    def release(self, status: int, points: int) -> None:
+        """One request ended with ``status`` (0: no answer) and cost ``points`` GraphQL points."""
+        told: list[tuple[str, str]] = []
+        with self._cond:
+            now = _now()
+            self.in_flight -= 1
+            if status in (502, 504):
+                self.fivexx.append(now)
+                while self.fivexx and self.fivexx[0] <= now - STORM_WINDOW_S:
+                    self.fivexx.popleft()
+                if len(self.fivexx) >= STORM_COUNT:
+                    self.fivexx.clear()
+                    self.degraded_until = max(self.degraded_until, now + DEGRADE_S)
+                    if _inflight_setting() > 1 and not self.pinned:
+                        self._limited = True
+                        told.append(("log", f"{STORM_COUNT} GitHub timeouts in {STORM_WINDOW_S // 60} min: "
+                                            f"one request at a time for {DEGRADE_S // 60} min"))
+            if points:
+                self.points.append((now, points))
+            if self._hour_start is None:
+                self._hour_start = now
+            self._hour_requests += 1
+            self._hour_points += points
+            if now - self._hour_start >= REPORT_EVERY_S:
+                told.append(("log", f"GitHub, last hour: {self._hour_requests} requests, {self._hour_points} points, "
+                                    f"at most {self._hour_most} at once"))
+                self._hour_start, self._hour_requests, self._hour_points = now, 0, 0
+                self._hour_most = self.in_flight
+            self._cond.notify_all()
+        for level, text in told:
+            _emit(level, text)
+
+    def signal(self, wait: float, why: str, sent_at: float) -> tuple[float, float]:
+        """A secondary limit (``why`` names the answer) to a request sent at ``sent_at``. The k-th within 24 h holds
+        every thread for ``min(wait * 2**(k-1), HOLD_MAX)`` and sends one request at a time for ``min(DEGRADE_S *
+        2**(k-1), DEGRADE_MAX)``. A request sent before the last signal came was refused by that same GitHub event
+        (RB5: requests in flight refused together): it extends the hold, with no new strike and no new event. Only
+        strikes taken while more than one request may be in flight count toward the pin: the PIN_STRIKES-th of them
+        within 24 h pins one at a time. Returns ``(seconds to wait, the hold's end)``: the calling thread waits them
+        itself, then calls :meth:`clear_hold`."""
+        told: list[tuple[str, str]] = []
+        with self._cond:
+            now = _now()
+            for times in (self.strikes, self.pin_strikes):
+                while times and times[0] <= now - PIN_WINDOW_S:
+                    times.popleft()
+            if sent_at < self._last_signal:
+                k = max(len(self.strikes), 1)
+                self.hold_until = max(self.hold_until, now + min(wait * 2 ** (k - 1), HOLD_MAX))
+                held, until = self.hold_until - now, self.hold_until
+                self._cond.notify_all()
+                return held, until
+            self.strikes.append(now)
+            self._last_signal = now
+            k = len(self.strikes)
+            self.hold_until = max(self.hold_until, now + min(wait * 2 ** (k - 1), HOLD_MAX))
+            degrade = min(DEGRADE_S * 2 ** (k - 1), DEGRADE_MAX)
+            self.degraded_until = max(self.degraded_until, now + degrade)
+            several = _inflight_setting() > 1
+            if several:
+                self.pin_strikes.append(now)
+            if several and not self.pinned:
+                self._limited = True
+            held = self.hold_until - now
+            told.append(("warn", f"GitHub secondary limit ({why}): every request waits {math.ceil(held)} s"
+                                 + (f", then one at a time for {degrade // 60} min" if several and not self.pinned
+                                    else "")))
+            if len(self.pin_strikes) >= PIN_STRIKES and not self.pinned:
+                self.pinned = True
+                told.append(("err", f"{len(self.pin_strikes)} GitHub secondary limits in 24 h with several requests "
+                                    "in flight: one request at a time from now on"))
+            until = self.hold_until
+            self._cond.notify_all()
+        for level, text in told:
+            _emit(level, text)
+        return held, until
+
+    def hold(self, seconds: float) -> float:
+        """A primary-limit wait of ``seconds`` that every thread obeys (no strike); returns the hold's end."""
+        with self._cond:
+            self.hold_until = max(self.hold_until, _now() + seconds)
+            self._cond.notify_all()
+            return self.hold_until
+
+    def clear_hold(self, until: float) -> None:
+        """The thread that set the hold ending at ``until`` has waited it: lift it, unless a later one extended it."""
+        with self._cond:
+            if self.hold_until == until:
+                self.hold_until = 0.0
+            self._cond.notify_all()
+
+
+_THROTTLE = _Throttle()
+
+
+def _secondary_messages(text: str) -> list[str]:
+    """The top-level ``message`` and every ``errors[].message`` of a JSON body."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    found = [data["message"]] if isinstance(data.get("message"), str) else []
+    errors = data.get("errors")
+    for error in errors if isinstance(errors, list) else []:
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            found.append(error["message"])
+    return found
+
+
+def _secondary_signal(status: int, headers: Any, text: str, is_graphql: bool) -> bool:
+    """Whether an answer is GitHub's secondary limit: any 429; a 403 with ``retry-after`` or a message naming a
+    secondary limit or abuse; a GraphQL 200 whose error names one. A primary limit (a 403 with no calls left and
+    neither of those) is not: :func:`_pause` waits for its reset."""
+    if status == 429:
+        return True
+    if status == 403:
+        if _header(headers, "retry-after") is not None:
+            return True
+    elif not (status == 200 and is_graphql):
+        return False
+    return any(_SECONDARY.search(message) for message in _secondary_messages(text))
+
+
+def _signal_wait(headers: Any) -> tuple[float, str]:
+    """``(seconds, why)`` for a secondary limit, as GitHub's GraphQL page says: ``retry-after`` (at least a minute);
+    else, with no calls left, the reset; else a minute."""
+    retry_after = _header(headers, "retry-after")
+    if retry_after is not None:
+        try:
+            seconds = float(retry_after)
+        except ValueError:
+            return SECONDARY_MIN_WAIT, "retry-after unreadable"   # the header's text is never echoed into a log
+        return max(seconds, SECONDARY_MIN_WAIT), f"retry-after {seconds:g} s"
+    reset = _header(headers, "x-ratelimit-reset")
+    if _header(headers, "x-ratelimit-remaining") == "0" and reset is not None:
+        try:
+            return max(MIN_WAIT, max(0.0, float(reset) - _now()) + RESET_PAD), "no calls left"
+        except ValueError:
+            pass
+    return SECONDARY_MIN_WAIT, "no retry-after"
+
+
+def _forget_budget(resource: str, token_idx: int | None) -> None:
+    """Drop the recorded budget of ``resource`` (the wait about to be served covers it)."""
     if token_idx is not None:
         if token_idx in _TOKEN_LIMITS:
             _TOKEN_LIMITS[token_idx].pop(resource, None)
@@ -431,7 +726,21 @@ def _pause(resource: str, remaining: int, seconds: float, token_idx: int | None 
         _LIMITS.pop(resource, None)
         for t_limits in _TOKEN_LIMITS.values():
             t_limits.pop(resource, None)
-    net.rate_wait(resource, remaining, wait, _sleep)
+
+
+def _pause(resource: str, remaining: int, seconds: float, token_idx: int | None = None) -> None:
+    wait = max(MIN_WAIT, seconds)
+    sys.stderr.write(
+        f"ghcli: waiting {math.ceil(wait)}s for the {resource} reset "
+        f"(remaining {remaining})\n"
+    )
+    _forget_budget(resource, token_idx)
+    throttle = _THROTTLE
+    until = throttle.hold(wait)  # every thread waits for the reset, not only this one
+    # RB5 S2: the hold in force may be another thread's longer secondary hold; wait until its end, or the clear
+    # below would lift it early.
+    net.rate_wait(resource, remaining, max(wait, until - _now()), _sleep)
+    throttle.clear_hold(until)
 
 
 def _gate(resource: str, token_idx: int | None = None) -> None:
@@ -730,23 +1039,40 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
             headers["If-None-Match"] = cached_entry[0]
 
         _gate(resource, token_idx)
+        throttle = _THROTTLE
+        throttle.acquire(is_graphql)
+        sent_at = _now()
+        answered = graphql_points = 0
         t0 = time.perf_counter()
         try:
-            status, resp_headers, text = _send_following(method, url, base, body, headers, timeout, args)
-        except (_Transport, subprocess.TimeoutExpired):
+            try:
+                status, resp_headers, text = _send_following(method, url, base, body, headers, timeout, args)
+            except (_Transport, subprocess.TimeoutExpired):
+                duration_ms = (time.perf_counter() - t0) * 1000.0
+                cost.record_call(
+                    endpoint=norm_endpoint,
+                    method=method,
+                    status=0,
+                    status_304=False,
+                    graphql_points=0,
+                    bytes_in=0,
+                    duration_ms=duration_ms,
+                )
+                raise
+            answered = status
             duration_ms = (time.perf_counter() - t0) * 1000.0
-            cost.record_call(
-                endpoint=norm_endpoint,
-                method=method,
-                status=0,
-                status_304=False,
-                graphql_points=0,
-                bytes_in=0,
-                duration_ms=duration_ms,
-            )
-            raise
-
-        duration_ms = (time.perf_counter() - t0) * 1000.0
+            if is_graphql and status == 200:
+                graphql_points = 1
+                try:
+                    payload = json.loads(text)
+                    if isinstance(payload, dict):
+                        rl = payload.get("data", {}).get("rateLimit")
+                        if isinstance(rl, dict) and isinstance(rl.get("cost"), int):
+                            graphql_points = rl["cost"]
+                except Exception:
+                    pass
+        finally:
+            throttle.release(answered, graphql_points)
 
         if status == 304 and is_get and cached_entry is not None:
             _record(resp_headers, resource, token_idx)
@@ -762,18 +1088,6 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
             return _result(args, is_graphql, 200, cached_entry[2])
 
         _record(resp_headers, resource, token_idx)
-
-        graphql_points = 0
-        if is_graphql and status == 200:
-            graphql_points = 1
-            try:
-                payload = json.loads(text)
-                if isinstance(payload, dict):
-                    rl = payload.get("data", {}).get("rateLimit")
-                    if isinstance(rl, dict) and isinstance(rl.get("cost"), int):
-                        graphql_points = rl["cost"]
-            except Exception:
-                pass
 
         bytes_in = len(text.encode("utf-8"))
         cost.record_call(
@@ -794,6 +1108,19 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
                     headers_dict[k.lower()] = v
                 _etag_put(url, etag_val, headers_dict, text)
 
+        if _secondary_signal(status, resp_headers, text, is_graphql):
+            # D4: every thread holds, this one waits the hold and retries (at most MAX_RETRIES times, as before).
+            seconds, reason = _signal_wait(resp_headers)
+            held, until = throttle.signal(seconds, f"HTTP {status}, {reason}", sent_at)
+            if attempts < MAX_RETRIES:
+                attempts += 1
+                key = _header(resp_headers, "x-ratelimit-resource") or resource
+                remaining = _header(resp_headers, "x-ratelimit-remaining") or "0"
+                _forget_budget(key, token_idx)
+                net.rate_wait(key, int(remaining) if remaining.isdigit() else 0, held, _sleep)
+                throttle.clear_hold(until)
+                continue
+            return _result(args, is_graphql, status, text)
         if status in (403, 429) and attempts < MAX_RETRIES and _limited(resp_headers):
             attempts += 1
             key = _header(resp_headers, "x-ratelimit-resource") or resource

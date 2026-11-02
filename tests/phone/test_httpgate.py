@@ -587,3 +587,79 @@ def test_upload_scope_pins_every_drop_box_route_to_the_methods_it_needs(tmp_path
         with pytest.raises(HostRefused):
             rig.gate.urlopen(urllib.request.Request(server.url + path, data=body, method=method), 5, scope="upload")
     assert server.count == reached
+
+
+# ---- D4: several collector threads share one gate ----------------------------------------------------------------
+def test_rate_state_survives_overlapping_waits(tmp_path):
+    """T8: two threads wait for GitHub at once. When the shorter wait ends, the other is still a wait in progress
+    (the engine's watchdog must not take the collector for stuck), and the state names the wait that ends last."""
+    clock = [1000.0]
+    rig = Rig(tmp_path, clock=lambda: clock[0])
+    release = {"graphql": threading.Event(), "core": threading.Event()}
+    started = {"graphql": threading.Event(), "core": threading.Event()}
+
+    def waiting(resource: str, seconds: float) -> None:
+        def sleep(_s: float) -> None:
+            started[resource].set()
+            release[resource].wait(10)
+        rig.gate.rate_wait(resource, 0, seconds, sleep)
+
+    long = threading.Thread(target=waiting, args=("graphql", 600), daemon=True)
+    short = threading.Thread(target=waiting, args=("core", 300), daemon=True)
+    long.start()
+    assert started["graphql"].wait(5)
+    short.start()
+    assert started["core"].wait(5)
+    assert rig.gate.rate_state() == ("graphql", 1600.0)
+    release["core"].set()
+    short.join(5)
+    assert not short.is_alive()
+    assert rig.gate.rate_state() == ("graphql", 1600.0)
+    release["graphql"].set()
+    long.join(5)
+    assert rig.gate.rate_state() is None
+
+
+def test_cancel_binding_is_adopted_by_another_thread(tmp_path):
+    """T9: a worker thread that adopts the caller's cancel binding stops when the caller's collector is cancelled
+    (a watchdog restart), at its next request or inside a wait, through the engine's gate and through ``net``."""
+    from porchlamp.collect import net
+
+    rig = Rig(tmp_path)
+    cancel = threading.Event()
+    old = httpgate.install(rig.gate)
+    try:
+        rig.gate.bind_cancel(cancel)
+        binding = httpgate.binding()
+        assert binding is cancel and net.binding() is cancel
+        outcome: list[str] = []
+        adopted = threading.Event()
+
+        def worker(adopt) -> None:
+            adopt(binding)
+            adopted.set()
+            try:
+                net.sleep(5)
+                outcome.append("slept")
+            except Stopped:
+                outcome.append("stopped")
+
+        for adopt in (httpgate.bind, net.bind):
+            outcome.clear()
+            adopted.clear()
+            cancel.clear()
+            t = threading.Thread(target=worker, args=(adopt,), daemon=True)
+            began = time.monotonic()
+            t.start()
+            assert adopted.wait(5)
+            cancel.set()
+            t.join(5)
+            assert outcome == ["stopped"] and time.monotonic() - began < 2.5
+        unbound: list[object] = []
+        t = threading.Thread(target=lambda: unbound.append(httpgate.binding()), daemon=True)
+        t.start()
+        t.join(5)
+        assert unbound == [None]                       # a new thread has no binding until it adopts one
+    finally:
+        rig.gate.bind_cancel(None)
+        httpgate.install(old)
