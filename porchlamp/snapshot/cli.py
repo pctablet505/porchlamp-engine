@@ -1,6 +1,6 @@
 """``porchlamp snapshot freeze``, ``porchlamp snapshot reproduce``,
-``porchlamp snapshot store``, ``porchlamp snapshot build``, ``porchlamp snapshot stats`` and
-``porchlamp snapshot as-of``.
+``porchlamp snapshot store``, ``porchlamp snapshot build``, ``porchlamp snapshot stats``,
+``porchlamp snapshot first-pull-requests`` and ``porchlamp snapshot as-of``.
 
 The CLI layer owns the wall clock and every ``print``; the modules
 behind it are pure. ``--data-dir`` is a data directory (or a copied sample) with
@@ -18,7 +18,11 @@ Invocation before ``porchlamp/cli.py`` exists::
     .venv/bin/python -m porchlamp.snapshot reproduce <snapshot-id>
     .venv/bin/python -m porchlamp.snapshot store <snapshot-dir> --db data/cvi.db
     .venv/bin/python -m porchlamp.snapshot stats <snapshot.db> --data-dir data > stats-<snapshot-id>.json
+    .venv/bin/python -m porchlamp.snapshot first-pull-requests --data-dir data --as-of 2026-09-12T00:00:00+00:00 > first-pull-requests-<snapshot-id>.json
     .venv/bin/python -m porchlamp.snapshot as-of --data-dir data
+
+``first-pull-requests`` prints the first-pull-requests report's stats file (``porchlamp.snapshot.first_pull_requests``), which
+``scripts/export_static.py --first-pull-requests`` reads.
 
 ``stats`` prints the report's stats file (``porchlamp.snapshot.stats``): the star
 figures and corpus totals ``scripts/export_static.py --stats`` reads.
@@ -53,6 +57,7 @@ from porchlamp.snapshot.manifest import (
     snapshot_dir,
     write_manifest,
 )
+from porchlamp.snapshot.first_pull_requests import compute as compute_first_pull_requests
 from porchlamp.snapshot.reproduce import SnapshotError, canonical_dump_hash, rebuild, reproduce
 from porchlamp.snapshot.stats import StatsError, compute_stats
 from porchlamp.snapshot.store_cmd import VerificationError, score_snapshot_dir, verify_expected, write_scored_snapshot
@@ -236,6 +241,17 @@ def _stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _first_pull_requests(args: argparse.Namespace) -> int:
+    """Print the first-pull-requests stats file for the records under ``args.data_dir``."""
+    try:
+        stats = compute_first_pull_requests(Path(args.data_dir), as_of=args.as_of, workers=args.workers)
+    except ValueError as error:
+        print(f"first-pull-requests: {error}")
+        return 2
+    print(json.dumps(stats, indent=1))
+    return 0
+
+
 def _as_of(args: argparse.Namespace) -> int:
     """Print the earliest valid ``as_of`` of ``args.data_dir`` and every guard's verdict at it (or at
     ``--as-of``, which is then checked instead of computed). ``--print`` writes only the value, and only
@@ -342,6 +358,13 @@ def _parser() -> argparse.ArgumentParser:
     stats.add_argument("--as-of", default=None,
                        help="PR-age reference time, ISO-8601; default: the database's snapshots.as_of")
 
+    first_prs = commands.add_parser(
+        "first-pull-requests", help="print the first-pull-requests report's stats file from the raw records"
+    )
+    first_prs.add_argument("--data-dir", required=True, help="data dir holding raw/pr_window/, raw/author_history/ and raw/github_meta/")
+    first_prs.add_argument("--as-of", required=True, help="the snapshot's as_of, ISO-8601: where the PR window ends")
+    first_prs.add_argument("--workers", type=_positive_int, default=1, help="processes reading the records; the file is the same for any count")
+
     as_of = commands.add_parser(
         "as-of",
         help="print the earliest valid --as-of for a data dir and check the cut and 14-day guards before a build",
@@ -377,6 +400,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "store": _store,
         "build": _build,
         "stats": _stats,
+        "first-pull-requests": _first_pull_requests,
         "as-of": _as_of,
     }
     try:
