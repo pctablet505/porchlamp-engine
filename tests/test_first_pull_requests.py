@@ -265,6 +265,134 @@ def test_who_answers_reads_the_large_projects_apart(tmp_path: Path) -> None:
     assert who["large"]["projects"] == 1
 
 
+def answered_by(helpers: dict[str, int], *, first_prs: int, answered: int, merged: int) -> list[dict]:
+    """A project of ``first_prs`` first pull requests from different people: ``answered`` get a reply, ``merged`` of those a
+    merge, and ``helpers`` says who gives how many of the replies. Enough returning pull requests fill ``helpers``."""
+    prs = []
+    for i in range(first_prs):
+        replies = [comment("maya", after(OLD, hours=3))] if i < answered else []
+        prs.append(pull(i, author=f"new{i}", comments=replies, merged=after(OLD, days=2) if i < merged else None, merged_by="maya"))
+    number = 1000
+    for login, count in helpers.items():
+        for _ in range(count):
+            number += 1
+            prs.append(pull(number, author=f"back{number}", comments=[comment(login, after(OLD, hours=2))]))
+    return prs
+
+
+def outcomes_project(root: Path, name: str, top: int, others: int, *, first_prs: int = 10, answered: int = 5, merged: int = 0, stars: int = 5000) -> None:
+    """``maya`` gives ``top`` replies and ``others`` other people one each, plus the replies to the first pull requests."""
+    helpers = {"maya": top, **{f"h{i}": 1 for i in range(others)}}
+    prs = answered_by(helpers, first_prs=first_prs, answered=answered, merged=merged)
+    history = [{"author": p["author"], "createdAt": p["createdAt"]} for p in prs if p["author"]["login"].startswith("new")]
+    history += [{"author": p["author"], "createdAt": after(OLD, days=-30)} for p in prs if p["author"]["login"].startswith("back")]
+    write_project(root, name, prs, history=history, stars=stars)
+
+
+def test_share_bands_meet_where_the_page_says() -> None:
+    assert [fpr.share_band(x) for x in (0.2, 0.5, 0.51, 0.7, 0.71, 0.89, 0.9, 1.0)] == [
+        "shared", "shared", "over_half", "over_half", "over_70", "over_70", "one", "one",
+    ]
+
+
+def test_outcomes_read_each_band_by_its_median_project(tmp_path: Path) -> None:
+    # one person gives every answer: 10 first pull requests, 8 answered, 6 of them merged
+    outcomes_project(tmp_path, "o__solo", 20, 0, answered=8, merged=6)
+    # maya gives 5 replies to first pull requests and 5 more, 30 others one each: nobody near half
+    outcomes_project(tmp_path, "o__team", 5, 30, answered=5, merged=2)
+    out = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]["outcomes"]
+    bands = {b["band"]: b for b in out["bands"]}
+    assert out["projects"] == 2
+    assert (bands["one"]["projects"], bands["one"]["answered"], bands["one"]["merged"]) == (1, 0.8, 0.6)
+    assert (bands["shared"]["projects"], bands["shared"]["answered"], bands["shared"]["merged"]) == (1, 0.5, 0.2)
+    assert (bands["over_half"]["projects"], bands["over_half"]["answered"]) == (0, None)
+    assert [b["band"] for b in out["bands"]] == list(fpr.SHARE_BANDS)
+
+
+def test_a_band_reads_its_median_project_not_the_mean(tmp_path: Path) -> None:
+    outcomes_project(tmp_path, "o__a", 20, 0, answered=1, merged=1)
+    outcomes_project(tmp_path, "o__b", 20, 0, answered=1, merged=1)
+    outcomes_project(tmp_path, "o__c", 20, 0, answered=10, merged=10)
+    one = next(b for b in fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]["outcomes"]["bands"] if b["band"] == "one")
+    assert (one["projects"], one["answered"], one["merged"]) == (3, 0.1, 0.1)
+
+
+def test_outcomes_need_enough_first_pull_requests_and_answers_by_people(tmp_path: Path) -> None:
+    outcomes_project(tmp_path, "o__few", 20, 0, first_prs=fpr.MIN_OUTCOME_FIRST_PRS - 1)
+    outcomes_project(tmp_path, "o__enough", 20, 0, first_prs=fpr.MIN_OUTCOME_FIRST_PRS)
+    who = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]
+    assert who["projects"] == 2
+    assert who["outcomes"]["projects"] == 1
+
+
+def test_outcomes_count_answers_within_two_weeks_and_leave_out_a_first_pull_request_its_author_closed(tmp_path: Path) -> None:
+    prs = answered_by({"maya": 20}, first_prs=9, answered=4, merged=0)
+    prs.append(pull(50, author="late", comments=[comment("maya", after(OLD, days=15))]))
+    prs.append(pull(51, author="left", closed=after(OLD, days=2), closed_by_author=True))
+    history = [{"author": p["author"], "createdAt": p["createdAt"]} for p in prs if not p["author"]["login"].startswith("back")]
+    history += [{"author": p["author"], "createdAt": after(OLD, days=-30)} for p in prs if p["author"]["login"].startswith("back")]
+    write_project(tmp_path, "o__n", prs, history=history)
+    bands = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]["outcomes"]["bands"]
+    # 10 count, not 11; 4 of them answered in time, the 15-day answer is not one
+    assert next(b for b in bands if b["band"] == "one")["answered"] == 0.4
+
+
+def row(top: float, answered: float, merged: float = 0.5, *, stars: int = 5000, first_prs: int = 20, strict: bool = True) -> fpr._Outcome:
+    return fpr._Outcome(top=top, first_prs=first_prs, answered=answered, merged=merged, stars=stars, strict=strict)
+
+
+def test_the_clear_gap_compares_only_inside_one_cell_of_stars_and_first_pull_requests() -> None:
+    rows = [
+        row(1.0, 0.9, stars=5000), row(0.4, 0.5, stars=5000),
+        # a one-person project with no shared project near its size says nothing
+        row(1.0, 0.1, stars=500_000),
+        # a shared project of another volume says nothing either
+        row(0.4, 0.0, stars=5000, first_prs=100),
+    ]
+    assert fpr.clear_gap(rows, "answered") == pytest.approx(0.4)
+    assert fpr.clear_gap(rows[:1], "answered") is None
+
+
+def test_the_clear_gap_weights_cells_by_how_many_of_both_they_hold() -> None:
+    rows = [row(1.0, 1.0), row(1.0, 1.0), row(1.0, 1.0), row(0.4, 0.5), row(0.4, 0.5), row(0.4, 0.5)]
+    rows += [row(1.0, 0.2, stars=20_000), row(0.4, 0.3, stars=20_000)]
+    # weights 3 x 3 / 6 = 1.5 and 1 x 1 / 2 = 0.5: (1.5 x 0.5 + 0.5 x -0.1) / 2
+    assert fpr.clear_gap(rows, "answered") == pytest.approx(0.35)
+
+
+def test_the_clear_gap_leaves_the_middle_bands_out() -> None:
+    rows = [row(1.0, 0.9), row(0.4, 0.5), row(0.8, 0.0), row(0.6, 0.0)]
+    assert fpr.clear_gap(rows, "answered") == pytest.approx(0.4)
+
+
+def test_the_range_comes_from_resampling_and_the_strict_reading_leaves_out_owner_run_and_lone_answerers(tmp_path: Path) -> None:
+    # owner "o" answers everything at o/solo; "maya" answers nearly everything at o/kept, with one other person; o/owned is run by its owner
+    outcomes_project(tmp_path, "o__kept", 40, 1, answered=9, merged=8)
+    prs = answered_by({"o": 20}, first_prs=10, answered=0, merged=0)
+    history = [{"author": p["author"], "createdAt": p["createdAt"]} for p in prs if p["author"]["login"].startswith("new")]
+    history += [{"author": p["author"], "createdAt": after(OLD, days=-30)} for p in prs if p["author"]["login"].startswith("back")]
+    write_project(tmp_path, "o__owned", prs, history=history, stars=5000)
+    outcomes_project(tmp_path, "o__lone", 20, 0, answered=1, merged=0)
+    for index in range(3):
+        outcomes_project(tmp_path, f"o__team{index}", 5, 30, answered=5, merged=2)
+    out = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]["outcomes"]
+    everything, strict = out["clear_against_shared"], out["clear_against_shared_strict"]
+    assert (everything["projects_one"], everything["projects_shared"]) == (3, 3)
+    assert (strict["projects_one"], strict["projects_shared"]) == (1, 3)
+    # (0.9 + 0.0 + 0.1) / 3 against 0.5 with everyone; 0.9 against 0.5 without the owner's and the lone answerer's
+    assert everything["gap_answered"] == pytest.approx(1 / 3 - 0.5, abs=1e-3)
+    assert strict["gap_answered"] == pytest.approx(0.4, abs=1e-3)
+    low, high = everything["gap_answered_range"]
+    assert low < everything["gap_answered"] < high
+    assert strict["gap_merged"] == pytest.approx(0.8 - 0.2, abs=1e-3)
+
+
+def test_no_project_in_a_band_gives_no_gap_and_no_range(tmp_path: Path) -> None:
+    outcomes_project(tmp_path, "o__solo", 20, 0)
+    gap = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]["outcomes"]["clear_against_shared"]
+    assert gap == {"projects_one": 1, "projects_shared": 0, "gap_answered": None, "gap_answered_range": None, "gap_merged": None, "gap_merged_range": None}
+
+
 def test_first_pr_projects_lists_only_projects_with_enough_of_them(tmp_path: Path) -> None:
     prs = [pull(i, author=f"u{i}", comments=[comment("maya", after(OLD, hours=3))]) for i in range(fpr.MIN_FIRST_PRS)]
     write_project(tmp_path, "o__n", prs, stars=10)

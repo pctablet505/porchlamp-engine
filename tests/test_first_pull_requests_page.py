@@ -31,6 +31,13 @@ def arm(gap: float, low: float, high: float, *, answered: float = 0.3, none: flo
     }
 
 
+def gap(answered: float, answered_low: float, answered_high: float, merged: float, merged_low: float, merged_high: float) -> dict:
+    return {
+        "projects_one": 705, "projects_shared": 152, "gap_answered": answered, "gap_answered_range": [answered_low, answered_high],
+        "gap_merged": merged, "gap_merged_range": [merged_low, merged_high],
+    }
+
+
 def good_stats() -> dict:
     """Numbers under which every sentence of the report holds."""
     hours = (1, 6, 24, 72, 168, 336, 720, 1440, 2160)
@@ -53,6 +60,17 @@ def good_stats() -> dict:
             "projects": 3170, "over_half": 0.72, "median_top_share": 0.75, "median_people": 3.0,
             "histogram": [18, 100, 209, 277, 263, 318, 286, 233, 280, 1186],
             "large": {"min_stars": 50000, "projects": 274, "over_half": 0.67, "median_people": 5.0},
+            "outcomes": {
+                "projects": 1290,
+                "bands": [
+                    {"band": "shared", "projects": 152, "answered": 0.6364, "merged": 0.409},
+                    {"band": "over_half", "projects": 212, "answered": 0.7142, "merged": 0.48},
+                    {"band": "over_70", "projects": 221, "answered": 0.726, "merged": 0.4808},
+                    {"band": "one", "projects": 705, "answered": 0.7407, "merged": 0.5556},
+                ],
+                "clear_against_shared": gap(0.091, 0.0443, 0.1392, 0.1328, 0.0958, 0.17),
+                "clear_against_shared_strict": gap(0.0892, 0.03, 0.1478, 0.1326, 0.083, 0.1829),
+            },
         },
         "first_pr_projects": [
             [key, 30, 1.0 + i, 0.9, 0.95, 0.7, 1000] for i, (key, _, _) in enumerate(page.FEATURED_PROJECTS)
@@ -60,8 +78,8 @@ def good_stats() -> dict:
     }
 
 
-def record(stats: dict | None = None, *, black_hole_one_in: str = "8") -> dict:
-    return page.report_json(stats or good_stats(), snapshot_id="2026-11-02", as_of=AS_OF, black_hole_one_in=black_hole_one_in)
+def record(stats: dict | None = None) -> dict:
+    return page.report_json(stats or good_stats(), snapshot_id="2026-11-02", as_of=AS_OF)
 
 
 @pytest.mark.parametrize("share, text, signed", [
@@ -74,8 +92,6 @@ def test_points_round_half_up_with_a_true_minus(share: float, text: str, signed:
 
 def test_the_number_formats() -> None:
     assert page.pct(0.1296) == "13%"
-    assert page.one_in(0.1296) == "8"
-    assert page.one_in(0.0474) == "21"
     assert page.whole_points(0.0933) == "9"
     assert page.whole(3.0) == "3"
     assert page.whole(2.5) == "2.5"
@@ -85,8 +101,13 @@ def test_the_number_formats() -> None:
 def test_the_record_carries_the_numbers_as_display_strings() -> None:
     values = record()["values"]
     assert values["silent_14"] == "52%"
-    assert values["one_in_14"] == "8"
     assert values["merged_0"] == "33%"
+    assert (values["over_half"], values["large_over_half"]) == ("72%", "67%")
+    assert (values["one_merged"], values["shared_merged"], values["one_answered"], values["shared_answered"]) == ("56%", "41%", "74%", "64%")
+    assert (values["gap_merged"], values["gap_merged_low"], values["gap_merged_high"]) == ("13", "10", "17")
+    assert (values["gap_answered"], values["gap_answered_low"], values["gap_answered_high"]) == ("9", "4", "14")
+    assert (values["strict_merged"], values["strict_answered"]) == ("13", "9")
+    assert (values["outcome_projects"], values["one_projects"], values["shared_projects"]) == ("1,290", "705", "152")
     assert values["ask_answered"] == "30%"
     assert values["ask_gap"] == "9"
     assert values["first"] == "99,875"
@@ -132,14 +153,15 @@ def test_the_shared_view_fixture_has_the_records_shape() -> None:
 
 def test_a_stats_file_for_another_day_is_refused() -> None:
     with pytest.raises(ReportError, match="as_of"):
-        page.report_json(good_stats(), snapshot_id="x", as_of="2026-10-25T00:00:00+00:00", black_hole_one_in="8")
+        page.report_json(good_stats(), snapshot_id="x", as_of="2026-10-25T00:00:00+00:00")
 
 
-def test_the_black_holes_note_appears_only_when_the_two_numbers_read_alike() -> None:
-    same = record(black_hole_one_in="8")
-    assert "black_holes_differ" in same["sentences"] and same["values"]["black_hole_one_in"] == "8"
-    other = record(black_hole_one_in="9")
-    assert "black_holes_differ" not in other["sentences"] and "black_hole_one_in" not in other["values"]
+def test_the_who_bands_rows_run_lowest_first_with_the_top_one_marked() -> None:
+    bands = record()["who_bands"]
+    assert [b["label"] for b in bands] == ["up to 50%", "50–70%", "70–90%", "90–100%"]
+    assert [b["top"] for b in bands] == [False, False, False, True]
+    assert (bands[3]["merged_text"], bands[3]["answered_text"], bands[3]["projects_text"]) == ("56%", "74%", "705")
+    assert record()["tile_shares"]["one_merged"] == 0.5556
 
 
 def test_a_featured_project_that_stops_qualifying_leaves_the_list_and_the_words_follow() -> None:
@@ -176,7 +198,6 @@ def set_answered(stats: dict, name: str, hours: int, share: float) -> None:
 
 def _break_half(stats): set_answered(stats, "first", 336, 0.5)
 def _break_rising(stats): set_merged(stats, "first", 60, 0.095)
-def _break_fast(stats): set_merged(stats, "first", 1, 0.3299)
 def _break_cut(stats):
     set_merged(stats, "first", 0, 0.25)
     set_merged(stats, "first", 1, 0.24)
@@ -191,7 +212,18 @@ def _break_longest(stats): set_answered(stats, "first", 24, 0.5)
 def _break_weekend(stats): stats["weekday"]["by_day"]["Sat"]["answered_in_a_day"] = 0.6
 def _break_weekday_inside(stats): stats["weekday"]["within_project"]["weekday_better"] = 0.5
 def _break_most(stats): stats["who_answers"]["over_half"] = 0.5
-def _break_fame(stats): stats["who_answers"]["large"]["over_half"] = 0.4
+def _break_fame(stats): stats["who_answers"]["large"]["over_half"] = 0.6
+def _break_large(stats): stats["who_answers"]["large"]["over_half"] = 0.5
+def set_band(stats, band, measure, share): next(row for row in stats["who_answers"]["outcomes"]["bands"] if row["band"] == band)[measure] = share
+def _break_best_merged(stats): set_band(stats, "over_half", "merged", 0.40)
+def _break_best_answered(stats): set_band(stats, "over_70", "answered", 0.63)
+def _break_top_merged(stats): set_band(stats, "over_70", "merged", 0.56)
+def _break_top_answered(stats): set_band(stats, "over_half", "answered", 0.75)
+def _break_gap_answered(stats): stats["who_answers"]["outcomes"]["clear_against_shared"]["gap_answered_range"][0] = -0.01
+def _break_gap_merged(stats): stats["who_answers"]["outcomes"]["clear_against_shared"]["gap_merged_range"][0] = 0.0
+def _break_gap_none(stats): stats["who_answers"]["outcomes"]["clear_against_shared"]["gap_merged_range"] = None
+def _break_strict_answered(stats): stats["who_answers"]["outcomes"]["clear_against_shared_strict"]["gap_answered_range"][0] = -0.01
+def _break_strict_merged(stats): stats["who_answers"]["outcomes"]["clear_against_shared_strict"]["gap_merged_range"][0] = -0.01
 def _break_small_samples(stats):
     for row in stats["first_pr_projects"]:
         row[1] = 100
@@ -199,8 +231,7 @@ def _break_small_samples(stats):
 
 @pytest.mark.parametrize("breaks, claim", [
     (_break_half, "More than half"),
-    (_break_rising, "Silence lowers"),
-    (_break_fast, "fast at first"),
+    (_break_rising, "silence lowers"),
     (_break_cut, "cuts the odds"),
     (_break_meet, "nearly meet"),
     (_break_ask, "asked got more"),
@@ -213,7 +244,17 @@ def _break_small_samples(stats):
     (_break_weekend, "Weekend pull requests"),
     (_break_weekday_inside, "beat weekend"),
     (_break_most, "one person"),
+    (_break_large, "Even at 50,000 stars"),
     (_break_fame, "Fame barely"),
+    (_break_best_merged, "newcomers do best"),
+    (_break_best_answered, "newcomers do best"),
+    (_break_top_merged, "where newcomers do best"),
+    (_break_top_answered, "where newcomers do best"),
+    (_break_gap_answered, "Stars and volume"),
+    (_break_gap_merged, "Stars and volume"),
+    (_break_gap_none, "Stars and volume"),
+    (_break_strict_answered, "Leaving out projects"),
+    (_break_strict_merged, "Leaving out projects"),
     (_break_small_samples, "under 60"),
 ])
 def test_a_sentence_the_numbers_no_longer_support_stops_the_export(breaks, claim: str) -> None:
@@ -226,7 +267,7 @@ def test_a_sentence_the_numbers_no_longer_support_stops_the_export(breaks, claim
 
 def test_the_page_head_is_the_reports_and_loads_one_script_of_its_own() -> None:
     html = page.report_page(record(), exported_on=date(2026, 11, 2))
-    assert "<title>More than half of first pull requests hear nothing for two weeks | Porchlamp</title>" in html
+    assert "<title>In most open source projects, one person answers the newcomers | Porchlamp</title>" in html
     assert '<link rel="canonical" href="https://porchlamp.org/first-pull-requests/">' in html
     assert 'src="/first-pull-requests-page.js"' in html
     assert 'src="/app.js"' not in html

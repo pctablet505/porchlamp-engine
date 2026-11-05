@@ -17,8 +17,6 @@
   "known_share": "24%",
   "first_settled": "25,259",
   "silent_14": "52%",
-  "one_in_0": "3",
-  "one_in_14": "8",
   "merged_0": "33%",
   "merged_7": "17%",
   "merged_14": "13%",
@@ -65,27 +63,41 @@
   "large_over_half": "67%",
   "large_people": "5",
   "top_bin": "1,186",
+  "outcome_projects": "1,290",
+  "one_projects": "705",
+  "shared_projects": "152",
+  "one_answered": "74%",
+  "one_merged": "56%",
+  "shared_answered": "64%",
+  "shared_merged": "41%",
+  "gap_answered": "9",
+  "gap_answered_low": "4",
+  "gap_answered_high": "14",
+  "gap_merged": "13",
+  "gap_merged_low": "10",
+  "gap_merged_high": "17",
+  "strict_answered": "9",
+  "strict_merged": "13",
   "listed_projects": "821",
   "count_word": "ten",
   "count_title": "Ten",
   "min_within_a_day": "78%",
   "min_merged": "51%",
-  "min_account_days": "90",
-  "black_hole_one_in": "8"
+  "min_account_days": "90"
  },
  "sentences": {
-  "h1": "More than half of first pull requests hear nothing for two weeks. About 1 in {one_in_14} of those still gets merged.",
-  "lede": "Porchlamp followed {first} first pull requests, each from someone who hadn't sent that project a pull request in about the previous six months or longer. About 1 in {one_in_0} gets merged. Silence lowers those odds fast at first and more slowly after: {merged_7} after a week, {merged_14} after two weeks, {merged_30} after a month, {merged_60} after two months.",
+  "h1": "In most open source projects, one person answers the newcomers. That's where newcomers do best.",
+  "lede": "Porchlamp followed {first} first pull requests, each from someone who hadn't sent that project a pull request in about the previous six months or longer. You'd expect projects that lean on one person to be the slow ones. They aren't.",
   "tiles": [
    {
-    "label": "No answer after two weeks",
-    "value": "silent_14",
-    "text": "of first pull requests got no reply, review, merge or close from the project's people"
+    "label": "One person gives most first answers",
+    "value": "over_half",
+    "text": "of {who_projects} projects, and still {large_over_half} at {large_stars} stars or more"
    },
    {
-    "label": "Merged, in the end",
-    "value": "merged_0",
-    "text": "against {returning_merged_0} for people who had sent one before"
+    "label": "Merged where one person answers",
+    "value": "one_merged",
+    "text": "of first pull requests in the typical project, against {shared_merged} where the job is shared"
    },
    {
     "label": "Silent at two weeks, then asked",
@@ -93,13 +105,17 @@
     "text": "got an answer in the next 30 days, against {ask_answered_none} with no comment"
    },
    {
-    "label": "One person gives most first answers",
-    "value": "over_half",
-    "text": "of {who_projects} projects"
+    "label": "Merged, in the end",
+    "value": "merged_0",
+    "text": "of first pull requests, against {returning_merged_0} for people who had sent one before"
    }
   ],
+  "best_heading": "More first pull requests get answered and merged where one person does the answering",
+  "best_text": "You'd expect one person to be a bottleneck. In the typical project where one person gives 90% or more of the first answers, {one_answered} of first pull requests get an answer within two weeks and {one_merged} get merged. Where nobody gives more than half, it's {shared_answered} and {shared_merged}.",
+  "control_text": "Stars and volume don't explain it. Comparing only projects with similar stars and a similar number of first pull requests, the gap is {gap_answered} points in answers ({gap_answered_low} to {gap_answered_high}) and {gap_merged} points in merges ({gap_merged_low} to {gap_merged_high}). Leaving out projects owned by the busiest person's own account, and projects where only one person answers at all, it's {strict_answered} and {strict_merged} points.",
+  "best_note": "The typical project is the median of {outcome_projects} projects with at least 20 first answers we could attribute to a person and at least 10 first pull requests at least 14 days old: {one_projects} with one person at 90% or more, {shared_projects} with nobody over half.",
   "wait_heading": "Two weeks of silence cuts the odds by more than half",
-  "wait_text": "Each point counts pull requests at least four months old that had no answer by that day, and how many of them were merged in the end. After two months of silence the two lines nearly meet, at {merged_60} and {returning_merged_60}.",
+  "wait_text": "More than half of first pull requests, {silent_14}, hear nothing for two weeks, and silence lowers the odds of a merge. Each point counts pull requests at least four months old that had no answer by that day, and how many of them were merged in the end: {merged_7} after a week of silence, {merged_14} after two weeks, {merged_30} after a month, {merged_60} after two months. By then the two lines nearly meet, at {merged_60} and {returning_merged_60}.",
   "late_text": "A late answer is still possible. Of first pull requests silent at two weeks, {later_30} hear something by day 30, {later_60} by day 60 and {later_90} by day 90.",
   "wait_note": "Share merged by the end of the data, at least four months after opening, by days with no answer. {first_settled} first pull requests are old enough to count. An answer means a reply or review from the project's people, a merge, or a close by them.",
   "ask_heading": "Authors who asked got about {ask_gap} points more answers. Other comments got none.",
@@ -112,16 +128,17 @@
   "week_heading": "Weekend pull requests wait longer",
   "week_text": "Inside the same project, weekday pull requests beat weekend ones in {weekday_better} of {weekday_projects} projects, by a median of {weekday_gap} points.",
   "week_note": "All outside pull requests, days in UTC. The inside-a-project figure uses projects with at least 30 weekday and 10 weekend pull requests. Weekend senders may differ from weekday ones, which that comparison only partly removes.",
-  "who_heading": "In most projects, one person is doing the answering",
-  "who_text": "In {over_half} of {who_projects} projects, one person gave more than half of the first answers to outsiders. The median project has {median_people} people answering at all. Fame barely changes it: among {large_projects} projects with {large_stars} stars or more, it's {large_over_half}, with a median of {large_people} people.",
-  "who_note": "Projects by the busiest person's share of first answers, for projects with at least 20 first answers we could attribute to a person. Bots are left out. In {top_bin} projects, one person gave at least 90%.",
+  "who_heading": "Even at {large_stars} stars, it's usually one person",
+  "who_text": "Count who gives the first answer to each outside pull request, and the median project has {median_people} people answering at all. In {top_bin} of {who_projects} projects, one person gives at least 90% of those answers. Fame barely changes it: among {large_projects} projects with {large_stars} stars or more, one person gives most of them in {large_over_half}, with a median of {large_people} people answering.",
+  "who_note": "Projects by the busiest person's share of first answers, for projects with at least 20 first answers we could attribute to a person. Bots are left out.",
   "fast_heading": "{count_title} projects that answer first-timers quickly and merge their work",
   "fast_text": "Picked by hand from the {listed_projects} projects with at least 25 first pull requests old enough to judge, so this isn't a ranking. All {count_word} answered at least {min_within_a_day} of them within a day and merged at least {min_merged}. Most have under 60 first pull requests, so read them as examples. Each link opens the project's page here.",
   "method": [
    "Data. Porchlamp's {snapshot_id} snapshot holds {outside_prs} outside pull requests opened from {window_start} to {window_end}, across {projects} projects with a record. These results read {read} of them, those with recorded replies after the rules below. An earlier post's 212,390 came from a smaller read of the same projects, before the collection was widened.",
    "Left out. Bots, project members, drafts never marked ready, and accounts under {min_account_days} days old. In very busy projects, replies are read from the snapshot's even random sample.",
    "First pull request. The author has no earlier pull request to that project in its record of the past 365 days. Every pull request here opened in the last six months, so the look-back runs from about six months to a year. Only projects whose record isn't cut off at its cap of about 500 can tell, so the busiest projects are missing. The split covers {known} of the {read} pull requests read, {known_share}.",
-   "Which results use what. The waiting curve, the answered-by curve and the listed projects use first pull requests only. So do the asking figures unless a line says all outside pull requests. The weekday and who-answers results use all outside pull requests.",
+   "Which results use what. The waiting curve, the answered-by curve and the listed projects use first pull requests only. So do the asking figures unless a line says all outside pull requests, and the answered and merged shares beside who answers. The weekday results and who gives the first answers use all outside pull requests.",
+   "Who answers. The person behind the first answer to each outside pull request: who wrote the reply or review, or who merged it. Bots are left out. A project counts once, whatever its size, so the shares beside who answers are the median project's. The comparison of similar projects uses bands of stars (under 3,000, 3,000 to 10,000, 10,000 to 30,000, 30,000 or more) and of first pull requests (under 15, 15 to 30, 30 to 60, 60 or more), and the 95% range comes from resampling projects.",
    "An answer. The earliest reply or review from the project's people, a merge, or a close by them. Replies from bots don't count, and the clock starts when a draft is marked ready.",
    "Asking. A comment from the author after the first hour, matched against a word list: ping, bump, gentle nudge, could you review, take a look, any update and similar. A hand check of 50 matches found 47 real asks. Tool commands and CLA signatures don't count. The baseline is no comment at all. The inside-one-project gap compares the groups project by project, weighted by how many each has (Mantel-Haenszel), and the 95% range comes from resampling projects. We tightened the word list after a first look at the data, so this is a result to test again on the next snapshot.",
    "Waiting curve. Pull requests at least four months old. One an author closed unanswered drops out from that day. The {silent_14} near the top uses all {first} and treats an author closing their own pull request as leaving the count, so it doesn't divide out from the curve's table."
@@ -129,19 +146,19 @@
   "not_covered": [
    "Why a project didn't answer. Silence may mean a closed list, a mailing-list workflow, or a pull request nobody wanted.",
    "Not seen. Merges after the record's date, and any pull request's quality or size.",
-   "Cause. All of this describes what happened, including the asking and weekday comparisons. Authors who ask may also care more, or have a better pull request.",
+   "Cause. All of this describes what happened, including who answers and the asking and weekday comparisons. Authors who ask may also care more, or have a better pull request.",
+   "When that person stops. We didn't measure what happens to a project when its one answerer leaves.",
    "Six months is one season. Volume and answer rates may move with the time of year."
   ],
-  "black_holes_differ": "Porchlamp's black-holes report says more than 1 in {black_hole_one_in} projects leave most outsiders with nothing for two weeks. This report's 1 in {one_in_14} counts pull requests merged after that silence. They're different numbers.",
   "cite": "Porchlamp. First pull requests: who answers and how long it takes. Snapshot {snapshot_id}, data from {window_start} to {window_end}. {page_url}",
-  "description": "Porchlamp followed {first} first pull requests. {silent_14} heard nothing for two weeks, about 1 in {one_in_14} of those still got merged, and asking went with more answers.",
-  "title": "More than half of first pull requests hear nothing for two weeks"
+  "description": "Porchlamp followed {first} first pull requests. In {over_half} of {who_projects} projects, one person gave most first answers, and newcomers did better there.",
+  "title": "In most open source projects, one person answers the newcomers"
  },
  "tile_shares": {
-  "silent_14": 0.5231,
-  "merged_0": 0.3283,
+  "over_half": 0.7161,
+  "one_merged": 0.5556,
   "ask_answered": 0.2847,
-  "over_half": 0.7161
+  "merged_0": 0.3283
  },
  "curve": [
   {
@@ -491,6 +508,44 @@
    "projects": 1186,
    "projects_text": "1,186",
    "top": true
+  }
+ ],
+ "who_bands": [
+  {
+   "label": "up to 50%",
+   "top": false,
+   "projects_text": "152",
+   "answered": 0.6364,
+   "answered_text": "64%",
+   "merged": 0.409,
+   "merged_text": "41%"
+  },
+  {
+   "label": "50–70%",
+   "top": false,
+   "projects_text": "212",
+   "answered": 0.7142,
+   "answered_text": "71%",
+   "merged": 0.48,
+   "merged_text": "48%"
+  },
+  {
+   "label": "70–90%",
+   "top": false,
+   "projects_text": "221",
+   "answered": 0.726,
+   "answered_text": "73%",
+   "merged": 0.4808,
+   "merged_text": "48%"
+  },
+  {
+   "label": "90–100%",
+   "top": true,
+   "projects_text": "705",
+   "answered": 0.7407,
+   "answered_text": "74%",
+   "merged": 0.5556,
+   "merged_text": "56%"
   }
  ],
  "projects": [

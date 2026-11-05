@@ -2940,7 +2940,7 @@ def _gap_points(x: float, *, signed: bool = False) -> str:
     return f"+{text}" if signed else text
 
 
-def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) -> dict[str, str]:
+def first_pull_requests_hooks(stats: dict, sid: str) -> dict[str, str]:
     """Every ``data-v`` hook of ``/first-pull-requests/``, worked out here from the stats file with this file's own formatters."""
     population, first, returning = stats["population"], stats["first"], stats["returning"]
     curve, others = ({row["days"]: row for row in g["merged_if_silent"]} for g in (first, returning))
@@ -2951,9 +2951,11 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
     week_one = stats["asking"]["day7_first"]["ask_recent"]
     weekday, who = stats["weekday"]["within_project"], stats["who_answers"]
     known = population["first"] + population["returning"]
-    one_in = lambda share: str(math.floor(1 / _printed(share) + Fraction(1, 2)))  # noqa: E731
     whole_points = lambda share: f"{'-' if share < 0 else ''}{_round_half_up(abs(_printed(share)) * 100, 0)}"  # noqa: E731
     rows = {row[0]: row for row in stats["first_pr_projects"]}
+    outcomes = who["outcomes"]
+    bands = {row["band"]: row for row in outcomes["bands"]}
+    gap, strict = outcomes["clear_against_shared"], outcomes["clear_against_shared_strict"]
     from porchlamp.serve import first_pull_requests_page as fpr_page
 
     picked = sorted(
@@ -2975,8 +2977,6 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
         "known_share": _whole_percent(round(known / population["read"], 4)),
         "first_settled": f"{first['settled']:,}",
         "silent_14": _whole_percent(round(1 - shares[336], 4)),
-        "one_in_0": one_in(curve[0]["merged"]),
-        "one_in_14": one_in(curve[14]["merged"]),
         "merged_0": _whole_percent(curve[0]["merged"]),
         "merged_7": _whole_percent(curve[7]["merged"]),
         "merged_14": _whole_percent(curve[14]["merged"]),
@@ -3023,6 +3023,21 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
         "large_over_half": _whole_percent(who["large"]["over_half"]),
         "large_people": _trimmed(f"{who['large']['median_people']:.1f}"),
         "top_bin": f"{who['histogram'][-1]:,}",
+        "outcome_projects": f"{outcomes['projects']:,}",
+        "one_projects": f"{bands['one']['projects']:,}",
+        "shared_projects": f"{bands['shared']['projects']:,}",
+        "one_answered": _whole_percent(bands["one"]["answered"]),
+        "one_merged": _whole_percent(bands["one"]["merged"]),
+        "shared_answered": _whole_percent(bands["shared"]["answered"]),
+        "shared_merged": _whole_percent(bands["shared"]["merged"]),
+        "gap_answered": whole_points(gap["gap_answered"]),
+        "gap_answered_low": whole_points(gap["gap_answered_range"][0]),
+        "gap_answered_high": whole_points(gap["gap_answered_range"][1]),
+        "gap_merged": whole_points(gap["gap_merged"]),
+        "gap_merged_low": whole_points(gap["gap_merged_range"][0]),
+        "gap_merged_high": whole_points(gap["gap_merged_range"][1]),
+        "strict_answered": whole_points(strict["gap_answered"]),
+        "strict_merged": whole_points(strict["gap_merged"]),
         "listed_projects": f"{len(stats['first_pr_projects']):,}",
         "count_word": words[len(picked)],
         "count_title": words[len(picked)].capitalize(),
@@ -3030,8 +3045,6 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
         "min_merged": _whole_percent(min(row[5] for row in picked)),
         "min_account_days": str(MIN_ACCOUNT_AGE_DAYS_FOR_REPORT),
     }
-    if hooks["one_in_14"] == black_hole_one_in:
-        hooks["black_hole_one_in"] = black_hole_one_in
     opening = sorted(curve).index(14)
     for i, day in enumerate(sorted(curve)):
         hooks[f"curve.{i}.first_exact"] = f"{_gap_points(curve[day]['merged'])}%"
@@ -3049,6 +3062,9 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
         hooks[f"weekdays.{i}.share_text"] = _whole_percent(row["answered_in_a_day"])
     for i, count in enumerate(who["histogram"]):
         hooks[f"histogram.{i}.projects_text"] = f"{count:,}"
+    for i, row in enumerate(outcomes["bands"]):
+        hooks[f"who_bands.{i}.answered_text"] = _whole_percent(row["answered"])
+        hooks[f"who_bands.{i}.merged_text"] = _whole_percent(row["merged"])
     for i, row in enumerate(picked):
         hooks[f"projects.{i}.median_text"] = _reply_time(row[2])
         hooks[f"projects.{i}.within_a_day_text"] = _whole_percent(row[3])
@@ -3057,7 +3073,7 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
     return hooks
 
 
-def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of: str, data_dir: Optional[Path], black_hole_one_in: str, log=print) -> dict:
+def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of: str, data_dir: Optional[Path], log=print) -> dict:
     """``/first-pull-requests/`` and its data file against the stats file: every ``data-v`` hook equals its value worked out
     here, every hook is there and no other is; every sentence on the page is the data file's template filled with these
     values; the claims the words make hold on the numbers; each named project has a page in the site; the head is the
@@ -3070,8 +3086,8 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     stats = json.loads(stats_path.read_text(encoding="utf-8"))
     ledger.equal("first-pull-requests stats file is for the snapshot's as_of", stats.get("as_of"), as_of)
     if data_dir is not None:
-        ledger.equal("first-pull-requests stats file is what the data root gives", stats_file.compute(data_dir, as_of=as_of, workers=8), stats)
-    hooks = first_pull_requests_hooks(stats, sid, black_hole_one_in=black_hole_one_in)
+        ledger.equal("first-pull-requests stats file is what the data root gives", stats_file.compute_first_pull_requests(data_dir, as_of=as_of, workers=os.cpu_count() or 1), stats)
+    hooks = first_pull_requests_hooks(stats, sid)
     rel = "first-pull-requests/index.html"
     path = site / rel
     if not path.is_file():
@@ -3091,12 +3107,11 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     ledger.equal(f"{rel} h1", [t for tag, t in page.headings if tag == "h1"], [fill(sentences["h1"])])
     ledger.equal(f"{rel} lede", page.text(cls="report-lede"), fill(sentences["lede"]))
     h2 = [t for tag, t in page.headings if tag == "h2"]
-    for key in ("wait_heading", "ask_heading", "first_heading", "week_heading", "who_heading", "fast_heading"):
+    for key in ("who_heading", "best_heading", "wait_heading", "ask_heading", "first_heading", "week_heading", "fast_heading"):
         ledger.equal(f"{rel} has the heading {key}", fill(sentences[key]) in h2, True)
     paragraphs = {e["text"] for e in page.find(tag="p")} | {e["text"] for e in page.find(tag="li")}
-    for key in ("wait_text", "late_text", "wait_note", "ask_text", "ask_note", "merges_text", "first_text", "first_note", "week_text", "week_note", "who_text", "who_note", "fast_text", "cite"):
+    for key in ("who_text", "who_note", "best_text", "control_text", "best_note", "wait_text", "late_text", "wait_note", "ask_text", "ask_note", "merges_text", "first_text", "first_note", "week_text", "week_note", "fast_text", "cite"):
         ledger.equal(f"{rel} has the sentence {key}", fill(sentences[key]) in paragraphs, True)
-    ledger.equal(f"{rel} says the two 1-in-Ns differ exactly when they read alike", ("black_holes_differ" in sentences), hooks["one_in_14"] == black_hole_one_in)
     # the claims that hold only for some numbers, read here from the stats file
     first, returning = stats["first"], stats["returning"]
     curve = {row["days"]: row["merged"] for row in first["merged_if_silent"]}
@@ -3110,7 +3125,14 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     ledger.equal("'Authors who asked got more answers' holds (the range is above zero)", ask["gap_answered_range"][0] > 0, True)
     ledger.equal("'Other comments got none' holds (the range spans zero)", none_ask["gap_answered_range"][0] < 0 < none_ask["gap_answered_range"][1], True)
     ledger.equal("'The first pull request waits longest' holds", all(answered[h] < answered_other[h] for h in answered), True)
-    ledger.equal("'In most projects, one person is doing the answering' holds", stats["who_answers"]["over_half"] > 0.5, True)
+    ledger.equal("'In most open source projects, one person answers the newcomers' holds", stats["who_answers"]["over_half"] > 0.5, True)
+    ledger.equal("'Even at 50,000 stars, it's usually one person' holds", stats["who_answers"]["large"]["over_half"] > 0.5, True)
+    outcomes = stats["who_answers"]["outcomes"]
+    bands = {row["band"]: row for row in outcomes["bands"]}
+    for measure in ("answered", "merged"):
+        ledger.equal(f"'That's where newcomers do best' holds for {measure}", bands["shared"][measure] < min(bands["over_half"][measure], bands["over_70"][measure]) <= max(bands["over_half"][measure], bands["over_70"][measure]) < bands["one"][measure], True)
+        ledger.equal(f"'Stars and volume don't explain it' holds for {measure} (the range is above zero)", outcomes["clear_against_shared"][f"gap_{measure}_range"][0] > 0, True)
+        ledger.equal(f"the reading without owner-run projects holds for {measure} (the range is above zero)", outcomes["clear_against_shared_strict"][f"gap_{measure}_range"][0] > 0, True)
     # the links
     for row in record["projects"]:
         ledger.equal(f"{rel} links {row['key']}, which has a page", (site / row["path"].strip("/") / "index.html").is_file(), True)
@@ -3199,7 +3221,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             [snapshot] = _api_answers(args.db.resolve(), "/v1/porchlamp/snapshot")
             ok = not verify_first_pull_requests(
                 site, args.first_pull_requests.resolve(), sid=snapshot["snapshot_id"], as_of=snapshot["as_of"], data_dir=args.data_dir.resolve() if args.data_dir else None,
-                black_hole_one_in=record["values"]["one_in"],
             )["errors"] and ok
         ok = not verify_crawl(args.db.resolve(), site, lists=lists["addresses"], not_ranked=not_ranked["addresses"])["errors"] and ok
     print("PASS" if ok else "FAIL")

@@ -850,9 +850,7 @@ def export(
             from porchlamp.serve import first_pull_requests_page as fpr_page, report_pages
 
             try:
-                first_prs_record = fpr_page.report_json(
-                    first_pull_requests, snapshot_id=snapshot_id, as_of=snapshot["as_of"], black_hole_one_in=_report_json(facts)["values"]["one_in"],
-                )
+                first_prs_record = fpr_page.report_json(first_pull_requests, snapshot_id=snapshot_id, as_of=snapshot["as_of"])
             except report_pages.ReportError as error:
                 raise SystemExit(f"export: {error}") from error
             sizes[fpr_page.DATA_FILE] = _dump(data / fpr_page.DATA_FILE, first_prs_record)

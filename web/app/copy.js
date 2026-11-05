@@ -1517,6 +1517,10 @@ export const PROMOTION_LADDER_LABELS = Object.freeze({
 
 export const FIRST_PRS_EYEBROW = "Porchlamp report: first pull requests";
 export const FIRST_PRS_DATA_THROUGH = "data to {window_end}";
+export const FIRST_PRS_BEST_KICKER = "Where newcomers do best";
+export const FIRST_PRS_BAND_ANSWERED = "Answered within two weeks";
+export const FIRST_PRS_BAND_MERGED = "Merged";
+export const FIRST_PRS_BEST_CAVEAT = "One possible reason is the bystander effect: a job that's clearly one person's gets done, and a job that's everyone's can wait. This compares projects, so it can't prove that. Shared projects may also get harder pull requests or have stricter rules for merging.";
 export const FIRST_PRS_WAIT_KICKER = "How long to wait";
 export const FIRST_PRS_ASK_KICKER = "What helps";
 export const FIRST_PRS_FIRST_KICKER = "The first one";
@@ -1558,6 +1562,7 @@ export const FIRST_PRS_TIP_ANSWERED = "{when}, {group}: {share} answered";
 export const FIRST_PRS_TIP_ASKING = "{label}: {count} pull requests in {projects} projects";
 export const FIRST_PRS_TIP_WEEKDAY = "{day}: {share} of {count} answered within 24 hours";
 export const FIRST_PRS_TIP_HISTOGRAM = "The busiest person gave {band} of first answers: {count} projects";
+export const FIRST_PRS_TIP_BAND = "The busiest person gives {band} of first answers: {share} in the typical project, of {count} projects";
 
 // ---- The personal lookup (views/lookup.js)
 

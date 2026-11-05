@@ -3653,6 +3653,30 @@ a.project-eco:hover {
   max-width: 44rem;
 }
 
+.fpr-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-lg);
+  margin-top: var(--space-md);
+}
+
+.fpr-pair-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The taller chart sets the row's height; the other sits on the same baseline. */
+.fpr-pair-item .fpr-cols {
+  margin-top: auto;
+}
+
+@media (max-width: 560px) {
+  .fpr-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .fpr-cols {
   --plot: 180px;
   display: grid;

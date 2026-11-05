@@ -114,9 +114,24 @@ test("the words keep the house rules: no long dash, no employer, no external add
   for (const chart of charts) assert.ok(chart[1].length > 20);
 });
 
-test("the black-holes note appears only when the record carries it", () => {
-  assert.ok(renderFirstPullRequests(RECORD).includes("black-holes report"));
-  const rec = copyOf();
-  delete rec.sentences.black_holes_differ;
-  assert.ok(!renderFirstPullRequests(rec).includes("black-holes report"));
+test("the page leads with who answers, and the old headline is gone", () => {
+  const html = renderFirstPullRequests(RECORD);
+  const order = ["who-answers", "newcomers-do-best", "waiting", "asking", "first-one", "weekends", "where-to-start", "all-numbers"];
+  const places = order.map((id) => html.indexOf(`id="${id}"`));
+  assert.ok(places.every((at) => at > 0));
+  assert.deepEqual(places, [...places].sort((a, b) => a - b));
+  assert.ok(!/1 in \d/.test(html), "no 1-in-N line on the page");
+});
+
+test("the two band charts share one scale and mark only the top band", () => {
+  const html = renderFirstPullRequests(RECORD);
+  const heights = (name) => [...html.matchAll(new RegExp(`<span class="fpr-col-value">[^]*?data-v="who_bands\\.(\\d)\\.${name}_text"[^]*?<span class="fpr-col-bar( fpr-col-bar-off)?" style="--f:([0-9.]+)"`, "g"))].map((m) => [Number(m[1]), m[2] === undefined, Number(m[3])]);
+  const answered = heights("answered");
+  const merged = heights("merged");
+  assert.equal(answered.length, RECORD.who_bands.length);
+  assert.equal(merged.length, RECORD.who_bands.length);
+  assert.deepEqual(answered.map(([, on]) => on), RECORD.who_bands.map((b) => b.top));
+  const scale = answered[3][2] / RECORD.who_bands[3].answered;
+  assert.ok(Math.abs(merged[3][2] / RECORD.who_bands[3].merged - scale) < 1e-2, "one scale for both charts");
+  assert.ok(answered[3][2] <= 1 && answered[3][2] > 0.5);
 });

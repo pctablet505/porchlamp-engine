@@ -39,7 +39,13 @@ Fields (shares are fractions, rounded to 4 places):
     clock started on; ``within_project``: weekday against weekend inside projects with enough of both;
 ``who_answers``
     per project with at least ``MIN_ATTRIBUTED_ANSWERS`` first answers attributed to a person (a reply's writer or a merge's
-    merger): the busiest person's share, how many people answered, and a histogram of that share in tenths;
+    merger): the busiest person's share, how many people answered, and a histogram of that share in tenths; ``outcomes``:
+    for those with at least ``MIN_OUTCOME_FIRST_PRS`` first pull requests at least 14 days old and not closed unanswered by
+    their author, per band of the busiest person's share (:func:`share_band`), the median project's share answered within
+    14 days and share merged; ``clear_against_shared``: the top band against the bottom one, comparing projects only inside
+    one cell of ``COMPARE_STARS`` and ``COMPARE_FIRST_PRS``, with a 95% range from resampling projects, seeded;
+    ``clear_against_shared_strict``: the same without projects whose busiest person is the owner's own account or the only
+    person answering;
 ``first_pr_projects``
     per project with at least ``MIN_FIRST_PRS`` first pull requests at least 14 days old and not closed unanswered by their
     author: ``[owner/name, count, median hours to an answer, share answered within a day, within 14 days, share merged, stars]``.
@@ -51,11 +57,12 @@ from __future__ import annotations
 import random
 import re
 import statistics
+from bisect import bisect_right
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional, Sequence
+from typing import Any, Iterable, Mapping, NamedTuple, Optional, Sequence
 
 from porchlamp.collect.github_graphql import derive_pr_window
 from porchlamp.core import gates
@@ -90,6 +97,13 @@ MIN_ATTRIBUTED_ANSWERS = 20
 MIN_FIRST_PRS = 25
 #: ``who_answers`` also reads the projects at or above this many stars.
 LARGE_PROJECT_STARS = 50_000
+#: A project takes part in ``who_answers.outcomes`` with at least this many first pull requests at least 14 days old.
+MIN_OUTCOME_FIRST_PRS = 10
+#: The bands of the busiest person's share of first answers, lowest first.
+SHARE_BANDS: tuple[str, ...] = ("shared", "over_half", "over_70", "one")
+#: ``clear_against_shared`` compares projects only inside one cell of these bands of stars and of first pull requests.
+COMPARE_STARS: tuple[int, ...] = (3_000, 10_000, 30_000)
+COMPARE_FIRST_PRS: tuple[int, ...] = (15, 30, 60)
 WEEKDAYS: tuple[str, ...] = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 #: Comments that talk to a tool or come from one: a bot command, a CLA signature, an automated review, a thank-you.
@@ -152,6 +166,26 @@ def _first_seen(history: Optional[Mapping[str, Any]]) -> Optional[dict[str, floa
     return first
 
 
+class _Outcome(NamedTuple):
+    """How one project's first pull requests fared, beside who answers there."""
+
+    top: float
+    first_prs: int
+    answered: float
+    merged: float
+    stars: int
+    strict: bool
+
+
+def share_band(top: float) -> str:
+    """The band of a busiest person's share of first answers. Exactly 90% is in the top band, like the histogram's top bin."""
+    if top >= 0.9:
+        return "one"
+    if top > 0.7:
+        return "over_70"
+    return "over_half" if top > 0.5 else "shared"
+
+
 @dataclass
 class _Project:
     """What one project's record adds to the file; every field sums or concatenates across projects."""
@@ -168,6 +202,7 @@ class _Project:
     by_day: list[list[int]] = field(default_factory=lambda: [[0, 0] for _ in WEEKDAYS])
     weekday_pair: Optional[tuple[float, float]] = None
     who: Optional[tuple[float, int, int]] = None
+    outcome: Optional[_Outcome] = None
     first_row: Optional[list[Any]] = None
 
 
@@ -331,6 +366,17 @@ def read_project(job: tuple[Path, str, float, float, Optional[int]]) -> Optional
     total = sum(who.values())
     if total >= MIN_ATTRIBUTED_ANSWERS:
         out.who = (max(who.values()) / total, len(who), -1 if stars is None else stars)
+        if len(first_rows) >= MIN_OUTCOME_FIRST_PRS:
+            n = len(first_rows)
+            busiest = max(sorted(who), key=lambda login: who[login])
+            out.outcome = _Outcome(
+                top=out.who[0],
+                first_prs=n,
+                answered=sum(a is not None and a <= 14 * 24 for a, _ in first_rows) / n,
+                merged=sum(m for _, m in first_rows) / n,
+                stars=out.who[2],
+                strict=len(who) >= 2 and busiest != basename.partition("__")[0].lower(),
+            )
     if len(first_rows) >= MIN_FIRST_PRS:
         answered_hours = [a for a, _ in first_rows if a is not None]
         n = len(first_rows)
@@ -422,6 +468,57 @@ def _median_share(values: Sequence[float]) -> Optional[float]:
     return round(statistics.median(values), 4) if values else None
 
 
+def clear_gap(rows: Sequence[_Outcome], measure: str) -> Optional[float]:
+    """The mean of ``measure`` in the top band minus in the bottom band, compared only inside one cell of stars and first
+    pull requests, cells weighted by how many of both they hold; ``None`` when no cell holds both."""
+    cells: dict[tuple[int, int], tuple[list[float], list[float]]] = {}
+    for row in rows:
+        band = share_band(row.top)
+        if band in ("one", "shared"):
+            cell = cells.setdefault((bisect_right(COMPARE_STARS, row.stars), bisect_right(COMPARE_FIRST_PRS, row.first_prs)), ([], []))
+            cell[band == "shared"].append(getattr(row, measure))
+    weighted = weights = 0.0
+    for ones, shared in cells.values():
+        if ones and shared:
+            weight = len(ones) * len(shared) / (len(ones) + len(shared))
+            weighted += weight * (sum(ones) / len(ones) - sum(shared) / len(shared))
+            weights += weight
+    return weighted / weights if weights else None
+
+
+def _clear_against_shared(rows: Sequence[_Outcome], rng: random.Random) -> dict[str, Any]:
+    """The top band against the bottom one, with each gap's range from resampling those projects."""
+    both = [row for row in rows if share_band(row.top) in ("one", "shared")]
+    out: dict[str, Any] = {
+        "projects_one": sum(share_band(row.top) == "one" for row in both),
+        "projects_shared": sum(share_band(row.top) == "shared" for row in both),
+    }
+    for measure in ("answered", "merged"):
+        gap = clear_gap(both, measure)
+        rounds = sorted(v for v in (clear_gap(rng.choices(both, k=len(both)), measure) for _ in range(BOOTSTRAP_ROUNDS)) if v is not None) if gap is not None else []
+        out[f"gap_{measure}"] = None if gap is None else round(gap, 4)
+        out[f"gap_{measure}_range"] = [round(rounds[int(0.025 * len(rounds))], 4), round(rounds[int(0.975 * len(rounds))], 4)] if rounds else None
+    return out
+
+
+def _outcomes(projects: Sequence[_Project], rng: random.Random) -> dict[str, Any]:
+    """``who_answers.outcomes``."""
+    rows = [p.outcome for p in projects if p.outcome is not None]
+    bands = []
+    for band in SHARE_BANDS:
+        members = [row for row in rows if share_band(row.top) == band]
+        bands.append({
+            "band": band, "projects": len(members),
+            "answered": _median_share([row.answered for row in members]), "merged": _median_share([row.merged for row in members]),
+        })
+    return {
+        "projects": len(rows),
+        "bands": bands,
+        "clear_against_shared": _clear_against_shared(rows, rng),
+        "clear_against_shared_strict": _clear_against_shared([row for row in rows if row.strict], rng),
+    }
+
+
 def combine(projects: Sequence[_Project]) -> dict[str, Any]:
     """Everything after ``as_of`` and ``window_start``, from the projects in the order given."""
     first, returning = (sum(p.counts[g] for p in projects) for g in ("first", "returning"))
@@ -469,6 +566,7 @@ def combine(projects: Sequence[_Project]) -> dict[str, Any]:
                 "over_half": round(sum(row[0] > 0.5 for row in large) / len(large), 4) if large else None,
                 "median_people": statistics.median(row[1] for row in large) if large else None,
             },
+            "outcomes": _outcomes(projects, rng),
         },
         "first_pr_projects": rows,
     }

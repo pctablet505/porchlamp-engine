@@ -189,6 +189,25 @@ function columns(rows, name) {
   );
 }
 
+/** The share answered and the share merged in the typical project, side by side on one scale, by who answers there. */
+function bandCharts(rows) {
+  const top = roundUp(Math.max(...rows.flatMap((b) => [b.answered, b.merged])), 0.2);
+  const chart = (key, heading) =>
+    `<div class="fpr-pair-item"><h3 class="fpr-h3">${e(heading)}</h3>` +
+    columns(
+      rows.map((b, i) => ({
+        value: hook(`who_bands.${i}.${key}_text`, b[`${key}_text`]), height: b[key] / top, off: !b.top, label: b.label,
+        tip: words(copy.FIRST_PRS_TIP_BAND, { band: b.label, share: b[`${key}_text`], count: b.projects_text }),
+      })),
+      "band"
+    ) +
+    `</div>`;
+  return (
+    `<div class="fpr-pair">${chart("answered", copy.FIRST_PRS_BAND_ANSWERED)}${chart("merged", copy.FIRST_PRS_BAND_MERGED)}</div>` +
+    `<p class="fpr-axis-title">${e(copy.FIRST_PRS_HIST_AXIS)}</p>`
+  );
+}
+
 function table(head, rows, label) {
   return (
     `<div class="fpr-table-wrap"><table class="fpr-table"><caption class="sr-only">${e(label)}</caption><thead><tr>` +
@@ -236,6 +255,24 @@ export function renderFirstPullRequests(report) {
     `</header>` +
     `<div class="fpr-tiles">${tiles}</div>` +
     section(
+      "who-answers", copy.FIRST_PRS_WHO_KICKER, say(s.who_heading),
+      para(s.who_text) +
+        columns(
+          report.histogram.map((b, i) => ({
+            value: hook(`histogram.${i}.projects_text`, b.projects_text), height: b.projects / topHist, off: !b.top, label: b.label,
+            wideValue: !b.top, wideLabel: !b.top && i % 3 !== 0,
+            tip: words(copy.FIRST_PRS_TIP_HISTOGRAM, { band: b.label, count: b.projects_text }),
+          })),
+          "hist"
+        ) +
+        `<p class="fpr-axis-title">${e(copy.FIRST_PRS_HIST_AXIS)}</p>` + para(s.who_note, "report-note")
+    ) +
+    section(
+      "newcomers-do-best", copy.FIRST_PRS_BEST_KICKER, say(s.best_heading),
+      para(s.best_text) + bandCharts(report.who_bands) + para(s.control_text) + para(s.best_note, "report-note") +
+        `<p class="report-note">${e(copy.FIRST_PRS_BEST_CAVEAT)}</p>`
+    ) +
+    section(
       "waiting", copy.FIRST_PRS_WAIT_KICKER, say(s.wait_heading),
       para(s.wait_text) + para(s.late_text) + waitingCurve(report) + legend() + para(s.wait_note, "report-note") +
         `<p class="fpr-next"><a href="${e(copy.FIRST_PRS_LOOKUP_HREF)}">${e(copy.FIRST_PRS_LOOKUP_LINK)}</a></p>`
@@ -260,19 +297,6 @@ export function renderFirstPullRequests(report) {
           "week"
         ) +
         para(s.week_note, "report-note")
-    ) +
-    section(
-      "who-answers", copy.FIRST_PRS_WHO_KICKER, say(s.who_heading),
-      para(s.who_text) +
-        columns(
-          report.histogram.map((b, i) => ({
-            value: hook(`histogram.${i}.projects_text`, b.projects_text), height: b.projects / topHist, off: !b.top, label: b.label,
-            wideValue: !b.top, wideLabel: !b.top && i % 3 !== 0,
-            tip: words(copy.FIRST_PRS_TIP_HISTOGRAM, { band: b.label, count: b.projects_text }),
-          })),
-          "hist"
-        ) +
-        `<p class="fpr-axis-title">${e(copy.FIRST_PRS_HIST_AXIS)}</p>` + para(s.who_note, "report-note")
     ) +
     section(
       "where-to-start", copy.FIRST_PRS_FAST_KICKER, say(s.fast_heading),
@@ -305,9 +329,7 @@ export function renderFirstPullRequests(report) {
     `<section class="report-section" aria-labelledby="how-measured"><h2 class="report-h2" id="how-measured">${e(copy.FIRST_PRS_METHOD_HEADING)}</h2>` +
     `<ul class="report-list">${s.method.map((t) => leadItem(t, v)).join("")}</ul></section>` +
     `<section class="report-section" aria-labelledby="not-covered"><h2 class="report-h2" id="not-covered">${e(copy.FIRST_PRS_NOT_COVERED_HEADING)}</h2>` +
-    `<ul class="report-list">${s.not_covered.map((t) => leadItem(t, v)).join("")}` +
-    (s.black_holes_differ ? `<li>${say(s.black_holes_differ)}</li>` : "") +
-    `</ul></section></div>` +
+    `<ul class="report-list">${s.not_covered.map((t) => leadItem(t, v)).join("")}</ul></section></div>` +
     `<section class="report-section" aria-labelledby="cite"><h2 class="report-h2" id="cite">${e(copy.FIRST_PRS_CITE_HEADING)}</h2>` +
     `<p class="report-cite">${say(s.cite)}</p>` +
     `<p class="fpr-next"><a href="${e(report.data_file)}">${e(copy.FIRST_PRS_DATA_LABEL)}</a></p></section>` +
