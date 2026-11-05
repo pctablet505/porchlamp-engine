@@ -231,8 +231,8 @@ def _break_small_samples(stats):
 
 @pytest.mark.parametrize("breaks, claim", [
     (_break_half, "More than half"),
-    (_break_rising, "silence lowers"),
-    (_break_cut, "cuts the odds"),
+    (_break_rising, "lower the odds"),
+    (_break_cut, "more than halved"),
     (_break_meet, "nearly meet"),
     (_break_ask, "asked got more"),
     (_break_other, "Other comments got none"),

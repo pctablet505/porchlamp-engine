@@ -3120,7 +3120,7 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     answered_other = {row["hours"]: row["share"] for row in returning["answered_by"]}
     ask, none_ask = stats["asking"]["day14_first"]["ask_recent"], stats["asking"]["day14_first"]["other"]
     ledger.equal("'More than half hear nothing for two weeks' holds", answered[336] < 0.5, True)
-    ledger.equal("'Two weeks of silence cuts the odds by more than half' holds", curve[14] * 2 < curve[0], True)
+    ledger.equal("'the odds of a merge have more than halved' holds", curve[14] * 2 < curve[0], True)
     ledger.equal("'the two lines nearly meet' holds", abs(curve[60] - other_curve[60]) <= 0.02, True)
     ledger.equal("'Authors who asked got more answers' holds (the range is above zero)", ask["gap_answered_range"][0] > 0, True)
     ledger.equal("'Other comments got none' holds (the range spans zero)", none_ask["gap_answered_range"][0] < 0 < none_ask["gap_answered_range"][1], True)

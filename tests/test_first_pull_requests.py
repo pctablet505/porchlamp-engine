@@ -368,7 +368,7 @@ def test_the_clear_gap_leaves_the_middle_bands_out() -> None:
 def test_the_range_comes_from_resampling_and_the_strict_reading_leaves_out_owner_run_and_lone_answerers(tmp_path: Path) -> None:
     # owner "o" answers everything at o/solo; "maya" answers nearly everything at o/kept, with one other person; o/owned is run by its owner
     outcomes_project(tmp_path, "o__kept", 40, 1, answered=9, merged=8)
-    prs = answered_by({"o": 20}, first_prs=10, answered=0, merged=0)
+    prs = answered_by({"o": 40, "h0": 1}, first_prs=10, answered=0, merged=0)
     history = [{"author": p["author"], "createdAt": p["createdAt"]} for p in prs if p["author"]["login"].startswith("new")]
     history += [{"author": p["author"], "createdAt": after(OLD, days=-30)} for p in prs if p["author"]["login"].startswith("back")]
     write_project(tmp_path, "o__owned", prs, history=history, stars=5000)

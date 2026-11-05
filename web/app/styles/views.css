@@ -3319,9 +3319,12 @@ a.project-eco:hover {
 
 .fpr-kicker {
   margin: 0 0 var(--space-2xs);
-  font-size: var(--text-body-md);
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
 }
 
 .fpr-head {
@@ -3760,6 +3763,11 @@ a.project-eco:hover {
 .fpr-table .num {
   text-align: right;
   white-space: nowrap;
+}
+
+.fpr-table td.num {
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
 }
 
 .fpr-what {
