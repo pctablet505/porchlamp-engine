@@ -474,7 +474,7 @@ def combine(projects: Sequence[_Project]) -> dict[str, Any]:
     }
 
 
-def compute(data_dir: Path, *, as_of: str, workers: int = 1) -> dict[str, Any]:
+def compute_first_pull_requests(data_dir: Path, *, as_of: str, workers: int = 1) -> dict[str, Any]:
     """The stats file for the records under ``data_dir``, with the PR window ending at ``as_of``."""
     raw = Path(data_dir) / "raw"
     end = datetime.fromisoformat(as_of)

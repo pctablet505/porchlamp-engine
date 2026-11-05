@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from porchlamp.snapshot.first_pull_requests import compute_first_pull_requests
 from porchlamp.snapshot.manifest import (
     PENDING_DUMP_HASH,
     REASON_INVALID_JSON,
@@ -100,6 +101,7 @@ __all__ = [
     "canonical_dump",
     "canonical_dump_hash",
     "code_commit",
+    "compute_first_pull_requests",
     "compute_stats",
     "constants_hash",
     "envelope_entries",

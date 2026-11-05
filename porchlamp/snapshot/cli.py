@@ -57,7 +57,7 @@ from porchlamp.snapshot.manifest import (
     snapshot_dir,
     write_manifest,
 )
-from porchlamp.snapshot.first_pull_requests import compute as compute_first_pull_requests
+from porchlamp.snapshot.first_pull_requests import compute_first_pull_requests
 from porchlamp.snapshot.reproduce import SnapshotError, canonical_dump_hash, rebuild, reproduce
 from porchlamp.snapshot.stats import StatsError, compute_stats
 from porchlamp.snapshot.store_cmd import VerificationError, score_snapshot_dir, verify_expected, write_scored_snapshot
