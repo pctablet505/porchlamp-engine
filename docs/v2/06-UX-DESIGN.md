@@ -47,7 +47,8 @@ every view is shareable and reload-safe; persona and ecosystem changes rewrite t
 
 Two pages load no app and carry one small script of their own: the first-pull-requests report at
 `/first-pull-requests/` (slider and hover text; it reads whole without the script) and the personal lookup at `/lookup/`,
-which contacts GitHub only when the visitor presses its button.
+which contacts GitHub only when the visitor presses its button. A dated report's H1 may run to 40 px, above the 32 px of
+the specification's scale: the headline is the finding, so it has to stop a reader. Nothing else on the site uses it.
 
 ## 3. Screens
 

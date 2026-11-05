@@ -96,7 +96,7 @@ test("a close nobody can be named for doesn't say you closed it", () => {
   assert.equal(readPullRequest(closed, [{ event: "closed", actor: { login: "Ann" }, created_at: ago(2) }], NOW).status, "left");
   const html = renderLookupResult({ ok: true, result: { login: "ann", rows: [byBot], silent: 0, typicalHours: null, read: 1, found: 1, partial: false } });
   assert.ok(html.includes("Closed with no answer from a person"));
-  assert.ok(!html.includes("You closed it"));
+  assert.ok(!html.includes("closed it"));
 });
 
 test("the last close decides who closed it: reopened and closed again by the author", () => {
@@ -105,6 +105,7 @@ test("the last close decides who closed it: reopened and closed again by the aut
     { event: "closed", actor: { login: "ann" }, created_at: ago(2) },
   ];
   assert.equal(readPullRequest(item({ state: "closed" }), events, NOW).status, "left");
+  assert.equal(readPullRequest(item({ state: "closed" }), [...events].reverse(), NOW).status, "closed_quiet", "closed by the author, reopened, closed by a bot");
 });
 
 test("a closed draft isn't told the clock starts when it's marked ready", () => {
@@ -115,7 +116,8 @@ test("a closed draft isn't told the clock starts when it's marked ready", () => 
 test("the words say one day, today and one pull request", () => {
   const silent = (days) => ({ repo: "a/b", number: 1, title: "t", url: "https://github.com/a/b/pull/1", group: "first", status: "silent", answerHours: null, silentDays: days, asked: false });
   const page = (rows) => renderLookupResult({ ok: true, result: { login: "ann", rows, silent: rows.length, typicalHours: null, read: rows.length, found: rows.length, partial: false } });
-  assert.ok(page([silent(0.4)]).includes("Open, opened today"));
+  assert.ok(page([silent(0.4)]).includes("Open, silent for under a day"), "it may have opened yesterday, or been marked ready today");
+  assert.ok(!page([silent(0.4)]).includes("opened today"));
   assert.ok(page([silent(1.2)]).includes("Open, silent for 1 day<"));
   assert.ok(page([silent(2.2)]).includes("Open, silent for 2 days<"));
   assert.ok(page([silent(2.2)]).includes("ann: 1 recent pull request."));
@@ -287,7 +289,7 @@ test("the page makes no request and holds the form; its result escapes what GitH
   assert.ok(!html.includes("<b>x</b>"));
   assert.ok(html.includes("silent for 16 days"));
   assert.ok(html.includes("about 12% were merged"));
-  assert.ok(html.includes("You haven&#39;t asked on this one"));
+  assert.ok(html.includes("Not asked yet."));
   assert.ok(html.includes('href="/first-pull-requests/#asking"'));
   assert.ok(html.includes("30 minutes"));
   assert.ok(html.includes('href="/projects/acme/widget/"'));
@@ -310,8 +312,62 @@ test("a wait too short to ask about, and a wait where the author asked, say noth
   const row = { repo: "a/b", number: 1, title: "t", url: "https://github.com/a/b/pull/1", status: "silent", group: "returning", answerHours: null, silentDays: 2, asked: false, odds: null, typicalHours: null };
   const result = (r) => renderLookupResult({ ok: true, result: { login: "x", read: 1, found: 1, silent: 1, typicalHours: null, partial: false, rows: [r] } });
   assert.ok(!result(row).includes("asked on this one"));
-  assert.ok(result({ ...row, silentDays: 9, asked: true }).includes("You&#39;ve asked on this one."));
+  assert.ok(result({ ...row, silentDays: 9, asked: true }).includes("The author has asked on this one."));
   assert.ok(result({ ...row, odds: { share: 0.05, past: true } }).includes("Past two months of silence, 5% or fewer"));
+});
+
+test("the page takes any username, so nothing in a result says you", () => {
+  const row = { repo: "a/b", number: 1, title: "t", url: "https://github.com/a/b/pull/1", status: "silent", group: "first", answerHours: null, silentDays: 20, asked: false, odds: null, typicalHours: null };
+  const page = (rows) => renderLookupResult({ ok: true, result: { login: "ann", read: rows.length, found: rows.length, silent: rows.length, typicalHours: null, partial: false, rows } });
+  for (const html of [page([row]), page([{ ...row, asked: true }]), page([{ ...row, status: "left", silentDays: null }])]) {
+    assert.doesNotMatch(html.replace(/<[^>]*>/g, " "), /\b[Yy]ou(r|'ve|&#39;ve)?\b/, html);
+  }
+  assert.ok(page([{ ...row, status: "left", silentDays: null }]).includes("Closed by its author with no answer"));
+});
+
+test("the asking line prints once under the summary, only from two weeks of silence, the wait the report measures", () => {
+  const row = (silentDays, number = 1, asked = false) => ({ repo: "a/b", number, title: "t", url: `https://github.com/a/b/pull/${number}`, status: "silent", group: "first", answerHours: null, silentDays, asked, odds: null, typicalHours: null });
+  const page = (rows) => renderLookupResult({ ok: true, result: { login: "ann", read: rows.length, found: rows.length, silent: rows.length, typicalHours: null, partial: false, rows } });
+  const count = (html, text) => html.split(text).length - 1;
+  const three = page([row(20, 1), row(16, 2), row(15, 3)]);
+  assert.equal(count(three, "more answers"), 1);
+  assert.equal(count(three, 'href="/first-pull-requests/#asking"'), 1);
+  assert.equal(count(three, "Not asked yet."), 3);
+  assert.ok(three.indexOf("more answers") < three.indexOf("lookup-list"), "under the summary, above the list");
+  const nine = page([row(9)]);
+  assert.ok(!nine.includes("more answers"), "the report measures asking at two weeks");
+  assert.ok(!nine.includes("Not asked yet."));
+  assert.ok(!page([row(20, 1, true)]).includes("more answers"), "every row already asked");
+  assert.ok(page([row(14)]).includes("more answers"), "two weeks exactly counts");
+});
+
+test("an account whose pull requests all go to its own team isn't said to have none to other people", async () => {
+  const member = item({ author_association: "MEMBER" });
+  const out = await runLookup("ann", {
+    fetchImpl: async (url) => {
+      const address = String(url);
+      if (address.includes("/rate_limit")) return new Response(JSON.stringify({ resources: { core: { remaining: 60, reset: 2000000000 }, search: { remaining: 10, reset: 2000000000 } } }), { status: 200 });
+      if (address.includes("/search/")) return new Response(JSON.stringify({ total_count: 1, items: [member] }), { status: 200 });
+      return new Response("[]", { status: 200 });
+    },
+    now: new Date(NOW),
+  });
+  const html = renderLookupResult(out);
+  assert.ok(html.includes("projects it isn&#39;t a member of"), html);
+  assert.ok(!html.includes("other people"), html);
+});
+
+test("the limit is GitHub's for a network, not for a browser", () => {
+  assert.ok(renderLookupPage().includes("the 60 an hour GitHub gives your network"));
+  assert.ok(!renderLookupPage().includes("allowance"));
+  assert.ok(renderLookupResult({ ok: false, error: { kind: "rate_limited", resetAt: null } }).includes("limit for your network"));
+  assert.ok(renderLookupResult({ ok: false, error: { kind: "rate_limited", resetAt: 1790000000 } }).includes("limit for your network"));
+});
+
+test("what the page says it reads matches what it drops", () => {
+  assert.ok(renderLookupPage().includes("projects the account isn&#39;t a member of"));
+  assert.ok(!renderLookupPage().includes("doesn&#39;t own"));
+  assert.ok(renderLookupPage().includes("how often pull requests silent that long were merged"));
 });
 
 test("errors read in words, with the reset time when GitHub gave one", () => {

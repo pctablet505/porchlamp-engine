@@ -43,7 +43,7 @@ export function answeredX(hours, firstHour, lastHour) {
 
 /** A line chart: a stretched SVG for the lines, and HTML in percent for what has to keep its size. `series` is
  *  `[{cls, points: [{x, y, tip, i}]}]`, x and y from 0 to 1, y up; `ticks` the axis labels. */
-function lineChart({ label, series, yTicks, xTicks, guide = null }) {
+function lineChart({ label, series, yTicks, xTicks, guide = null, names = [] }) {
   const lines = series
     .map((s) => {
       const points = s.points.map((p) => `${(p.x * 100).toFixed(2)},${((1 - p.y) * 100).toFixed(2)}`).join(" ");
@@ -66,20 +66,29 @@ function lineChart({ label, series, yTicks, xTicks, guide = null }) {
     )
     .join("");
   const line = guide === null ? "" : `<span class="fpr-guide" data-fpr-guide="true" style="left:${at(guide)}"></span>`;
+  const named = names
+    .map((n) => `<span class="fpr-line-label fpr-key fpr-key-${n.cls}" style="left:${n.left};top:${n.top};transform:${n.transform}">${e(n.text)}</span>`)
+    .join("");
   return (
     `<figure class="fpr-chart" role="img" aria-label="${e(label)}"><div class="fpr-plot">${grid}` +
     `<svg class="fpr-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>` +
-    `${line}${dots}${ticks}</div></figure>`
+    `${line}${dots}${ticks}${named}</div></figure>`
   );
 }
 
-function legend() {
-  return (
-    `<div class="fpr-legend" aria-hidden="true">` +
-    `<span class="fpr-key fpr-key-first">${e(copy.FIRST_PRS_LEGEND_FIRST)}</span>` +
-    `<span class="fpr-key fpr-key-returning">${e(copy.FIRST_PRS_LEGEND_RETURNING)}</span></div>`
-  );
-}
+/** Where the two curves name their lines: in the plot's empty space, one above both lines and one below, for the shape these
+ *  curves have. The browser test pins them clear of every dot, line and tick on the report's record. */
+const WAITING_NAMES = Object.freeze([
+  { cls: "returning", text: copy.FIRST_PRS_LINE_RETURNING, left: "8%", top: "5%", transform: "translate(0, -50%)" },
+  { cls: "first", text: copy.FIRST_PRS_LINE_FIRST, left: "36%", top: "94%", transform: "translate(-50%, -50%)" },
+]);
+const ANSWERED_NAMES = Object.freeze([
+  { cls: "returning", text: copy.FIRST_PRS_LINE_RETURNING, left: "30%", top: "42%", transform: "translate(-50%, -50%)" },
+  { cls: "first", text: copy.FIRST_PRS_LINE_FIRST, left: "100%", top: "90%", transform: "translate(-100%, -50%)" },
+]);
+
+/** The answered curve keeps its dot at two months but not the label: "2 mo" beside "3 mo" touches at every width under 860 px. */
+const NO_TICK_HOURS = 1440;
 
 /** The waiting curve, its slider and its readout. Without a script the slider stays hidden and the opening reading stands. */
 function waitingCurve(report) {
@@ -96,16 +105,18 @@ function waitingCurve(report) {
   for (let v = 0; v <= top + 1e-9; v += 0.2) yTicks.push({ y: v / top, label: `${Math.round(v * 100)}%` });
   const xTicks = copy.FIRST_PRS_CURVE_TICKS.map(([days, label, wide]) => ({ x: curveX(days, last), label, wide }));
   const list = (key) => e(rows.map((r) => r[key]).join("|"));
+  const said = rows.map((r) => words(copy.FIRST_PRS_SAID, { days: r.label, first: r.first_text, returning: r.returning_text }));
   return (
-    `<div class="fpr-read" data-fpr-curve="true" data-labels="${list("label")}" data-first="${list("first_text")}" data-returning="${list("returning_text")}" ` +
+    `<h3 class="fpr-h3">${e(copy.FIRST_PRS_CURVE_HEADING)}</h3>` +
+    `<div class="fpr-read" data-fpr-curve="true" data-labels="${list("label")}" data-first="${list("first_text")}" data-returning="${list("returning_text")}" data-said="${e(said.join("|"))}" ` +
     `data-x="${e(rows.map((r) => at(curveX(r.days, last))).join("|"))}">` +
     `<div class="fpr-slide" data-fpr-slide="true" hidden>` +
     `<label for="fpr-days">${e(copy.FIRST_PRS_SLIDER_LABEL)} <b data-fpr-label="true">${e(rows[opening].label)}</b></label>` +
-    `<input id="fpr-days" type="range" min="0" max="${rows.length - 1}" step="1" value="${opening}" aria-valuetext="${e(rows[opening].label)}">` +
+    `<input id="fpr-days" type="range" min="0" max="${rows.length - 1}" step="1" value="${opening}" aria-valuetext="${e(said[opening])}">` +
     `</div>` +
     `<p class="fpr-silent-for" data-fpr-silent-for="true">${e(copy.FIRST_PRS_SLIDER_LABEL)} <b>${e(rows[opening].label)}</b></p>` +
-    `<div class="fpr-figure"><b data-fpr-first="true">${hook(`curve.${opening}.first_text`, rows[opening].first_text)}</b><span class="fpr-key fpr-key-first">${e(copy.FIRST_PRS_READOUT_FIRST)}</span></div>` +
-    `<div class="fpr-figure"><b data-fpr-returning="true">${hook(`curve.${opening}.returning_text`, rows[opening].returning_text)}</b><span class="fpr-key fpr-key-returning">${e(copy.FIRST_PRS_READOUT_RETURNING)}</span></div>` +
+    `<div class="fpr-figure"><b data-fpr-first="true">${hook(`curve.${opening}.first_text`, rows[opening].first_text)}</b><span class="fpr-key fpr-key-first">${e(copy.FIRST_PRS_READOUT_FIRST_MERGED)}</span></div>` +
+    `<div class="fpr-figure"><b data-fpr-returning="true">${hook(`curve.${opening}.returning_text`, rows[opening].returning_text)}</b><span class="fpr-key fpr-key-returning">${e(copy.FIRST_PRS_READOUT_RETURNING_MERGED)}</span></div>` +
     `</div>` +
     lineChart({
       label: copy.FIRST_PRS_CURVE_LABEL,
@@ -116,6 +127,7 @@ function waitingCurve(report) {
       ],
       yTicks,
       xTicks,
+      names: WAITING_NAMES,
     })
   );
 }
@@ -134,7 +146,8 @@ function answeredCurve(report) {
       { cls: "first", points: rows.map((r) => point(r, "first", copy.FIRST_PRS_READOUT_FIRST)) },
     ],
     yTicks: [0, 0.25, 0.5, 0.75, 1].map((y) => ({ y, label: `${y * 100}%` })),
-    xTicks: rows.map((r) => ({ x: answeredX(r.hours, low, high), label: r.label, wide: !copy.FIRST_PRS_ANSWERED_NARROW_TICKS.includes(r.hours) })),
+    xTicks: rows.filter((r) => r.hours !== NO_TICK_HOURS).map((r) => ({ x: answeredX(r.hours, low, high), label: r.label, wide: !copy.FIRST_PRS_ANSWERED_NARROW_TICKS.includes(r.hours) })),
+    names: ANSWERED_NAMES,
   });
 }
 
@@ -172,9 +185,10 @@ function askingChart(rows) {
 }
 
 /** Columns in one row: each its value, its bar, its label. `rows` is `[{value, height (0 to 1), off, label, tip, wideValue, wideLabel}]`. */
-function columns(rows, name) {
+function columns(rows, name, label = null) {
+  const said = label === null ? "" : ` role="img" aria-label="${e(label)}"`;
   return (
-    `<div class="fpr-cols fpr-cols-${name}" style="--cols:${rows.length}">` +
+    `<div class="fpr-cols fpr-cols-${name}"${said} style="--cols:${rows.length}">` +
     rows
       .map(
         (r) =>
@@ -210,7 +224,7 @@ function bandCharts(rows) {
 
 function table(head, rows, label) {
   return (
-    `<div class="fpr-table-wrap"><table class="fpr-table"><caption class="sr-only">${e(label)}</caption><thead><tr>` +
+    `<div class="fpr-table-wrap"><table class="fpr-table" style="--nums:${head.length - 1}"><caption class="sr-only">${e(label)}</caption><thead><tr>` +
     head.map((h, i) => `<th scope="col"${i ? ' class="num"' : ""}>${e(h)}</th>`).join("") +
     `</tr></thead><tbody>${rows.join("")}</tbody></table></div>`
   );
@@ -242,7 +256,6 @@ export function renderFirstPullRequests(report) {
     .map(
       (t) =>
         `<div class="fpr-tile"><p class="fpr-tile-label">${e(t.label)}</p><p class="fpr-tile-value">${hook(t.value, v[t.value])}</p>` +
-        `<span class="fpr-tile-bar" aria-hidden="true"><span style="width:${at(report.tile_shares[t.value])}"></span></span>` +
         `<p class="fpr-tile-text">${say(t.text)}</p></div>`
     )
     .join("");
@@ -253,20 +266,21 @@ export function renderFirstPullRequests(report) {
     `<h1 class="view-heading fpr-h1" id="fpr-title">${say(s.h1)}</h1>` +
     `<p class="report-lede fpr-lede">${say(s.lede)}</p>` +
     `</header>` +
-    `<div class="fpr-tiles">${tiles}</div>` +
     section(
       "who-answers", copy.FIRST_PRS_WHO_KICKER, say(s.who_heading),
-      para(s.who_text) +
+      `<h3 class="fpr-h3">${e(copy.FIRST_PRS_HIST_HEADING)}</h3>` +
         columns(
           report.histogram.map((b, i) => ({
             value: hook(`histogram.${i}.projects_text`, b.projects_text), height: b.projects / topHist, off: !b.top, label: b.label,
             wideValue: !b.top, wideLabel: !b.top && i % 3 !== 0,
             tip: words(copy.FIRST_PRS_TIP_HISTOGRAM, { band: b.label, count: b.projects_text }),
           })),
-          "hist"
+          "hist",
+          words(copy.FIRST_PRS_HIST_LABEL, { bands: report.histogram.map((b) => words(copy.FIRST_PRS_HIST_BAND, { band: b.label, count: b.projects_text })).join(", ") })
         ) +
-        `<p class="fpr-axis-title">${e(copy.FIRST_PRS_HIST_AXIS)}</p>` + para(s.who_note, "report-note")
+        `<p class="fpr-axis-title">${e(copy.FIRST_PRS_HIST_AXIS)}</p>` + para(s.who_text) + para(s.who_note, "report-note")
     ) +
+    `<div class="fpr-tiles">${tiles}</div>` +
     section(
       "newcomers-do-best", copy.FIRST_PRS_BEST_KICKER, say(s.best_heading),
       para(s.best_text) + bandCharts(report.who_bands) + para(s.control_text) + para(s.best_note, "report-note") +
@@ -274,7 +288,7 @@ export function renderFirstPullRequests(report) {
     ) +
     section(
       "waiting", copy.FIRST_PRS_WAIT_KICKER, say(s.wait_heading),
-      para(s.wait_text) + para(s.late_text) + waitingCurve(report) + legend() + para(s.wait_note, "report-note") +
+      para(s.wait_text) + para(s.late_text) + waitingCurve(report) + para(s.wait_note, "report-note") +
         `<p class="fpr-next"><a href="${e(copy.FIRST_PRS_LOOKUP_HREF)}">${e(copy.FIRST_PRS_LOOKUP_LINK)}</a></p>`
     ) +
     section(
@@ -284,7 +298,7 @@ export function renderFirstPullRequests(report) {
     ) +
     section(
       "first-one", copy.FIRST_PRS_FIRST_KICKER, say(s.first_heading),
-      para(s.first_text) + legend() + answeredCurve(report) + para(s.first_note, "report-note")
+      para(s.first_text) + `<h3 class="fpr-h3">${e(copy.FIRST_PRS_ANSWERED_HEADING)}</h3>` + answeredCurve(report) + para(s.first_note, "report-note")
     ) +
     section(
       "weekends", copy.FIRST_PRS_WEEK_KICKER, say(s.week_heading),
@@ -323,6 +337,14 @@ export function renderFirstPullRequests(report) {
               `<td class="num">${hook(`curve.${i}.returning_exact`, r.returning_exact)}</td><td class="num">${hook(`curve.${i}.returning_n_text`, r.returning_n_text)}</td></tr>`
           ),
           copy.FIRST_PRS_CURVE_CAPTION
+        ) +
+        table(
+          copy.FIRST_PRS_ANSWERED_COLUMNS,
+          report.answered.map(
+            (r, i) =>
+              `<tr><th scope="row">${e(r.label)}</th><td class="num">${hook(`answered.${i}.first_text`, r.first_text)}</td><td class="num">${hook(`answered.${i}.returning_text`, r.returning_text)}</td></tr>`
+          ),
+          copy.FIRST_PRS_ANSWERED_CAPTION
         )
     ) +
     `<div class="report-pair">` +

@@ -90,11 +90,14 @@ def test_the_recount_from_the_data_root_runs_and_a_different_file_fails_it(tmp_p
 
 PAGE_PLANTS = [
     ("the title's sentence", "one person gives most of the first answers. Newcomers", "one person gives all of the first answers. Newcomers"),
-    ("the lede", "They aren&#39;t.", "They are."),
+    ("the lede", "within a day at least as often", "within a day far more often"),
     ("a caveat", "bystander effect", "observer effect"),
     ("a method line", "found 57 real asks", "found 59 real asks"),
     ("a not-covered line", "When that person stops.", "When she stops."),
-    ("a tile's words", "where the job is shared", "where the job is split"),
+    ("a tile's words", "where nobody gives over half</p>", "where nobody gives much</p>"),
+    ("a chart's title", "Projects, by the busiest person&#39;s share of first answers", "Projects, by the busiest person&#39;s share of all answers"),
+    ("the slider's spoken words", 'data-said="0 days of silence: 33%', 'data-said="0 days of silence: 66%'),
+    ("the histogram's text alternative", "90–100%: 1,186 projects", "90–100%: 2,186 projects"),
     ("a section label", "Where newcomers get merged", "Where newcomers do best"),
     ("the head's title", "<title>In most open source", "<title>In all open source"),
     ("the head's description", 'one person gave most first answers, and more newcomers got merged there.">', 'one person gave all first answers, and more newcomers got merged there.">'),

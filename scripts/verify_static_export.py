@@ -3079,6 +3079,9 @@ def first_pull_requests_hooks(stats: dict, sid: str) -> dict[str, str]:
     for i, row in enumerate(outcomes["bands"]):
         hooks[f"who_bands.{i}.answered_text"] = _whole_percent(row["answered"])
         hooks[f"who_bands.{i}.merged_text"] = _whole_percent(row["merged"])
+    for i, hours in enumerate(sorted(shares)):
+        hooks[f"answered.{i}.first_text"] = _whole_percent(shares[hours])
+        hooks[f"answered.{i}.returning_text"] = _whole_percent(shares_others[hours])
     for i, row in enumerate(picked):
         hooks[f"projects.{i}.median_text"] = _reply_time(row[2])
         hooks[f"projects.{i}.within_a_day_text"] = _whole_percent(row[3])
@@ -3127,6 +3130,9 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     h2 = [t for tag, t in page.headings if tag == "h2"]
     for key in ("who_heading", "best_heading", "wait_heading", "ask_heading", "first_heading", "week_heading", "fast_heading"):
         ledger.equal(f"{rel} has the heading {key}", fill(sentences[key]) in h2, True)
+    h3 = [t for tag, t in page.headings if tag == "h3"]
+    for name in ("FIRST_PRS_HIST_HEADING", "FIRST_PRS_CURVE_HEADING", "FIRST_PRS_ANSWERED_HEADING"):
+        ledger.equal(f"{rel} has copy.js's {name}", rp.copy_js_string(name) in h3, True)
     paragraphs = {e["text"] for e in page.find(tag="p")} | {e["text"] for e in page.find(tag="li")}
     for key in ("lede", "who_text", "who_note", "best_text", "control_text", "best_note", "wait_text", "late_text", "wait_note", "ask_text", "ask_note", "merges_text", "first_text", "first_note", "week_text", "week_note", "fast_text", "cite"):
         ledger.equal(f"{rel} has the sentence {key}", fill(sentences[key]) in paragraphs, True)
@@ -3142,6 +3148,17 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     rows, others = stats["first"]["merged_if_silent"], stats["returning"]["merged_if_silent"]
     for attribute, values in (("first", [_whole_percent(r["merged"]) for r in rows]), ("returning", [_whole_percent(r["merged"]) for r in others])):
         ledger.equal(f"{rel} slider's {attribute} list", re.findall(rf'data-{attribute}="([^"]*)"', text), ["|".join(values)])
+    said = [
+        rp.copy_js_string("FIRST_PRS_SAID").format(days=fpr_page._day_label(a["days"]), first=_whole_percent(a["merged"]), returning=_whole_percent(b["merged"]))
+        for a, b in zip(rows, others)
+    ]
+    ledger.equal(f"{rel} slider's spoken list", [html.unescape(t) for t in re.findall(r'data-said="([^"]*)"', text)], ["|".join(said)])
+    bands_said = ", ".join(rp.copy_js_string("FIRST_PRS_HIST_BAND").format(band=f"{i * 10}–{(i + 1) * 10}%", count=f"{count:,}") for i, count in enumerate(stats["who_answers"]["histogram"]))
+    ledger.equal(
+        f"{rel} histogram's text alternative",
+        [html.unescape(t) for t in re.findall(r'class="fpr-cols fpr-cols-hist" role="img" aria-label="([^"]*)"', text)],
+        [rp.copy_js_string("FIRST_PRS_HIST_LABEL").format(bands=bands_said)],
+    )
     who_stats = stats["who_answers"]
     step_top = lambda top: math.ceil(top / 0.2 - 1e-9) * 0.2  # noqa: E731
     bands_list = who_stats["outcomes"]["bands"]
@@ -3175,7 +3192,11 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     bands = {row["band"]: row for row in outcomes["bands"]}
     ledger.equal("'Newcomers get merged more often there' holds", bands["one"]["merged"] > bands["shared"]["merged"], True)
     ledger.equal("'Answers within two weeks lean the same way' holds", bands["one"]["answered"] > bands["shared"]["answered"], True)
-    ledger.equal("'They aren't' (the slow ones) holds", bands["one"]["in_a_day"] >= bands["shared"]["in_a_day"], True)
+    ledger.equal("'within a day at least as often' holds", bands["one"]["in_a_day"] >= bands["shared"]["in_a_day"], True)
+    ledger.equal(
+        "'these shares run higher than the page's counts by pull request' holds",
+        all(bands[band]["answered"] > answered[336] and bands[band]["merged"] > curve[0] for band in ("one", "shared")), True,
+    )
     ledger.equal("'Stars and volume don't explain the merges' holds (the range is above zero)", outcomes["clear_against_shared"]["gap_merged_range"][0] > 0, True)
     ledger.equal("the merges without owner-run projects hold (the range is above zero)", outcomes["clear_against_shared_strict"]["gap_merged_range"][0] > 0, True)
     ledger.equal("'that gap is smaller' holds", outcomes["clear_against_shared"]["gap_answered"] < outcomes["clear_against_shared"]["gap_merged"], True)

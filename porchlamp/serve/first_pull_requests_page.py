@@ -162,7 +162,11 @@ def check_claims(stats: Mapping[str, Any], projects: Sequence[Mapping[str, Any]]
     bands = {row["band"]: row for row in outcomes["bands"]}
     guard(bands["one"]["merged"] > bands["shared"]["merged"], "Newcomers get merged more often there")
     guard(bands["one"]["answered"] > bands["shared"]["answered"], "Answers within two weeks lean the same way")
-    guard(bands["one"]["in_a_day"] >= bands["shared"]["in_a_day"], "You'd expect those projects to be the slow ones. They aren't")
+    guard(bands["one"]["in_a_day"] >= bands["shared"]["in_a_day"], "Projects that lean on one person answer them within a day at least as often")
+    guard(
+        all(bands[band]["answered"] > answered[_TWO_WEEKS] and bands[band]["merged"] > curve[0]["merged"] for band in ("one", "shared")),
+        "these shares run higher than the page's counts by pull request",
+    )
     for label, gap in (("Stars and volume don't explain the merges", outcomes["clear_against_shared"]), ("Leaving out projects owned by the busiest person's own account", outcomes["clear_against_shared_strict"])):
         guard(gap["gap_merged_range"] is not None and gap["gap_merged_range"][0] > 0, label)
     gap, strict = outcomes["clear_against_shared"], outcomes["clear_against_shared_strict"]
@@ -287,46 +291,46 @@ SENTENCES: dict[str, Any] = {
     "h1": "In most open source projects we measured, one person gives most of the first answers. Newcomers get merged more often there.",
     "lede": (
         "Porchlamp followed {first} first pull requests, each from someone who hadn't sent that project a pull request in about "
-        "the previous six months or longer. You'd expect projects that lean on one person to be the slow ones. They aren't."
+        "six months or more. Projects that lean on one person answer them within a day at least as often as projects that share the job."
     ),
     "tiles": [
-        {"label": "One person gives most first answers", "value": "over_half", "text": "of {who_projects} projects, and still {large_over_half} at {large_stars} stars or more"},
-        {"label": "Merged where one person answers", "value": "one_merged", "text": "of first pull requests in the typical project, against {shared_merged} where the job is shared"},
+        {"label": "One person gives over half of first answers", "value": "over_half", "text": "of {who_projects} projects"},
+        {"label": "Merged where one person gives 90% or more", "value": "one_merged", "text": "of first pull requests in the typical project, against {shared_merged} where nobody gives over half"},
         {"label": "Silent at two weeks, then asked", "value": "ask_answered", "text": "got an answer in the next 30 days, against {ask_answered_none} with no comment in the same projects"},
-        {"label": "Merged, in the end", "value": "merged_0", "text": "of first pull requests, against {returning_merged_0} for people who had sent one before"},
+        {"label": "Merged, counting every pull request", "value": "merged_0", "text": "of first pull requests, against {returning_merged_0} for people who had sent one before"},
     ],
     "best_heading": "More first pull requests get merged where one person does the answering",
     "best_text": "In the typical project where one person gives 90% or more of the first answers, {one_merged} of first pull requests get merged. Where nobody gives more than half, it's {shared_merged}. Answers within two weeks lean the same way, {one_answered} against {shared_answered}, but that gap is smaller and less sure.",
-    "control_text": "Stars and volume don't explain the merges. Comparing only projects with similar stars and a similar number of first pull requests, the gap is {gap_merged} points ({gap_merged_low} to {gap_merged_high}). Leaving out projects owned by the busiest person's own account, and projects where only one person answers at all, leaves {strict_one} and {strict_shared} projects and a gap of {strict_merged} points ({strict_merged_low} to {strict_merged_high}). The same two comparisons in answers give {gap_answered} points ({gap_answered_low} to {gap_answered_high}) and {strict_answered} points ({strict_answered_low} to {strict_answered_high}).",
-    "best_note": "The typical project is the median of {outcome_projects} projects with at least 20 first answers we could attribute to a person and at least 10 first pull requests at least 14 days old: {one_projects} with one person at 90% or more, {shared_projects} with nobody over half. Below that floor of answers sit {below_projects} more projects, where the typical first pull request gets an answer {below_answered} of the time. In {below_one_projects} of them one person gave nearly all of the few answers, and {below_one_answered} got one.",
+    "control_text": "Stars and volume don't explain the merges. Comparing only projects with similar stars and a similar number of first pull requests, the gap is {gap_merged} percentage points (95% range {gap_merged_low} to {gap_merged_high}). Leaving out projects owned by the busiest person's own account, and projects where only one person answers at all, leaves {strict_one} and {strict_shared} projects and a gap of {strict_merged} percentage points (95% range {strict_merged_low} to {strict_merged_high}). The same two comparisons in answers give {gap_answered} points ({gap_answered_low} to {gap_answered_high}) and {strict_answered} points ({strict_answered_low} to {strict_answered_high}).",
+    "best_note": "The typical project is the median of {outcome_projects} projects with at least 20 first answers we could attribute to a person and at least 10 first pull requests at least 14 days old: {one_projects} with one person at 90% or more, {shared_projects} with nobody over half. Each project counts once, so a busy one weighs no more than a small one, and a project has to answer often to clear that floor. That's why these shares run higher than the page's counts by pull request: {answered_14d} answered within two weeks, {merged_0} merged. Another {below_projects} projects have at least 10 first pull requests and fewer than 20 such answers: the typical one answers {below_answered} of its first pull requests within two weeks. In {below_one_projects} of them one person gave nearly all of the few answers, and the typical one answers {below_one_answered}.",
     "wait_heading": "After two weeks of silence, the odds of a merge have more than halved",
     "wait_text": "More than half of first pull requests, {silent_14}, hear nothing from the project's people for two weeks, and the longer the silence, the lower the odds of a merge. Each point counts pull requests at least four months old that had no answer by that day, and how many of them were merged in the end: {merged_7} after a week of silence, {merged_14} after two weeks, {merged_30} after a month, {merged_60} after two months. By then the two lines nearly meet, at {merged_60} and {returning_merged_60}.",
     "late_text": "A late answer is still possible. Of first pull requests silent at two weeks, {later_30} hear something by day 30, {later_60} by day 60 and {later_90} by day 90.",
     "wait_note": "Share merged by the end of the data, at least four months after opening, by days with no answer. {first_settled} first pull requests are old enough to count. An answer means a reply or review from the project's people, a merge, or a close by them.",
-    "ask_heading": "Authors who asked got about {ask_gap} points more answers. A comment with no ask and no tag got none.",
-    "ask_text": "Of first pull requests silent at two weeks, {ask_answered} got an answer in the next 30 days, so by day 44, if the author had asked in the past week, with words like \"friendly ping\" or \"could you take a look\". In the same projects, with no comment after the first hour, it was {ask_answered_none}. Part of that gap comes from which projects get asked. Inside one project, about {ask_gap} points remain. A comment with no ask and no tag shows nothing.",
+    "ask_heading": "Authors who asked got about {ask_gap} percentage points more answers. A comment with no ask and no tag got none.",
+    "ask_text": "Of first pull requests silent at two weeks, {ask_answered} got an answer in the next 30 days (by day 44) if the author had asked in the past week, with words like \"friendly ping\" or \"could you take a look\". In the same projects, with no comment after the first hour, it was {ask_answered_none}. Part of that gap comes from which projects get asked. Inside one project, about {ask_gap} percentage points remain. A comment with no ask and no tag shows nothing.",
     "ask_note": "First pull requests silent at two weeks, {ask_n} with a recent ask in {ask_projects} projects. Lines show the 95% range. Across all outside pull requests the same comparison gives {all_ask_gap} points ({all_ask_low} to {all_ask_high}) for asking, from {all_ask_n} pull requests in {all_ask_projects} projects, and {all_other_gap} points ({all_other_low} to {all_other_high}) for a comment with no ask and no tag.",
     "merges_text": "Merges follow: by the end of the data, {ask_merged} merged against {ask_merged_none}, or {ask_merged_gap} points inside one project ({ask_merged_low} to {ask_merged_high}). An ask in the first week shows less: {week_one_gap} points ({week_one_low} to {week_one_high}), measured at one week.",
     "first_heading": "The first pull request waits longest",
     "first_text": "Within a day, {answered_1d} of first pull requests have an answer, against {returning_answered_1d} for people the project has seen before. After two weeks the gap is still there: {answered_14d} against {returning_answered_14d}.",
-    "first_note": "Share answered by each point in time, log scale, allowing for pull requests too young to tell or closed by their author. {first} first and {returning} returning pull requests.",
+    "first_note": "The time scale is logarithmic, and the shares allow for pull requests too young to tell or closed by their author. {first} first and {returning} returning pull requests.",
     "week_heading": "Weekend pull requests wait longer",
-    "week_text": "Inside the same project, weekday pull requests beat weekend ones in {weekday_better} of {weekday_projects} projects, by a median of {weekday_gap} points.",
+    "week_text": "Inside the same project, weekday pull requests beat weekend ones in {weekday_better} of {weekday_projects} projects, by a median of {weekday_gap} percentage points.",
     "week_note": "All outside pull requests, days in UTC, including the busiest projects that the first and returning figures leave out, so don't compare these shares with those. The inside-a-project figure uses projects with at least 30 weekday and 10 weekend pull requests. Weekend senders may differ from weekday ones, which that comparison only partly removes.",
-    "who_heading": "Even at {large_stars} stars, one person usually gives most first answers",
-    "who_text": "Count who gives the first answer to each outside pull request, and the median project has {median_people} people giving first answers at all. In {top_bin} of {who_projects} projects, one person gives at least 90% of them. Fame barely changes it: among {large_projects} projects with {large_stars} stars or more, one person gives most of them in {large_over_half}, with a median of {large_people} people.",
-    "who_note": "Projects by the busiest person's share of first answers, for projects with at least 20 first answers we could attribute to a person. Known bots are left out; a few automation accounts that look like people remain.",
+    "who_heading": "In {top_bin} of {who_projects} projects, one person gives 90% or more of the first answers",
+    "who_text": "Count who gives the first answer to each outside pull request, and the median project has {median_people} people giving first answers at all. In {over_half} of these projects, one person gives more than half of them. Fame barely changes it: among {large_projects} projects with {large_stars} stars or more, it's {large_over_half}, with a median of {large_people} people.",
+    "who_note": "Only projects with at least 20 first answers we could attribute to a person. Known bots are left out; a few automation accounts that look like people remain.",
     "fast_heading": "{count_title} projects that answer first-timers quickly and merge their work",
-    "fast_text": "Picked by hand from the {listed_projects} projects with at least 25 first pull requests old enough to judge, so this isn't a ranking. All {count_word} answered at least {min_within_a_day} of them within a day and merged at least {min_merged}. Most have under 60 first pull requests, so read them as examples. Each link opens the project's page here.",
+    "fast_text": "Picked by hand from the {listed_projects} projects with at least 25 first pull requests old enough to judge, so this isn't a ranking. All {count_word} answered at least {min_within_a_day} of them within a day and merged at least {min_merged}. Most have under 60 first pull requests, so read them as examples. These count first pull requests only, so each differs from the number on the project's own page, which counts every outside pull request.",
     "method": [
-        "Data. Porchlamp's {snapshot_id} snapshot holds {outside_prs} outside pull requests opened from {window_start} to {window_end}, across {projects} projects with a record. These results read {read} of them, those with recorded replies after the rules below. An earlier post's 212,390 came from a smaller read of the same projects, before the collection was widened.",
+        "Data. Porchlamp's {snapshot_id} snapshot holds {outside_prs} outside pull requests opened from {window_start} to {window_end}, across {projects} projects with a record. These results read {read} of them, those with recorded replies after the rules below.",
         "Left out. Bots, drafts never marked ready, accounts under {min_account_days} days old, and project members, including anyone the record shows merging or closing someone else's pull request, whatever GitHub's label says. In very busy projects, replies are read from the snapshot's even random sample.",
         "First pull request. The author has no earlier pull request to that project in its record of the past 365 days or in the window. Every pull request here opened in the last six months, so the look-back runs from about six months to a year. Only projects whose record isn't cut off at its cap of about 500 can tell, so most of the busiest projects are missing. The split covers {known} of the {read} pull requests read, {known_share}.",
         "Which results use what. The waiting curve, the answered-by curve and the listed projects use first pull requests only. So do the asking figures unless a line says all outside pull requests, and the answered and merged shares beside who answers. The weekday results and who gives the first answers use all outside pull requests.",
         "Who answers. The person behind the first answer to each outside pull request: who wrote the reply or review, or who merged it. Known bots are left out. A project counts once, whatever its size, so the shares beside who answers are the median project's. The comparison of similar projects uses bands of stars (under 3,000, 3,000 to 10,000, 10,000 to 30,000, 30,000 or more) and of first pull requests (under 15, 15 to 30, 30 to 60, 60 or more), and the 95% range comes from resampling projects.",
         "An answer. The earliest reply or review from the project's people, a merge, or a close by them. A reply needs at least 40 characters, and automated greetings and replies from bots don't count. The clock starts when a draft is marked ready.",
         "Asking. A comment from the author after the first hour, matched against a word list: ping, bump, gentle nudge, could you review, take a look, any update and similar. A hand check of 60 matches found 57 real asks. The list also misses requests: of 60 comments that only tagged someone, 25 were asking. Tool commands and CLA signatures aren't asks, but they do count as commenting. The baseline is no comment after the first hour. The inside-one-project gap compares the groups project by project, weighted by how many each has (Mantel-Haenszel), and the 95% range comes from resampling projects. We tightened the word list after a first look at the data, so this is a result to test again on the next snapshot.",
-        "Waiting curve. Pull requests at least four months old. One an author closed unanswered drops out from that day. The {silent_14} near the top uses all {first} and treats an author closing their own pull request as leaving the count, so it doesn't divide out from the curve's table.",
+        "Waiting curve. Pull requests at least four months old. One an author closed unanswered drops out from that day. The {silent_14} in the waiting section uses all {first} and treats an author closing their own pull request as leaving the count, so it doesn't divide out from the curve's table.",
     ],
     "not_covered": [
         "Why a project didn't answer. Silence may mean a closed list, a mailing-list workflow, or a pull request nobody wanted.",
@@ -342,11 +346,11 @@ SENTENCES: dict[str, Any] = {
 
 
 def _day_label(days: int) -> str:
-    return "From opening" if days == 0 else ("1 day" if days == 1 else f"{days} days")
+    return "1 day" if days == 1 else f"{days} days"
 
 
 def _hour_label(hours: int) -> str:
-    return {1: "1 h", 6: "6 h", 24: "1 day", 72: "3 d", 168: "1 wk", 336: "2 wk", 720: "1 mo", 1440: "2 mo", 2160: "3 mo"}[hours]
+    return {1: "1 h", 6: "6 h", 24: "1 day", 72: "3 days", 168: "1 wk", 336: "2 wk", 720: "1 mo", 1440: "2 mo", 2160: "3 mo"}[hours]
 
 
 def report_json(stats: Mapping[str, Any], *, snapshot_id: str, as_of: str) -> dict[str, Any]:
@@ -372,10 +376,6 @@ def report_json(stats: Mapping[str, Any], *, snapshot_id: str, as_of: str) -> di
         "data_file": f"/data/{snapshot_id}/{DATA_FILE}",
         "values": values,
         "sentences": SENTENCES,
-        "tile_shares": {
-            "over_half": stats["who_answers"]["over_half"], "one_merged": next(row["merged"] for row in bands if row["band"] == "one"),
-            "ask_answered": asking["ask_recent"]["answered"], "merged_0": curve[0]["merged"],
-        },
         "curve": [
             {
                 "days": day, "label": _day_label(day),

@@ -4,7 +4,7 @@
 const curve = document.querySelector("[data-fpr-curve]");
 if (curve) {
   const list = (name) => curve.dataset[name].split("|");
-  const [labels, first, returning, xs] = [list("labels"), list("first"), list("returning"), list("x")];
+  const [labels, first, returning, xs, said] = [list("labels"), list("first"), list("returning"), list("x"), list("said")];
   const slide = curve.querySelector("[data-fpr-slide]");
   const input = slide.querySelector("input");
   const chart = curve.nextElementSibling;
@@ -12,7 +12,7 @@ if (curve) {
   const dots = [...chart.querySelectorAll("[data-fpr-i]")];
   const show = (i) => {
     slide.querySelector("[data-fpr-label]").textContent = labels[i];
-    input.setAttribute("aria-valuetext", labels[i]);
+    input.setAttribute("aria-valuetext", said[i]);
     curve.querySelector("[data-fpr-first]").textContent = first[i];
     curve.querySelector("[data-fpr-returning]").textContent = returning[i];
     guide.style.left = xs[i];
@@ -36,4 +36,5 @@ if (tip) {
   };
   document.addEventListener("pointermove", place);
   document.addEventListener("pointerdown", place);
+  addEventListener("scroll", () => { tip.hidden = true; }, { passive: true, capture: true });
 }

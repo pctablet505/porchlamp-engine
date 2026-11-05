@@ -3379,20 +3379,6 @@ a.project-eco:hover {
   font-variant-numeric: tabular-nums;
 }
 
-.fpr-tile-bar {
-  display: block;
-  height: 8px;
-  background: var(--bg-surface-elevated);
-  border-radius: var(--radius-badge);
-  overflow: hidden;
-}
-
-.fpr-tile-bar span {
-  display: block;
-  height: 100%;
-  background: var(--fpr-first);
-}
-
 .fpr-section > p {
   max-width: 72ch;
 }
@@ -3410,6 +3396,10 @@ a.project-eco:hover {
   margin: var(--space-lg) 0 var(--space-xs);
   font-size: var(--text-body-lg);
   font-weight: 600;
+}
+
+.fpr-h2 + .fpr-h3 {
+  margin-top: var(--space-sm);
 }
 
 .fpr-next {
@@ -3472,11 +3462,14 @@ a.project-eco:hover {
   border-top-color: var(--fpr-returning);
 }
 
-.fpr-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2xs) var(--space-md);
-  margin-top: var(--space-md);
+.fpr-line-label {
+  position: absolute;
+  padding: 0 var(--space-2xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--bg-surface);
 }
 
 .fpr-chart {
@@ -3713,6 +3706,7 @@ a.project-eco:hover {
 
 .fpr-col-bar-off {
   background: var(--fpr-off);
+  box-shadow: inset 0 0 0 1px var(--text-muted);
 }
 
 .fpr-col-label {
@@ -3833,9 +3827,113 @@ a.project-eco:hover {
   .fpr-cols-hist .fpr-col-label {
     font-size: 0.625rem;
   }
+
+  /* The outer columns' words are wider than their bars: they lean inward and stay on the card. */
+  .fpr-cols-hist .fpr-col:last-child .fpr-col-value,
+  .fpr-cols-hist .fpr-col:last-child .fpr-col-label {
+    align-self: flex-end;
+  }
+
+  .fpr-cols-hist .fpr-col:first-child .fpr-col-label {
+    align-self: flex-start;
+  }
+}
+
+/* On a phone a table's row reads as its name over its numbers, with nothing cut off. */
+@media (max-width: 599px) {
+  .fpr-table,
+  .fpr-table thead,
+  .fpr-table tbody {
+    display: block;
+  }
+
+  .fpr-table tr {
+    display: grid;
+    grid-template-columns: repeat(var(--nums), minmax(0, 1fr));
+    column-gap: var(--space-xs);
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .fpr-table thead th:first-child {
+    display: none;
+  }
+
+  .fpr-table tbody th {
+    grid-column: 1 / -1;
+  }
+
+  .fpr-table th,
+  .fpr-table td {
+    padding: 2px 0;
+    border: 0;
+  }
+
+  .fpr-table td.num {
+    white-space: normal;
+  }
+}
+
+.fpr-page .report-pair {
+  align-items: start;
+}
+
+@media (forced-colors: active) {
+  .fpr-col-bar,
+  .fpr-dot,
+  .fpr-range-dot,
+  .fpr-range-line,
+  .fpr-key::before {
+    forced-color-adjust: none;
+  }
+
+  .fpr-col-bar {
+    background: CanvasText;
+  }
+
+  .fpr-col-bar-off {
+    background: GrayText;
+  }
+
+  .fpr-dot,
+  .fpr-range-dot {
+    background: CanvasText;
+    border-color: Canvas;
+  }
+
+  .fpr-dot-returning,
+  .fpr-range-dot-none {
+    background: GrayText;
+  }
+
+  .fpr-range-line {
+    background: linear-gradient(CanvasText, CanvasText) center / 100% 2px no-repeat;
+    border-color: CanvasText;
+  }
+
+  .fpr-key::before {
+    border-top-color: CanvasText;
+  }
+
+  .fpr-key-returning::before {
+    border-top-color: GrayText;
+  }
+
+  .fpr-line-first {
+    stroke: CanvasText;
+  }
+
+  .fpr-line-returning {
+    stroke: GrayText;
+  }
 }
 
 /* ---- The personal lookup (views/lookup.js) ---- */
+.lookup-result {
+  overflow-wrap: anywhere;
+  scroll-margin-top: var(--space-md);
+}
+
 .lookup-form label {
   display: block;
   margin-bottom: var(--space-xs);

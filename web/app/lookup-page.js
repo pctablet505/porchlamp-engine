@@ -8,6 +8,9 @@ import { renderLookupLoading, renderLookupResult } from "./views/lookup.js";
 const form = document.querySelector("[data-lookup-form]");
 const result = document.getElementById("lookup-result");
 
+/** How far down the screen a new result may start before the page scrolls to it: a phone's keyboard hides the rest. */
+const RESULT_IN_VIEW = 0.6;
+
 /** A project's typical first reply from the site's own files; null when the snapshot does not hold it or measured none. */
 async function projectReply(owner, name) {
   const answer = await fetchEvidence(owner, name);
@@ -25,10 +28,12 @@ if (form && result) {
     event.preventDefault();
     if (running) return;
     running = true;
+    input.blur();
     result.innerHTML = renderLookupLoading();
     const report = await fetchFirstPullRequests();
     const outcome = await runLookup(input.value, { curve: report.ok ? report.data.curve : null, projectReply });
     result.innerHTML = renderLookupResult(outcome);
+    if (result.getBoundingClientRect().top > innerHeight * RESULT_IN_VIEW) result.scrollIntoView({ block: "start" });
     if (outcome.ok) history.replaceState(null, "", `${location.pathname}?user=${encodeURIComponent(outcome.result.login)}`);
     running = false;
   });

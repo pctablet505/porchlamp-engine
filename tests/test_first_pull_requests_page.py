@@ -167,7 +167,6 @@ def test_the_who_bands_rows_run_lowest_first_with_the_top_one_marked() -> None:
     assert [b["label"] for b in bands] == ["up to 50%", "50–70%", "70–90%", "90–100%"]
     assert [b["top"] for b in bands] == [False, False, False, True]
     assert (bands[3]["merged_text"], bands[3]["answered_text"], bands[3]["projects_text"]) == ("56%", "74%", "705")
-    assert record()["tile_shares"]["one_merged"] == 0.5556
 
 
 def test_a_featured_project_that_stops_qualifying_leaves_the_list_and_the_words_follow() -> None:
@@ -224,6 +223,7 @@ def set_band(stats, band, measure, share): next(row for row in stats["who_answer
 def _break_merged_there(stats): set_band(stats, "one", "merged", 0.40)
 def _break_answers_lean(stats): set_band(stats, "one", "answered", 0.60)
 def _break_slow_ones(stats): set_band(stats, "one", "in_a_day", 0.2)
+def _break_runs_higher(stats): set_band(stats, "shared", "merged", 0.3)
 def _break_gap_merged(stats): stats["who_answers"]["outcomes"]["clear_against_shared"]["gap_merged_range"][0] = 0.0
 def _break_gap_none(stats): stats["who_answers"]["outcomes"]["clear_against_shared"]["gap_merged_range"] = None
 def _break_strict_merged(stats): stats["who_answers"]["outcomes"]["clear_against_shared_strict"]["gap_merged_range"][0] = -0.01
@@ -241,6 +241,61 @@ def test_the_answers_gap_may_reach_zero_and_the_middle_bands_may_lead_without_st
     set_band(stats, "over_70", "answered", 0.76)
     built = record(stats)
     assert built["values"]["strict_answered_low"] == "−3"
+
+
+def test_the_first_screen_says_each_thing_once() -> None:
+    tile = page.SENTENCES["tiles"][0]
+    assert tile["text"] == "of {who_projects} projects"
+    assert "{top_bin}" in page.SENTENCES["who_heading"] and "{who_projects}" in page.SENTENCES["who_heading"]
+    assert "{top_bin}" not in page.SENTENCES["who_text"]
+    assert "{large_over_half}" in page.SENTENCES["who_text"]
+
+
+def test_the_lede_says_the_fact_with_no_set_up_and_no_claim_the_look_back_breaks() -> None:
+    lede = page.SENTENCES["lede"]
+    assert "They aren't" not in lede and "You'd expect" not in lede
+    assert "at least six months" not in lede, "the shortest look-back is about 180 days"
+    assert "about six months or more" in lede
+    assert "within a day at least as often" in lede
+
+
+def test_the_method_has_no_stale_or_stray_lines() -> None:
+    words = json.dumps(page.SENTENCES)
+    assert "near the top" not in words
+    assert "212,390" not in words
+    assert "An earlier post" not in words
+    assert any("in the waiting section" in line for line in page.SENTENCES["method"])
+
+
+def test_the_tiles_say_which_merged_they_mean_and_the_note_gives_both_counts() -> None:
+    labels = [t["label"] for t in page.SENTENCES["tiles"]]
+    assert "Merged where one person gives 90% or more" in labels
+    assert "Merged, counting every pull request" in labels
+    note = page.SENTENCES["best_note"]
+    assert "Each project counts once" in note
+    assert "{answered_14d}" in note and "{merged_0}" in note
+
+
+def test_the_project_table_says_why_its_numbers_differ_from_the_project_pages() -> None:
+    assert "Each link opens" not in page.SENTENCES["fast_text"]
+    assert "differs from the number on the project's own page" in page.SENTENCES["fast_text"]
+
+
+def test_gaps_are_percentage_points_and_ranges_say_what_they_are() -> None:
+    control = page.SENTENCES["control_text"]
+    assert control.count("percentage points") >= 2 and control.count("95% range") >= 2
+    assert "percentage points" in page.SENTENCES["week_text"]
+    assert "percentage points" in page.SENTENCES["ask_heading"]
+
+
+def test_the_charts_labels_are_words_that_read_on_their_own() -> None:
+    assert page._day_label(0) == "0 days"
+    assert page._hour_label(72) == "3 days"
+    assert "From opening" not in json.dumps(record())
+
+
+def test_the_record_carries_no_tile_shares() -> None:
+    assert "tile_shares" not in record()
 
 
 def test_the_page_says_merged_not_best_and_no_comment_means_after_the_first_hour() -> None:
@@ -270,7 +325,8 @@ def test_the_page_says_merged_not_best_and_no_comment_means_after_the_first_hour
     (_break_fame, "Fame barely"),
     (_break_merged_there, "merged more often there"),
     (_break_answers_lean, "lean the same way"),
-    (_break_slow_ones, "slow ones"),
+    (_break_slow_ones, "within a day at least as often"),
+    (_break_runs_higher, "run higher"),
     (_break_gap_merged, "Stars and volume"),
     (_break_gap_none, "Stars and volume"),
     (_break_strict_merged, "Leaving out projects"),

@@ -10,6 +10,9 @@ import { escapeHtml as e } from "../escape.js";
 import { LOOKUP_PR_LIMIT } from "../lookup.js";
 import { percentWhole, replyTimeShort } from "./project.js";
 
+/** The silence the report measures asking at. */
+const ASKING_FROM_DAYS = 14;
+
 const text = (template, values) => fill(template, Object.fromEntries(Object.entries(values).map(([k, v]) => [k, e(String(v))])));
 
 /** The page: what it does, the form, an empty place for the result, and what it can and cannot see. */
@@ -76,7 +79,7 @@ function rowHtml(row) {
       extra.push(text(template, { share: percentWhole(Number(row.odds.share.toFixed(4))) }));
     }
     if (row.asked) extra.push(e(copy.LOOKUP_ASKED));
-    else if (row.silentDays >= 7) extra.push(fill(copy.LOOKUP_NOT_ASKED, { link: `<a href="${e(copy.LOOKUP_ASKING_HREF)}">${e(copy.LOOKUP_NOT_ASKED_LINK)}</a>` }));
+    else if (row.silentDays >= ASKING_FROM_DAYS) extra.push(e(copy.LOOKUP_NOT_ASKED));
     if (row.typicalHours !== null && row.typicalHours !== undefined) {
       extra.push(fill(copy.LOOKUP_PROJECT_TYPICAL, { time: e(replyTimeShort(row.typicalHours)), link: `<a href="${e(projectHref(row.repo))}">${e(copy.LOOKUP_PROJECT_LINK)}</a>` }));
     }
@@ -98,11 +101,13 @@ export function renderLookupResult(outcome) {
   if (!r.rows.length) return `<section class="report-section"><p>${text(copy.LOOKUP_NOTHING, { login: r.login })}</p></section>`;
   const parts = [text(r.read === 1 ? copy.LOOKUP_SUMMARY_ONE : copy.LOOKUP_SUMMARY, { login: r.login, count: r.read })];
   parts.push(r.silent ? text(copy.LOOKUP_SUMMARY_SILENT, { count: r.silent }) : e(copy.LOOKUP_SUMMARY_NONE_SILENT));
+  const unasked = r.rows.some((row) => row.status === "silent" && !row.asked && row.silentDays >= ASKING_FROM_DAYS);
   return (
     `<section class="report-section" aria-labelledby="lookup-summary">` +
     `<h2 class="report-h2" id="lookup-summary">${parts.join(" ")}</h2>` +
     (r.typicalHours === null ? "" : `<div class="project-number"><p class="project-number-label">${e(copy.LOOKUP_TYPICAL_LABEL)}</p><p class="project-number-value">${e(replyTimeShort(r.typicalHours))}</p></div>`) +
     (r.partial ? `<p class="report-note">${text(copy.LOOKUP_PARTIAL, { read: r.read, found: Math.min(r.found, LOOKUP_PR_LIMIT) })}</p>` : "") +
+    (unasked ? `<p class="report-note">${fill(copy.LOOKUP_ASKING_NOTE, { link: `<a href="${e(copy.LOOKUP_ASKING_HREF)}">${e(copy.LOOKUP_NOT_ASKED_LINK)}</a>` })}</p>` : "") +
     `<ol class="lookup-list">${r.rows.map((row) => rowHtml(row)).join("")}</ol>` +
     `</section>`
   );

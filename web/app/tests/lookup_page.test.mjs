@@ -8,15 +8,16 @@ import { LIVE_API_BASE } from "../livecheck.js";
 let loads = 0;
 
 /** Loads a fresh copy of lookup-page.js on a stand-in page at `search`; `answer(url)` is the network. */
-async function open(search, answer = async () => new Response("{}", { status: 404 })) {
+async function open(search, answer = async () => new Response("{}", { status: 404 }), top = 100) {
   const listeners = {};
-  const input = { value: "" };
+  const input = { value: "", blurred: 0, blur() { this.blurred += 1; } };
   const form = { elements: { login: input }, addEventListener: (kind, fn) => { listeners[kind] = fn; } };
-  const result = { innerHTML: "" };
+  const result = { innerHTML: "", top, scrolled: [], getBoundingClientRect() { return { top: this.top }; }, scrollIntoView(options) { this.scrolled.push(options); } };
   const calls = [];
   const replaced = [];
   globalThis.document = { querySelector: (selector) => (selector === "[data-lookup-form]" ? form : null), getElementById: (id) => (id === "lookup-result" ? result : null) };
   globalThis.location = { search, pathname: "/lookup/" };
+  globalThis.innerHeight = 430;
   globalThis.history = { replaceState: (_state, _title, url) => replaced.push(url) };
   globalThis.fetch = async (url) => {
     calls.push(String(url));
@@ -53,6 +54,18 @@ test("a bad name pressed through the button reaches no GitHub address and says s
   assert.equal(page.calls.filter(github).length, 0);
   assert.ok(page.result.innerHTML.includes("error-banner"));
   assert.deepEqual(page.replaced, []);
+});
+
+test("pressing the button drops the phone's keyboard, and a result below the fold is scrolled to", async () => {
+  const low = await open("", undefined, 581);
+  low.input.value = "a/b";
+  await low.press();
+  assert.equal(low.input.blurred, 1);
+  assert.deepEqual(low.result.scrolled, [{ block: "start" }]);
+  const near = await open("", undefined, 200);
+  near.input.value = "a/b";
+  await near.press();
+  assert.deepEqual(near.result.scrolled, [], "a result already in view stays put");
 });
 
 test("what GitHub says goes through the view, escaped, and the address remembers the name", async () => {
