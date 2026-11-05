@@ -343,6 +343,14 @@ export function fetchReport() {
   return answer("report.json", () => loadJson("report.json"));
 }
 
+/**
+ * The first-pull-requests report's numbers and sentences (first-pull-requests.json; no API answers it): what
+ * views/first_pull_requests.js draws at export, and what the lookup reads its waiting curve from.
+ */
+export function fetchFirstPullRequests() {
+  return answer("first-pull-requests.json", () => loadJson("first-pull-requests.json"));
+}
+
 // ---------------------------------------------------------- /reproject
 /**
  * SQLite's ROUND(x, n) for the values a composite takes (0..100). Exact

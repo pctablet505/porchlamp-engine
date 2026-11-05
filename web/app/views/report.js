@@ -16,7 +16,7 @@ const SLOT = /\{([a-z][a-z0-9_]*)\}/g;
 
 /** `template` filled from `values`, each slot a hook of its own id. `links` turns a slot into a link; a slot that
  *  `values` lacks is an error (fill.js), so a template and its values cannot drift apart unseen. */
-function fillValues(template, values, links = {}) {
+export function fillValues(template, values, links = {}) {
   const slots = {};
   for (const [, id] of String(template).matchAll(SLOT)) {
     if (!Object.prototype.hasOwnProperty.call(values, id)) throw new Error(`report.json has no value for the slot {${id}}`);

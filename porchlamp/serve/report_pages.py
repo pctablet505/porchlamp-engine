@@ -58,6 +58,8 @@ PAGE_SCRIPTS = {
     "app": ("/theme-init.js", "/app.js"),
     "page": ("/theme-init.js",),
     "project": ("/theme-init.js", "/back-forward.js"),
+    "first_pull_requests": ("/theme-init.js", "/first-pull-requests-page.js"),
+    "lookup": ("/theme-init.js", "/lookup-page.js"),
 }
 
 CITE_TITLE = "Stars don't review pull requests: the state of open-source black holes"

@@ -100,11 +100,15 @@ def rank_band(rank: int, total: int) -> str:
 
 
 def reply_time_text(hours: float) -> str:
-    """Hours under 48 (``6 hours``, ``1.5 hours``), else days with one decimal (``3.2 days``)."""
+    """Minutes under an hour (``24 minutes``), hours under 48 (``6 hours``, ``1.5 hours``), else days with one decimal
+    (``3.2 days``). Minutes that round to 60 read as ``1 hour``."""
+    minutes = (Decimal(repr(hours)) * 60).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    if minutes == 0:
+        return "under a minute"
+    if minutes < 60:
+        return f"{minutes} {'minute' if minutes == 1 else 'minutes'}"
     if hours < 48:
         shown = Decimal(repr(hours)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
-        if shown == 0:
-            return "under 0.1 hours"
         unit = "hour" if shown == 1 else "hours"
         return f"{shown.normalize():f} {unit}"
     shown = (Decimal(repr(hours)) / 24).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)

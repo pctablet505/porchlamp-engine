@@ -84,16 +84,24 @@ const shareText = (fraction) => decimalHalfUp(fraction, 100n, 1n, 1);
 /** A fraction as a whole percent, half up from its printed decimal (project_pages.percent_text: 0.6667 -> "67%"). */
 export const percentWhole = (fraction) => `${decimalHalfUp(fraction, 100n, 1n, 0)}%`;
 
-/** The median first reply, in words (project_pages.reply_time_text): hours under 48 ("3.9 hours"), else days
- *  ("6.2 days") and, as the key facts print it, the hours too ("6.2 days (148.3 hours)"). */
+/** The median first reply, in words (project_pages.reply_time_text): minutes under an hour ("24 minutes"), hours under 48
+ *  ("3.9 hours"), else days ("6.2 days") and, as the key facts print it, the hours too ("6.2 days (148.3 hours)"). */
 export function replyTimeText(hours) {
   const words = copy.REPLY_TIME_WORDS;
+  const minutes = Number(decimalHalfUp(hours, 60n, 1n, 0));
+  if (minutes === 0) return words.under_a_minute;
+  if (minutes < 60) return plain(minutes === 1 ? words.minute : words.minutes, { n: String(minutes) });
   if (hours < 48) {
     const shown = Number(hoursText(hours));
-    if (shown === 0) return words.under_tenth_hour;
     return plain(shown === 1 ? words.hour : words.hours, { n: String(shown) });
   }
   return plain(words.days_and_hours, { days: daysText(hours), hours: hoursText(hours) });
+}
+
+/** The median first reply in short words: `replyTimeText` under 48 hours, else days alone ("6.2 days"). */
+export function replyTimeShort(hours) {
+  if (hours < 48) return replyTimeText(hours);
+  return plain(copy.REPLY_TIME_WORDS.days, { n: daysText(hours) });
 }
 
 const SHARE_PARAMS = new Set([
@@ -248,6 +256,13 @@ function headBlock(rec, mode, opts, ranked) {
       ? `<p class="project-lede">${fill(ranked ? copy.PROJECT_LEDE : copy.PROJECT_LEDE_NOT_RANKED, { date: hook("detail.snapshot_date", longDate(d.snapshot_id)) })}</p>`
       : "";
   const answer = rec.answer ? `<p class="project-answer" id="answer" data-v="answer">${e(rec.answer.join(" "))}</p>` : "";
+  const reply = rec.answer ? (rec.evidence || []).find((row) => row.param_id === "ttfhr_hours") : null;
+  // The number people can quote: a ranked project's measured first reply, first on its page.
+  const number = measuredRow(reply)
+    ? `<div class="project-number" id="first-reply"><p class="project-number-label">${e(copy.PROJECT_NUMBER_LABEL)}</p>` +
+      `<p class="project-number-value">${hook("number.reply_time", replyTimeShort(reply.value))}</p>` +
+      `<p class="project-number-text">${fill(copy.PROJECT_NUMBER_TEXT, { count: hook("number.count", fmtInt(reply.n)) })}</p></div>`
+    : "";
   return (
     crumb +
     `<div class="project-head">` +
@@ -258,6 +273,7 @@ function headBlock(rec, mode, opts, ranked) {
     `</div>` +
     `<div class="drawer-actions">${github}${compare}${close}</div>` +
     `</div>` +
+    number +
     (lede || answer ? `<div class="project-intro">${lede}${answer}</div>` : "")
   );
 }

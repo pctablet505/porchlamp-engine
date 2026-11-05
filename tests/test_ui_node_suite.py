@@ -21,6 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 UNIT_TEST_MJS = REPO_ROOT / "web" / "app" / "tests" / "unit.test.mjs"
 PERF_TEST_MJS = REPO_ROOT / "web" / "app" / "tests" / "render.perf.test.mjs"
 LIVECHECK_TEST_MJS = REPO_ROOT / "web" / "app" / "tests" / "livecheck.test.mjs"
+LOOKUP_TEST_MJS = REPO_ROOT / "web" / "app" / "tests" / "lookup.test.mjs"
+FIRST_PRS_TEST_MJS = REPO_ROOT / "web" / "app" / "tests" / "first_pull_requests.test.mjs"
 
 #: Where to look for a Node.js interpreter, in order, when it is not on
 #: ``PATH``. The point of this suite is that the JavaScript tests actually
@@ -109,7 +111,7 @@ def test_node_frontend_unit_and_perf_suite() -> None:
             "at an interpreter, or set PORCHLAMP_ALLOW_MISSING_NODE=1 to skip it explicitly."
         )
     result = subprocess.run(
-        [node_bin, "--test", str(UNIT_TEST_MJS), str(PERF_TEST_MJS), str(LIVECHECK_TEST_MJS)],
+        [node_bin, "--test", str(UNIT_TEST_MJS), str(PERF_TEST_MJS), str(LIVECHECK_TEST_MJS), str(LOOKUP_TEST_MJS), str(FIRST_PRS_TEST_MJS)],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,

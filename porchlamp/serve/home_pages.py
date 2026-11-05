@@ -249,7 +249,7 @@ def _row_line(r: Row) -> str:
             f"Tier `{r.tier}` · `{r.quadrant}`")
 
 
-def llms_txt(f: HomeFacts) -> str:
+def llms_txt(f: HomeFacts, *, first_pull_requests: bool = False) -> str:
     """The site's summary for language models: the findings, the pages that read without JavaScript, the pillars and
     parameters, the top projects and the data files. Every number is the snapshot's."""
     sid, top = f.snapshot_id, f.rows[0]
@@ -272,6 +272,7 @@ def llms_txt(f: HomeFacts) -> str:
         f"- [{CITE_TITLE} (latest snapshot)]({f.report_latest})",
         f"- [The same report, frozen for citation (snapshot `{sid}`)]({f.report_frozen})",
         f"- [CSV of the {fmt_int(f.ranked)} ranked projects (CC BY 4.0)]({f.report_csv})",
+        *([f"- [First pull requests: who answers and how long it takes]({SITE}/first-pull-requests/)"] if first_pull_requests else []),
         f"- [Methodology: every gate, pillar, lens, weight and parameter]({SITE}/methodology/)",
         "",
         "## One page per ranked project (readable without JavaScript)",

@@ -1444,6 +1444,10 @@ def _page_kinds(site: Path, snapshot_id: str) -> dict[str, dict]:
             continue
         if rel.startswith("projects/"):
             pages[rel] = {"nav": None, "kind": "project"}
+        elif rel == "first-pull-requests/index.html":
+            pages[rel] = {"nav": None, "kind": "first_pull_requests"}
+        elif rel == "lookup/index.html":
+            pages[rel] = {"nav": "lookup", "kind": "lookup"}
         elif rel == "check/index.html":
             continue  # the /check/ stub has no chrome: verify_projects checks it
         else:
@@ -1642,7 +1646,13 @@ def _days(hours: float) -> str:
 
 
 def _reply_time(hours: float) -> str:
-    """Hours under 48 (``3.9 hours``, ``1 hour``, ``under 0.1 hours``), else days (``6.2 days``)."""
+    """Minutes under an hour (``24 minutes``, ``under a minute``), hours under 48 (``3.9 hours``, ``1 hour``), else days
+    (``6.2 days``)."""
+    minutes = int(_round_half_up(_printed(hours) * 60, 0))
+    if minutes == 0:
+        return "under a minute"
+    if minutes < 60:
+        return f"{minutes} {'minute' if minutes == 1 else 'minutes'}"
     if hours < 48:
         shown = _trimmed(_round_half_up(_printed(hours), 1))
         if shown == "0":
@@ -1710,11 +1720,14 @@ def _param_text(pid: str, value: Any, words: dict[str, str], labels: dict[str, d
 
 
 def _key_fact_reply(hours: float, words: dict[str, str]) -> str:
-    """The key facts' median first reply: hours under 48, else days with the hours after them."""
+    """The key facts' median first reply: minutes under an hour, hours under 48, else days with the hours after them."""
+    minutes = int(_round_half_up(_printed(hours) * 60, 0))
+    if minutes == 0:
+        return words["under_a_minute"]
+    if minutes < 60:
+        return words["minute" if minutes == 1 else "minutes"].replace("{n}", str(minutes))
     if hours < 48:
         shown = _trimmed(_round_half_up(_printed(hours), 1))
-        if shown == "0":
-            return words["under_tenth_hour"]
         return words["hour" if shown == "1" else "hours"].replace("{n}", shown)
     return words["days_and_hours"].replace("{days}", _days(hours)).replace("{hours}", _round_half_up(_printed(hours), 1))
 
@@ -1880,6 +1893,8 @@ def _expected_project_hooks(
         reply, ghost = (by_id.get(pid) for pid in ("ttfhr_hours", "gr14_ghost_rate"))
         if reply and not reply["unmeasured_reason"] and reply["value"] is not None:
             hooks["facts.reply_time"] = _key_fact_reply(reply["value"], words["reply"])
+            hooks["number.reply_time"] = _reply_time(reply["value"])
+            hooks["number.count"] = f"{reply['n']:,}"
         if ghost and not ghost["unmeasured_reason"] and ghost["value"] is not None:
             hooks["facts.no_reply_share"] = f"{_half_up(ghost['value'], 100)}%"
         if standings:
@@ -2354,7 +2369,7 @@ def verify_home(db: Path, site: Path, *, report: Optional[dict], log=print) -> d
     sid = snapshot["snapshot_id"]
 
     # the generated files, re-generated here; every address they give is a file of this export
-    for name, expected in (("llms.txt", hp.llms_txt(facts)), ("feed.xml", hp.feed_xml(facts))):
+    for name, expected in (("llms.txt", hp.llms_txt(facts, first_pull_requests=(site / "first-pull-requests" / "index.html").is_file())), ("feed.xml", hp.feed_xml(facts))):
         path = site / name
         shipped = path.read_text(encoding="utf-8") if path.is_file() else None
         ledger.equal(f"{name} is what home_pages writes from the facts worked out here (bytes)", shipped, expected)
@@ -2906,6 +2921,207 @@ def verify_crawl(db: Path, site: Path, *, lists: list[str], not_ranked: list[str
 
 
 _PROJECT_PATH = re.compile(r"/projects/[a-z0-9._-]+/[a-z0-9._-]+/")
+#: The account-age floor the report states.
+MIN_ACCOUNT_AGE_DAYS_FOR_REPORT = 90
+
+
+# --------------------------------------------------------------------------- #
+# The first-pull-requests report and the lookup
+# --------------------------------------------------------------------------- #
+def _whole_percent(x: float) -> str:
+    return f"{_half_up(x, 100)}%"
+
+
+def _gap_points(x: float, *, signed: bool = False) -> str:
+    """A gap between shares in percentage points, one decimal, half up away from zero, a true minus sign below zero."""
+    text = _round_half_up(abs(_printed(x)) * 100, 1)
+    if x < 0 and text != "0.0":
+        return f"\u2212{text}"
+    return f"+{text}" if signed else text
+
+
+def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) -> dict[str, str]:
+    """Every ``data-v`` hook of ``/first-pull-requests/``, worked out here from the stats file with this file's own formatters."""
+    population, first, returning = stats["population"], stats["first"], stats["returning"]
+    curve, others = ({row["days"]: row for row in g["merged_if_silent"]} for g in (first, returning))
+    shares, shares_others = ({row["hours"]: row["share"] for row in g["answered_by"]} for g in (first, returning))
+    later = {row["to_days"]: row["share"] for row in first["answered_later"]}
+    asking, everyone = stats["asking"]["day14_first"], stats["asking"]["day14_all"]
+    ask, all_ask, all_other = asking["ask_recent"], everyone["ask_recent"], everyone["other"]
+    week_one = stats["asking"]["day7_first"]["ask_recent"]
+    weekday, who = stats["weekday"]["within_project"], stats["who_answers"]
+    known = population["first"] + population["returning"]
+    one_in = lambda share: str(math.floor(1 / _printed(share) + Fraction(1, 2)))  # noqa: E731
+    whole_points = lambda share: f"{'-' if share < 0 else ''}{_round_half_up(abs(_printed(share)) * 100, 0)}"  # noqa: E731
+    rows = {row[0]: row for row in stats["first_pr_projects"]}
+    from porchlamp.serve import first_pull_requests_page as fpr_page, report_pages as rp
+
+    picked = sorted((rows[key] for key, _, _ in fpr_page.FEATURED_PROJECTS), key=lambda row: row[2])
+    hooks = {
+        "snapshot_id": sid,
+        "page_url": f"{SITE_ORIGIN}/first-pull-requests/",
+        "window_start": _long_date(stats["window_start"]),
+        "window_end": _long_date(stats["as_of"]),
+        "first": f"{population['first']:,}",
+        "returning": f"{population['returning']:,}",
+        "outside_prs": f"{population['outside_prs']:,}",
+        "read": f"{population['read']:,}",
+        "projects": f"{population['projects']:,}",
+        "known": f"{known:,}",
+        "known_share": _whole_percent(round(known / population["read"], 4)),
+        "first_settled": f"{first['settled']:,}",
+        "silent_14": _whole_percent(round(1 - shares[336], 4)),
+        "one_in_0": one_in(curve[0]["merged"]),
+        "one_in_14": one_in(curve[14]["merged"]),
+        "merged_0": _whole_percent(curve[0]["merged"]),
+        "merged_7": _whole_percent(curve[7]["merged"]),
+        "merged_14": _whole_percent(curve[14]["merged"]),
+        "merged_30": _whole_percent(curve[30]["merged"]),
+        "merged_60": _whole_percent(curve[60]["merged"]),
+        "returning_merged_0": _whole_percent(others[0]["merged"]),
+        "returning_merged_60": _whole_percent(others[60]["merged"]),
+        "later_30": _whole_percent(later[30]),
+        "later_60": _whole_percent(later[60]),
+        "later_90": _whole_percent(later[90]),
+        "answered_1d": _whole_percent(shares[24]),
+        "answered_14d": _whole_percent(shares[336]),
+        "returning_answered_1d": _whole_percent(shares_others[24]),
+        "returning_answered_14d": _whole_percent(shares_others[336]),
+        "ask_answered": _whole_percent(ask["answered"]),
+        "ask_answered_none": _whole_percent(ask["answered_none"]),
+        "ask_gap": whole_points(ask["gap_answered"]),
+        "ask_n": f"{ask['n']:,}",
+        "ask_projects": f"{ask['projects']:,}",
+        "ask_merged": _whole_percent(ask["merged"]),
+        "ask_merged_none": _whole_percent(ask["merged_none"]),
+        "ask_merged_gap": _gap_points(ask["gap_merged"]),
+        "ask_merged_low": _gap_points(ask["gap_merged_range"][0]),
+        "ask_merged_high": _gap_points(ask["gap_merged_range"][1]),
+        "week_one_gap": _gap_points(week_one["gap_answered"]),
+        "week_one_low": _gap_points(week_one["gap_answered_range"][0]),
+        "week_one_high": _gap_points(week_one["gap_answered_range"][1]),
+        "all_ask_gap": whole_points(all_ask["gap_answered"]),
+        "all_ask_low": whole_points(all_ask["gap_answered_range"][0]),
+        "all_ask_high": whole_points(all_ask["gap_answered_range"][1]),
+        "all_ask_n": f"{all_ask['n']:,}",
+        "all_ask_projects": f"{all_ask['projects']:,}",
+        "all_other_gap": _gap_points(all_other["gap_answered"]),
+        "all_other_low": _gap_points(all_other["gap_answered_range"][0]),
+        "all_other_high": _gap_points(all_other["gap_answered_range"][1]),
+        "weekday_better": _whole_percent(weekday["weekday_better"]),
+        "weekday_projects": f"{weekday['projects']:,}",
+        "weekday_gap": whole_points(weekday["median_gap"]),
+        "who_projects": f"{who['projects']:,}",
+        "over_half": _whole_percent(who["over_half"]),
+        "median_people": _trimmed(f"{who['median_people']:.1f}"),
+        "large_projects": f"{who['large']['projects']:,}",
+        "large_stars": f"{who['large']['min_stars']:,}",
+        "large_over_half": _whole_percent(who["large"]["over_half"]),
+        "large_people": _trimmed(f"{who['large']['median_people']:.1f}"),
+        "top_bin": f"{who['histogram'][-1]:,}",
+        "listed_projects": f"{len(stats['first_pr_projects']):,}",
+        "min_within_a_day": _whole_percent(min(row[3] for row in picked)),
+        "min_merged": _whole_percent(min(row[5] for row in picked)),
+        "min_account_days": str(MIN_ACCOUNT_AGE_DAYS_FOR_REPORT),
+    }
+    if hooks["one_in_14"] == black_hole_one_in:
+        hooks["black_hole_one_in"] = black_hole_one_in
+    opening = sorted(curve).index(14)
+    for i, day in enumerate(sorted(curve)):
+        hooks[f"curve.{i}.first_exact"] = f"{_gap_points(curve[day]['merged'])}%"
+        hooks[f"curve.{i}.first_n_text"] = f"{curve[day]['n']:,}"
+        hooks[f"curve.{i}.returning_exact"] = f"{_gap_points(others[day]['merged'])}%"
+        hooks[f"curve.{i}.returning_n_text"] = f"{others[day]['n']:,}"
+        if i == opening:
+            hooks[f"curve.{i}.first_text"] = _whole_percent(curve[day]["merged"])
+            hooks[f"curve.{i}.returning_text"] = _whole_percent(others[day]["merged"])
+    for i, arm in enumerate(("ask_recent", "mention", "other")):
+        hooks[f"asking.{i}.gap_text"] = _gap_points(asking[arm]["gap_answered"], signed=True)
+        hooks[f"asking.{i}.low_text"] = _gap_points(asking[arm]["gap_answered_range"][0], signed=True)
+        hooks[f"asking.{i}.high_text"] = _gap_points(asking[arm]["gap_answered_range"][1], signed=True)
+    for i, row in enumerate(stats["weekday"]["by_day"].values()):
+        hooks[f"weekdays.{i}.share_text"] = _whole_percent(row["answered_in_a_day"])
+    for i, count in enumerate(who["histogram"]):
+        hooks[f"histogram.{i}.projects_text"] = f"{count:,}"
+    for i, row in enumerate(picked):
+        hooks[f"projects.{i}.median_text"] = _reply_time(row[2])
+        hooks[f"projects.{i}.within_a_day_text"] = _whole_percent(row[3])
+        hooks[f"projects.{i}.merged_text"] = _whole_percent(row[5])
+        hooks[f"projects.{i}.count_text"] = f"{row[1]:,}"
+    del fpr_page, rp
+    return hooks
+
+
+def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of: str, data_dir: Optional[Path], black_hole_one_in: str, log=print) -> dict:
+    """``/first-pull-requests/`` and its data file against the stats file: every ``data-v`` hook equals its value worked out
+    here, every hook is there and no other is; every sentence on the page is the data file's template filled with these
+    values; the claims the words make hold on the numbers; each named project has a page in the site; the head is the
+    report's. The stats file must itself equal what ``python -m porchlamp.snapshot first-pull-requests`` recomputes from the
+    data root (``data_dir``), read through several processes. ``{"checked", "hooks", "errors"}``."""
+    from porchlamp.serve import first_pull_requests_page as fpr_page
+    from porchlamp.snapshot import first_pull_requests as stats_file
+
+    ledger = _Ledger()
+    stats = json.loads(stats_path.read_text(encoding="utf-8"))
+    ledger.equal("first-pull-requests stats file is for the snapshot's as_of", stats.get("as_of"), as_of)
+    if data_dir is not None:
+        ledger.equal("first-pull-requests stats file is what the data root gives", stats_file.compute(data_dir, as_of=as_of, workers=8), stats)
+    hooks = first_pull_requests_hooks(stats, sid, black_hole_one_in=black_hole_one_in)
+    rel = "first-pull-requests/index.html"
+    path = site / rel
+    if not path.is_file():
+        ledger.errors.append(f"{rel} is missing")
+        _log_mismatches(log, "FIRST-PULL-REQUESTS", ledger.errors)
+        return {"checked": ledger.checked, "hooks": 0, "errors": ledger.errors}
+    text = path.read_text(encoding="utf-8")
+    page = read_page(text, elements=True)
+    found = [hook for hook in page.hooks if hook[0].split(".")[0] not in ("header", "footer")]
+    _compare_hooks(ledger, rel, found, hooks)
+    record_path = site / "data" / sid / fpr_page.DATA_FILE
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} values are the ones worked out here", {k: v for k, v in record["values"].items()}, {k: hooks[k] for k in record["values"]})
+    # the record's words with this file's numbers: a sentence on the page that is not its template, filled, is a mismatch
+    fill = lambda template: template.format(**hooks)  # noqa: E731
+    sentences = record["sentences"]
+    ledger.equal(f"{rel} h1", [t for tag, t in page.headings if tag == "h1"], [fill(sentences["h1"])])
+    ledger.equal(f"{rel} lede", page.text(cls="report-lede"), fill(sentences["lede"]))
+    h2 = [t for tag, t in page.headings if tag == "h2"]
+    for key in ("wait_heading", "ask_heading", "first_heading", "week_heading", "who_heading", "fast_heading"):
+        ledger.equal(f"{rel} has the heading {key}", fill(sentences[key]) in h2, True)
+    paragraphs = {e["text"] for e in page.find(tag="p")} | {e["text"] for e in page.find(tag="li")}
+    for key in ("wait_text", "late_text", "wait_note", "ask_text", "ask_note", "merges_text", "first_text", "first_note", "week_text", "week_note", "who_text", "who_note", "fast_text", "cite"):
+        ledger.equal(f"{rel} has the sentence {key}", fill(sentences[key]) in paragraphs, True)
+    ledger.equal(f"{rel} says the two 1-in-Ns differ exactly when they read alike", ("black_holes_differ" in sentences), hooks["one_in_14"] == black_hole_one_in)
+    # the claims that hold only for some numbers, read here from the stats file
+    first, returning = stats["first"], stats["returning"]
+    curve = {row["days"]: row["merged"] for row in first["merged_if_silent"]}
+    other_curve = {row["days"]: row["merged"] for row in returning["merged_if_silent"]}
+    answered = {row["hours"]: row["share"] for row in first["answered_by"]}
+    answered_other = {row["hours"]: row["share"] for row in returning["answered_by"]}
+    ask, none_ask = stats["asking"]["day14_first"]["ask_recent"], stats["asking"]["day14_first"]["other"]
+    ledger.equal("'More than half hear nothing for two weeks' holds", answered[336] < 0.5, True)
+    ledger.equal("'Two weeks of silence cuts the odds by more than half' holds", curve[14] * 2 < curve[0], True)
+    ledger.equal("'the two lines nearly meet' holds", abs(curve[60] - other_curve[60]) <= 0.02, True)
+    ledger.equal("'Authors who asked got more answers' holds (the range is above zero)", ask["gap_answered_range"][0] > 0, True)
+    ledger.equal("'Other comments got none' holds (the range spans zero)", none_ask["gap_answered_range"][0] < 0 < none_ask["gap_answered_range"][1], True)
+    ledger.equal("'The first pull request waits longest' holds", all(answered[h] < answered_other[h] for h in answered), True)
+    ledger.equal("'In most projects, one person is doing the answering' holds", stats["who_answers"]["over_half"] > 0.5, True)
+    # the links
+    for row in record["projects"]:
+        ledger.equal(f"{rel} links {row['key']}, which has a page", (site / row["path"].strip("/") / "index.html").is_file(), True)
+    ledger.equal(f"{rel} links the lookup", "/lookup/" in page.links, True)
+    ledger.equal(f"{rel} links its data file", f"/data/{sid}/{fpr_page.DATA_FILE}" in page.links, True)
+    ledger.equal(f"{rel} canonical address", re.findall(r'<link rel="canonical" href="([^"]*)"', text), [f"{SITE_ORIGIN}/first-pull-requests/"])
+    # the lookup: a form and nothing that runs before the button
+    lookup_rel = "lookup/index.html"
+    lookup = (site / lookup_rel).read_text(encoding="utf-8") if (site / lookup_rel).is_file() else ""
+    ledger.equal(f"{lookup_rel} has the form", 'data-lookup-form="true"' in lookup, True)
+    ledger.equal(f"{lookup_rel} canonical address", re.findall(r'<link rel="canonical" href="([^"]*)"', lookup), [f"{SITE_ORIGIN}/lookup/"])
+    log(f"verify: first pull requests: {len(found)} hooks printed, {len(hooks)} values, checked {ledger.checked}")
+    _log_mismatches(log, "FIRST-PULL-REQUESTS", ledger.errors)
+    return {"checked": ledger.checked, "hooks": len(found), "errors": ledger.errors}
+
+
 
 
 def conn_names(db: Path, snapshot_id: str) -> list[tuple[str, str]]:
@@ -2933,6 +3149,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="the snapshot directory the database was stored from, as given to the export (black-hole evidence)",
     )
     parser.add_argument("--data-dir", type=Path, default=None, help="the data root the export read raw/ from")
+    parser.add_argument(
+        "--first-pull-requests", type=Path, default=None,
+        help="with --stats: the first-pull-requests stats file, as given to the export: also prove that report and the lookup",
+    )
     parser.add_argument(
         "--previous-site", type=Path, default=None,
         help="the site as last published, as given to the export: every project it had a page for must still have one",
@@ -2970,6 +3190,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         ok = not verify_projects(args.db.resolve(), site, evidence_files=evidence_files,
                                  previous_site=args.previous_site.resolve() if args.previous_site else None)["errors"] and ok
         ok = not verify_home(args.db.resolve(), site, report=record)["errors"] and ok
+        if args.first_pull_requests is not None:
+            [snapshot] = _api_answers(args.db.resolve(), "/v1/porchlamp/snapshot")
+            ok = not verify_first_pull_requests(
+                site, args.first_pull_requests.resolve(), sid=snapshot["snapshot_id"], as_of=snapshot["as_of"], data_dir=args.data_dir.resolve() if args.data_dir else None,
+                black_hole_one_in=record["values"]["one_in"],
+            )["errors"] and ok
         ok = not verify_crawl(args.db.resolve(), site, lists=lists["addresses"], not_ranked=not_ranked["addresses"])["errors"] and ok
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1

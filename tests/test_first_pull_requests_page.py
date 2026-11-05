@@ -1,0 +1,234 @@
+"""The first-pull-requests report's record: its numbers as display strings, and the guards that keep its sentences true."""
+from __future__ import annotations
+
+import copy
+import json
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+from porchlamp.serve import first_pull_requests_page as page
+from porchlamp.serve.report_pages import ReportError
+
+AS_OF = "2026-10-24T18:10:00+00:00"
+FIXTURE = Path(__file__).resolve().parent.parent / "web" / "app" / "tests" / "cases" / "first_pull_requests.json"
+
+
+def group(merged: dict[int, float], answered: dict[int, float]) -> dict:
+    return {
+        "settled": 1000,
+        "merged_if_silent": [{"days": day, "n": 1000 - day, "merged": share} for day, share in merged.items()],
+        "answered_by": [{"hours": hours, "share": share} for hours, share in answered.items()],
+        "answered_later": [{"from_days": 14, "to_days": 30, "share": 0.1}, {"from_days": 14, "to_days": 60, "share": 0.2}, {"from_days": 14, "to_days": 90, "share": 0.3}],
+    }
+
+
+def arm(gap: float, low: float, high: float, *, answered: float = 0.3, none: float = 0.1, merged_low: float = 0.01) -> dict:
+    return {
+        "projects": 200, "n": 300, "n_none": 4000, "answered": answered, "answered_none": none, "merged": 0.2, "merged_none": 0.1,
+        "gap_answered": gap, "gap_answered_range": [low, high], "gap_merged": 0.05, "gap_merged_range": [merged_low, 0.1],
+    }
+
+
+def good_stats() -> dict:
+    """Numbers under which every sentence of the report holds."""
+    hours = (1, 6, 24, 72, 168, 336, 720, 1440, 2160)
+    silent = {0: 0.33, 1: 0.26, 3: 0.22, 7: 0.17, 14: 0.13, 21: 0.11, 30: 0.09, 45: 0.06, 60: 0.05}
+    silent_returning = {0: 0.58, 1: 0.42, 3: 0.35, 7: 0.26, 14: 0.18, 21: 0.15, 30: 0.12, 45: 0.08, 60: 0.06}
+    asking = {"ask": arm(0.04, 0.01, 0.07), "ask_recent": arm(0.09, 0.05, 0.14), "mention": arm(0.06, 0.03, 0.1), "other": arm(0.0, -0.02, 0.02)}
+    week_one = {"ask": arm(0.02, -0.01, 0.05), "ask_recent": arm(0.02, -0.01, 0.05), "mention": arm(0.07, 0.03, 0.1), "other": arm(0.0, -0.02, 0.02)}
+    return {
+        "as_of": AS_OF,
+        "window_start": "2026-04-27T18:10:00+00:00",
+        "population": {"projects": 10998, "outside_prs": 1726945, "read": 845907, "first": 99875, "returning": 104810},
+        "first": group(silent, dict(zip(hours, (0.06, 0.14, 0.25, 0.34, 0.42, 0.48, 0.54, 0.59, 0.62)))),
+        "returning": group(silent_returning, dict(zip(hours, (0.17, 0.29, 0.44, 0.54, 0.63, 0.68, 0.73, 0.77, 0.79)))),
+        "asking": {"day14_first": asking, "day14_all": copy.deepcopy(asking), "day7_first": week_one},
+        "weekday": {
+            "by_day": {day: {"n": 1000, "answered_in_a_day": share} for day, share in zip(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), (0.51, 0.51, 0.52, 0.51, 0.44, 0.35, 0.39))},
+            "within_project": {"projects": 2490, "median_gap": 0.0732, "weekday_better": 0.71},
+        },
+        "who_answers": {
+            "projects": 3170, "over_half": 0.72, "median_top_share": 0.75, "median_people": 3.0,
+            "histogram": [18, 100, 209, 277, 263, 318, 286, 233, 280, 1186],
+            "large": {"min_stars": 50000, "projects": 274, "over_half": 0.67, "median_people": 5.0},
+        },
+        "first_pr_projects": [
+            [key, 30, 1.0 + i, 0.9, 0.95, 0.7, 1000] for i, (key, _, _) in enumerate(page.FEATURED_PROJECTS)
+        ],
+    }
+
+
+def record(stats: dict | None = None, *, black_hole_one_in: str = "8") -> dict:
+    return page.report_json(stats or good_stats(), snapshot_id="2026-11-02", as_of=AS_OF, black_hole_one_in=black_hole_one_in)
+
+
+@pytest.mark.parametrize("share, text, signed", [
+    (0.0933, "9.3", "+9.3"), (-0.0033, "−0.3", "−0.3"), (0.0005, "0.1", "+0.1"), (0.0, "0.0", "+0.0"), (0.1396, "14.0", "+14.0"),
+])
+def test_points_round_half_up_with_a_true_minus(share: float, text: str, signed: str) -> None:
+    assert page.points(share) == text
+    assert page.points(share, signed=True) == signed
+
+
+def test_the_number_formats() -> None:
+    assert page.pct(0.1296) == "13%"
+    assert page.one_in(0.1296) == "8"
+    assert page.one_in(0.0474) == "21"
+    assert page.whole_points(0.0933) == "9"
+    assert page.whole(3.0) == "3"
+    assert page.whole(2.5) == "2.5"
+    assert page.whole(1200.0) == "1,200"
+
+
+def test_the_record_carries_the_numbers_as_display_strings() -> None:
+    values = record()["values"]
+    assert values["silent_14"] == "52%"
+    assert values["one_in_14"] == "8"
+    assert values["merged_0"] == "33%"
+    assert values["ask_answered"] == "30%"
+    assert values["ask_gap"] == "9"
+    assert values["first"] == "99,875"
+    assert values["known"] == "204,685"
+    assert values["known_share"] == "24%"
+    assert values["window_start"] == "27 April 2026"
+    assert values["window_end"] == "24 October 2026"
+    assert values["page_url"] == "https://porchlamp.org/first-pull-requests/"
+
+
+def test_every_slot_of_every_sentence_has_a_value() -> None:
+    built = record()
+    values = built["values"]
+    def strings(node):
+        if isinstance(node, str):
+            yield node
+        elif isinstance(node, dict):
+            for item in node.values():
+                yield from strings(item)
+        elif isinstance(node, list):
+            for item in node:
+                yield from strings(item)
+    for sentence in strings({k: v for k, v in built["sentences"].items()}):
+        sentence.format(**values)
+
+
+def test_the_projects_come_fastest_first_with_lower_case_addresses() -> None:
+    stats = good_stats()
+    stats["first_pr_projects"].reverse()
+    projects = record(stats)["projects"]
+    assert [p["key"] for p in projects] == [key for key, _, _ in page.FEATURED_PROJECTS]
+    assert all(p["path"] == p["path"].lower() for p in projects)
+    assert projects[0]["median_text"] == "1 hour"
+
+
+def test_the_shared_view_fixture_has_the_records_shape() -> None:
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    built = record()
+    assert set(fixture) == set(built)
+    assert set(fixture["values"]) == set(built["values"])
+    assert fixture["sentences"] == built["sentences"]
+
+
+def test_a_stats_file_for_another_day_is_refused() -> None:
+    with pytest.raises(ReportError, match="as_of"):
+        page.report_json(good_stats(), snapshot_id="x", as_of="2026-10-25T00:00:00+00:00", black_hole_one_in="8")
+
+
+def test_the_black_holes_note_appears_only_when_the_two_numbers_read_alike() -> None:
+    same = record(black_hole_one_in="8")
+    assert "black_holes_differ" in same["sentences"] and same["values"]["black_hole_one_in"] == "8"
+    other = record(black_hole_one_in="9")
+    assert "black_holes_differ" not in other["sentences"] and "black_hole_one_in" not in other["values"]
+
+
+def test_a_featured_project_that_stops_qualifying_stops_the_export() -> None:
+    gone = good_stats()
+    gone["first_pr_projects"].pop(0)
+    with pytest.raises(ReportError, match="too few"):
+        record(gone)
+    slow = good_stats()
+    slow["first_pr_projects"][0][3] = page.FEATURED_MIN_WITHIN_A_DAY - 0.01
+    with pytest.raises(ReportError, match="no longer"):
+        record(slow)
+    unmerged = good_stats()
+    unmerged["first_pr_projects"][0][5] = page.FEATURED_MIN_MERGED - 0.01
+    with pytest.raises(ReportError, match="no longer"):
+        record(unmerged)
+
+
+def set_merged(stats: dict, name: str, day: int, share: float) -> None:
+    next(row for row in stats[name]["merged_if_silent"] if row["days"] == day)["merged"] = share
+
+
+def set_answered(stats: dict, name: str, hours: int, share: float) -> None:
+    next(row for row in stats[name]["answered_by"] if row["hours"] == hours)["share"] = share
+
+
+def _break_half(stats): set_answered(stats, "first", 336, 0.5)
+def _break_rising(stats): set_merged(stats, "first", 60, 0.095)
+def _break_fast(stats): set_merged(stats, "first", 1, 0.3299)
+def _break_cut(stats):
+    set_merged(stats, "first", 0, 0.25)
+    set_merged(stats, "first", 1, 0.24)
+def _break_meet(stats): set_merged(stats, "returning", 60, 0.08)
+def _break_ask(stats): stats["asking"]["day14_first"]["ask_recent"]["gap_answered_range"][0] = -0.01
+def _break_other(stats): stats["asking"]["day14_first"]["other"]["gap_answered_range"][0] = 0.001
+def _break_other_all(stats): stats["asking"]["day14_all"]["other"]["gap_answered_range"][1] = -0.001
+def _break_pooled(stats): stats["asking"]["day14_first"]["ask_recent"]["answered"] = 0.12
+def _break_merges(stats): stats["asking"]["day14_first"]["ask_recent"]["gap_merged_range"][0] = -0.01
+def _break_week_one(stats): stats["asking"]["day7_first"]["ask_recent"]["gap_answered"] = 0.2
+def _break_longest(stats): set_answered(stats, "first", 24, 0.5)
+def _break_weekend(stats): stats["weekday"]["by_day"]["Sat"]["answered_in_a_day"] = 0.6
+def _break_weekday_inside(stats): stats["weekday"]["within_project"]["weekday_better"] = 0.5
+def _break_most(stats): stats["who_answers"]["over_half"] = 0.5
+def _break_fame(stats): stats["who_answers"]["large"]["over_half"] = 0.4
+def _break_small_samples(stats):
+    for row in stats["first_pr_projects"]:
+        row[1] = 100
+
+
+@pytest.mark.parametrize("breaks, claim", [
+    (_break_half, "More than half"),
+    (_break_rising, "Silence lowers"),
+    (_break_fast, "fast at first"),
+    (_break_cut, "cuts the odds"),
+    (_break_meet, "nearly meet"),
+    (_break_ask, "asked got more"),
+    (_break_other, "Other comments got none"),
+    (_break_other_all, "over all outside"),
+    (_break_pooled, "Part of that gap"),
+    (_break_merges, "Merges follow"),
+    (_break_week_one, "first week shows less"),
+    (_break_longest, "waits longest"),
+    (_break_weekend, "Weekend pull requests"),
+    (_break_weekday_inside, "beat weekend"),
+    (_break_most, "one person"),
+    (_break_fame, "Fame barely"),
+    (_break_small_samples, "under 60"),
+])
+def test_a_sentence_the_numbers_no_longer_support_stops_the_export(breaks, claim: str) -> None:
+    record()  # the good numbers pass
+    stats = good_stats()
+    breaks(stats)
+    with pytest.raises(ReportError, match=claim):
+        record(stats)
+
+
+def test_the_page_head_is_the_reports_and_loads_one_script_of_its_own() -> None:
+    html = page.report_page(record(), exported_on=date(2026, 11, 2))
+    assert "<title>More than half of first pull requests hear nothing for two weeks | Porchlamp</title>" in html
+    assert '<link rel="canonical" href="https://porchlamp.org/first-pull-requests/">' in html
+    assert 'src="/first-pull-requests-page.js"' in html
+    assert 'src="/app.js"' not in html
+    assert '"@type": "Article"' in html or '"@type":"Article"' in html
+    description = page.fill_text(record()["sentences"]["description"], record()["values"])
+    assert len(description) <= 160
+
+
+def test_the_lookup_page_loads_its_own_script_and_no_app() -> None:
+    html = page.lookup_page()
+    assert "<title>Look up your pull requests | Porchlamp</title>" in html
+    assert 'src="/lookup-page.js"' in html
+    assert 'src="/app.js"' not in html
+    assert '<link rel="canonical" href="https://porchlamp.org/lookup/">' in html
