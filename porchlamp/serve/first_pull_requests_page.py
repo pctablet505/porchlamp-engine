@@ -25,7 +25,8 @@ from porchlamp.serve.report_pages import ReportError, fmt_int, long_date
 PATH = "/first-pull-requests/"
 LOOKUP_PATH = "/lookup/"
 DATA_FILE = "first-pull-requests.json"
-#: The ten projects the report names: picked by hand from the stats file's ``first_pr_projects``, each with what it is.
+#: The projects the report names: picked by hand from the stats file's ``first_pr_projects``, each with what it is. One
+#: that stops qualifying leaves the list on its own (:func:`featured_rows`), so a new snapshot needs no editor.
 FEATURED_PROJECTS: tuple[tuple[str, str, str], ...] = (
     ("servo/rust-smallvec", "smallvec", "small vectors for Rust"),
     ("postcss/postcss", "PostCSS", "tool for transforming CSS"),
@@ -41,6 +42,10 @@ FEATURED_PROJECTS: tuple[tuple[str, str, str], ...] = (
 #: What a featured project must keep to stay on the list: the list says these projects answer first-timers and merge.
 FEATURED_MIN_WITHIN_A_DAY = 0.75
 FEATURED_MIN_MERGED = 0.5
+#: The list stops the export below this many: too few to call a list.
+FEATURED_MIN_PROJECTS = 5
+#: How the sentences say the list's length.
+_COUNT_WORDS = {5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}
 #: "Most have under 60 first pull requests" counts at this size.
 FEATURED_SMALL_SAMPLE = 60
 #: "the two lines nearly meet": at most this far apart after two months of silence.
@@ -89,23 +94,24 @@ def _by_hours(group: Mapping[str, Any]) -> dict[int, float]:
 
 
 def featured_rows(stats: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The featured projects' rows, fastest first. A project that no longer qualifies stops the export: the list is an
-    editor's, so an editor decides what replaces it."""
+    """The featured projects' rows that still qualify, fastest first. Too few left stops the export."""
     rows = {row[0]: row for row in stats["first_pr_projects"]}
     out = []
     for key, label, what in FEATURED_PROJECTS:
         row = rows.get(key)
         if row is None:
-            raise ReportError(f"first pull requests: {key} has too few first pull requests for the list")
+            continue
         _, count, median, within_a_day, _, merged, _ = row
         if median is None or within_a_day < FEATURED_MIN_WITHIN_A_DAY or merged < FEATURED_MIN_MERGED:
-            raise ReportError(f"first pull requests: {key} no longer answers first-timers quickly or merges them: {row}")
+            continue
         out.append({
             "key": key, "name": label, "what": what, "path": f"/projects/{key.lower()}/",
             "median_hours": median, "median_text": reply_time_text(median),
             "within_a_day": within_a_day, "within_a_day_text": pct(within_a_day),
             "merged": merged, "merged_text": pct(merged), "count": count, "count_text": fmt_int(count),
         })
+    if len(out) < FEATURED_MIN_PROJECTS:
+        raise ReportError(f"first pull requests: only {len(out)} of the listed projects still qualify; the list needs an editor")
     return sorted(out, key=lambda row: row["median_hours"])
 
 
@@ -150,7 +156,6 @@ def check_claims(stats: Mapping[str, Any], projects: Sequence[Mapping[str, Any]]
     guard(weekday["within_project"]["weekday_better"] > 0.5, "weekday pull requests beat weekend ones")
     guard(who["over_half"] > 0.5, "In most projects, one person is doing the answering")
     guard(abs(who["large"]["over_half"] - who["over_half"]) <= FAME_WITHIN, "Fame barely changes it")
-    guard(len(projects) == 10, "Ten projects")
     guard(sum(row["count"] < FEATURED_SMALL_SAMPLE for row in projects) * 2 > len(projects), "Most have under 60 first pull requests")
 
 
@@ -229,6 +234,8 @@ def report_values(stats: Mapping[str, Any], projects: Sequence[Mapping[str, Any]
         "large_people": whole(who["large"]["median_people"]),
         "top_bin": fmt_int(who["histogram"][-1]),
         "listed_projects": fmt_int(len(stats["first_pr_projects"])),
+        "count_word": _COUNT_WORDS[len(projects)],
+        "count_title": _COUNT_WORDS[len(projects)].capitalize(),
         "min_within_a_day": pct(min(row["within_a_day"] for row in projects)),
         "min_merged": pct(min(row["merged"] for row in projects)),
         "min_account_days": fmt_int(MIN_ACCOUNT_AGE_DAYS),
@@ -267,13 +274,13 @@ SENTENCES: dict[str, Any] = {
     "who_heading": "In most projects, one person is doing the answering",
     "who_text": "In {over_half} of {who_projects} projects, one person gave more than half of the first answers to outsiders. The median project has {median_people} people answering at all. Fame barely changes it: among {large_projects} projects with {large_stars} stars or more, it's {large_over_half}, with a median of {large_people} people.",
     "who_note": "Projects by the busiest person's share of first answers, for projects with at least 20 first answers we could attribute to a person. Bots are left out. In {top_bin} projects, one person gave at least 90%.",
-    "fast_heading": "Ten projects that answer first-timers quickly and merge their work",
-    "fast_text": "Picked by hand from the {listed_projects} projects with at least 25 first pull requests old enough to judge, so this isn't a ranking. All ten answered at least {min_within_a_day} of them within a day and merged at least {min_merged}. Most have under 60 first pull requests, so read them as examples. Each link opens the project's Porchlamp page.",
+    "fast_heading": "{count_title} projects that answer first-timers quickly and merge their work",
+    "fast_text": "Picked by hand from the {listed_projects} projects with at least 25 first pull requests old enough to judge, so this isn't a ranking. All {count_word} answered at least {min_within_a_day} of them within a day and merged at least {min_merged}. Most have under 60 first pull requests, so read them as examples. Each link opens the project's Porchlamp page.",
     "method": [
         "Data. Porchlamp's {snapshot_id} snapshot holds {outside_prs} outside pull requests opened from {window_start} to {window_end}, across {projects} projects with a record. These results read {read} of them, those with recorded replies after the rules below. An earlier post's 212,390 came from a smaller read of the same projects, before the collection was widened.",
         "Left out. Bots, project members, drafts never marked ready, and accounts under {min_account_days} days old. In very busy projects, replies are read from the snapshot's even random sample.",
         "First pull request. The author has no earlier pull request to that project in its 365-day record, which looks back about six months or more from any pull request here. Only projects whose record isn't cut off at its cap of about 500 can tell, so the busiest projects are missing. The split covers {known} of the {read} pull requests read, {known_share}.",
-        "Which results use what. The waiting curve, the answered-by curve and the ten projects use first pull requests only. So do the asking figures unless a line says all outside pull requests. The weekday and who-answers results use all outside pull requests.",
+        "Which results use what. The waiting curve, the answered-by curve and the listed projects use first pull requests only. So do the asking figures unless a line says all outside pull requests. The weekday and who-answers results use all outside pull requests.",
         "An answer. The earliest reply or review from the project's people, a merge, or a close by them. Replies from bots don't count, and the clock starts when a draft is marked ready.",
         "Asking. A comment from the author after the first hour, matched against a word list: ping, bump, gentle nudge, could you review, take a look, any update and similar. A hand check of 50 matches found 47 real asks. Tool commands and CLA signatures don't count. The baseline is no comment at all. The inside-one-project gap compares the groups project by project, weighted by how many each has (Mantel-Haenszel), and the 95% range comes from resampling projects. We tightened the word list after a first look at the data, so this is a result to test again on the next snapshot.",
         "Waiting curve. Pull requests at least four months old. One an author closed unanswered drops out from that day. The {silent_14} near the top uses all {first} and treats an author closing their own pull request as leaving the count, so it doesn't divide out from the curve's table.",

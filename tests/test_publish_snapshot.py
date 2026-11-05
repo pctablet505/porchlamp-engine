@@ -401,7 +401,13 @@ def test_run_pipeline_executes_real_snapshot_stages_and_full_orchestration(tmp_p
 
     def intercept_run_cmd(cmd: list[str], *, step: str, stdout_file: Path | None = None) -> None:
         steps_seen.append((step, list(cmd)))
-        if step in ("derive bundles", "build snapshot directory", "score and store snapshot database", "compute report stats"):
+        if step in (
+            "derive bundles",
+            "build snapshot directory",
+            "score and store snapshot database",
+            "compute report stats",
+            "compute first-pull-requests stats",
+        ):
             # Run the real engine stages!
             real_run_cmd(cmd, step=step, stdout_file=stdout_file)
             return
@@ -442,6 +448,7 @@ def test_run_pipeline_executes_real_snapshot_stages_and_full_orchestration(tmp_p
         "build snapshot directory",
         "score and store snapshot database",
         "compute report stats",
+        "compute first-pull-requests stats",
         "export static site",
         "verify static export",
     ]
@@ -449,10 +456,17 @@ def test_run_pipeline_executes_real_snapshot_stages_and_full_orchestration(tmp_p
     assert (work_dir / "cvi-2026-10-28.db").is_file()
     stats_payload = json.loads((work_dir / "stats-2026-10-28.json").read_text(encoding="utf-8"))
     assert stats_payload["snapshot_id"] == "2026-10-28" and stats_payload["repos"] == 3
+    # The first-pull-requests stats came from the engine too, on the same as-of, and both later stages read that file.
+    first_prs_path = work_dir / "first-pull-requests-2026-10-28.json"
+    first_prs_payload = json.loads(first_prs_path.read_text(encoding="utf-8"))
+    assert first_prs_payload["as_of"] == stats_payload["as_of"]
+    assert first_prs_payload["population"]["projects"] == 3
     # Both export and verify received --previous-site because target/projects existed.
-    export_args = steps_seen[4][1]
-    verify_args = steps_seen[5][1]
+    export_args = steps_seen[5][1]
+    verify_args = steps_seen[6][1]
     assert "--previous-site" in export_args and "--previous-site" in verify_args
+    assert export_args[export_args.index("--first-pull-requests") + 1] == str(first_prs_path)
+    assert verify_args[verify_args.index("--first-pull-requests") + 1] == str(first_prs_path)
     assert "--quick" in verify_args and "--no-mutants" in verify_args
 
     summary = json.loads(status_out.read_text(encoding="utf-8"))

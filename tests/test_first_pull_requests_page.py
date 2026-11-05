@@ -142,19 +142,28 @@ def test_the_black_holes_note_appears_only_when_the_two_numbers_read_alike() -> 
     assert "black_holes_differ" not in other["sentences"] and "black_hole_one_in" not in other["values"]
 
 
-def test_a_featured_project_that_stops_qualifying_stops_the_export() -> None:
+def test_a_featured_project_that_stops_qualifying_leaves_the_list_and_the_words_follow() -> None:
     gone = good_stats()
-    gone["first_pr_projects"].pop(0)
-    with pytest.raises(ReportError, match="too few"):
-        record(gone)
+    dropped = gone["first_pr_projects"].pop(0)[0]
+    built = record(gone)
+    assert dropped not in [p["key"] for p in built["projects"]]
+    assert built["values"]["count_title"] == "Nine"
+    assert built["values"]["count_word"] == "nine"
     slow = good_stats()
     slow["first_pr_projects"][0][3] = page.FEATURED_MIN_WITHIN_A_DAY - 0.01
-    with pytest.raises(ReportError, match="no longer"):
-        record(slow)
+    assert len(record(slow)["projects"]) == 9
     unmerged = good_stats()
     unmerged["first_pr_projects"][0][5] = page.FEATURED_MIN_MERGED - 0.01
-    with pytest.raises(ReportError, match="no longer"):
-        record(unmerged)
+    assert len(record(unmerged)["projects"]) == 9
+    full = record()
+    assert full["values"]["count_title"] == "Ten"
+
+
+def test_too_few_featured_projects_left_stops_the_export() -> None:
+    few = good_stats()
+    del few["first_pr_projects"][page.FEATURED_MIN_PROJECTS - 1:]
+    with pytest.raises(ReportError, match="needs an editor"):
+        record(few)
 
 
 def set_merged(stats: dict, name: str, day: int, share: float) -> None:

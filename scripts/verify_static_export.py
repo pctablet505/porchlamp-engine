@@ -2956,7 +2956,11 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
     rows = {row[0]: row for row in stats["first_pr_projects"]}
     from porchlamp.serve import first_pull_requests_page as fpr_page, report_pages as rp
 
-    picked = sorted((rows[key] for key, _, _ in fpr_page.FEATURED_PROJECTS), key=lambda row: row[2])
+    picked = sorted(
+        (rows[key] for key, _, _ in fpr_page.FEATURED_PROJECTS if key in rows and rows[key][2] is not None and rows[key][3] >= fpr_page.FEATURED_MIN_WITHIN_A_DAY and rows[key][5] >= fpr_page.FEATURED_MIN_MERGED),
+        key=lambda row: row[2],
+    )
+    words = {5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}
     hooks = {
         "snapshot_id": sid,
         "page_url": f"{SITE_ORIGIN}/first-pull-requests/",
@@ -3020,6 +3024,8 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
         "large_people": _trimmed(f"{who['large']['median_people']:.1f}"),
         "top_bin": f"{who['histogram'][-1]:,}",
         "listed_projects": f"{len(stats['first_pr_projects']):,}",
+        "count_word": words[len(picked)],
+        "count_title": words[len(picked)].capitalize(),
         "min_within_a_day": _whole_percent(min(row[3] for row in picked)),
         "min_merged": _whole_percent(min(row[5] for row in picked)),
         "min_account_days": str(MIN_ACCOUNT_AGE_DAYS_FOR_REPORT),
