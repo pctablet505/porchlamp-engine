@@ -157,8 +157,8 @@ test("each of the three charts with no title of its own in the sentences has one
 
 test("the readout says merged, and the slider speaks its reading", () => {
   const html = renderFirstPullRequests(RECORD);
-  assert.ok(html.includes("of first pull requests merged"));
-  assert.ok(html.includes("of returning merged"));
+  assert.ok(html.includes('<span class="fpr-key fpr-key-first">of first pull requests merged</span>'), "the readout under the first figure");
+  assert.ok(html.includes('<span class="fpr-key fpr-key-returning">of returning merged</span>'), "the readout under the returning figure");
   const opening = RECORD.curve.findIndex((r) => r.days === OPENING_DAYS);
   const spoken = /aria-valuetext="([^"]*)"/.exec(html)[1];
   assert.ok(spoken.includes(RECORD.curve[opening].first_text) && spoken.includes(RECORD.curve[opening].returning_text), spoken);

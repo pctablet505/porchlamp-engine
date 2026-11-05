@@ -63,7 +63,17 @@ return { seen, collisions };
 """
 
 _TABLES = _READY + """
-return [...doc.querySelectorAll('.fpr-table-wrap')].map((w) => [w.scrollWidth, w.clientWidth]);
+const shown = (c) => win.getComputedStyle(c).display !== 'none';
+return [...doc.querySelectorAll('.fpr-table-wrap')].map((w) => {
+  const heads = [...w.querySelectorAll('thead th')].filter(shown).map((c) => c.getBoundingClientRect());
+  let misplaced = 0;
+  for (const row of w.querySelectorAll('tbody tr')) {
+    const cells = [...row.querySelectorAll('td')].map((c) => c.getBoundingClientRect());
+    const under = heads.slice(heads.length - cells.length);
+    cells.forEach((cell, k) => { if (Math.abs(cell.left - under[k].left) > 1 || Math.abs(cell.right - under[k].right) > 1) misplaced += 1; });
+  }
+  return [w.scrollWidth, w.clientWidth, misplaced];
+});
 """
 
 _HISTOGRAM_EDGE = _READY + """
@@ -240,6 +250,7 @@ def test_no_table_is_cut_off_on_a_phone(measured, width):
     rows = measured[f"tables-{width}"]
     assert len(rows) == 3, rows
     assert [r for r in rows if r[0] > r[1]] == [], rows
+    assert [r for r in rows if r[2]] == [], "every number sits under its own column's heading"
 
 
 @pytest.mark.parametrize("width", PHONE_WIDTHS)
