@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import random
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -58,6 +59,28 @@ def by_days(group: dict) -> dict[int, dict]:
     return {row["days"]: row for row in group["merged_if_silent"]}
 
 
+def test_a_second_pull_request_the_history_never_saw_is_returning(tmp_path: Path) -> None:
+    # the history was taken before either pull request opened
+    write_project(tmp_path, "o__n", [pull(1, OLD, author="bob"), pull(2, OLD + timedelta(days=5), author="bob")], history=[])
+    population = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["population"]
+    assert (population["first"], population["returning"]) == (1, 1)
+
+
+def test_a_history_keeps_each_authors_earliest_pull_request(tmp_path: Path) -> None:
+    bob = {"login": "bob"}
+    write_project(tmp_path, "o__n", [pull(1, author="bob")], history=[{"author": bob, "createdAt": after(OLD, days=-30)}, {"author": bob, "createdAt": after(OLD, days=3)}])
+    population = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["population"]
+    assert (population["first"], population["returning"]) == (0, 1)
+
+
+def test_a_deleted_account_is_neither_first_nor_returning(tmp_path: Path) -> None:
+    gone = pull(1)
+    gone["author"] = None
+    write_project(tmp_path, "o__n", [gone, pull(2)], history=[])
+    population = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["population"]
+    assert (population["read"], population["first"], population["returning"]) == (2, 1, 0)
+
+
 def test_only_outside_ready_grown_up_pull_requests_inside_the_window_are_read(tmp_path: Path) -> None:
     write_project(tmp_path, "o__n", [
         pull(1),
@@ -78,6 +101,18 @@ def test_a_project_without_a_window_is_not_a_project(tmp_path: Path) -> None:
     write_project(tmp_path, "o__n", [pull(1)])
     (tmp_path / "raw" / "pr_window" / "o__empty.json").write_text(json.dumps({"data": {"window_anchor": iso(ANCHOR)}}))
     assert fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["population"]["projects"] == 1
+
+
+def test_an_author_the_window_shows_holding_access_is_not_read(tmp_path: Path) -> None:
+    # boss merges their own pull request and ann's, so GitHub's CONTRIBUTOR label on boss's says nothing
+    write_project(tmp_path, "o__n", [
+        pull(1, author="boss", association="CONTRIBUTOR", merged=after(OLD, hours=1), merged_by="boss"),
+        pull(2, author="ann", merged=after(OLD, hours=2), merged_by="boss"),
+    ])
+    stats = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)
+    assert stats["population"]["read"] == 1
+    assert stats["population"]["outside_prs"] == 2, "the corpus count is the snapshot's, access or not"
+    assert (stats["population"]["first"], stats["population"]["returning"]) == (1, 0)
 
 
 def test_first_and_returning_come_from_the_history_and_a_cut_history_says_neither(tmp_path: Path) -> None:
@@ -317,6 +352,34 @@ def test_a_band_reads_its_median_project_not_the_mean(tmp_path: Path) -> None:
     assert (one["projects"], one["answered"], one["merged"]) == (3, 0.1, 0.1)
 
 
+def test_outcomes_count_the_projects_under_the_answer_floor(tmp_path: Path) -> None:
+    # 10 first pull requests and 3 answers, all from one person
+    outcomes_project(tmp_path, "o__quiet", 0, 0, answered=3, merged=1)
+    # 10 first pull requests and no answer at all: below the floor, and nobody at 90%
+    outcomes_project(tmp_path, "o__silent", 0, 0, answered=0, merged=0)
+    # under the 10-first-pull-request mark: not counted
+    outcomes_project(tmp_path, "o__few", 0, 0, first_prs=fpr.MIN_OUTCOME_FIRST_PRS - 1, answered=3)
+    # over the floor: in the comparison, not below it
+    outcomes_project(tmp_path, "o__active", 20, 0, answered=8, merged=6)
+    out = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]["outcomes"]
+    assert out["projects"] == 1
+    assert out["below_floor"] == {
+        "projects": 2, "answered": 0.15, "merged": 0.05,
+        "one": {"projects": 1, "answered": 0.3, "merged": 0.1},
+    }
+
+
+def test_outcomes_read_the_share_answered_within_a_day(tmp_path: Path) -> None:
+    prs = answered_by({"maya": 20}, first_prs=8, answered=3, merged=0)
+    prs.append(pull(50, author="slow1", comments=[comment("maya", after(OLD, days=2))]))
+    prs.append(pull(51, author="slow2", comments=[comment("maya", after(OLD, days=2))]))
+    history = [{"author": p["author"], "createdAt": p["createdAt"]} for p in prs if not p["author"]["login"].startswith("back")]
+    history += [{"author": p["author"], "createdAt": after(OLD, days=-30)} for p in prs if p["author"]["login"].startswith("back")]
+    write_project(tmp_path, "o__n", prs, history=history)
+    one = next(b for b in fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]["outcomes"]["bands"] if b["band"] == "one")
+    assert (one["in_a_day"], one["answered"]) == (0.3, 0.5)
+
+
 def test_outcomes_need_enough_first_pull_requests_and_answers_by_people(tmp_path: Path) -> None:
     outcomes_project(tmp_path, "o__few", 20, 0, first_prs=fpr.MIN_OUTCOME_FIRST_PRS - 1)
     outcomes_project(tmp_path, "o__enough", 20, 0, first_prs=fpr.MIN_OUTCOME_FIRST_PRS)
@@ -338,7 +401,70 @@ def test_outcomes_count_answers_within_two_weeks_and_leave_out_a_first_pull_requ
 
 
 def row(top: float, answered: float, merged: float = 0.5, *, stars: int = 5000, first_prs: int = 20, strict: bool = True) -> fpr._Outcome:
-    return fpr._Outcome(top=top, first_prs=first_prs, answered=answered, merged=merged, stars=stars, strict=strict)
+    return fpr._Outcome(top=top, first_prs=first_prs, answered=answered, merged=merged, stars=stars, strict=strict, in_a_day=0.0)
+
+
+def test_the_clear_range_is_the_middle_95_percent_of_resampled_gaps() -> None:
+    rows = [row(1.0, 0.5 + i / 100, 0.4) for i in range(12)] + [row(0.4, 0.3 + i / 100, 0.2) for i in range(12)]
+    seeded = random.Random(7)
+    out = fpr._clear_against_shared(rows, seeded)
+    check = random.Random(7)
+    answered = sorted(v for v in (fpr.clear_gap(check.choices(rows, k=len(rows)), "answered") for _ in range(fpr.BOOTSTRAP_ROUNDS)) if v is not None)
+    assert out["gap_answered_range"] == [round(answered[int(0.025 * len(answered))], 4), round(answered[int(0.975 * len(answered))], 4)]
+    merged = sorted(v for v in (fpr.clear_gap(check.choices(rows, k=len(rows)), "merged") for _ in range(fpr.BOOTSTRAP_ROUNDS)) if v is not None)
+    assert out["gap_merged_range"] == [round(merged[int(0.025 * len(merged))], 4), round(merged[int(0.975 * len(merged))], 4)]
+    assert out["gap_answered"] == pytest.approx(0.2)
+    assert out["gap_merged"] == pytest.approx(0.2)
+
+
+def test_the_asking_range_is_the_middle_95_percent_of_resampled_gaps_and_merged_reads_merges() -> None:
+    tallies = [{"ask": [4, 3 - (i % 2), 1], "none": [10, 2 + (i % 3), 4]} for i in range(10)]
+    out = fpr._compare(tallies, "ask", random.Random(3))
+    rows = [(t["ask"], t["none"]) for t in tallies]
+    check = random.Random(3)
+    for label, outcome in (("answered", 1), ("merged", 2)):
+        rounds = sorted(fpr.adjusted_gap(check.choices(rows, k=len(rows)), outcome) for _ in range(fpr.BOOTSTRAP_ROUNDS))
+        assert out[f"gap_{label}_range"] == [round(rounds[int(0.025 * fpr.BOOTSTRAP_ROUNDS)], 4), round(rounds[int(0.975 * fpr.BOOTSTRAP_ROUNDS)], 4)]
+        assert out[f"gap_{label}"] == round(fpr.adjusted_gap(rows, outcome), 4)
+    assert out["gap_merged"] != out["gap_answered"]
+
+
+def test_the_file_is_seeded_so_two_runs_agree_on_the_ranges(tmp_path: Path) -> None:
+    for index in range(6):
+        outcomes_project(tmp_path, f"o__one{index}", 20, 0, answered=5 + index, merged=2 + index)
+        outcomes_project(tmp_path, f"o__team{index}", 5, 30, answered=4, merged=1)
+    first = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]["outcomes"]["clear_against_shared"]
+    second = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["who_answers"]["outcomes"]["clear_against_shared"]
+    assert first == second
+    assert first["gap_answered_range"][0] < first["gap_answered"] < first["gap_answered_range"][1]
+
+
+def test_only_the_authors_own_comment_is_an_ask_and_returning_pull_requests_stay_out_of_the_first_reading(tmp_path: Path) -> None:
+    passerby = comment("passer", after(OLD, days=10), "Friendly ping on this one.", "NONE")
+    mine = comment("ann", after(OLD, days=10), "Friendly ping on this one.", "NONE")
+    bob_earlier = {"author": {"login": "bob"}, "createdAt": after(OLD, days=-30)}
+    ann_new = {"author": {"login": "ann"}, "createdAt": iso(OLD)}
+    cara_new = {"author": {"login": "cara"}, "createdAt": iso(OLD)}
+    write_project(tmp_path, "o__n", [
+        pull(1, author="ann", comments=[mine]),
+        pull(2, author="cara", comments=[passerby]),
+        pull(3, author="bob", comments=[comment("bob", after(OLD, days=10), "Friendly ping on this one.", "NONE")]),
+    ], history=[ann_new, cara_new, bob_earlier])
+    asking = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["asking"]
+    assert asking["day14_first"]["ask_recent"]["n"] == 1, "ann's own ask; bob is returning and cara's is someone else's comment"
+    assert asking["day14_first"]["ask_recent"]["n_none"] == 1, "cara had no comment of her own"
+    assert asking["day14_all"]["ask_recent"]["n"] == 2, "ann's and bob's"
+
+
+def test_the_day_seven_reading_stands_at_day_seven(tmp_path: Path) -> None:
+    early = comment("ann", after(OLD, days=5), "Friendly ping on this one.", "NONE")
+    late = comment("cara", after(OLD, days=10), "Friendly ping on this one.", "NONE")
+    write_project(tmp_path, "o__n", [pull(1, author="ann", comments=[early]), pull(2, author="cara", comments=[late]), pull(3, author="dan")])
+    asking = fpr.compute_first_pull_requests(tmp_path, as_of=AS_OF)["asking"]
+    assert asking["day7_first"]["ask_recent"]["n"] == 1, "the ask on day 10 hasn't happened at day 7"
+    assert asking["day7_first"]["ask_recent"]["n_none"] == 2
+    assert asking["day14_first"]["ask"]["n"] == 2
+    assert asking["day14_first"]["ask_recent"]["n"] == 1, "the ask on day 5 is more than a week old at day 14"
 
 
 def test_the_clear_gap_compares_only_inside_one_cell_of_stars_and_first_pull_requests() -> None:

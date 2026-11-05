@@ -1517,7 +1517,7 @@ export const PROMOTION_LADDER_LABELS = Object.freeze({
 
 export const FIRST_PRS_EYEBROW = "Porchlamp report: first pull requests";
 export const FIRST_PRS_DATA_THROUGH = "data to {window_end}";
-export const FIRST_PRS_BEST_KICKER = "Where newcomers do best";
+export const FIRST_PRS_BEST_KICKER = "Where newcomers get merged";
 export const FIRST_PRS_BAND_ANSWERED = "Answered within two weeks";
 export const FIRST_PRS_BAND_MERGED = "Merged";
 export const FIRST_PRS_BEST_CAVEAT = "One possible reason is the bystander effect: a job that's clearly one person's gets done, and a job that's everyone's can wait. This compares projects, so it can't prove that. Shared projects may also get harder pull requests or have stricter rules for merging.";
@@ -1546,7 +1546,7 @@ export const FIRST_PRS_CURVE_TICKS = Object.freeze([[0, "day 0", false], [7, "1 
 //: The answered-by curve's marks, in hours, that stay on a phone.
 export const FIRST_PRS_ANSWERED_NARROW_TICKS = Object.freeze([1, 24, 168, 720, 2160]);
 export const FIRST_PRS_ASK_CHART_HEADING = "Gap in answers over the next 30 days, against no comment, inside one project";
-export const FIRST_PRS_ASK_CAVEAT = "Authors who ask may also care more, or have a better pull request. A comment without an ask shows no gap, which argues against plain engagement as the whole explanation. This still compares what happened and doesn't prove that asking causes the answer.";
+export const FIRST_PRS_ASK_CAVEAT = "Authors who ask may also care more, or have a better pull request. A comment with no ask and no tag shows no gap, which argues against plain engagement as the whole explanation. This still compares what happened and doesn't prove that asking causes the answer.";
 export const FIRST_PRS_WEEK_CHART_HEADING = "Answered within 24 hours, by the day it opened";
 export const FIRST_PRS_HIST_AXIS = "The busiest person's share of first answers";
 export const FIRST_PRS_POINTS = "points";
@@ -1554,7 +1554,7 @@ export const FIRST_PRS_TO = "to";
 export const FIRST_PRS_LOOKUP_HREF = "/lookup/";
 export const FIRST_PRS_LOOKUP_LINK = "See where your own pull requests stand";
 export const FIRST_PRS_PROJECT_COLUMNS = Object.freeze(["Project", "Typical first answer", "Within a day", "Merged", "First PRs"]);
-export const FIRST_PRS_PROJECTS_CAPTION = "The ten projects, fastest first";
+export const FIRST_PRS_PROJECTS_CAPTION = "The projects, fastest first";
 export const FIRST_PRS_CURVE_COLUMNS = Object.freeze(["Silent for", "First PR, merged", "Counted", "Returning, merged", "Counted"]);
 export const FIRST_PRS_CURVE_CAPTION = "The share merged after each length of silence";
 export const FIRST_PRS_TIP_CURVE = "{days} of silence, {group}: {share} of {count} merged";
@@ -1577,7 +1577,7 @@ export const LOOKUP_NO_SCRIPT = "The lookup runs in your browser, so it needs Ja
 export const LOOKUP_READS_HEADING = "What this can and can't see";
 export const LOOKUP_READS = Object.freeze([
   "Public pull requests to projects the account doesn't own, newest first. Replies from members, owners and collaborators count as answers, as do merges and closes by someone else.",
-  "A single look can't see everything the snapshot does. It misses people who hold access without GitHub saying so, and it can't filter automated replies, so a project's page can differ.",
+  "A single look can't see everything the snapshot does. It misses people who hold access without GitHub saying so, it can't filter automated replies, and it tells a first pull request from GitHub's label and these recent results, so a project's page can differ.",
   "The percentages come from the waiting curve in the report. They describe what happened to other pull requests, not what will happen to yours.",
 ]);
 export const LOOKUP_REPORT_HREF = "/first-pull-requests/";
@@ -1593,16 +1593,21 @@ export const LOOKUP_ERRORS = Object.freeze({
 });
 export const LOOKUP_NOTHING = "GitHub shows no public pull requests from {login} to other people's projects.";
 export const LOOKUP_SUMMARY = "{login}: {count} recent pull requests.";
+export const LOOKUP_SUMMARY_ONE = "{login}: 1 recent pull request.";
 export const LOOKUP_SUMMARY_SILENT = "{count} still silent.";
 export const LOOKUP_SUMMARY_NONE_SILENT = "None still silent.";
 export const LOOKUP_TYPICAL_LABEL = "Typical first answer to these";
 export const LOOKUP_PARTIAL = "Read {read} of {found}: the rest couldn't be read just now.";
 export const LOOKUP_STATUS = Object.freeze({
   silent: "Open, silent for {days} days",
+  silent_one: "Open, silent for 1 day",
+  silent_today: "Open, opened today",
   merged: "Merged, first answer in {time}",
+  merged_plain: "Merged",
   answered: "First answer in {time}",
   closed: "Closed by the project, after {time}",
   left: "You closed it with no answer",
+  closed_quiet: "Closed with no answer from a person",
   draft: "Draft: the clock starts when it's marked ready",
 });
 export const LOOKUP_ODDS_FIRST = "Of first pull requests to a project silent this long, about {share} were merged.";

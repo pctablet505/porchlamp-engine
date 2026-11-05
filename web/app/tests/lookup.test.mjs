@@ -82,9 +82,46 @@ test("a merge answers and says merged; a close by someone else answers and says 
   const left = readPullRequest(item({ state: "closed" }), [{ event: "closed", actor: { login: "ann", type: "User" }, created_at: ago(17) }], NOW);
   assert.deepEqual([left.status, left.answerHours], ["left", null]);
   const botClosed = readPullRequest(item({ state: "closed" }), [{ event: "closed", actor: { login: "stale[bot]", type: "Bot" }, created_at: ago(17) }], NOW);
-  assert.equal(botClosed.status, "left", "a bot's close answers nobody");
+  assert.deepEqual([botClosed.status, botClosed.answerHours], ["closed_quiet", null], "a bot's close answers nobody");
   const repliedThenClosed = readPullRequest(item({ state: "closed" }), [said("maya", ago(19)), { event: "closed", actor: { login: "maya", type: "User" }, created_at: ago(17) }], NOW);
   assert.equal(repliedThenClosed.status, "answered", "the reply came first");
+});
+
+test("a close nobody can be named for doesn't say you closed it", () => {
+  const closed = item({ state: "closed" });
+  const byBot = readPullRequest(closed, [{ event: "closed", actor: { login: "stale[bot]", type: "Bot" }, created_at: ago(2) }], NOW);
+  assert.equal(byBot.status, "closed_quiet");
+  assert.equal(byBot.answerHours, null);
+  assert.equal(readPullRequest(closed, [], NOW).status, "closed_quiet", "the close lies past the timeline page");
+  assert.equal(readPullRequest(closed, [{ event: "closed", actor: { login: "Ann" }, created_at: ago(2) }], NOW).status, "left");
+  const html = renderLookupResult({ ok: true, result: { login: "ann", rows: [byBot], silent: 0, typicalHours: null, read: 1, found: 1, partial: false } });
+  assert.ok(html.includes("Closed with no answer from a person"));
+  assert.ok(!html.includes("You closed it"));
+});
+
+test("the last close decides who closed it: reopened and closed again by the author", () => {
+  const events = [
+    { event: "closed", actor: { login: "stale[bot]", type: "Bot" }, created_at: ago(5) },
+    { event: "closed", actor: { login: "ann" }, created_at: ago(2) },
+  ];
+  assert.equal(readPullRequest(item({ state: "closed" }), events, NOW).status, "left");
+});
+
+test("a closed draft isn't told the clock starts when it's marked ready", () => {
+  assert.equal(readPullRequest(item({ draft: true, state: "closed" }), [], NOW).status, "closed_quiet");
+  assert.equal(readPullRequest(item({ draft: true }), [], NOW).status, "draft");
+});
+
+test("the words say one day, today and one pull request", () => {
+  const silent = (days) => ({ repo: "a/b", number: 1, title: "t", url: "https://github.com/a/b/pull/1", group: "first", status: "silent", answerHours: null, silentDays: days, asked: false });
+  const page = (rows) => renderLookupResult({ ok: true, result: { login: "ann", rows, silent: rows.length, typicalHours: null, read: rows.length, found: rows.length, partial: false } });
+  assert.ok(page([silent(0.4)]).includes("Open, opened today"));
+  assert.ok(page([silent(1.2)]).includes("Open, silent for 1 day<"));
+  assert.ok(page([silent(2.2)]).includes("Open, silent for 2 days<"));
+  assert.ok(page([silent(2.2)]).includes("ann: 1 recent pull request."));
+  assert.ok(page([silent(2.2), silent(3)]).includes("ann: 2 recent pull requests."));
+  const merged = { ...silent(0), status: "merged", silentDays: null };
+  assert.ok(page([merged]).includes(">Merged<"), "a merge with no measured wait prints no empty time");
 });
 
 test("the clock of a draft starts when it was marked ready, and a draft has no clock yet", () => {
@@ -203,6 +240,25 @@ test("an unknown account, a bad name and a dead network each say so, and a bad n
   assert.deepEqual(dead, { ok: false, error: { kind: "network" } });
 });
 
+test("every timeline failing says so, and never says the account has no pull requests", async () => {
+  const search = { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ items: [item()] }) };
+  const quota = { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ resources: { core: { remaining: 50 }, search: { remaining: 5 } } }) };
+  const route = (failure) => async (url) => {
+    if (url.includes("/rate_limit")) return quota;
+    if (url.includes("/search/")) return search;
+    return failure();
+  };
+  const dead = await runLookup("ann", { fetchImpl: route(async () => { throw new TypeError("network"); }) });
+  assert.equal(dead.ok, false);
+  assert.equal(dead.error.kind, "network");
+  const broken = await runLookup("ann", { fetchImpl: route(async () => ({ ok: false, status: 500, headers: { get: () => null }, json: async () => ({}) })) });
+  assert.equal(broken.ok, false);
+  assert.equal(broken.error.kind, "http");
+  const odd = await runLookup("ann", { fetchImpl: route(async () => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ not: "a list" }) })) });
+  assert.equal(odd.ok, false);
+  assert.equal(odd.error.kind, "http");
+});
+
 test("a limit hit part-way keeps what was read and says it is partial", async () => {
   const many = Array.from({ length: 8 }, (_, i) => item({ number: i + 1 }));
   const net = github({
@@ -235,6 +291,19 @@ test("the page makes no request and holds the form; its result escapes what GitH
   assert.ok(html.includes('href="/first-pull-requests/#asking"'));
   assert.ok(html.includes("30 minutes"));
   assert.ok(html.includes('href="/projects/acme/widget/"'));
+});
+
+test("a row's address and repository are GitHub's text too, and stay text", () => {
+  const html = renderLookupResult({
+    ok: true,
+    result: {
+      login: "ann", read: 1, found: 1, silent: 0, typicalHours: null, partial: false,
+      rows: [{ repo: "<i>acme</i>/widget", number: 7, title: "t", url: 'https://github.com/a"onclick="x', status: "left", group: "first", answerHours: null, silentDays: null, asked: false }],
+    },
+  });
+  assert.ok(!html.includes("<i>acme"));
+  assert.ok(!html.includes('"onclick="'));
+  assert.ok(html.includes("&lt;i&gt;acme"));
 });
 
 test("a wait too short to ask about, and a wait where the author asked, say nothing about asking or say so", () => {

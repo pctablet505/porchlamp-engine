@@ -79,7 +79,7 @@ function isOwnPeople(event, author) {
 /**
  * One pull request from its search result and its timeline, at `nowMs`. `status` is "draft", "merged", "answered" (open or
  * closed by its author after an answer), "closed" (closed by the project with no earlier answer), "left" (closed by its
- * author with none) or "silent"; `answerHours` the wait for the first answer, `silentDays` how long a silent one has waited.
+ * author with none), "closed_quiet" (closed with none, by a bot or by nobody the timeline shows) or "silent"; `answerHours` the wait for the first answer, `silentDays` how long a silent one has waited.
  * `sentBefore` says the account's search results hold an earlier one to the same project, which makes this one returning.
  */
 export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}) {
@@ -89,6 +89,7 @@ export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}
   const base = { repo, number: item.number, title: String(item.title || ""), url: String(item.html_url || ""), group: !sentBefore && FIRST_ASSOCIATIONS.has(String(item.author_association || "").toUpperCase()) ? "first" : "returning" };
   let ready = null;
   let closedByProject = null;
+  let closedByAuthor = false;
   const answers = [];
   const authorComments = [];
   for (const event of events) {
@@ -105,6 +106,7 @@ export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}
     else if (event.event === "closed") {
       const actor = event.actor || {};
       const login = String(actor.login || "").toLowerCase();
+      closedByAuthor = login === author;
       if (login && login !== author && !isBotActor({ type: actor.type, login })) {
         closedByProject = at;
         answers.push(at);
@@ -113,7 +115,7 @@ export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}
   }
   const merged = when(item.pull_request && item.pull_request.merged_at);
   if (merged !== null) answers.push(merged);
-  if (item.draft === true) return { ...base, status: "draft", answerHours: null, silentDays: null, asked: false };
+  if (item.draft === true) return { ...base, status: item.state === "closed" ? "closed_quiet" : "draft", answerHours: null, silentDays: null, asked: false };
   const clock = ready === null ? created : Math.max(created, ready);
   const first = answers.filter((at) => at >= clock).sort((a, b) => a - b)[0];
   const answerHours = first === undefined ? null : (first - clock) / HOUR_MS;
@@ -121,7 +123,8 @@ export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}
   let status;
   if (merged !== null) status = "merged";
   else if (answerHours !== null) status = item.state === "closed" && first === closedByProject ? "closed" : "answered";
-  else status = item.state === "closed" ? "left" : "silent";
+  else if (item.state !== "closed") status = "silent";
+  else status = closedByAuthor ? "left" : "closed_quiet";
   return { ...base, status, answerHours, silentDays: status === "silent" ? (nowMs - clock) / DAY_MS : null, asked };
 }
 
@@ -201,6 +204,7 @@ export async function runLookup(text, { fetchImpl, now = new Date(), curve = nul
     }
     const rows = [];
     let limited = null;
+    let failed = null;
     for (let i = 0; i < picked.length && !limited; i += LOOKUP_BATCH) {
       const batch = picked.slice(i, i + LOOKUP_BATCH);
       const answers = await Promise.all(
@@ -212,9 +216,10 @@ export async function runLookup(text, { fetchImpl, now = new Date(), curve = nul
       answers.forEach((answer, j) => {
         if (answer.ok && Array.isArray(answer.data)) rows.push(readPullRequest(batch[j], answer.data, now.getTime(), { sentBefore: when(batch[j].created_at) > earliest.get(batch[j].repository_url) }));
         else if (!answer.ok && answer.error.kind === "rate_limited") limited = answer.error;
+        else if (!answer.ok) failed = failed || answer.error;
       });
     }
-    if (!rows.length && limited) return { ok: false, error: limited };
+    if (!rows.length && items.length) return { ok: false, error: limited || failed || { kind: "http" } };
     const totals = summarize(rows);
     for (const row of totals.rows) {
       if (row.status !== "silent") continue;

@@ -6,14 +6,16 @@ raw records only: ``raw/pr_window/`` (each project's pull requests and their rep
 one before) and ``raw/github_meta/`` (stars).
 
 The pull requests read are the outside ones (:func:`porchlamp.core.gates.is_outside_pr`) opened in the PR window ending at
-``--as-of`` whose replies the record holds (:func:`porchlamp.core.gates.reply_sampled_prs`), without drafts never marked
+``--as-of`` whose replies the record holds (:func:`porchlamp.core.gates.reply_sampled_prs`), without authors the window shows
+holding access (:func:`porchlamp.core.gates.maintainer_logins`, whatever GitHub's label says), without drafts never marked
 ready and without authors whose account was under ``MIN_ACCOUNT_AGE_DAYS`` old when they opened it. The clock starts when
 the pull request opened or, for a draft, when it was marked ready. The answer is the earliest of the first substantive
 response (D-IN-2), a merge and a close by the project's people. Each record is observed up to its own ``window_anchor``.
 
-A pull request is a **first** when its author has no earlier one in the project's ``author_history``, and **returning**
-when they have. A record that was cut at its cap (``truncated``) cannot tell the two apart, so its project is in neither
-group: the busiest projects are missing from every first or returning figure.
+A pull request is a **first** when its author has no earlier one in the project's ``author_history`` or in the window, and
+**returning** when they have. A record that was cut at its cap (``truncated``) cannot tell the two apart, so its project is
+in neither group: most of the busiest projects are missing from every first or returning figure. A deleted account is in
+neither group either.
 
 Fields (shares are fractions, rounded to 4 places):
 
@@ -42,7 +44,9 @@ Fields (shares are fractions, rounded to 4 places):
     merger): the busiest person's share, how many people answered, and a histogram of that share in tenths; ``outcomes``:
     for those with at least ``MIN_OUTCOME_FIRST_PRS`` first pull requests at least 14 days old and not closed unanswered by
     their author, per band of the busiest person's share (:func:`share_band`), the median project's share answered within
-    14 days and share merged; ``clear_against_shared``: the top band against the bottom one, comparing projects only inside
+    a day and within 14 days and share merged; ``below_floor``: the projects with that many first pull requests and fewer
+    attributed answers than ``MIN_ATTRIBUTED_ANSWERS``, and those of them where one person gave 90% or more of the answers
+    they did get; ``clear_against_shared``: the top band against the bottom one, comparing projects only inside
     one cell of ``COMPARE_STARS`` and ``COMPARE_FIRST_PRS``, with a 95% range from resampling projects, seeded;
     ``clear_against_shared_strict``: the same without projects whose busiest person is the owner's own account or the only
     person answering;
@@ -149,13 +153,13 @@ def _epoch(text: object) -> Optional[float]:
         return None
 
 
-def _first_seen(history: Optional[Mapping[str, Any]]) -> Optional[dict[str, float]]:
-    """Each author's earliest pull request in an ``author_history`` record, by lower-cased login; ``None`` for no record or
-    one cut at its cap, which cannot say who is new."""
+def _first_seen(history: Optional[Mapping[str, Any]], window_prs: Sequence[Mapping[str, Any]]) -> Optional[dict[str, float]]:
+    """Each author's earliest pull request in an ``author_history`` record or the window, by lower-cased login: the history
+    was taken before the window's end. ``None`` for no record or one cut at its cap, which cannot say who is new."""
     if history is None or history.get("truncated"):
         return None
     first: dict[str, float] = {}
-    for pr in history.get("prs") or []:
+    for pr in [*(history.get("prs") or []), *window_prs]:
         if not isinstance(pr, Mapping):
             continue
         author = pr.get("author")
@@ -175,6 +179,7 @@ class _Outcome(NamedTuple):
     merged: float
     stars: int
     strict: bool
+    in_a_day: float
 
 
 def share_band(top: float) -> str:
@@ -203,6 +208,7 @@ class _Project:
     weekday_pair: Optional[tuple[float, float]] = None
     who: Optional[tuple[float, int, int]] = None
     outcome: Optional[_Outcome] = None
+    below_floor: Optional[tuple[float, float, bool]] = None
     first_row: Optional[list[Any]] = None
 
 
@@ -269,7 +275,7 @@ def read_project(job: tuple[Path, str, float, float, Optional[int]]) -> Optional
     derived = derive_pr_window(prs)
     sampled = {id(pr) for pr in gates.reply_sampled_prs(prs)}
     maintainers = gates.maintainer_logins(prs)
-    first_seen = _first_seen(_envelope_data(raw_root, "author_history", basename))
+    first_seen = _first_seen(_envelope_data(raw_root, "author_history", basename), prs)
     min_age = MIN_ACCOUNT_AGE_DAYS * 86400
     who: dict[str, int] = {}
     weekday, weekend = [0, 0], [0, 0]
@@ -280,6 +286,9 @@ def read_project(job: tuple[Path, str, float, float, Optional[int]]) -> Optional
             continue
         if id(pr) not in sampled or not gates.is_outside_pr(pr):
             continue
+        author = str((pr.get("author") or {}).get("login") or "").lower()
+        if author in maintainers:
+            continue
         ready = _epoch(facts.get("ready_for_review_at"))
         if ready is None and facts.get("is_draft"):
             continue
@@ -289,7 +298,6 @@ def read_project(job: tuple[Path, str, float, float, Optional[int]]) -> Optional
         out.read += 1
         clock = max(created, ready) if ready is not None else created
         observed = (anchor - clock) / 3600
-        author = str((pr.get("author") or {}).get("login") or "").lower()
         reply = _epoch(facts.get("first_substantive_response_at"))
         merged_at = _epoch(pr.get("mergedAt"))
         closed_at = _epoch(pr.get("closedAt"))
@@ -322,7 +330,7 @@ def read_project(job: tuple[Path, str, float, float, Optional[int]]) -> Optional
             bucket[1] += in_a_day
 
         group: Optional[str] = None
-        if first_seen is not None:
+        if first_seen is not None and author:
             seen = first_seen.get(author)
             group = "first" if seen is None or seen >= created - 1 else "returning"
         if group is not None:
@@ -364,19 +372,26 @@ def read_project(job: tuple[Path, str, float, float, Optional[int]]) -> Optional
     if weekday[0] >= WEEKDAY_MIN_WEEKDAY and weekend[0] >= WEEKDAY_MIN_WEEKEND:
         out.weekday_pair = (weekday[1] / weekday[0], weekend[1] / weekend[0])
     total = sum(who.values())
+    top = max(who.values()) / total if total else 0.0
     if total >= MIN_ATTRIBUTED_ANSWERS:
-        out.who = (max(who.values()) / total, len(who), -1 if stars is None else stars)
-        if len(first_rows) >= MIN_OUTCOME_FIRST_PRS:
-            n = len(first_rows)
+        out.who = (top, len(who), -1 if stars is None else stars)
+    if len(first_rows) >= MIN_OUTCOME_FIRST_PRS:
+        n = len(first_rows)
+        answered = sum(a is not None and a <= 14 * 24 for a, _ in first_rows) / n
+        merged_share = sum(m for _, m in first_rows) / n
+        if total >= MIN_ATTRIBUTED_ANSWERS:
             busiest = max(sorted(who), key=lambda login: who[login])
             out.outcome = _Outcome(
-                top=out.who[0],
+                top=top,
                 first_prs=n,
-                answered=sum(a is not None and a <= 14 * 24 for a, _ in first_rows) / n,
-                merged=sum(m for _, m in first_rows) / n,
-                stars=out.who[2],
+                answered=answered,
+                merged=merged_share,
+                stars=-1 if stars is None else stars,
                 strict=len(who) >= 2 and busiest != basename.partition("__")[0].lower(),
+                in_a_day=sum(a is not None and a <= 24 for a, _ in first_rows) / n,
             )
+        else:
+            out.below_floor = (answered, merged_share, share_band(top) == "one")
     if len(first_rows) >= MIN_FIRST_PRS:
         answered_hours = [a for a, _ in first_rows if a is not None]
         n = len(first_rows)
@@ -508,12 +523,18 @@ def _outcomes(projects: Sequence[_Project], rng: random.Random) -> dict[str, Any
     for band in SHARE_BANDS:
         members = [row for row in rows if share_band(row.top) == band]
         bands.append({
-            "band": band, "projects": len(members),
+            "band": band, "projects": len(members), "in_a_day": _median_share([row.in_a_day for row in members]),
             "answered": _median_share([row.answered for row in members]), "merged": _median_share([row.merged for row in members]),
         })
+    below = [p.below_floor for p in projects if p.below_floor is not None]
+    below_one = [row for row in below if row[2]]
     return {
         "projects": len(rows),
         "bands": bands,
+        "below_floor": {
+            "projects": len(below), "answered": _median_share([row[0] for row in below]), "merged": _median_share([row[1] for row in below]),
+            "one": {"projects": len(below_one), "answered": _median_share([row[0] for row in below_one]), "merged": _median_share([row[1] for row in below_one])},
+        },
         "clear_against_shared": _clear_against_shared(rows, rng),
         "clear_against_shared_strict": _clear_against_shared([row for row in rows if row.strict], rng),
     }
@@ -532,8 +553,8 @@ def combine(projects: Sequence[_Project]) -> dict[str, Any]:
     gaps = [day - end for day, end in pairs]
     who = [p.who for p in projects if p.who is not None]
     histogram = [0] * 10
-    for share, _people, _stars in who:
-        histogram[min(int(share * 10), 9)] += 1
+    for row in who:
+        histogram[min(int(row[0] * 10), 9)] += 1
     large = [row for row in who if row[2] >= LARGE_PROJECT_STARS]
     rows = sorted((p.first_row for p in projects if p.first_row is not None), key=lambda r: r[0].lower())
     return {

@@ -2951,11 +2951,15 @@ def first_pull_requests_hooks(stats: dict, sid: str) -> dict[str, str]:
     week_one = stats["asking"]["day7_first"]["ask_recent"]
     weekday, who = stats["weekday"]["within_project"], stats["who_answers"]
     known = population["first"] + population["returning"]
-    whole_points = lambda share: f"{'-' if share < 0 else ''}{_round_half_up(abs(_printed(share)) * 100, 0)}"  # noqa: E731
+    def whole_points(share: float) -> str:
+        text = _round_half_up(abs(_printed(share)) * 100, 0)
+        return f"\u2212{text}" if share < 0 and text != "0" else text
+
     rows = {row[0]: row for row in stats["first_pr_projects"]}
     outcomes = who["outcomes"]
     bands = {row["band"]: row for row in outcomes["bands"]}
     gap, strict = outcomes["clear_against_shared"], outcomes["clear_against_shared_strict"]
+    below = outcomes["below_floor"]
     from porchlamp.serve import first_pull_requests_page as fpr_page
 
     picked = sorted(
@@ -3037,7 +3041,17 @@ def first_pull_requests_hooks(stats: dict, sid: str) -> dict[str, str]:
         "gap_merged_low": whole_points(gap["gap_merged_range"][0]),
         "gap_merged_high": whole_points(gap["gap_merged_range"][1]),
         "strict_answered": whole_points(strict["gap_answered"]),
+        "strict_answered_low": whole_points(strict["gap_answered_range"][0]),
+        "strict_answered_high": whole_points(strict["gap_answered_range"][1]),
         "strict_merged": whole_points(strict["gap_merged"]),
+        "strict_merged_low": whole_points(strict["gap_merged_range"][0]),
+        "strict_merged_high": whole_points(strict["gap_merged_range"][1]),
+        "strict_one": f"{strict['projects_one']:,}",
+        "strict_shared": f"{strict['projects_shared']:,}",
+        "below_projects": f"{below['projects']:,}",
+        "below_answered": _whole_percent(below["answered"]),
+        "below_one_projects": f"{below['one']['projects']:,}",
+        "below_one_answered": _whole_percent(below["one"]["answered"]),
         "listed_projects": f"{len(stats['first_pr_projects']):,}",
         "count_word": words[len(picked)],
         "count_title": words[len(picked)].capitalize(),
@@ -3075,11 +3089,14 @@ def first_pull_requests_hooks(stats: dict, sid: str) -> dict[str, str]:
 
 def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of: str, data_dir: Optional[Path], log=print) -> dict:
     """``/first-pull-requests/`` and its data file against the stats file: every ``data-v`` hook equals its value worked out
-    here, every hook is there and no other is; every sentence on the page is the data file's template filled with these
-    values; the claims the words make hold on the numbers; each named project has a page in the site; the head is the
-    report's. The stats file must itself equal what ``python -m porchlamp.snapshot first-pull-requests`` recomputes from the
-    data root (``data_dir``), read through several processes. ``{"checked", "hooks", "errors"}``."""
+    here, every hook is there and no other is; the data file's sentences are the page module's, and each is on the page,
+    filled with these values, with the words the view takes from copy.js; the slider's lists and the bars' heights come from
+    these numbers; the claims the words make hold on them; each named project has a page in the site; the head's title,
+    description and address are the report's. The stats file must itself equal what ``python -m porchlamp.snapshot
+    first-pull-requests`` recomputes from the data root (``data_dir``), read through several processes. Not read: the hover
+    tips and the charts' axis labels. ``{"checked", "hooks", "errors"}``."""
     from porchlamp.serve import first_pull_requests_page as fpr_page
+    from porchlamp.serve import report_pages as rp
     from porchlamp.snapshot import first_pull_requests as stats_file
 
     ledger = _Ledger()
@@ -3104,14 +3121,41 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     # the record's words with this file's numbers: a sentence on the page that is not its template, filled, is a mismatch
     fill = lambda template: template.format(**hooks)  # noqa: E731
     sentences = record["sentences"]
+    ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} sentences are the page module's", sentences, json.loads(json.dumps(fpr_page.SENTENCES)))
     ledger.equal(f"{rel} h1", [t for tag, t in page.headings if tag == "h1"], [fill(sentences["h1"])])
     ledger.equal(f"{rel} lede", page.text(cls="report-lede"), fill(sentences["lede"]))
     h2 = [t for tag, t in page.headings if tag == "h2"]
     for key in ("who_heading", "best_heading", "wait_heading", "ask_heading", "first_heading", "week_heading", "fast_heading"):
         ledger.equal(f"{rel} has the heading {key}", fill(sentences[key]) in h2, True)
     paragraphs = {e["text"] for e in page.find(tag="p")} | {e["text"] for e in page.find(tag="li")}
-    for key in ("who_text", "who_note", "best_text", "control_text", "best_note", "wait_text", "late_text", "wait_note", "ask_text", "ask_note", "merges_text", "first_text", "first_note", "week_text", "week_note", "fast_text", "cite"):
+    for key in ("lede", "who_text", "who_note", "best_text", "control_text", "best_note", "wait_text", "late_text", "wait_note", "ask_text", "ask_note", "merges_text", "first_text", "first_note", "week_text", "week_note", "fast_text", "cite"):
         ledger.equal(f"{rel} has the sentence {key}", fill(sentences[key]) in paragraphs, True)
+    for tile in sentences["tiles"]:
+        ledger.equal(f"{rel} has the tile {tile['label']}", tile["label"] in paragraphs and fill(tile["text"]) in paragraphs, True)
+    for line in [*sentences["method"], *sentences["not_covered"]]:
+        ledger.equal(f"{rel} has the list item {line[:40]}", fill(line) in paragraphs, True)
+    for name in ("FIRST_PRS_WHO_KICKER", "FIRST_PRS_BEST_KICKER", "FIRST_PRS_WAIT_KICKER", "FIRST_PRS_ASK_KICKER", "FIRST_PRS_FIRST_KICKER", "FIRST_PRS_WEEK_KICKER", "FIRST_PRS_FAST_KICKER", "FIRST_PRS_BEST_CAVEAT", "FIRST_PRS_ASK_CAVEAT"):
+        ledger.equal(f"{rel} has copy.js's {name}", rp.copy_js_string(name) in paragraphs, True)
+    ledger.equal(f"{rel} title", [html.unescape(t) for t in re.findall(r"<title>([^<]*)</title>", text)], [f"{sentences['title']} | Porchlamp"])
+    ledger.equal(f"{rel} description", [html.unescape(t) for t in re.findall(r'<meta name="description" content="([^"]*)"', text)], [fill(sentences["description"])])
+    # the slider's lists and the bars, from the numbers
+    rows, others = stats["first"]["merged_if_silent"], stats["returning"]["merged_if_silent"]
+    for attribute, values in (("first", [_whole_percent(r["merged"]) for r in rows]), ("returning", [_whole_percent(r["merged"]) for r in others])):
+        ledger.equal(f"{rel} slider's {attribute} list", re.findall(rf'data-{attribute}="([^"]*)"', text), ["|".join(values)])
+    who_stats = stats["who_answers"]
+    step_top = lambda top: math.ceil(top / 0.2 - 1e-9) * 0.2  # noqa: E731
+    bands_list = who_stats["outcomes"]["bands"]
+    band_top = step_top(max(max(b["answered"], b["merged"]) for b in bands_list))
+    days = list(stats["weekday"]["by_day"].values())
+    week_top = step_top(max(d["answered_in_a_day"] for d in days))
+    hist_top = max(who_stats["histogram"])
+    expected_bars = (
+        [count / hist_top for count in who_stats["histogram"]] + [b["answered"] / band_top for b in bands_list] + [b["merged"] / band_top for b in bands_list]
+        + [d["answered_in_a_day"] / week_top for d in days]
+    )
+    printed_bars = [float(x) for x in re.findall(r"--f:([0-9.]+)", text)]
+    ledger.equal(f"{rel} has one bar per number", len(printed_bars), len(expected_bars))
+    ledger.equal(f"{rel} bars' heights", [i for i, (a, b) in enumerate(zip(printed_bars, expected_bars)) if abs(a - b) > 0.001], [])
     # the claims that hold only for some numbers, read here from the stats file
     first, returning = stats["first"], stats["returning"]
     curve = {row["days"]: row["merged"] for row in first["merged_if_silent"]}
@@ -3126,13 +3170,16 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     ledger.equal("'Other comments got none' holds (the range spans zero)", none_ask["gap_answered_range"][0] < 0 < none_ask["gap_answered_range"][1], True)
     ledger.equal("'The first pull request waits longest' holds", all(answered[h] < answered_other[h] for h in answered), True)
     ledger.equal("'In most open source projects, one person answers the newcomers' holds", stats["who_answers"]["over_half"] > 0.5, True)
-    ledger.equal("'Even at 50,000 stars, it's usually one person' holds", stats["who_answers"]["large"]["over_half"] > 0.5, True)
+    ledger.equal("'Even at 50,000 stars, one person usually gives most first answers' holds", stats["who_answers"]["large"]["over_half"] > 0.5, True)
     outcomes = stats["who_answers"]["outcomes"]
     bands = {row["band"]: row for row in outcomes["bands"]}
-    for measure in ("answered", "merged"):
-        ledger.equal(f"'That's where newcomers do best' holds for {measure}", bands["shared"][measure] < min(bands["over_half"][measure], bands["over_70"][measure]) <= max(bands["over_half"][measure], bands["over_70"][measure]) < bands["one"][measure], True)
-        ledger.equal(f"'Stars and volume don't explain it' holds for {measure} (the range is above zero)", outcomes["clear_against_shared"][f"gap_{measure}_range"][0] > 0, True)
-        ledger.equal(f"the reading without owner-run projects holds for {measure} (the range is above zero)", outcomes["clear_against_shared_strict"][f"gap_{measure}_range"][0] > 0, True)
+    ledger.equal("'Newcomers get merged more often there' holds", bands["one"]["merged"] > bands["shared"]["merged"], True)
+    ledger.equal("'Answers within two weeks lean the same way' holds", bands["one"]["answered"] > bands["shared"]["answered"], True)
+    ledger.equal("'They aren't' (the slow ones) holds", bands["one"]["in_a_day"] >= bands["shared"]["in_a_day"], True)
+    ledger.equal("'Stars and volume don't explain the merges' holds (the range is above zero)", outcomes["clear_against_shared"]["gap_merged_range"][0] > 0, True)
+    ledger.equal("the merges without owner-run projects hold (the range is above zero)", outcomes["clear_against_shared_strict"]["gap_merged_range"][0] > 0, True)
+    ledger.equal("'that gap is smaller' holds", outcomes["clear_against_shared"]["gap_answered"] < outcomes["clear_against_shared"]["gap_merged"], True)
+    ledger.equal("the quiet projects below the floor answer less", outcomes["below_floor"]["one"]["answered"] < bands["one"]["answered"], True)
     # the links
     for row in record["projects"]:
         ledger.equal(f"{rel} links {row['key']}, which has a page", (site / row["path"].strip("/") / "index.html").is_file(), True)

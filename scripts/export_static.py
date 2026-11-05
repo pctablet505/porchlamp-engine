@@ -594,13 +594,13 @@ def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest
     ]
 
 
-def _write_first_pull_requests_page(out: Path, record: dict) -> dict:
+def _write_first_pull_requests_page(out: Path, record: dict, *, exported_on: date) -> dict:
     """``first-pull-requests/index.html``, for the prerender to draw its view into. Returns the page for :func:`_prerender`."""
     from porchlamp.serve import first_pull_requests_page as fpr_page
 
     target = out / fpr_page.PATH.strip("/")
     target.mkdir(parents=True, exist_ok=True)
-    (target / "index.html").write_text(fpr_page.report_page(record, exported_on=date.fromisoformat(record["as_of"][:10])), encoding="utf-8")
+    (target / "index.html").write_text(fpr_page.report_page(record, exported_on=exported_on), encoding="utf-8")
     return {"path": f"{fpr_page.PATH.strip('/')}/index.html", "nav": None, "draw": "first-pull-requests"}
 
 
@@ -889,7 +889,7 @@ def export(
         (out / "check" / "index.html").write_text(check_stub(), encoding="utf-8")
         _write_home(out, out / "data" / snapshot_id)
     if first_prs_record is not None:
-        pages.append(_write_first_pull_requests_page(out, first_prs_record))
+        pages.append(_write_first_pull_requests_page(out, first_prs_record, exported_on=date.fromisoformat(manifest["exported_at"][:10])))
     pages.append(_write_lookup_page(out))
     pages += _write_view_pages(out, boards, not_ranked)
     (out / "data-version.js").write_text(data_version_js(snapshot_id), encoding="utf-8")

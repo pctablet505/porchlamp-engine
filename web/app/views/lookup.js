@@ -54,11 +54,16 @@ const projectHref = (repo) => `/projects/${repo.toLowerCase()}/`;
 function statusLine(row) {
   const time = row.answerHours === null ? "" : replyTimeShort(row.answerHours);
   switch (row.status) {
-    case "silent": return text(copy.LOOKUP_STATUS.silent, { days: Math.floor(row.silentDays) });
-    case "merged": return text(copy.LOOKUP_STATUS.merged, { time });
+    case "silent": {
+      const days = Math.floor(row.silentDays);
+      if (days < 1) return e(copy.LOOKUP_STATUS.silent_today);
+      return days === 1 ? e(copy.LOOKUP_STATUS.silent_one) : text(copy.LOOKUP_STATUS.silent, { days });
+    }
+    case "merged": return row.answerHours === null ? e(copy.LOOKUP_STATUS.merged_plain) : text(copy.LOOKUP_STATUS.merged, { time });
     case "answered": return text(copy.LOOKUP_STATUS.answered, { time });
     case "closed": return text(copy.LOOKUP_STATUS.closed, { time });
     case "left": return e(copy.LOOKUP_STATUS.left);
+    case "closed_quiet": return e(copy.LOOKUP_STATUS.closed_quiet);
     default: return e(copy.LOOKUP_STATUS.draft);
   }
 }
@@ -91,7 +96,7 @@ export function renderLookupResult(outcome) {
   if (!outcome.ok) return `<div class="error-banner" role="alert">${errorText(outcome.error)}</div>`;
   const r = outcome.result;
   if (!r.rows.length) return `<section class="report-section"><p>${text(copy.LOOKUP_NOTHING, { login: r.login })}</p></section>`;
-  const parts = [text(copy.LOOKUP_SUMMARY, { login: r.login, count: r.read })];
+  const parts = [text(r.read === 1 ? copy.LOOKUP_SUMMARY_ONE : copy.LOOKUP_SUMMARY, { login: r.login, count: r.read })];
   parts.push(r.silent ? text(copy.LOOKUP_SUMMARY_SILENT, { count: r.silent }) : e(copy.LOOKUP_SUMMARY_NONE_SILENT));
   return (
     `<section class="report-section" aria-labelledby="lookup-summary">` +
