@@ -33,6 +33,19 @@ test("a sentence with a slot the record has no value for stops the page", () => 
   assert.throws(() => renderFirstPullRequests(rec), /no_such_value/);
 });
 
+test("every list item opens with a bold lead, and one without a lead stops the page", () => {
+  const html = renderFirstPullRequests(RECORD);
+  const leads = [...html.matchAll(/<li><b>([^<]*)<\/b> (.)/g)];
+  assert.equal(leads.length, RECORD.sentences.method.length + RECORD.sentences.not_covered.length);
+  for (const [, lead, next] of leads) {
+    assert.match(lead, /^[A-Z].*\.$/, "the lead is a whole sentence");
+    assert.match(next, /[A-Z0-9<]/, "the next sentence keeps its first letter");
+  }
+  const rec = copyOf();
+  rec.sentences.not_covered[1] = "One sentence with no second one.";
+  assert.throws(() => renderFirstPullRequests(rec), /lead sentence/);
+});
+
 test("the chart comes from the rows, so a changed row moves the chart", () => {
   const rec = copyOf();
   const before = renderFirstPullRequests(rec);

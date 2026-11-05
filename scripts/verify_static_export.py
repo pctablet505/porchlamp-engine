@@ -2954,7 +2954,7 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
     one_in = lambda share: str(math.floor(1 / _printed(share) + Fraction(1, 2)))  # noqa: E731
     whole_points = lambda share: f"{'-' if share < 0 else ''}{_round_half_up(abs(_printed(share)) * 100, 0)}"  # noqa: E731
     rows = {row[0]: row for row in stats["first_pr_projects"]}
-    from porchlamp.serve import first_pull_requests_page as fpr_page, report_pages as rp
+    from porchlamp.serve import first_pull_requests_page as fpr_page
 
     picked = sorted(
         (rows[key] for key, _, _ in fpr_page.FEATURED_PROJECTS if key in rows and rows[key][2] is not None and rows[key][3] >= fpr_page.FEATURED_MIN_WITHIN_A_DAY and rows[key][5] >= fpr_page.FEATURED_MIN_MERGED),
@@ -3054,7 +3054,6 @@ def first_pull_requests_hooks(stats: dict, sid: str, *, black_hole_one_in: str) 
         hooks[f"projects.{i}.within_a_day_text"] = _whole_percent(row[3])
         hooks[f"projects.{i}.merged_text"] = _whole_percent(row[5])
         hooks[f"projects.{i}.count_text"] = f"{row[1]:,}"
-    del fpr_page, rp
     return hooks
 
 

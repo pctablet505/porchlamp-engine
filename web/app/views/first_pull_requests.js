@@ -200,6 +200,7 @@ function table(head, rows, label) {
 /** A list item whose words up to the first full stop are its lead, set bold. */
 function leadItem(template, values) {
   const stop = template.indexOf(". ");
+  if (stop < 0) throw new Error(`a list item needs a lead sentence: ${template}`);
   return `<li><b>${e(template.slice(0, stop + 1))}</b> ${fillValues(template.slice(stop + 2), values)}</li>`;
 }
 

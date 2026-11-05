@@ -287,7 +287,7 @@ SENTENCES: dict[str, Any] = {
     ],
     "not_covered": [
         "Why a project didn't answer. Silence may mean a closed list, a mailing-list workflow, or a pull request nobody wanted.",
-        "Merges after the record's date, and any pull request's quality or size.",
+        "Not seen. Merges after the record's date, and any pull request's quality or size.",
         "Cause. All of this describes what happened, including the asking and weekday comparisons. Authors who ask may also care more, or have a better pull request.",
         "Six months is one season. Volume and answer rates may move with the time of year.",
     ],
