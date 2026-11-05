@@ -188,6 +188,7 @@ def test_asking_follows_pull_requests_unanswered_and_open_at_the_landmark(tmp_pa
         pull(4, merged=after(OLD, days=2)),                             # answered before the landmark: not followed
         pull(5, closed=after(OLD, days=3), closed_by_author=True),      # closed before the landmark: not followed
         pull(6, merged=after(OLD, days=90)),                            # no comment, answered after the 30 days followed
+        pull(7, comments=[comment("maya", after(OLD, days=3))]),        # replied to before the landmark, still open: not followed
     ])
     arm = fpr.compute(tmp_path, as_of=AS_OF)["asking"]["day14_first"]["ask_recent"]
     assert (arm["projects"], arm["n"], arm["n_none"]) == (1, 1, 3)
@@ -200,8 +201,10 @@ def test_asking_follows_pull_requests_unanswered_and_open_at_the_landmark(tmp_pa
 
 def test_asking_needs_the_whole_follow_up_on_record(tmp_path: Path) -> None:
     young = ANCHOR - timedelta(days=14 + fpr.FOLLOW_DAYS - 1)
-    write_project(tmp_path, "o__n", [pull(1, young)])
-    assert fpr.compute(tmp_path, as_of=AS_OF)["asking"]["day14_all"]["ask"]["n_none"] == 0
+    ask = comment("ann", after(OLD, days=10), "Friendly ping on this one.", "NONE")
+    write_project(tmp_path, "o__n", [pull(1, comments=[ask]), pull(2, young, author="bob")])
+    # the young pull request is not followed, so the project has no one to compare the ask with
+    assert fpr.compute(tmp_path, as_of=AS_OF)["asking"]["day14_all"]["ask"] == {"projects": 0, "n": 0, "n_none": 0}
 
 
 def test_an_arm_with_no_project_having_both_sides_reports_zero(tmp_path: Path) -> None:
@@ -252,6 +255,16 @@ def test_who_answers_attributes_replies_and_merges_to_people(tmp_path: Path) -> 
     assert who["large"] == {"min_stars": 50_000, "projects": 1, "over_half": 1.0, "median_people": 2}
 
 
+def test_who_answers_reads_the_large_projects_apart(tmp_path: Path) -> None:
+    solo = [pull(i, comments=[comment("maya", after(OLD, hours=2))]) for i in range(fpr.MIN_ATTRIBUTED_ANSWERS)]
+    write_project(tmp_path, "o__big", solo, stars=fpr.LARGE_PROJECT_STARS)
+    write_project(tmp_path, "o__small", solo, stars=fpr.LARGE_PROJECT_STARS - 1)
+    write_project(tmp_path, "o__unknown", solo)
+    who = fpr.compute(tmp_path, as_of=AS_OF)["who_answers"]
+    assert who["projects"] == 3
+    assert who["large"]["projects"] == 1
+
+
 def test_first_pr_projects_lists_only_projects_with_enough_of_them(tmp_path: Path) -> None:
     prs = [pull(i, author=f"u{i}", comments=[comment("maya", after(OLD, hours=3))]) for i in range(fpr.MIN_FIRST_PRS)]
     write_project(tmp_path, "o__n", prs, stars=10)
@@ -270,3 +283,40 @@ def test_the_file_is_the_same_for_any_number_of_workers(tmp_path: Path) -> None:
 def test_an_as_of_without_a_time_zone_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         fpr.compute(tmp_path, as_of="2026-10-24T18:10:00")
+
+
+def test_an_author_closing_their_own_unanswered_pull_request_leaves_the_answered_by_count(tmp_path: Path) -> None:
+    write_project(tmp_path, "o__n", [
+        pull(1, author="a", closed=after(OLD, hours=2), closed_by_author=True),
+        pull(2, author="b", comments=[comment("maya", after(OLD, hours=3))]),
+    ])
+    shares = {row["hours"]: row["share"] for row in fpr.compute(tmp_path, as_of=AS_OF)["first"]["answered_by"]}
+    # the author who left at 2 h is out of the count, so the one answered at 3 h is everyone left
+    assert shares[1] == 0.0
+    assert shares[6] == 1.0
+
+
+def test_the_clock_of_a_draft_starts_when_it_was_marked_ready(tmp_path: Path) -> None:
+    ready = OLD + timedelta(days=20)
+    write_project(tmp_path, "o__n", [
+        # the reply came while it was a draft, so it answers nothing; the merge a day after it was marked ready does
+        pull(1, comments=[comment("maya", after(OLD, days=5))], ready=iso(ready), merged=after(ready, days=1)),
+    ])
+    shares = {row["hours"]: row["share"] for row in fpr.compute(tmp_path, as_of=AS_OF)["first"]["answered_by"]}
+    assert shares[6] == 0.0
+    assert shares[72] == 1.0
+
+
+def test_first_pr_projects_leave_out_pull_requests_their_author_closed_unanswered(tmp_path: Path) -> None:
+    prs = [pull(i, author=f"u{i}", comments=[comment("maya", after(OLD, hours=3))]) for i in range(fpr.MIN_FIRST_PRS - 1)]
+    prs.append(pull(99, author="left", closed=after(OLD, days=2), closed_by_author=True))
+    write_project(tmp_path, "o__n", prs)
+    assert fpr.compute(tmp_path, as_of=AS_OF)["first_pr_projects"] == []
+
+
+def test_a_merge_by_a_bot_is_nobodys_answer_in_who_answers_but_still_an_answer(tmp_path: Path) -> None:
+    prs = [pull(i, merged=after(OLD, hours=2), merged_by="mergify[bot]") for i in range(fpr.MIN_ATTRIBUTED_ANSWERS)]
+    write_project(tmp_path, "o__n", prs)
+    stats = fpr.compute(tmp_path, as_of=AS_OF)
+    assert stats["who_answers"]["projects"] == 0
+    assert stats["first"]["answered_by"][2]["share"] > 0
