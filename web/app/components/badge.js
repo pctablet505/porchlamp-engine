@@ -35,7 +35,7 @@ export function renderQuadrant(quadrant) {
   const glyph = copy.QUADRANT_GLYPHS[quadrant] || "?";
   const label = copy.QUADRANT_LABELS[quadrant] || quadrant;
   const cls = `quad-${quadrant.toLowerCase().replace(/\s+/g, "-")}`;
-  return `<span class="${cls}"><span class="quadrant-glyph" aria-hidden="true">${glyph}</span>${escapeHtml(label)}</span>`;
+  return `<span class="${cls}"><span class="quadrant-glyph" aria-hidden="true">${glyph}</span> ${escapeHtml(label)}</span>`;
 }
 
 /** Suspicion icon with the detector-name reason list on hover/focus. */

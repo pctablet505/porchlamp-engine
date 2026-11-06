@@ -84,7 +84,7 @@ const WAITING_NAMES = Object.freeze([
 ]);
 const ANSWERED_NAMES = Object.freeze([
   { cls: "returning", text: copy.FIRST_PRS_LINE_RETURNING, left: "30%", top: "42%", transform: "translate(-50%, -50%)" },
-  { cls: "first", text: copy.FIRST_PRS_LINE_FIRST, left: "100%", top: "90%", transform: "translate(-100%, -50%)" },
+  { cls: "first", text: copy.FIRST_PRS_LINE_FIRST, left: "100%", top: "94%", transform: "translate(-100%, -50%)" },
 ]);
 
 /** The answered curve keeps its dot at two months but not the label: "2 mo" beside "3 mo" touches at every width under 860 px. */
@@ -348,11 +348,11 @@ export function renderFirstPullRequests(report) {
         )
     ) +
     `<div class="report-pair">` +
-    `<section class="report-section" aria-labelledby="how-measured"><h2 class="report-h2" id="how-measured">${e(copy.FIRST_PRS_METHOD_HEADING)}</h2>` +
+    `<section class="report-section" aria-labelledby="how-measured"><h2 class="report-h2 fpr-h2" id="how-measured">${e(copy.FIRST_PRS_METHOD_HEADING)}</h2>` +
     `<ul class="report-list">${s.method.map((t) => leadItem(t, v)).join("")}</ul></section>` +
-    `<section class="report-section" aria-labelledby="not-covered"><h2 class="report-h2" id="not-covered">${e(copy.FIRST_PRS_NOT_COVERED_HEADING)}</h2>` +
+    `<section class="report-section" aria-labelledby="not-covered"><h2 class="report-h2 fpr-h2" id="not-covered">${e(copy.FIRST_PRS_NOT_COVERED_HEADING)}</h2>` +
     `<ul class="report-list">${s.not_covered.map((t) => leadItem(t, v)).join("")}</ul></section></div>` +
-    `<section class="report-section" aria-labelledby="cite"><h2 class="report-h2" id="cite">${e(copy.FIRST_PRS_CITE_HEADING)}</h2>` +
+    `<section class="report-section" aria-labelledby="cite"><h2 class="report-h2 fpr-h2" id="cite">${e(copy.FIRST_PRS_CITE_HEADING)}</h2>` +
     `<p class="report-cite">${say(s.cite)}</p>` +
     `<p class="fpr-next"><a href="${e(report.data_file)}">${e(copy.FIRST_PRS_DATA_LABEL)}</a></p></section>` +
     `<div class="fpr-tip" id="fpr-tip" role="presentation" hidden></div>` +

@@ -21,7 +21,7 @@ export function renderSparkbarGroup(pillars) {
         : `${p.label}: ${p.score.toFixed(1)} (coverage ${coveragePct}%)`;
       return (
         `<span class="sparkbar" data-unmeasured="${unmeasured}" style="height:${heightPct}%" ` +
-        `tabindex="0" role="img" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}"></span>`
+        `role="img" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}"></span>`
       );
     })
     .join("");

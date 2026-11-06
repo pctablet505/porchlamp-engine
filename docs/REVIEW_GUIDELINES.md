@@ -7,8 +7,11 @@ These rules bind every change here, human or agent.
 ## 1. Definition of done (VERIFICATION)
 
 - [ ] Suite run with the ONE canonical invocation, exit code read directly
-      (never through a pipe):
-      `env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n auto -p no:cacheprovider`
+      (never through a pipe), capping xdist workers at 16 (`-n 16` or
+      `-n auto --maxprocesses=16`):
+      `env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n 16 -p no:cacheprovider`
+- [ ] Node UI unit suite green:
+      `node --test web/app/tests/unit.test.mjs`
 - [ ] Failure-set identity: same failing test IDs before/after a change;
       collected-count changes reconciled with a reason.
 - [ ] Every behavioral change seen to fail BEFORE the fix (mutation proof:
@@ -64,7 +67,17 @@ These rules bind every change here, human or agent.
   `Nit:` `FYI:` `Praise:`.
 - New symbols with zero readers are a Blocker (caller sweep before adding).
 - Deletion > modification > addition. One definition per fact (constants
-  live in `porchlamp/constants.py` only).
+  live in `porchlamp/constants.py` only; user-facing UI copy lives in
+  `web/app/copy.js` only and is referenced via `copy.<NAME>`).
+
+### 4.1 UI/UX, Accessibility (WCAG 2.1 AA) & Static Export Gates
+
+Every change touching `web/app/`, `web/prerender.mjs`, or `porchlamp/serve/` must pass these review gates (see `docs/UI_UX_SPECIFICATION.md` §5.5):
+
+- **Semantic Table & Control Markup:** Never put `role="button"` or `tabindex="0"` on `<tr>` or `.leaderboard-card`; never override `<th role="columnheader">` with `role="button"`; never put `tabindex="0"` on non-interactive `.sparkbar`, `.tier-pill`, or `<td>` elements. Every `<input>` and `<select>` must carry both `id` and `name`. Interactive touch targets must be `>= 24x24px`.
+- **Table Wrapping & Prerender CSS Invariants:** Never put `word-break: break-all | break-word` or `overflow-wrap: anywhere` on any CSS selector targeting `td`, `th`, `.cell-id`, `.cell-prose`, `.cell-meta`, or `.spec-table .num` (`tests/test_ui_table_wrapping.py`). Never add `.prerendered-board` rules in `web/app/styles/views.css` outside its two responsive `@media` blocks.
+- **Navigation, Drawer & Modal Integrity:** Sub-tabs (`Ranked`, `Not ranked`) and primary nav links must never trap users on preset sub-views (`/fastest-replies/`, `/not-ranked/<reason>/<page>/`). An unranked (`gated`/`unrated`) repository's panel keeps its `/projects/<owner>/<name>/` address (answered by `404.html`) and shows no `Full page` link. The phone card list's CSS height plus margin equals `CARD_HEIGHT_PX`. When `.drawer` or `.keymap-overlay` is open, background landmarks (`header`, `nav`, `main`, `footer`, and `drawerRoot` when keymap is stacked over drawer) must be marked `inert`.
+- **Cross-View Formatting & Parity:** `/compare/` must format raw parameter values identically to `/projects/<owner>/<name>/` (`formatParameterValue`), use `var(--text-success)` for `.compare-better-mark`, and implement WAI-ARIA combobox/listbox attributes with outside-click, `Escape`, and `focusout` dismissal. Standalone `/projects/<owner>/<name>/` pages and the drawer must stay in component and hook parity.
 
 ## 5. Auto-reject list
 

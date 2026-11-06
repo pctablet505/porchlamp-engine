@@ -949,6 +949,29 @@ export function reduce(state, action) {
         page: 1,
       };
     case "SET_TAB": {
+      if (state.tab === "notranked" && state.notRankedReason && action.tab === "notranked") {
+        return {
+          ...state,
+          notRankedReason: null,
+          notRankedPage: 1,
+          notRankedPageSize: DEFAULT_PAGE_SIZE,
+          page: 1,
+          pageSize: DEFAULT_PAGE_SIZE,
+          sort: "rank",
+        };
+      }
+      if (state.tab === "ranked" && state.sort === "first_reply" && action.tab === "ranked") {
+        const defaultSize = state.ecosystem ? 50 : DEFAULT_PAGE_SIZE;
+        return {
+          ...state,
+          sort: "rank",
+          rankedSort: "rank",
+          page: 1,
+          rankedPage: 1,
+          pageSize: defaultSize,
+          rankedPageSize: defaultSize,
+        };
+      }
       if (action.tab === state.tab) return state;
       // A list by reason is a page of the not-ranked view: another view, and the Not ranked tab opened from there,
       // come back to the whole list.

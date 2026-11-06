@@ -660,6 +660,9 @@ export const RETRY_LABEL = "Retry";  // every retry button in the app: the foote
 export const RAW_HASH_LABEL = "Raw hash";
 export const SNAPSHOT_ID_LABEL = "Snapshot";
 export const SUSPICION_NONE_TEXT = "No suspicion flags on this repository.";
+export const KEYMAP_TRIGGER_LABEL = "Keyboard shortcuts (?)";
+export const KEYMAP_COL_KEYS = "Shortcut";
+export const KEYMAP_COL_ACTION = "Action";
 export const RATED_LABEL = "Rated";
 export const NOT_RATED_LABEL = "Not rated under this lens";
 export const COORDINATES_LABEL = "Coordinates";
@@ -948,7 +951,7 @@ export function compareWinScoreText(wins, totalMeasured) {
 }
 export const COMPARE_DIRECTION_HIGHER = "↑ higher is better";
 export const COMPARE_DIRECTION_LOWER = "↓ lower is better";
-export const COMPARE_DIRECTION_ENUM = "scale";
+export const COMPARE_DIRECTION_ENUM = "categorical rubric";
 
 // --------------------------------------------------------------------- //
 // Screen F: Methodology and snapshot
