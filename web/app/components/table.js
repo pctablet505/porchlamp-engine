@@ -9,7 +9,7 @@ import * as copy from "../copy.js";
 import { renderCoverageBadge, renderQuadrant, renderSuspicionIcon, renderTierCell } from "./badge.js";
 import { renderSparkbarGroup } from "./sparkbar.js";
 import { projectPath } from "../routes.js";
-import { daysText, percentWhole, replyTimeText } from "../views/project.js";
+import { percentWhole, replyTimeShort } from "../views/project.js";
 import { escapeHtml } from "../escape.js";
 
 // web/prerender.mjs escapes the page heads it writes with escape.js's escape, which it imports from here.
@@ -223,12 +223,7 @@ export function groupThousands(n) {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-/** The median first reply in short words (project.js `replyTimeText` under 48 hours: "3.9 hours", "under 0.1 hours";
- *  else days: "6.2 days"), rounded half up as the project page rounds it. */
-export function replyTimeShort(hours) {
-  if (hours < 48) return replyTimeText(hours);
-  return copy.REPLY_TIME_WORDS.days.replace("{n}", daysText(hours));
-}
+export { replyTimeShort };
 
 /** "{n} pull requests": the sample a median comes from. */
 export function replySampleText(n) {

@@ -208,6 +208,17 @@ input.control::placeholder {
   text-decoration: none;
 }
 
+/* Seven entries fit a tablet with tighter tabs; under the phone width the strip scrolls with its fade. */
+@media (max-width: 859px) {
+  .primary-tabs {
+    gap: var(--space-2xs);
+  }
+
+  .primary-tab {
+    padding: var(--space-sm);
+  }
+}
+
 .primary-tab:hover {
   color: var(--text-primary);
 }

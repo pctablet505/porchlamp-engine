@@ -147,13 +147,13 @@ const EXTERNAL_SET = new Set(EXTERNAL_ASSOCIATIONS);
 
 //: GitHub's own rules: an account login is 1-39 letters, digits or hyphens and
 //: does not start with a hyphen; a repository name is 1-100 of [A-Za-z0-9._-].
-const OWNER_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
+export const OWNER_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 const NAME_RE = /^[A-Za-z0-9._-]{1,100}$/;
 //: A pasted repository address ("https://github.com/o/r", "github.com/o/r.git").
 //: (`[/]` rather than an escaped slash right before the closing one, so the
 //: address scanner in tests/test_ui_no_external_resources.py sees no double
 //: slash followed by the flag letter.)
-const GITHUB_ADDRESS_RE = /^(?:https?:\/\/)?(?:www\.)?github\.com[/]/i;
+export const GITHUB_ADDRESS_RE = /^(?:https?:\/\/)?(?:www\.)?github\.com[/]/i;
 
 /**
  * `{ owner, name }` for "owner/name" (or a pasted github.com address), else
@@ -504,7 +504,7 @@ export function pullFactsFrom(res) {
  * No credentials and no referrer leave the browser. The timeout covers the
  * body too: a large recursive tree keeps streaming after its headers.
  */
-async function githubGet(fetchImpl, url, timeoutMs) {
+export async function githubGet(fetchImpl, url, timeoutMs) {
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   const failed = (err, fallback) => ({ ok: false, error: err && err.name === "AbortError" ? { kind: "timeout" } : fallback });

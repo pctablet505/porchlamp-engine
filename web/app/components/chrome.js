@@ -25,6 +25,7 @@ export const NAV = Object.freeze(
     { id: "configure", label: () => copy.PRIMARY_NAV_CONFIGURE },
     { id: "methodology", label: () => copy.PRIMARY_NAV_METHODOLOGY },
     { id: "report", label: () => copy.FOOTER_REPORT_LABEL },
+    { id: "lookup", label: () => copy.PRIMARY_NAV_LOOKUP },
   ].map((entry) => Object.freeze(entry))
 );
 
@@ -175,6 +176,7 @@ export function renderFooter(fields) {
     `<button type="button" class="icon-button" data-footer-retry="true"${hidden(fields.kind === "error")}>${escapeHtml(copy.RETRY_LABEL)}</button>` +
     `<a href="${escapeHtml(routePath("methodology"))}" data-route-tab="methodology">${escapeHtml(copy.FOOTER_METHODOLOGY_LABEL)}</a>` +
     `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}">${escapeHtml(copy.FOOTER_REPORT_LABEL)}</a>` +
+    `<a href="${escapeHtml(copy.LOOKUP_REPORT_HREF)}">${escapeHtml(copy.FOOTER_FIRST_PRS_LABEL)}</a>` +
     `<a href="${escapeHtml(copy.FOOTER_DATA_HREF)}">${escapeHtml(copy.FOOTER_DATA_LABEL)}</a>`
   );
 }

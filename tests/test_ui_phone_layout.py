@@ -298,6 +298,16 @@ return { boxLeft: box.left, boxRight: box.right, boxTop: box.top, boxBottom: box
 )
 
 
+_TABLET_NAV = (
+    _READY
+    + """
+const nav = await until(() => doc.querySelector('.primary-tabs'), 8000);
+if (!nav) return { tabs: 0, scrollWidth: 1, clientWidth: 0 };
+return { tabs: nav.querySelectorAll('.primary-tab').length, scrollWidth: nav.scrollWidth, clientWidth: nav.clientWidth };
+"""
+)
+
+
 @pytest.fixture(scope="module")
 def measured(tmp_path_factory):
     if ui_browser.find_chrome() is None:
@@ -338,6 +348,7 @@ def measured(tmp_path_factory):
         {"name": "search-from-methodology", "path": "./methodology/", **DESKTOP, "script": _SEARCH_FROM_METHODOLOGY % first["name"]},
         {"name": "tablet-ranked", "path": "./", **TABLET, "script": _TABLET_RANKED},
         {"name": "tablet-persona", "path": "./?persona=senior_systems", **TABLET, "script": _TABLET_RANKED},
+        {"name": "tablet-nav", "path": "./", **TABLET, "script": _TABLET_NAV},
         {"name": "mobile-sort", "path": "./", **PHONE, "script": _MOBILE_SORT},
         {"name": "desktop-sticky-nav", "path": "./", **DESKTOP, "script": _DESKTOP_STICKY_NAV},
         {"name": "matrix-corners", "path": "./matrix/", **DESKTOP, "script": _MATRIX_CORNERS},
@@ -439,6 +450,12 @@ def test_tablet_768px_ranked_table_fits_without_overflow_or_header_overlap(measu
         assert got["scrollWidth"] <= got["innerWidth"], got
         assert got["visibleHeaderCount"] >= 6, got
         assert got["overlaps"] == [], got
+
+
+def test_tablet_768px_nav_shows_every_entry_without_scrolling(measured):
+    row = measured["tablet-nav"]
+    assert row["tabs"] >= 7
+    assert row["scrollWidth"] <= row["clientWidth"], row
 
 
 def test_phone_ranked_shows_mobile_sort_bar(measured):

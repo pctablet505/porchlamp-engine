@@ -51,6 +51,9 @@ import { synthesizeRows } from "./synthetic-rows.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape, renderShell as renderCompareShell, computeVerdict } from "../views/compare.js";
 import { renderDrawer, classifyKind, classifyKindForLens, findRow } from "../views/drawer.js";
 import { renderProject, renderPillarRadar, formatParameterValue, replyTimeText } from "../views/project.js";
+import { OPENING_DAYS, answeredX, curveX, rangeAxis, renderFirstPullRequests, roundUp } from "../views/first_pull_requests.js";
+import { renderLookupPage, renderLookupResult } from "../views/lookup.js";
+import { commentKind, commentLength, oddsAt, parseLogin, readPullRequest, runLookup, summarize } from "../lookup.js";
 import {
   personaVisibleCount,
   personaDelta,
@@ -2722,11 +2725,12 @@ test("leaderboard: one visible findings line under the header links to the stati
   assert.ok(html.indexOf("data-findings-line") < html.indexOf("data-primary-tab") || !html.includes("data-primary-tab"));
 });
 
-test("footer: one methodology link, the report and the data, real links from the site root", () => {
+test("footer: one methodology link, the two reports and the data, real links from the site root", () => {
   const footer = renderFooter({ kind: "ok", snapshot: { snapshot_id: "2026-10-17", benchmark_version: "2.0.0", constants_hash: "a".repeat(64), manifest_root: "b".repeat(64) } });
   assert.deepEqual([...footer.matchAll(/<a href="([^"]*)"( data-route-tab="[^"]*")?>([^<]*)<\/a>/g)].map((m) => [m[1], m[3]]), [
     ["/methodology/", "Methodology"],
     ["/black-holes/", "Report"],
+    ["/first-pull-requests/", "First pull requests"],
     ["https://github.com/pctablet505/porchlamp", "Data on GitHub"],
   ]);
   assert.ok(footer.includes('<a href="/methodology/" data-route-tab="methodology">'), "the app opens the methodology in place");
@@ -3084,6 +3088,8 @@ const EXPECTED_ROUTES = {
   configure: ["/weights/", ["eco", "q", "sort", "page", "page_size", "w"]],
   methodology: ["/methodology/", []],
   report: ["/black-holes/", []],
+  "first-pull-requests": ["/first-pull-requests/", []],
+  lookup: ["/lookup/", []],
   project: ["/projects/{owner}/{name}/", ["persona"]],
   notfound: [null, []],
 };
@@ -3243,21 +3249,22 @@ test("routes: every primary nav link is a view's address, opened in place, with 
   for (const tab of ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "report", "notfound"]) {
     const state = { ...defaultState(), tab, persona: "first_timer", ecosystem: "npm", query: "widget", missingPath: tab === "notfound" ? "/x/" : null };
     const links = [...renderNav(navEntryFor(tab), state).matchAll(/<a class="primary-tab" href="([^"]*)"( data-route-tab="([^"]*)")?( aria-current="page")?>/g)];
-    assert.equal(links.length, 6, `${tab}: six links`);
-    for (const [, rawHref, , linkTab] of links) {
+    assert.equal(links.length, 7, `${tab}: seven links`);
+    assert.deepEqual(links[6].slice(1, 3), ["/lookup/", undefined], `${tab}: the lookup is the last entry, a page of its own the app does not draw`);
+    for (const [, rawHref, , linkTab] of links.slice(0, 6)) {
       const href = rawHref.replace(/&amp;/g, "&");
       const { route } = matchRoute(new URL(href, SITE_BASE).pathname);
       assert.ok(route.shell, `${tab}: ${href} is the address of a view the app draws`);
       assert.equal(linkTab, route.view || route.id, `${tab}: ${href} opens its own view in place`);
       assert.equal(href, hrefFor(state, route.view || route.id), `${tab}: ${href} is where a click goes from here`);
     }
-    assert.equal(links[5][1], "/black-holes/", `${tab}: the report is the last entry`);
+    assert.equal(links[5][1], "/black-holes/", `${tab}: the report follows the app's views`);
     const current = links.filter((link) => link[4]).map((link) => link[3]);
     assert.deepEqual(current, tab === "notfound" ? [] : [tab === "notranked" ? "ranked" : tab], `${tab}: the current entry`);
   }
   assert.match(
     renderNav("report"),
-    /<a class="primary-tab" href="\/black-holes\/" data-route-tab="report" aria-current="page">Report<\/a><\/div>$/,
+    /<a class="primary-tab" href="\/black-holes\/" data-route-tab="report" aria-current="page">Report<\/a><a class="primary-tab" href="\/lookup\/">Your pull requests<\/a><\/div>$/,
     "the report's page marks it, on a page drawn without the reader's state too"
   );
   // The Leaderboard's Ranked and Not ranked links are addresses too, carrying the reader's lens and filters.
@@ -3651,6 +3658,9 @@ function expectedParamValue(id, v) {
 
 /** The reply time of the key facts: project_pages.reply_time_text for hours, with the hours after the days. */
 function expectedReply(hours) {
+  const minutes = Number(printedHalfUp(hours, 60, 1, 0));
+  if (minutes === 0) return "under a minute";
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
   if (hours < 48) return `${Number(testHours(hours))} ${Number(testHours(hours)) === 1 ? "hour" : "hours"}`;
   return `${testDays(hours)} days (${testHours(hours)} hours)`;
 }
@@ -3676,6 +3686,10 @@ function expectedProjectHooks(rec, mode) {
     const reply = param("ttfhr_hours");
     const ghost = param("gr14_ghost_rate");
     if (reply && !reply.unmeasured_reason) add("facts.reply_time", expectedReply(reply.value));
+    if (rec.answer && reply && !reply.unmeasured_reason) {
+      add("number.reply_time", reply.value < 48 ? expectedReply(reply.value) : `${testDays(reply.value)} days`);
+      add("number.count", groupDigits(reply.n));
+    }
     if (ghost && !ghost.unmeasured_reason) add("facts.no_reply_share", wholePercent(ghost.value));
     const first = rec.standings && rec.standings.first_timer;
     if (first && first.rank != null) {
@@ -3892,11 +3906,30 @@ test("project: each unit of the parameter table, below and above one million dow
   assert.equal(f("ttfhr_hours", null), copy.MISSING_VALUE);
 });
 
+test("project: the first-reply number stands on a ranked project, and only with a measured reply", () => {
+  const rec = structuredClone(PROJECT_RECORDS["keras-team__keras"]);
+  assert.ok(rec.answer, "the fixture is a ranked project");
+  const reply = rec.evidence.find((row) => row.param_id === "ttfhr_hours");
+  assert.ok(reply && !reply.unmeasured_reason, "with a measured reply");
+  const html = projectHtml(rec, "page");
+  assert.ok(html.includes('id="first-reply"'));
+  assert.ok(html.includes(`<span data-v="number.reply_time">${replyTimeShort(reply.value)}</span>`));
+  assert.ok(html.indexOf('id="first-reply"') < html.indexOf('id="answer"'), "it comes before the sentence");
+  assert.ok(!projectHtml({ ...rec, answer: null }, "page").includes('id="first-reply"'), "not on a project with no answer");
+  const unmeasured = structuredClone(rec);
+  unmeasured.evidence.find((row) => row.param_id === "ttfhr_hours").unmeasured_reason = "collector_failure";
+  assert.ok(!projectHtml(unmeasured, "page").includes('id="first-reply"'), "not without a measured reply");
+});
+
 test("project: the median first reply follows project_pages.reply_time_text, hours under 48 and days with their hours", () => {
   assert.equal(replyTimeText(3.9156), "3.9 hours");
   assert.equal(replyTimeText(6), "6 hours");
   assert.equal(replyTimeText(1), "1 hour");
-  assert.equal(replyTimeText(0.04), "under 0.1 hours");
+  assert.equal(replyTimeText(0.402), "24 minutes");
+  assert.equal(replyTimeText(0.04), "2 minutes");
+  assert.equal(replyTimeText(0.0166), "1 minute");
+  assert.equal(replyTimeText(0.001), "under a minute");
+  assert.equal(replyTimeText(0.999), "1 hour", "minutes that round to 60 read as an hour");
   assert.equal(replyTimeText(1.45), "1.5 hours", "a printed half rounds up, as Python's Decimal does (toFixed gives 1.4)");
   assert.equal(replyTimeText(47.96), "48 hours");
   assert.equal(replyTimeText(48), "2 days (48.0 hours)");
@@ -4579,7 +4612,7 @@ test("lists: the reply cells print the median in hours under 48 and in days abov
   assert.equal(replyTimeShort(1), "1 hour");
   assert.equal(replyTimeShort(148.3), "6.2 days");
   assert.equal(replyTimeShort(48), "2 days", "a whole day count has no .0");
-  assert.equal(replyTimeShort(0.04), "under 0.1 hours");
+  assert.equal(replyTimeShort(0.04), "2 minutes");
   assert.equal(firstReplyHtml({ first_reply_hours: 148.3, first_reply_n: 1234 }), '<span title="1,234 pull requests">6.2 days</span>');
   assert.equal(
     firstReplyHtml({ first_reply_hours: 3.85, first_reply_n: 12 }, true),
@@ -5463,9 +5496,20 @@ const ESCAPING_MODULES = {
     rec.findings[1].id = MARKUP;
     return renderReport(rec);
   },
+  "views/first_pull_requests.js": () => {
+    const rec = structuredClone(FIRST_PULL_REQUESTS);
+    rec.projects[0].name = MARKUP;
+    return renderFirstPullRequests(rec);
+  },
+  "views/lookup.js": () =>
+    renderLookupResult({
+      ok: true,
+      result: { login: "acme", read: 1, found: 1, silent: 0, typicalHours: 1, partial: false, rows: [{ repo: "a/b", number: 1, title: MARKUP, url: "https://github.com/a/b/pull/1", status: "merged", answerHours: 1, silentDays: null, asked: false }] },
+    }),
 };
 //: Modules that import the escape but draw nothing a test can make hostile: the app's one escaped text from data is
 //: the leaderboard's error banner, drawn inside boot(); the brand's words have no character to escape.
+const FIRST_PULL_REQUESTS = JSON.parse(readFileSync(new URL("./cases/first_pull_requests.json", import.meta.url), "utf8"));
 const ESCAPING_WITHOUT_A_CASE = ["app.js", "components/brand.js"];
 
 function appModules(dir = WEB_ROOT, prefix = "") {

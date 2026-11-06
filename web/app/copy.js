@@ -730,6 +730,7 @@ export const PRIMARY_NAV_MATRIX = "Matrix";
 export const PRIMARY_NAV_COMPARE = "Compare";
 export const PRIMARY_NAV_CONFIGURE = "Configure weights";
 export const PRIMARY_NAV_METHODOLOGY = "Methodology";
+export const PRIMARY_NAV_LOOKUP = "Your pull requests";
 export const PRIMARY_NAV_LABEL = "Primary";
 
 // --------------------------------------------------------------------- //
@@ -1196,6 +1197,7 @@ export const NOT_RANKED_LISTS_LABEL = "Lists by reason:";
 export const NOT_RANKED_LISTS_ITEM = "{list} ({count})";
 export const REPORT_PAGE_HREF = "/black-holes/";
 export const FOOTER_REPORT_LABEL = "Report";
+export const FOOTER_FIRST_PRS_LABEL = "First pull requests";
 export const FOOTER_METHODOLOGY_LABEL = "Methodology";
 /** The footer's last link: the published data and code. */
 export const FOOTER_DATA_LABEL = "Data on GitHub";
@@ -1373,6 +1375,8 @@ export const PARAM_MEANINGS = Object.freeze({
 });
 
 /** The page's lede; {date} is the snapshot date. */
+export const PROJECT_NUMBER_LABEL = "First human reply";
+export const PROJECT_NUMBER_TEXT = "typical wait for an outside pull request, from {count} measured.";
 export const PROJECT_LEDE = "What happens to a stranger's pull request here, in the Porchlamp snapshot of {date}.";
 /** The lede of a project the snapshot does not rank (its page stays at its address); {date} is the snapshot date. */
 export const PROJECT_LEDE_NOT_RANKED = "Not ranked in the Porchlamp snapshot of {date}.";
@@ -1473,7 +1477,9 @@ export const PARAM_UNIT_WORDS = Object.freeze({
 
 /** The median first reply in the key facts (porchlamp/serve/project_pages.py reply_time_text). */
 export const REPLY_TIME_WORDS = Object.freeze({
-  under_tenth_hour: "under 0.1 hours",
+  under_a_minute: "under a minute",
+  minute: "{n} minute",
+  minutes: "{n} minutes",
   hour: "{n} hour",
   hours: "{n} hours",
   days: "{n} days",
@@ -1506,3 +1512,122 @@ export const PROMOTION_LADDER_LABELS = Object.freeze({
   AD_HOC: "No written path to becoming a maintainer", // governance.py classify_promotion_ladder: no promotion seen and no nomination text found
   CLOSED: "Merged pull requests all came from one organisation", // governance.py classify_promotion_ladder: no outside merge, and every merged author belongs to one email-domain organisation
 });
+
+// ---- The first-pull-requests report (views/first_pull_requests.js). Its sentences with a number are its data file's.
+
+export const FIRST_PRS_EYEBROW = "Porchlamp report: first pull requests";
+export const FIRST_PRS_DATA_THROUGH = "data to {window_end}";
+export const FIRST_PRS_BEST_KICKER = "Where newcomers get merged";
+export const FIRST_PRS_BAND_ANSWERED = "Answered within two weeks";
+export const FIRST_PRS_BAND_MERGED = "Merged";
+export const FIRST_PRS_BEST_CAVEAT = "One possible reason is the bystander effect: a job that's clearly one person's gets done, and a job that's everyone's can wait. This compares projects, so it can't prove that. Shared projects may also get harder pull requests or have stricter rules for merging.";
+export const FIRST_PRS_WAIT_KICKER = "How long to wait";
+export const FIRST_PRS_ASK_KICKER = "What helps";
+export const FIRST_PRS_FIRST_KICKER = "The first one";
+export const FIRST_PRS_WEEK_KICKER = "When to open";
+export const FIRST_PRS_WHO_KICKER = "Who's on the other end";
+export const FIRST_PRS_FAST_KICKER = "Where to start";
+export const FIRST_PRS_NUMBERS_KICKER = "All numbers";
+export const FIRST_PRS_NUMBERS_HEADING = "Every point on the two curves";
+export const FIRST_PRS_NUMBERS_TEXT = "On the waiting curve, the counts fall when a project answers or an author closes the pull request.";
+export const FIRST_PRS_METHOD_HEADING = "How this was measured";
+export const FIRST_PRS_NOT_COVERED_HEADING = "Not covered";
+export const FIRST_PRS_CITE_HEADING = "Data and citation";
+export const FIRST_PRS_DATA_LABEL = "The numbers behind this page, as JSON";
+export const FIRST_PRS_LINE_FIRST = "First pull request";
+export const FIRST_PRS_LINE_RETURNING = "Returning";
+export const FIRST_PRS_READOUT_FIRST = "first pull request";
+export const FIRST_PRS_READOUT_RETURNING = "returning";
+export const FIRST_PRS_READOUT_FIRST_MERGED = "of first pull requests merged";
+export const FIRST_PRS_READOUT_RETURNING_MERGED = "of returning merged";
+export const FIRST_PRS_SAID = "{days} of silence: {first} of first pull requests merged, {returning} of returning";
+export const FIRST_PRS_HIST_HEADING = "Projects, by the busiest person's share of first answers";
+export const FIRST_PRS_HIST_LABEL = "Bar chart of projects by the busiest person's share of first answers. {bands}.";
+export const FIRST_PRS_HIST_BAND = "{band}: {count} projects";
+export const FIRST_PRS_CURVE_HEADING = "Share merged in the end, by days of silence";
+export const FIRST_PRS_ANSWERED_HEADING = "Share answered by each point in time";
+export const FIRST_PRS_SLIDER_LABEL = "Silent for";
+export const FIRST_PRS_CURVE_LABEL = "Line chart of the share merged by days of silence, for first pull requests and returning contributors. Every point is in the table further down.";
+export const FIRST_PRS_ANSWERED_LABEL = "Line chart of the share answered over time, for first pull requests and returning contributors. Every point is in the table further down.";
+//: The waiting curve's axis: [day, label, shown on a wide screen only].
+export const FIRST_PRS_CURVE_TICKS = Object.freeze([[0, "0", false], [7, "1 week", true], [14, "2 weeks", false], [30, "1 month", false], [45, "6 weeks", true], [60, "2 months", false]]);
+//: The answered-by curve's marks, in hours, that stay on a phone.
+export const FIRST_PRS_ANSWERED_NARROW_TICKS = Object.freeze([1, 24, 168, 2160]);
+export const FIRST_PRS_ASK_CHART_HEADING = "Gap in answers over the next 30 days, against no comment, inside one project";
+export const FIRST_PRS_ASK_CAVEAT = "Authors who ask may also care more, or have a better pull request. A comment with no ask and no tag shows no gap, which argues against plain engagement as the whole explanation. This still compares what happened and doesn't prove that asking causes the answer.";
+export const FIRST_PRS_WEEK_CHART_HEADING = "Answered within 24 hours, by the day it opened";
+export const FIRST_PRS_HIST_AXIS = "The busiest person's share of first answers";
+export const FIRST_PRS_POINTS = "points";
+export const FIRST_PRS_TO = "to";
+export const FIRST_PRS_LOOKUP_HREF = "/lookup/";
+export const FIRST_PRS_LOOKUP_LINK = "See where your own pull requests stand";
+export const FIRST_PRS_PROJECT_COLUMNS = Object.freeze(["Project", "Typical first answer", "Within a day", "Merged", "First PRs"]);
+export const FIRST_PRS_PROJECTS_CAPTION = "The projects, fastest first";
+export const FIRST_PRS_CURVE_COLUMNS = Object.freeze(["Silent for", "First PR, merged", "Counted", "Returning, merged", "Counted"]);
+export const FIRST_PRS_CURVE_CAPTION = "The share merged after each length of silence";
+export const FIRST_PRS_ANSWERED_COLUMNS = Object.freeze(["Time since opening", "First PR, answered", "Returning, answered"]);
+export const FIRST_PRS_ANSWERED_CAPTION = "The share answered by each point in time";
+export const FIRST_PRS_TIP_CURVE = "{days} of silence, {group}: {share} of {count} merged";
+export const FIRST_PRS_TIP_ANSWERED = "{when}, {group}: {share} answered";
+export const FIRST_PRS_TIP_ASKING = "{label}: {count} pull requests in {projects} projects";
+export const FIRST_PRS_TIP_WEEKDAY = "{day}: {share} of {count} answered within 24 hours";
+export const FIRST_PRS_TIP_HISTOGRAM = "The busiest person gave {band} of first answers: {count} projects";
+export const FIRST_PRS_TIP_BAND = "The busiest person gives {band} of first answers: {share} in the typical project, of {count} projects";
+
+// ---- The personal lookup (views/lookup.js)
+
+export const LOOKUP_H1 = "Look up your pull requests";
+export const LOOKUP_LEDE = "Type a GitHub username to see where its recent pull requests to other people's projects stand: who answered, how long it took, and how often pull requests silent that long were merged.";
+export const LOOKUP_FORM_LABEL = "Look up an account";
+export const LOOKUP_INPUT_LABEL = "GitHub username";
+export const LOOKUP_INPUT_PLACEHOLDER = "your-username";
+export const LOOKUP_BUTTON = "Look up";
+export const LOOKUP_COST = "Your browser asks GitHub directly, with no sign-in. Porchlamp has no server here and stores nothing. Each lookup spends up to {limit} calls of the 60 an hour GitHub gives your network.";
+export const LOOKUP_NO_SCRIPT = "The lookup runs in your browser, so it needs JavaScript. The rankings and project pages don't.";
+export const LOOKUP_READS_HEADING = "What this can and can't see";
+export const LOOKUP_READS = Object.freeze([
+  "Public pull requests to projects the account isn't a member of, newest first. Replies from members, owners and collaborators count as answers, as do merges and closes by someone else.",
+  "A single look can't see everything the snapshot does. It misses people who hold access without GitHub saying so, it can't filter automated replies, and it tells a first pull request from GitHub's label and these recent results, so a project's page can differ.",
+  "The percentages come from the waiting curve in the report. They describe what happened to other pull requests, not what will happen to yours.",
+]);
+export const LOOKUP_REPORT_HREF = "/first-pull-requests/";
+export const LOOKUP_REPORT_LINK = "Read the report behind these numbers";
+export const LOOKUP_ERRORS = Object.freeze({
+  invalid: "That doesn't look like a GitHub username.",
+  no_account: "GitHub has no account by that name.",
+  rate_limited: "GitHub's limit for your network has run out. It resets within the hour.",
+  rate_limited_until: "GitHub's limit for your network has run out. It resets at {clock}.",
+  network: "Couldn't reach GitHub. Check your connection and try again.",
+  timeout: "GitHub took too long to answer. Try again.",
+  http: "GitHub couldn't answer that just now. Try again.",
+});
+export const LOOKUP_NOTHING = "GitHub shows no public pull requests from {login} to projects it isn't a member of.";
+export const LOOKUP_SUMMARY = "{login}: {count} recent pull requests.";
+export const LOOKUP_SUMMARY_ONE = "{login}: 1 recent pull request.";
+export const LOOKUP_SUMMARY_SILENT = "{count} still silent.";
+export const LOOKUP_SUMMARY_NONE_SILENT = "None still silent.";
+export const LOOKUP_TYPICAL_LABEL = "Typical first answer to these";
+export const LOOKUP_PARTIAL = "Read {read} of {found}: the rest couldn't be read just now.";
+export const LOOKUP_STATUS = Object.freeze({
+  silent: "Open, silent for {days} days",
+  silent_one: "Open, silent for 1 day",
+  silent_today: "Open, silent for under a day",
+  merged: "Merged, first answer in {time}",
+  merged_plain: "Merged",
+  answered: "First answer in {time}",
+  closed: "Closed by the project, after {time}",
+  left: "Closed by its author with no answer",
+  closed_quiet: "Closed with no answer from a person",
+  draft: "Draft: the clock starts when it's marked ready",
+});
+export const LOOKUP_ODDS_FIRST = "Of first pull requests to a project silent this long, about {share} were merged.";
+export const LOOKUP_ODDS_RETURNING = "Of returning contributors' pull requests silent this long, about {share} were merged.";
+export const LOOKUP_ODDS_FIRST_PAST = "Past two months of silence, {share} or fewer first pull requests were merged.";
+export const LOOKUP_ODDS_RETURNING_PAST = "Past two months of silence, {share} or fewer returning contributors' pull requests were merged.";
+export const LOOKUP_ASKED = "The author has asked on this one.";
+export const LOOKUP_NOT_ASKED = "Not asked yet.";
+export const LOOKUP_ASKING_NOTE = "At two weeks of silence, authors who had asked in the past week got {link}.";
+export const LOOKUP_NOT_ASKED_LINK = "more answers";
+export const LOOKUP_ASKING_HREF = "/first-pull-requests/#asking";
+export const LOOKUP_PROJECT_TYPICAL = "This project's typical first reply: {time}. {link}";
+export const LOOKUP_PROJECT_LINK = "Its page";

@@ -594,6 +594,26 @@ def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest
     ]
 
 
+def _write_first_pull_requests_page(out: Path, record: dict, *, exported_on: date) -> dict:
+    """``first-pull-requests/index.html``, for the prerender to draw its view into. Returns the page for :func:`_prerender`."""
+    from porchlamp.serve import first_pull_requests_page as fpr_page
+
+    target = out / fpr_page.PATH.strip("/")
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "index.html").write_text(fpr_page.report_page(record, exported_on=exported_on), encoding="utf-8")
+    return {"path": f"{fpr_page.PATH.strip('/')}/index.html", "nav": None, "draw": "first-pull-requests"}
+
+
+def _write_lookup_page(out: Path) -> dict:
+    """``lookup/index.html``, for the prerender to draw its view into. Returns the page for :func:`_prerender`."""
+    from porchlamp.serve import first_pull_requests_page as fpr_page
+
+    target = out / fpr_page.LOOKUP_PATH.strip("/")
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "index.html").write_text(fpr_page.lookup_page(), encoding="utf-8")
+    return {"path": f"{fpr_page.LOOKUP_PATH.strip('/')}/index.html", "nav": "lookup", "draw": "lookup"}
+
+
 def _add_project_extras(buckets: dict[str, dict[str, dict]], boards: dict[str, dict], methodology: dict) -> None:
     """Writes into each ranked project's record what its page and side panel print beside the API's detail and
     evidence: the answer sentences, its standing in each lens and its similar projects
@@ -727,7 +747,7 @@ def _write_home(out: Path, data: Path) -> None:
         f = home_pages.home_facts(load("snapshot.json"), load("methodology.json"), load("report.json"),
                                   load("leaderboard-balanced.json")["rows"], app_routes())
         (out / "index.html").write_text(home_pages.home_page((WEB_APP / "index.html").read_text(encoding="utf-8"), f), encoding="utf-8")
-        (out / "llms.txt").write_text(home_pages.llms_txt(f), encoding="utf-8")
+        (out / "llms.txt").write_text(home_pages.llms_txt(f, first_pull_requests=(data / "first-pull-requests.json").is_file()), encoding="utf-8")
         (out / "feed.xml").write_text(home_pages.feed_xml(f), encoding="utf-8")
     except report_pages.ReportError as error:
         raise SystemExit(f"export: {error}") from error
@@ -739,7 +759,7 @@ def _sitemap_pages(out: Path, snapshot_id: str, as_of: str, listed: list[str]) -
     snapshot. A page the export did not write is not listed, nor the ``/check/`` stub."""
     from porchlamp.serve import report_pages
 
-    paths = ["", "black-holes/", f"black-holes/{snapshot_id}/", "methodology/", *(a.lstrip("/") for a in listed)]
+    paths = ["", "black-holes/", f"black-holes/{snapshot_id}/", "first-pull-requests/", "lookup/", "methodology/", *(a.lstrip("/") for a in listed)]
     stamp = as_of[:10]
     urls = "".join(
         f"  <url>\n    <loc>{report_pages.SITE}/{p}</loc>\n    <lastmod>{stamp}</lastmod>\n  </url>\n"
@@ -751,6 +771,7 @@ def _sitemap_pages(out: Path, snapshot_id: str, as_of: str, listed: list[str]) -
 def export(
     db: Path, out: Path, stats_path: Optional[Path] = None, *,
     snapshot_dir: Optional[Path] = None, data_dir: Optional[Path] = None, previous_site: Optional[Path] = None,
+    first_pull_requests_path: Optional[Path] = None,
 ) -> dict:
     from porchlamp.core import constants
     from porchlamp.serve.app import PinnedEvidenceFiles, _current_snapshot_id, _open_v2_connection
@@ -760,6 +781,9 @@ def export(
     evidence_files = PinnedEvidenceFiles(snapshot_dir, data_dir) if snapshot_dir is not None else None
 
     stats = _load_stats(stats_path) if stats_path is not None else None
+    first_pull_requests = _load_stats(first_pull_requests_path) if first_pull_requests_path is not None else None
+    if first_pull_requests is not None and stats is None:
+        raise SystemExit("export: --first-pull-requests needs the stats file (--stats): the report names the black-hole report's figure")
     if previous_site is not None and stats is None:
         raise SystemExit("export: --previous-site needs the stats file (--stats): the project pages are written with it")
 
@@ -821,6 +845,15 @@ def export(
             _add_project_extras(buckets, boards, methodology)
             facts = _report_facts(conn, snapshot, methodology, stats, boards, details)
             sizes["report.json"] = _dump(data / "report.json", _report_json(facts))
+        first_prs_record = None
+        if first_pull_requests is not None:
+            from porchlamp.serve import first_pull_requests_page as fpr_page, report_pages
+
+            try:
+                first_prs_record = fpr_page.report_json(first_pull_requests, snapshot_id=snapshot_id, as_of=snapshot["as_of"])
+            except report_pages.ReportError as error:
+                raise SystemExit(f"export: {error}") from error
+            sizes[fpr_page.DATA_FILE] = _dump(data / fpr_page.DATA_FILE, first_prs_record)
         repo_bytes = sum(_dump(data / "repos" / f"{b}.json", records) for b, records in buckets.items())
         sizes[f"repos/ ({len(buckets)} files)"] = repo_bytes
         sizes["reproject.json"] = _dump(data / "reproject.json", _export_reproject(conn, snapshot_id, details))
@@ -855,6 +888,9 @@ def export(
         (out / "check").mkdir()
         (out / "check" / "index.html").write_text(check_stub(), encoding="utf-8")
         _write_home(out, out / "data" / snapshot_id)
+    if first_prs_record is not None:
+        pages.append(_write_first_pull_requests_page(out, first_prs_record, exported_on=date.fromisoformat(manifest["exported_at"][:10])))
+    pages.append(_write_lookup_page(out))
     pages += _write_view_pages(out, boards, not_ranked)
     (out / "data-version.js").write_text(data_version_js(snapshot_id), encoding="utf-8")
     _prerender(out, pages)
@@ -878,6 +914,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("--data-dir", type=Path, default=None, help="the data root holding raw/pr_window/")
     parser.add_argument(
+        "--first-pull-requests", type=Path, default=None,
+        help="python -m porchlamp.snapshot first-pull-requests's file (needs --stats): also write the first-pull-requests report",
+    )
+    parser.add_argument(
         "--previous-site", type=Path, default=None,
         help="the site as last published (needs --stats): a project it has a page for that is no longer ranked keeps its address, "
              "with a page that says why",
@@ -888,6 +928,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         snapshot_dir=args.snapshot_dir.resolve() if args.snapshot_dir else None,
         data_dir=args.data_dir.resolve() if args.data_dir else None,
         previous_site=args.previous_site.resolve() if args.previous_site else None,
+        first_pull_requests_path=args.first_pull_requests.resolve() if args.first_pull_requests else None,
     )
     print(json.dumps({k: manifest[k] for k in ("snapshot_id", "counts", "repos", "bytes")}, indent=2))
     return 0

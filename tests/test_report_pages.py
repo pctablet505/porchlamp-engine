@@ -1392,7 +1392,8 @@ def test_a_sitemap_address_with_no_page_fails_the_sitemap_check_and_the_project_
 # ---- the words and the numbers ---------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("hours, text", [
-    (6.0, "6 hours"), (1.5, "1.5 hours"), (4.0904, "4.1 hours"), (1.0, "1 hour"), (0.96, "1 hour"), (0.04, "under 0.1 hours"),
+    (6.0, "6 hours"), (1.5, "1.5 hours"), (4.0904, "4.1 hours"), (1.0, "1 hour"), (0.96, "58 minutes"), (0.402, "24 minutes"),
+    (0.04, "2 minutes"), (0.0166, "1 minute"), (0.001, "under a minute"), (0.999, "1 hour"),
     (47.94, "47.9 hours"), (47.96, "48 hours"), (48.0, "2 days"), (76.8, "3.2 days"), (121.3189, "5.1 days"),
 ])
 def test_reply_time_is_hours_under_48_and_days_after(hours, text):

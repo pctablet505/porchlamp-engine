@@ -30,7 +30,8 @@
 // the app to take over; the report's frozen copy is {"path": "black-holes/<sid>/index.html", "view": "report",
 // "frozen": true}; any other page the nav entry it belongs to, or null: {"path": "check/index.html", "nav": null}; a
 // project's page names the project too: {"path": "projects/<owner>/<name>/index.html", "nav": null, "project":
-// "<owner>/<name>"}; the page of a project that is no longer ranked adds "stub": true.
+// "<owner>/<name>"}; the page of a project that is no longer ranked adds "stub": true; a page of its own drawn here
+// names it: {"path": "first-pull-requests/index.html", "nav": null, "draw": "first-pull-requests"}.
 // Each page must still have the empty frame of web/app/404.html.
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -45,6 +46,8 @@ import { defaultState, parseLocation, titleForState } from "./app/state.js";
 import { descriptionForState, listRows, renderPrerenderedBoard, renderShell as renderLeaderboard } from "./app/views/leaderboard.js";
 import { reasonListDescription, renderPrerenderedNotRanked } from "./app/views/notranked.js";
 import { renderShell as renderMethodology } from "./app/views/methodology.js";
+import { renderFirstPullRequests } from "./app/views/first_pull_requests.js";
+import { renderLookupPage } from "./app/views/lookup.js";
 import { renderProject } from "./app/views/project.js";
 import { renderShell as renderReport } from "./app/views/report.js";
 
@@ -84,6 +87,15 @@ const VIEWS = Object.freeze({
     if (!data.report) throw new Error("the site has no report.json for the report view (the export writes it with --stats)");
     return renderReport({ ...defaultState(), tab: "report", report: data.report, sourceDbSha256: data.sourceDbSha256, manifestLoad: "done" });
   },
+});
+
+//: The pages of their own drawn here, which load no app: a page names one as `draw`.
+const OWN_PAGES = Object.freeze({
+  "first-pull-requests": (data) => {
+    if (!data.firstPullRequests) throw new Error("the site has no first-pull-requests.json for the report (the export writes it with --first-pull-requests)");
+    return renderFirstPullRequests(data.firstPullRequests);
+  },
+  lookup: () => renderLookupPage(),
 });
 
 /** The app's state at a list's address (`page.address`, `/` without one): what it parses into, from the defaults. A
@@ -183,7 +195,7 @@ export function drawPage(html, page, data) {
     page.path
   );
   out = replaceOnce(out, FRAME.footer, FRAME.footer.replace("></footer>", `>${chrome.footer}</footer>`), page.path);
-  const view = page.view ? VIEWS[page.view] : page.project ? () => projectView(data.project, data.methodology) : undefined;
+  const view = page.view ? VIEWS[page.view] : page.draw ? OWN_PAGES[page.draw] : page.project ? () => projectView(data.project, data.methodology) : undefined;
   if (view) {
     const mains = [...out.matchAll(MAIN)];
     if (mains.length !== 1) throw new Error(`${page.path}: the page has no single <main> for the ${page.view || "project"} view`);
@@ -237,8 +249,8 @@ async function siteApi(site) {
 export async function loadData(site) {
   const api = await siteApi(site);
   // The ranked view's first page: the call the app makes at `/`, with the parameters of its default state.
-  const [snapshot, methodology, manifest, report, leaderboard] = await Promise.all([
-    api.fetchSnapshot(), api.fetchMethodology(), api.fetchManifest(), api.fetchReport(),
+  const [snapshot, methodology, manifest, report, firstPullRequests, leaderboard] = await Promise.all([
+    api.fetchSnapshot(), api.fetchMethodology(), api.fetchManifest(), api.fetchReport(), api.fetchFirstPullRequests(),
     api.fetchLeaderboard(leaderboardParams(defaultState())),
   ]);
   for (const [what, answer] of [["snapshot", snapshot], ["methodology", methodology]]) {
@@ -248,6 +260,7 @@ export async function loadData(site) {
     snapshot: snapshot.data,
     methodology: methodology.data,
     report: report.ok ? report.data : null,
+    firstPullRequests: firstPullRequests.ok ? firstPullRequests.data : null,
     leaderboard: leaderboard.ok ? leaderboard.data : null,
     sourceDbSha256: manifest.ok && manifest.data ? manifest.data.source_db_sha256 || null : null,
   };

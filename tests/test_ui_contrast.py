@@ -108,6 +108,7 @@ TEXT_PAIRS = [
 #: Non-text graphical tokens (quadrant glyphs, focus ring) only need >= 3:1
 #: against the surfaces they actually render on (WCAG 2.1 SC 1.4.11).
 GRAPHIC_PAIRS = [
+    ("text-muted", "bg-surface"),
     ("quad-sweet-spot", "bg-base"),
     ("quad-sweet-spot", "bg-surface"),
     ("quad-sweet-spot", "bg-surface-elevated"),

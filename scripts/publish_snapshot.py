@@ -15,9 +15,9 @@ Runs every offline stage in order and stops before staging if any check fails:
 1. ``scripts/derive.py --all --data-dir ... --as-of ...``
 2. ``python -m porchlamp.snapshot build ...``
 3. ``python -m porchlamp.snapshot store ...``
-4. ``python -m porchlamp.snapshot stats ...``
+4. ``python -m porchlamp.snapshot stats ...`` and ``python -m porchlamp.snapshot first-pull-requests ...``
 5. ``scripts/export_static.py ...`` (passing ``--previous-site`` when available)
-6. ``scripts/verify_static_export.py ...`` (full API parity, mutants, report, chrome, projects, home, crawl)
+6. ``scripts/verify_static_export.py ...`` (full API parity, mutants, reports, chrome, projects, home, crawl)
 7. Stages into ``--target-site`` preserving ``.git``, ``CNAME``, ``LICENSE``, root verification files, all historical
    ``black-holes/<id>/`` reports, and at most one immediately prior ``data/<prev_id>/`` directory, then renders
    ``README.md`` and ``CITATION.cff`` deterministically from ``snapshot.json`` and ``report.json``.
@@ -547,6 +547,23 @@ def run_pipeline(
         step="compute report stats",
         stdout_file=stats_path,
     )
+    first_pull_requests_path = stats_path.with_name(f"first-pull-requests-{sid}.json")
+    _run_cmd(
+        [
+            py,
+            "-m",
+            "porchlamp.snapshot",
+            "first-pull-requests",
+            "--data-dir",
+            str(data_dir),
+            "--as-of",
+            resolved_as_of,
+            "--workers",
+            str(workers),
+        ],
+        step="compute first-pull-requests stats",
+        stdout_file=first_pull_requests_path,
+    )
 
     has_previous_site = (target_site / "projects").is_dir()
     export_cmd = [
@@ -558,6 +575,8 @@ def run_pipeline(
         str(export_out),
         "--stats",
         str(stats_path),
+        "--first-pull-requests",
+        str(first_pull_requests_path),
         "--snapshot-dir",
         str(snap_dir),
         "--data-dir",
@@ -576,6 +595,8 @@ def run_pipeline(
         str(export_out),
         "--stats",
         str(stats_path),
+        "--first-pull-requests",
+        str(first_pull_requests_path),
         "--snapshot-dir",
         str(snap_dir),
         "--data-dir",
