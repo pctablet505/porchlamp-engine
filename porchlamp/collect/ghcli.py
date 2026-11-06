@@ -414,37 +414,40 @@ def _select_token(resource: str, tokens: list[str]) -> str | None:
     best_remaining: float = -1.0
     all_below_floor = True
 
-    for i, tok in enumerate(tokens):
-        limit = _TOKEN_LIMITS.get(i, {}).get(resource)
-        if limit is None:
-            remaining = float("inf")
-        else:
-            remaining = float(limit.remaining)
-            if limit.reset <= now:
-                remaining = float("inf")
-
-        if remaining >= floor:
-            all_below_floor = False
-
-        if remaining > best_remaining:
-            best_remaining = remaining
-            best_tok = tok
-
-    if all_below_floor:
-        earliest_tok: str | None = None
-        earliest_reset = float("inf")
+    with _TOKEN_LOCK:
         for i, tok in enumerate(tokens):
             limit = _TOKEN_LIMITS.get(i, {}).get(resource)
-            reset = limit.reset if limit else 0.0
-            if reset < earliest_reset:
-                earliest_reset = reset
-                earliest_tok = tok
-        return earliest_tok or tokens[0]
+            if limit is None:
+                remaining = float("inf")
+            else:
+                remaining = float(limit.remaining)
+                if limit.reset <= now:
+                    remaining = float("inf")
+
+            if remaining >= floor:
+                all_below_floor = False
+
+            if remaining > best_remaining:
+                best_remaining = remaining
+                best_tok = tok
+
+        if all_below_floor:
+            earliest_tok: str | None = None
+            earliest_reset = float("inf")
+            for i, tok in enumerate(tokens):
+                limit = _TOKEN_LIMITS.get(i, {}).get(resource)
+                reset = limit.reset if limit else 0.0
+                if reset < earliest_reset:
+                    earliest_reset = reset
+                    earliest_tok = tok
+            return earliest_tok or tokens[0]
 
     return best_tok or tokens[0]
 
 
 def _record(headers: Any, default: str, token_idx: int | None = None) -> None:
+    if _header(headers, "x-ratelimit-limit") == "0":
+        return
     remaining = _header(headers, "x-ratelimit-remaining")
     reset = _header(headers, "x-ratelimit-reset")
     if remaining is None or reset is None:
@@ -452,12 +455,13 @@ def _record(headers: Any, default: str, token_idx: int | None = None) -> None:
     key = _header(headers, "x-ratelimit-resource") or default
     try:
         limit = _Limit(int(remaining), float(reset))
-        _BUDGET[key] = limit
-        _LIMITS[key] = limit
-        if token_idx is not None:
-            if token_idx not in _TOKEN_LIMITS:
-                _TOKEN_LIMITS[token_idx] = {}
-            _TOKEN_LIMITS[token_idx][key] = limit
+        with _TOKEN_LOCK:
+            _BUDGET[key] = limit
+            _LIMITS[key] = limit
+            if token_idx is not None:
+                if token_idx not in _TOKEN_LIMITS:
+                    _TOKEN_LIMITS[token_idx] = {}
+                _TOKEN_LIMITS[token_idx][key] = limit
     except ValueError:
         return
 
@@ -749,14 +753,15 @@ def _signal_wait(headers: Any) -> tuple[float, str]:
 
 def _forget_budget(resource: str, token_idx: int | None) -> None:
     """Drop the recorded budget of ``resource`` (the wait about to be served covers it)."""
-    if token_idx is not None:
-        if token_idx in _TOKEN_LIMITS:
-            _TOKEN_LIMITS[token_idx].pop(resource, None)
-    else:
-        _BUDGET.pop(resource, None)
-        _LIMITS.pop(resource, None)
-        for t_limits in _TOKEN_LIMITS.values():
-            t_limits.pop(resource, None)
+    with _TOKEN_LOCK:
+        if token_idx is not None:
+            if token_idx in _TOKEN_LIMITS:
+                _TOKEN_LIMITS[token_idx].pop(resource, None)
+        else:
+            _BUDGET.pop(resource, None)
+            _LIMITS.pop(resource, None)
+            for t_limits in _TOKEN_LIMITS.values():
+                t_limits.pop(resource, None)
 
 
 def _pause(resource: str, remaining: int, seconds: float, token_idx: int | None = None) -> None:
@@ -775,10 +780,11 @@ def _pause(resource: str, remaining: int, seconds: float, token_idx: int | None 
 
 
 def _gate(resource: str, token_idx: int | None = None) -> None:
-    if token_idx is not None:
-        record = _TOKEN_LIMITS.get(token_idx, {}).get(resource)
-    else:
-        record = _BUDGET.get(resource)
+    with _TOKEN_LOCK:
+        if token_idx is not None:
+            record = _TOKEN_LIMITS.get(token_idx, {}).get(resource)
+        else:
+            record = _BUDGET.get(resource)
     if record is None:
         return
     remaining, reset = record
@@ -788,6 +794,8 @@ def _gate(resource: str, token_idx: int | None = None) -> None:
 
 
 def _limited(headers: Any) -> bool:
+    if _header(headers, "x-ratelimit-limit") == "0" and _header(headers, "retry-after") is None:
+        return False
     return _header(headers, "x-ratelimit-remaining") == "0" or _header(headers, "retry-after") is not None
 
 
@@ -880,6 +888,11 @@ def _send_pooled(method: str, url: str, body: bytes | None, headers: dict[str, s
     conn, was_pooled = _checkout_conn(pool_key)
     if conn is None:
         conn = _new_conn(scheme, host, port, timeout)
+    else:
+        conn.timeout = timeout
+        if conn.sock is not None:
+            with contextlib.suppress(OSError):
+                conn.sock.settimeout(timeout)
 
     try:
         conn.request(method, selector, body=body, headers=req_headers)

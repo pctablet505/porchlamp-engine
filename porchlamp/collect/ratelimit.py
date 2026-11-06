@@ -24,6 +24,7 @@ Design notes / documented decisions
 from __future__ import annotations
 
 import random
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable, Mapping, Any, Optional
@@ -101,6 +102,7 @@ class TokenBucketRateLimiter:
         self._sleep = sleep if sleep is not None else time.sleep
         self._tokens = self._capacity
         self._refilled_at = self._clock()
+        self._lock = threading.Lock()
 
     @property
     def rate(self) -> float:
@@ -122,12 +124,13 @@ class TokenBucketRateLimiter:
     def acquire(self) -> None:
         """Consume one token, blocking (via ``sleep``) until one is available."""
         while True:
-            self._refill()
-            if self._tokens >= 1.0:
-                self._tokens -= 1.0
-                self._refilled_at = self._clock()
-                return
-            wait = (1.0 - self._tokens) / self._rate
+            with self._lock:
+                self._refill()
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    self._refilled_at = self._clock()
+                    return
+                wait = (1.0 - self._tokens) / self._rate
             self._sleep(wait)
 
 
@@ -139,20 +142,25 @@ class ETagCache:
 
     def __init__(self) -> None:
         self._entries: dict[str, tuple[str, bytes]] = {}
+        self._lock = threading.Lock()
 
     def get(self, url: str) -> Optional[tuple[str, bytes]]:
         """Return ``(etag, body)`` for ``url``, or None when uncached."""
-        return self._entries.get(url)
+        with self._lock:
+            return self._entries.get(url)
 
     def etag(self, url: str) -> Optional[str]:
-        entry = self._entries.get(url)
-        return entry[0] if entry else None
+        with self._lock:
+            entry = self._entries.get(url)
+            return entry[0] if entry else None
 
     def put(self, url: str, etag: str, body: bytes) -> None:
-        self._entries[url] = (etag, body)
+        with self._lock:
+            self._entries[url] = (etag, body)
 
     def __len__(self) -> int:
-        return len(self._entries)
+        with self._lock:
+            return len(self._entries)
 
 
 @dataclass
@@ -195,13 +203,15 @@ class CircuitBreaker:
         self._default_reset_seconds = float(default_reset_seconds)
         self._open_until: Optional[float] = None
         self.trips = 0
+        self._lock = threading.Lock()
 
     @property
     def open_until(self) -> Optional[float]:
         """Epoch the breaker is open until, or None when closed."""
-        if self._open_until is not None and self._clock() < self._open_until:
-            return self._open_until
-        return None
+        with self._lock:
+            if self._open_until is not None and self._clock() < self._open_until:
+                return self._open_until
+            return None
 
     @property
     def is_open(self) -> bool:
@@ -209,13 +219,14 @@ class CircuitBreaker:
 
     def trip(self, reset_epoch: Optional[float] = None) -> float:
         """Open the breaker until ``reset_epoch`` (default: now + fallback)."""
-        now = self._clock()
-        if reset_epoch is None:
-            reset_epoch = now + self._default_reset_seconds
-        wait = max(0.0, float(reset_epoch) - now)
-        self._open_until = now + wait + float(self._jitter_fn())
-        self.trips += 1
-        return self._open_until
+        with self._lock:
+            now = self._clock()
+            if reset_epoch is None:
+                reset_epoch = now + self._default_reset_seconds
+            wait = max(0.0, float(reset_epoch) - now)
+            self._open_until = now + wait + float(self._jitter_fn())
+            self.trips += 1
+            return self._open_until
 
     def acquire(self) -> None:
         """Block until the breaker is closed; no-op when already closed."""
@@ -275,6 +286,7 @@ class CachedHttpClient:
             circuit_breaker if circuit_breaker is not None else CircuitBreaker()
         )
         self._base_headers: dict[str, str] = dict(headers or {})
+        self._quota_lock = threading.Lock()
         #: Responses that consumed provider quota (fresh 200s). 304s are
         #: zero-quota by definition (spec 13).
         self.quota_consumed = 0
@@ -319,7 +331,8 @@ class CachedHttpClient:
             )
 
         if status == 200:
-            self.quota_consumed += 1
+            with self._quota_lock:
+                self.quota_consumed += 1
             etag = response.headers.get("ETag")
             if etag:
                 self._etags.put(url, etag, response.content)

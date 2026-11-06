@@ -102,9 +102,14 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
     ("repo looked up in the wrong bucket",
      "h = Math.imul(h, 0x85ebca6b) >>> 0;", "h = Math.imul(h, 0x85ebca6d) >>> 0;"),
     ("custom coverage divided by the measured weight",
-     "const coverage = Math.min(1, cov / totalWeight);", "const coverage = Math.min(1, cov / (den || totalWeight));"),
+     "const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));",
+     "const coverage = Math.min(1, sqlRound(cov / (den || totalWeight), base.ratio_decimals));"),
     ("custom coverage not clamped to 1",
-     "const coverage = Math.min(1, cov / totalWeight);", "const coverage = cov / totalWeight;"),
+     "const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));",
+     "const coverage = sqlRound(cov / totalWeight, base.ratio_decimals);"),
+    ("custom coverage not rounded as the API rounds it",
+     "const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));",
+     "const coverage = Math.min(1, cov / totalWeight);"),
     ("custom tier ignores the coverage ceiling",
      "base.tier_order[Math.min(scoreTier, ceiling)]", "base.tier_order[scoreTier]"),
     ("custom composite truncated instead of rounded",
@@ -3124,7 +3129,7 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     _compare_hooks(ledger, rel, found, hooks)
     record_path = site / "data" / sid / fpr_page.DATA_FILE
     record = json.loads(record_path.read_text(encoding="utf-8"))
-    ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} values are the ones worked out here", {k: v for k, v in record["values"].items()}, {k: hooks[k] for k in record["values"]})
+    ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} values are the ones worked out here", dict(record["values"]), {k: hooks[k] for k in record["values"]})
     # the record's words with this file's numbers: a sentence on the page that is not its template, filled, is a mismatch
     fill = lambda template: template.format(**hooks)  # noqa: E731
     sentences = record["sentences"]

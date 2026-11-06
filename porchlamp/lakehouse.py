@@ -653,4 +653,6 @@ def apply_raw_metrics(
         ),
     )
     store.connection.commit()
+    if hasattr(store, "_leaderboard_cache"):
+        store._leaderboard_cache.clear()
     return cursor.rowcount

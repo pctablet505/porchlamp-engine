@@ -149,7 +149,7 @@ def _raw_metrics(
     merged_external = [p for p in external if p.merged_at is not None]
     if merged_external:
         merge_latencies_hours = [
-            (p.merged_at - p.created_at).total_seconds() / 3600.0
+            max(0.0, (p.merged_at - p.created_at).total_seconds() / 3600.0)
             for p in merged_external
         ]
         tail_merge_latency_days = _round6(_p90_nearest_rank(merge_latencies_hours) / 24.0)
@@ -180,11 +180,11 @@ def _survival_curve(
         end = p.closed_at if p.closed_at is not None else p.merged_at
         if end is not None:
             observations.append(
-                ((end - p.created_at).total_seconds() / _SECONDS_PER_DAY, True)
+                (max(0.0, (end - p.created_at).total_seconds() / _SECONDS_PER_DAY), True)
             )
         else:
             observations.append(
-                ((now - p.created_at).total_seconds() / _SECONDS_PER_DAY, False)
+                (max(0.0, (now - p.created_at).total_seconds() / _SECONDS_PER_DAY), False)
             )
 
     points: list[list[float]] = [[0.0, 1.0]]

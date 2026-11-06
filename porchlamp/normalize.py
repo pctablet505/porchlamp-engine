@@ -7,6 +7,7 @@ distortions (e.g. npm's fine-grained packages vs monolithic Crates/Go libs).
 
 from __future__ import annotations
 
+import math
 from typing import Iterable
 
 
@@ -19,7 +20,12 @@ def compute_ecosystem_percentile(
 
     An empty population returns the neutral median fallback of 50.0.
     """
-    values = list(population)
+    # NaN compares false with everything, so it would read as the bottom; an infinity has a place in the order.
+    if math.isnan(float(target_value)):
+        raise ValueError("target_value is NaN")
+    values = [float(x) for x in population]
+    if any(math.isnan(x) for x in values):
+        raise ValueError("population values include NaN")
     if not values:
         return 50.0
     count_below_or_equal = sum(1 for x in values if x <= target_value)

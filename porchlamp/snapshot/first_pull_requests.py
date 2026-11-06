@@ -367,7 +367,7 @@ def read_project(job: tuple[Path, str, float, float, Optional[int]]) -> Optional
                 for arm in arms:
                     tally[arm][0] += 1
                     tally[arm][1] += answered
-                    tally[arm][2] += merged
+                    tally[arm][2] += merged  # by the end of the data, as the page's merges sentence says
 
     if weekday[0] >= WEEKDAY_MIN_WEEKDAY and weekend[0] >= WEEKDAY_MIN_WEEKEND:
         out.weekday_pair = (weekday[1] / weekday[0], weekend[1] / weekend[0])

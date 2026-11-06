@@ -143,6 +143,8 @@ def open_snapshot_db(db: Path) -> sqlite3.Connection:
 def _read_stars(meta_dir: Path) -> dict[tuple[str, str], int]:
     stars: dict[tuple[str, str], int] = {}
     for path in meta_dir.glob("*.json"):
+        if "__" not in path.stem:
+            continue
         owner, name = path.stem.split("__", 1)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))["data"]
@@ -166,9 +168,16 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
 
     con = open_snapshot_db(db)
     try:
-        as_of = as_of or con.execute("SELECT as_of FROM snapshots").fetchone()[0]
+        if not as_of:
+            as_of_row = con.execute("SELECT as_of FROM snapshots LIMIT 1").fetchone()
+            if as_of_row is None:
+                raise ValueError(f"{db} has no snapshot row to read as_of from; pass as_of")
+            as_of = as_of_row[0]
         now = _parse(as_of)
-        out["snapshot_id"] = con.execute("SELECT snapshot_id FROM repositories LIMIT 1").fetchone()[0]
+        snap_row = con.execute("SELECT snapshot_id FROM repositories LIMIT 1").fetchone()
+        if snap_row is None:
+            snap_row = con.execute("SELECT id FROM snapshots LIMIT 1").fetchone()
+        out["snapshot_id"] = snap_row[0] if snap_row else None
         out["as_of"] = as_of
         # a database built before the rename names the score column `cvi`
         columns = {c[1] for c in con.execute("PRAGMA table_info(repositories)")}
@@ -209,7 +218,7 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
     bh = sum(r[2] == "black_hole" for r in decided)
     out["gate5_decided"] = len(decided)
     out["black_holes"] = bh
-    out["black_hole_share"] = round(bh / len(decided), 4)
+    out["black_hole_share"] = round(bh / len(decided), 4) if decided else 0.0
     out["by_stars"] = {}
     for lo, hi in STAR_BUCKETS:
         sub = [r for r in decided if lo <= stars.get(key(r), -1) < hi]
@@ -230,7 +239,7 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
     by_stars = sorted(rows, key=lambda r: -stars.get(key(r), -1))[:100]
     top100_rank = {key(r) for r in rows if r[7] is not None and r[7] <= 100}
     out["top100_overlap"] = sum(key(r) in top100_rank for r in by_stars)
-    out["top100_stars_min"] = stars.get(key(by_stars[-1]), -1)
+    out["top100_stars_min"] = stars.get(key(by_stars[-1]), -1) if by_stars else -1
     fate: dict[str, int] = {}
     for r in by_stars:
         k = r[2] or ("rated" if r[4] else "unrated")

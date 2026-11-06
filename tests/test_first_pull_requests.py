@@ -266,7 +266,8 @@ def test_weekday_is_the_utc_day_the_clock_started_and_needs_two_weeks_on_record(
 def test_weekday_inside_a_project_needs_enough_of_both(tmp_path: Path) -> None:
     monday = datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc)
     saturday = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)
-    answered = lambda start: dict(comments=[comment("maya", after(start, hours=2))])
+    def answered(start: datetime) -> dict:
+        return dict(comments=[comment("maya", after(start, hours=2))])
     many = [pull(i, monday, **answered(monday)) for i in range(fpr.WEEKDAY_MIN_WEEKDAY)]
     weekend = [pull(100 + i, saturday, **(answered(saturday) if i < 5 else {})) for i in range(fpr.WEEKDAY_MIN_WEEKEND)]
     write_project(tmp_path, "o__n", many + weekend)

@@ -81,8 +81,14 @@ def calculate_pike_criticality(
     for param, alpha in weights.items():
         if param in missing:
             continue
-        value = raw.get(param, 0.0)
-        threshold = thresholds.get(param, 0.0)
+        if not math.isfinite(float(alpha)):
+            raise ValueError(f"weight for {param!r} must be finite, got {alpha!r}")
+        value = float(raw.get(param, 0.0))
+        threshold = float(thresholds.get(param, 0.0))
+        if not math.isfinite(value):
+            raise ValueError(f"signal {param!r} must be finite, got {value!r}")
+        if not math.isfinite(threshold):
+            raise ValueError(f"threshold for {param!r} must be finite, got {threshold!r}")
         non_negative = max(0.0, value)
         saturation_denom = max(value, threshold)
         if saturation_denom <= 0:

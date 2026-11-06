@@ -54,7 +54,6 @@ def test_the_generated_home_is_verified_and_reads_without_javascript(built, repo
     assert all(re.fullmatch(r"https://porchlamp\.org/projects/[a-z0-9._-]+/[a-z0-9._-]+/", i["url"]) for i in graph[3]["itemListElement"])
     # what a reader without JavaScript gets: the finding, the first page of rows, and the ten landing pages by address
     shown = visible_text(text)
-    values = report_record["values"]
     assert report_pages.copy_js_string("FINDINGS_LINE") in shown
     assert "More than 1 in" not in shown and 'href="/black-holes/"' not in text
     assert re.search(r'<a href="/first-pull-requests/"[^>]*>Read the report</a>', text)
