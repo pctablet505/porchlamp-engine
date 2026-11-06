@@ -691,7 +691,12 @@ def _lookup_candidates(
 
 
 def _fetch_dependents(
-    ecosystem: str, system: str, spellings: Iterable[str], owner: str,
+    ecosystem: str,
+    system: str,
+    spellings: Iterable[str],
+    owner: str,
+    *,
+    include_depsdev_latest: bool = True,
 ) -> tuple[Optional[tuple[dict[str, Any], str]], bool]:
     """Dependents of one registry package: ecosyste.ms first, deps.dev second.
 
@@ -717,7 +722,7 @@ def _fetch_dependents(
             best = (package, count, url)
     if best is not None:
         package, count, url = best
-        latest = _depsdev_latest(system, package)
+        latest = _depsdev_latest(system, package) if include_depsdev_latest else None
         data = {
             "ecosystem": ecosystem, "package": package, "system": system,
             "version": None,
@@ -870,7 +875,12 @@ def resolve_repo_package(
     unsettled = False
     for package, linked in candidates:
         found, settled = _fetch_dependents(
-            ecosystem, system, _spellings(ecosystem, package, guessed), owner)
+            ecosystem,
+            system,
+            _spellings(ecosystem, package, guessed),
+            owner,
+            include_depsdev_latest=False,
+        )
         unsettled = unsettled or not settled
         if found is not None:
             package = found[0]["package"]
@@ -888,6 +898,14 @@ def resolve_repo_package(
     if truncated and data["dependent_count"] == 0 and not guess_counted:
         return PackageResolution("unresolved", None, None, map_status, guessed,
                                  guess_linked, truncated, tuple(examined))
+    if data.get("source_used") == "ecosyste.ms" and data.get("depsdev_latest") is None:
+        latest = _depsdev_latest(system, package)
+        data["depsdev_latest"] = (None if latest is None else {
+            "version": latest[0],
+            "dependent_count": latest[1].dependent_count,
+            "direct_dependent_count": latest[1].direct_dependent_count,
+            "indirect_dependent_count": latest[1].indirect_dependent_count,
+        })
     data["guessed_package"] = guessed
     data["guess_linked"] = guess_linked
     data["source_repo_map"] = map_url

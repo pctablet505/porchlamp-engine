@@ -402,13 +402,49 @@ def _fetch_body(url: str) -> Optional[str]:
         return None
 
 
+def _repo_object_from_meta_envelope(raw_dir: Path, key: str) -> Optional[dict[str, Any]]:
+    """Reuse ``raw_dir/github_meta/<key>.json`` when it already carries the
+    D-GATE-2/6 repository-object fields (``mirror_url``, ``fork``,
+    ``pull_requests_total``), avoiding a duplicate GraphQL round-trip (OPT-4)."""
+    meta_env = raw_dir / "github_meta" / f"{key}.json"
+    if not meta_env.is_file():
+        return None
+    try:
+        doc = json.loads(meta_env.read_text(encoding="utf-8"))
+        mdata = doc.get("data")
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(mdata, dict):
+        return None
+    if (
+        "mirror_url" not in mdata
+        or not isinstance(mdata.get("fork"), bool)
+        or not isinstance(mdata.get("archived"), bool)
+        or not isinstance(mdata.get("pull_requests_total"), int)
+    ):
+        return None
+    spdx = mdata.get("license_spdx")
+    parent = mdata.get("parent")
+    return {
+        "archived": mdata["archived"],
+        "mirror_url": mdata.get("mirror_url"),
+        "fork": mdata["fork"],
+        "parent": parent if isinstance(parent, dict) else None,
+        "license_spdx_id": None if spdx == "NOASSERTION" and "license_spdx_id" in mdata else spdx,
+        "pull_requests_total": mdata["pull_requests_total"],
+        "graphql_partial": False,
+        "graphql_error": None,
+    }
+
+
 def collect_repo_object(raw_dir: Path, owner: str, name: str,
                         branch: str) -> str:
     """Collect the repo-object facts and write one envelope.
 
     One GraphQL repository lookup for ``archived`` / ``mirror_url`` /
-    ``fork`` / ``parent`` / ``license.spdx_id`` / the all-time PR total; the
-    recorded ``tree`` envelope when present, else a shallow REST tree at
+    ``fork`` / ``parent`` / ``license.spdx_id`` / the all-time PR total (or
+    reuse of a ``github_meta`` envelope that already recorded those fields);
+    the recorded ``tree`` envelope when present, else a shallow REST tree at
     depth <= 2; and raw.githubusercontent.com bodies for MAINTAINERS and the
     README when the tree lists them. Writes
     ``raw_dir/repo_object/<owner>__<name>.json`` and returns ``"ok"``;
@@ -418,26 +454,30 @@ def collect_repo_object(raw_dir: Path, owner: str, name: str,
     validate.github_segment(owner, "owner")
     validate.github_segment(name, "name")
     key = f"{owner}__{name}"
-    r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY, {"owner": owner, "name": name})
-    if not r:
-        return "fail"
-    data: dict[str, Any] = {
-        "archived": r.get("isArchived") if isinstance(r.get("isArchived"), bool) else None,
-        "mirror_url": r.get("mirrorUrl"),
-        "fork": r.get("isFork") if isinstance(r.get("isFork"), bool) else None,
-        "parent": None,
-        "license_spdx_id": (r.get("licenseInfo") or {}).get("spdxId"),
-        "pull_requests_total": (r.get("pullRequests") or {}).get("totalCount"),
-        # A partial GraphQL response (some fields unavailable, the rest present)
-        # is salvaged rather than discarded; the partial case is recorded here so
-        # the envelope is not silently indistinguishable from a clean lookup.
-        "graphql_partial": graphql_error is not None,
-        "graphql_error": graphql_error,
-    }
-    parent = r.get("parent")
-    if parent:
-        data["parent"] = {"owner": (parent.get("owner") or {}).get("login"),
-                          "name": parent.get("name")}
+    reused = _repo_object_from_meta_envelope(raw_dir, key)
+    if reused is not None:
+        data: dict[str, Any] = dict(reused)
+    else:
+        r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY, {"owner": owner, "name": name})
+        if not r:
+            return "fail"
+        data = {
+            "archived": r.get("isArchived") if isinstance(r.get("isArchived"), bool) else None,
+            "mirror_url": r.get("mirrorUrl"),
+            "fork": r.get("isFork") if isinstance(r.get("isFork"), bool) else None,
+            "parent": None,
+            "license_spdx_id": (r.get("licenseInfo") or {}).get("spdxId"),
+            "pull_requests_total": (r.get("pullRequests") or {}).get("totalCount"),
+            # A partial GraphQL response (some fields unavailable, the rest present)
+            # is salvaged rather than discarded; the partial case is recorded here so
+            # the envelope is not silently indistinguishable from a clean lookup.
+            "graphql_partial": graphql_error is not None,
+            "graphql_error": graphql_error,
+        }
+        parent = r.get("parent")
+        if parent:
+            data["parent"] = {"owner": (parent.get("owner") or {}).get("login"),
+                              "name": parent.get("name")}
 
     tree_env = raw_dir / "tree" / f"{key}.json"
     paths: Optional[list[str]] = None

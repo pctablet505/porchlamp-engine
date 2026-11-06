@@ -216,6 +216,74 @@ def _fetch_releases(transport: RestTransport, owner: str, name: str
     return records, True
 
 
+#: Single-call GraphQL query to resolve up to TAGS_PAGE_SIZE tag commit dates in 1 point
+#: instead of up to 100 sequential REST /commits/{sha} calls (OPT-3).
+REPO_TAGS_QUERY: str = """
+query RepoTags($owner: String!, $name: String!, $first: Int!) {
+  rateLimit { cost remaining }
+  r: repository(owner: $owner, name: $name) {
+    refs(refPrefix: "refs/tags/", first: $first, orderBy: {field: TAG_COMMIT_DATE, direction: DESC}) {
+      nodes {
+        name
+        target {
+          oid
+          ... on Commit {
+            author { date }
+            committedDate
+          }
+          ... on Tag {
+            target {
+              oid
+              ... on Commit {
+                author { date }
+                committedDate
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+""".strip()
+
+
+def _fetch_tags_graphql(graphql_transport: Any, owner: str, name: str) -> Optional[list[dict]]:
+    """Resolve up to :data:`TAGS_PAGE_SIZE` tags and their commit dates in one GraphQL call."""
+    try:
+        doc = graphql_transport.execute(
+            REPO_TAGS_QUERY,
+            {"owner": owner, "name": name, "first": TAGS_PAGE_SIZE},
+        )
+    except Exception:
+        return None
+    if not isinstance(doc, Mapping):
+        return None
+    repo = (doc.get("data") or {}).get("r")
+    if not isinstance(repo, Mapping):
+        return None
+    nodes = ((repo.get("refs") or {}).get("nodes")) or []
+    if not isinstance(nodes, list):
+        return None
+    records: list[dict] = []
+    for node in nodes:
+        if not isinstance(node, Mapping):
+            continue
+        target = node.get("target") or {}
+        if not isinstance(target, Mapping):
+            target = {}
+        commit_target = target.get("target") if isinstance(target.get("target"), Mapping) else target
+        sha = str(commit_target.get("oid") or target.get("oid") or "")
+        author = commit_target.get("author") if isinstance(commit_target.get("author"), Mapping) else {}
+        commit_date = author.get("date") or commit_target.get("committedDate")
+        records.append({
+            "name": node.get("name"),
+            "sha": sha,
+            "commit_date": commit_date,
+        })
+    return records
+
+
 def _fetch_tags(transport: RestTransport, owner: str, name: str) -> list[dict]:
     """One page of tags with each tag's commit author date resolved."""
     batch = transport.get(f"repos/{owner}/{name}/tags", per_page=TAGS_PAGE_SIZE) or []
@@ -235,7 +303,8 @@ def _fetch_tags(transport: RestTransport, owner: str, name: str) -> list[dict]:
 def collect_releases(raw_dir: Path, owner: str, name: str,
                      now: Optional[datetime] = None,
                      transport: Optional[RestTransport] = None,
-                     force: bool = False) -> str:
+                     force: bool = False,
+                     graphql_transport: Optional[Any] = None) -> str:
     """Collect the releases envelope for one repository.
 
     Writes ``raw_dir/releases/<owner>__<name>.json`` -- one envelope whose
@@ -258,7 +327,9 @@ def collect_releases(raw_dir: Path, owner: str, name: str,
         source = "releases"
         recent = releases_in_window(releases, now)
     else:
-        tags = _fetch_tags(transport, owner, name)
+        tags = _fetch_tags_graphql(graphql_transport, owner, name) if graphql_transport is not None else None
+        if tags is None:
+            tags = _fetch_tags(transport, owner, name)
         source = "tags"
         recent = tags_in_window(tags, now)
     write_envelope(target, source=f"github-rest:repos/{owner}/{name}/releases",

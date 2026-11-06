@@ -34,6 +34,8 @@ from porchlamp.collect.commits import (
     collect_commits_365d,
     commit_total_fetcher,
     derive_commits_180d_rows,
+    records_from_rows,
+    shape_commit_rows,
 )
 from porchlamp.collect.envelope import write_envelope
 from porchlamp.collect.names import valid_name, valid_ref
@@ -232,10 +234,11 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 'query($owner: String!, $name: String!) {'
                 ' r: repository(owner: $owner, name: $name) {'
                 'stargazerCount forkCount pushedAt isArchived createdAt'
+                ' mirrorUrl isFork parent { name owner { login } }'
                 ' licenseInfo { spdxId } defaultBranchRef { name }'
                 ' pullRequests(states: [OPEN, MERGED, CLOSED], first: %d,'
                 ' orderBy: {field: CREATED_AT, direction: DESC}) {'
-                ' nodes { number createdAt closedAt mergedAt'
+                ' totalCount nodes { number createdAt closedAt mergedAt'
                 ' author { login } authorAssociation'
                 ' comments { totalCount } reviews(first: 1) { nodes { createdAt } }'
                 ' } } } }' % (PR_SAMPLE,)
@@ -247,13 +250,27 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             except Exception:  # review-ok: gate-network — transient gh failure, rerun resumes
                 r = None
             if r:
-                _env("github_meta", key, "github-graphql", {
+                parent_node = r.get("parent")
+                meta_payload: dict[str, Any] = {
                     "stars": r["stargazerCount"], "forks": r["forkCount"],
                     "pushed_at": r["pushedAt"], "archived": r["isArchived"],
                     "created_at": r["createdAt"],
                     "license_spdx": (r.get("licenseInfo") or {}).get("spdxId") or "NOASSERTION",
-                    "default_branch": (r.get("defaultBranchRef") or {}).get("name") or "main"})
-                nodes = (r.get("pullRequests") or {}).get("nodes") or []
+                    "default_branch": (r.get("defaultBranchRef") or {}).get("name") or "main",
+                }
+                if "mirrorUrl" in r or "isFork" in r:
+                    meta_payload["mirror_url"] = r.get("mirrorUrl")
+                    meta_payload["fork"] = r.get("isFork") if isinstance(r.get("isFork"), bool) else None
+                    meta_payload["parent"] = (
+                        {"owner": (parent_node.get("owner") or {}).get("login"), "name": parent_node.get("name")}
+                        if isinstance(parent_node, dict)
+                        else None
+                    )
+                pr_conn = r.get("pullRequests") or {}
+                if isinstance(pr_conn.get("totalCount"), int):
+                    meta_payload["pull_requests_total"] = pr_conn["totalCount"]
+                _env("github_meta", key, "github-graphql", meta_payload)
+                nodes = pr_conn.get("nodes") or []
                 _env("pr_events", key, "github-graphql", [{
                     "number": n["number"], "created_at": n["createdAt"],
                     "closed_at": n["closedAt"], "merged_at": n["mergedAt"],
@@ -297,6 +314,22 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 status["tree"] = "fail"
                 print(f"  WARN tree {owner}/{name}: {e}")
 
+    # Early ineligibility short-circuit once github_meta + tree are collected (OPT-1)
+    if skip_ineligible or (
+        selected("github_meta")
+        and selected("tree")
+        and status.get("github_meta") == "ok"
+        and status.get("tree") == "ok"
+    ):
+        pruned_after_tree = should_skip_ineligible(
+            owner, name, raw_dir=DATA, now=datetime.now(timezone.utc)
+        )
+        if pruned_after_tree is not None:
+            status["skipped_ineligible"] = pruned_after_tree
+            for rem in COLLECTORS:
+                status.setdefault(rem, "skip")
+            return status
+
     # --- contributors ---
     if done("contributors"):
         status["contributors"] = "skip"
@@ -327,7 +360,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 status["repo_object"] = "fail"
                 print(f"  WARN repo_object {owner}/{name}: {e}")
 
-    # --- commits_180d (paged, capped) ---
+    # --- commits_180d (paged, capped; stops early once page 1 confirms >=1 non-bot commit, OPT-2) ---
     if not done("commits_180d"):
         with _collector_scope(key, "commits_180d"):
             since = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
@@ -338,10 +371,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                     d = _gh(f"repos/{owner}/{name}/commits", "-X", "GET",
                             "-f", "per_page=100", "-f", f"since={since}",
                             "-f", f"page={page}") or []
-                    rows.extend({"author_login": (c.get("author") or {}).get("login") or "",
-                                 "date": (c.get("commit") or {}).get("author", {}).get("date")}
-                                for c in d)
-                    if len(d) < 100:
+                    rows.extend(shape_commit_rows(d))
+                    if len(d) < 100 or records_from_rows(rows):
                         break
                 _env("commits_180d", key, "github-rest:commits", rows)
                 status["commits_180d"] = "ok"
@@ -385,6 +416,21 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # actions_runs (paged: the settled pull_request runs behind 5.4's CI wait)
     if done("actions_runs"):
         status["actions_runs"] = "skip"
+    elif (skip_ineligible or (selected("github_meta") and selected("tree"))):
+        from porchlamp.collect.fingerprint import is_confirmed_black_hole_in_raw
+
+        if is_confirmed_black_hole_in_raw(DATA, owner, name):
+            status["actions_runs"] = "skip"
+        else:
+            with _collector_scope(key, "actions_runs"):
+                time.sleep(SLEEP_REST)
+                try:
+                    _env("actions_runs", key, f"github-rest:repos/{owner}/{name}/actions/runs",
+                         _fetch_pr_runs(owner, name))
+                    status["actions_runs"] = "ok"
+                except Exception as e:  # review-ok: gate-network — per-collector retry on rerun
+                    status["actions_runs"] = "fail"
+                    print(f"  WARN actions_runs {owner}/{name}: {e}")
     else:
         with _collector_scope(key, "actions_runs"):
             time.sleep(SLEEP_REST)
@@ -610,7 +656,20 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # --- Releases, issues search counts, CI runs (02 §4 2.2 / 4.1) ---
     from porchlamp.collect import pike_signals as pike_mod
     for collector, call in (
-        ("releases", lambda: pike_mod.collect_releases(DATA, owner, name, force=force)),
+        (
+            "releases",
+            lambda: pike_mod.collect_releases(
+                DATA,
+                owner,
+                name,
+                force=force,
+                graphql_transport=(
+                    __import__("porchlamp.collect.github_graphql", fromlist=["GhCliTransport"]).GhCliTransport()
+                    if graphql_bulk
+                    else None
+                ),
+            ),
+        ),
         (
             "issues_counts",
             lambda: (

@@ -3124,7 +3124,7 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     _compare_hooks(ledger, rel, found, hooks)
     record_path = site / "data" / sid / fpr_page.DATA_FILE
     record = json.loads(record_path.read_text(encoding="utf-8"))
-    ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} values are the ones worked out here", {k: v for k, v in record["values"].items()}, {k: hooks[k] for k in record["values"]})
+    ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} values are the ones worked out here", dict(record["values"]), {k: hooks[k] for k in record["values"]})
     # the record's words with this file's numbers: a sentence on the page that is not its template, filled, is a mismatch
     fill = lambda template: template.format(**hooks)  # noqa: E731
     sentences = record["sentences"]

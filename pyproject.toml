@@ -49,6 +49,7 @@ ignore = [
     "B905", "RUF007",           # zip without strict / pairwise preference
     "RUF043",                   # pytest.raises match= patterns with literal metachars
     "RUF012", "RUF005", "SIM401", "SIM910", "SIM300", "C420",  # cosmetic test style
+    "RUF001",                   # intentional typographic en-dash / minus sign in prose copy
 ]
 
 [tool.ruff.lint.per-file-ignores]
