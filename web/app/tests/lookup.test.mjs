@@ -106,6 +106,12 @@ test("the last close decides who closed it: reopened and closed again by the aut
   ];
   assert.equal(readPullRequest(item({ state: "closed" }), events, NOW).status, "left");
   assert.equal(readPullRequest(item({ state: "closed" }), [...events].reverse(), NOW).status, "closed_quiet", "closed by the author, reopened, closed by a bot");
+  const draftClosedReopenedClosed = [
+    { event: "closed", actor: { login: "maya", type: "User" }, created_at: ago(18) },
+    { event: "ready_for_review", created_at: ago(15) },
+    { event: "closed", actor: { login: "maya", type: "User" }, created_at: ago(14) },
+  ];
+  assert.equal(readPullRequest(item({ state: "closed" }), draftClosedReopenedClosed, NOW).status, "closed");
 });
 
 test("a closed draft isn't told the clock starts when it's marked ready", () => {

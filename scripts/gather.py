@@ -1336,8 +1336,8 @@ def _run_main(a: argparse.Namespace) -> int:
         cost.retain_records()
     selected = parse_collectors(a.collectors)
     if a.repo:
-        if not valid_ref(a.repo[0], a.repo[1]):
-            print("error: --repo owner or name is not a legal GitHub name", file=sys.stderr)
+        if not valid_ref(a.repo[0], a.repo[1]) or not valid_name(a.ecosystem):
+            print("error: --repo owner, name, or --ecosystem is not a legal name", file=sys.stderr)
             return 2
         repos = [(a.repo[0], a.repo[1], a.ecosystem)]
     else:

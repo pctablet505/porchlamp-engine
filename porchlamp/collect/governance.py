@@ -1316,7 +1316,15 @@ def observed_promotions(prs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]
                         (m_at, "merge", pr_author, pr_num)
                     )
 
-        for ev in pr.get("closedEvents") or ():
+        closed_events = list(pr.get("closedEvents") or ())
+        timeline = pr.get("timelineItems")
+        if isinstance(timeline, Mapping):
+            t_nodes = timeline.get("nodes")
+            if isinstance(t_nodes, list):
+                for node in t_nodes:
+                    if isinstance(node, Mapping) and (node.get("__typename") in (None, "ClosedEvent")):
+                        closed_events.append(node)
+        for ev in closed_events:
             if not isinstance(ev, Mapping):
                 continue
             actor = ev.get("actor")

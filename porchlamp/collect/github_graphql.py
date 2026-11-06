@@ -646,6 +646,12 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
                     latest_close_dt, latest_close_event = ev_dt, ev
             if ready_for_review_at is None and latest_ready_at is not None:
                 ready_for_review_at = latest_ready_at
+            state_upper = str(pr.get("state") or "").upper()
+            is_currently_closed = (
+                state_upper == "CLOSED"
+                if state_upper
+                else (pr.get("closedAt") is not None)
+            )
             if (
                 latest_close_event is not None
                 and not pr.get("mergedAt")
@@ -656,8 +662,10 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
                 actor_map = actor if isinstance(actor, Mapping) else {}
                 actor_login = str(actor_map.get("login") or "").lower()
                 actor_typename = actor_map.get("__typename")
+                # As porchlamp.core.gates.is_excluded_from_review_denominator: only the author's close needs the pull
+                # request to be closed still; a maintainer's close is an answer whatever came after it.
                 if actor_login and actor_login == author_login:
-                    closed_by_author = True
+                    closed_by_author = is_currently_closed
                 elif actor_login and not is_bot_actor(actor_typename, actor_login):
                     ev_created = latest_close_event.get("createdAt")
                     closed_by_maint_at = (
