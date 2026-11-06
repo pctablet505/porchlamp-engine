@@ -230,6 +230,14 @@ def collect_newcomer_issues(fetch: Transport, owner: str, name: str,
                            f"&sort=updated&direction=desc&page={page}")
             if len(records) < PAGE_SIZE:
                 break
+            oldest_record = records[-1]
+            oldest_updated = (
+                _parse_iso(oldest_record.get("updated_at"))
+                if isinstance(oldest_record, dict)
+                else None
+            )
+            if oldest_updated is not None and oldest_updated < cutoff:
+                break
         shaped: list[dict] = []
         for record in itertools.chain(*records_pages):
             issue = _shape_issue(record)

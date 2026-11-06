@@ -24,6 +24,7 @@ from pathlib import Path
 import tempfile
 
 from porchlamp.collect import github_graphql, repo_object
+from porchlamp.collect.commits import shape_commit_rows
 from porchlamp.core import constants, gates
 from porchlamp.core import methodology as methodology_module
 from porchlamp.core.commit_domains import KNOWN_BOT_LOGINS, CommitActor, is_bot
@@ -145,10 +146,8 @@ class TestSharedCases:
         for case in doc["markers"]:
             assert gate_evidence._has_off_platform_marker(case["paths"]) is case["expected"], case
         for case in doc["vitality_commits"]:
-            derived = [
-                {"author_login": (c.get("author") or {}).get("login") or "", "date": "2026-10-01T00:00:00Z"}
-                for c in case["commits"]
-            ]
+            # the rows scripts/gather.py records for commits_180d
+            derived = [{**row, "date": "2026-10-01T00:00:00Z"} for row in shape_commit_rows(case["commits"])]
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "commits_180d").mkdir()

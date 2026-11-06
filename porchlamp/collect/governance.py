@@ -83,6 +83,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess  # noqa: F401  (tests patch this module's subprocess)
+import threading
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -957,6 +958,96 @@ def policy_file_body(
     return None
 
 
+_ORG_DEFAULT_FILE_CACHE: dict[tuple[int, int, int, str, str], Optional[str]] = {}
+_ORG_DEFAULT_CACHE_LOCK = threading.Lock()
+
+
+def clear_org_default_file_cache() -> None:
+    """Clear the per-owner ``<owner>/.github`` org-default file cache."""
+    with _ORG_DEFAULT_CACHE_LOCK:
+        _ORG_DEFAULT_FILE_CACHE.clear()
+
+
+def _cached_org_file_fetcher(owner: str) -> FileFetcher:
+    """Return a thread-safe cached :data:`FileFetcher` for ``<owner>/.github``."""
+    raw_fetcher = fetch_file_text(owner, ".github")
+    scope_ids = (id(fetch_file_text), id(net._gate), id(urllib.request.urlopen))
+
+    def fetch(path: str) -> Optional[str]:
+        cache_key = (*scope_ids, owner, path)
+        with _ORG_DEFAULT_CACHE_LOCK:
+            if cache_key in _ORG_DEFAULT_FILE_CACHE:
+                return _ORG_DEFAULT_FILE_CACHE[cache_key]
+        body = raw_fetcher(path)
+        with _ORG_DEFAULT_CACHE_LOCK:
+            _ORG_DEFAULT_FILE_CACHE[cache_key] = body
+        return body
+
+    return fetch
+
+
+def _reusable_merged_prs_from_pr_window(
+    raw_dir: Path, repo_key: str
+) -> Optional[list[dict[str, Any]]]:
+    """Reuse merged PRs from ``raw_dir/pr_window/<repo_key>.json`` when complete (OPT-5).
+
+    Returns a list of up to :data:`MERGED_PR_CAP` merged PR dicts when ``pr_window``
+    is uncut, not reply-sampled, and either:
+    - ``window_exhausted`` is True with no ``boundary_overflow_prs`` (all-time PR history
+      is inside the window) and there are 0 merged PRs in the repository, or
+    - at least :data:`MERGED_PR_CAP` merged PRs (or all merged PRs on an all-time exhausted
+      window with no boundary overflow) already carry ``headRefOid`` / ``head_sha``.
+    Returns ``None`` when ``governance`` must query GitHub directly.
+    """
+    prw_path = raw_dir / "pr_window" / f"{repo_key}.json"
+    if not prw_path.is_file():
+        return None
+    try:
+        prw_env = read_envelope(prw_path)
+    except Exception:
+        return None
+    data = prw_env.data
+    if not isinstance(data, Mapping) or pr_window.pr_window_cut_short(data):
+        return None
+    if int(data.get("reply_sampled_prs") or 0) > 0:
+        return None
+    prs = data.get("prs")
+    if not isinstance(prs, list):
+        return None
+    all_time_exhausted = (
+        data.get("window_exhausted") is True
+        and not data.get("boundary_overflow_prs")
+    )
+    merged_nodes = [
+        pr for pr in prs
+        if isinstance(pr, Mapping) and (pr.get("mergedAt") or pr.get("merged_at"))
+    ]
+    if not merged_nodes:
+        return [] if all_time_exhausted else None
+    sample = merged_nodes[:MERGED_PR_CAP]
+    if len(sample) < MERGED_PR_CAP and not all_time_exhausted:
+        return None
+    shaped: list[dict[str, Any]] = []
+    for pr in sample:
+        sha = str(pr.get("headRefOid") or pr.get("head_sha") or "")
+        if not sha:
+            return None
+        author = pr.get("author")
+        login = (
+            str(author.get("login") or "")
+            if isinstance(author, Mapping)
+            else str(pr.get("author_login") or "")
+        )
+        shaped.append({
+            "number": pr.get("number"),
+            "created_at": pr.get("createdAt") or pr.get("created_at"),
+            "merged_at": pr.get("mergedAt") or pr.get("merged_at"),
+            "author_login": login,
+            "head_sha": sha,
+        })
+    return shaped
+
+
 def collect_governance(raw_dir: Path, owner: str, name: str,
                        now: Optional[datetime] = None,
                        api: Optional[RestTransport] = None,
@@ -988,15 +1079,27 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
     now = now or datetime.now(timezone.utc)
     fetch_file = fetch_file or fetch_file_text(owner, name)
 
+    reused_merged = _reusable_merged_prs_from_pr_window(raw_dir, key)
     if graphql_transport is not None:
-        merged_prs, pulls_available, checks, shas_probed, shas_available = (
-            fetch_merged_prs_and_checks_graphql(
-                graphql_transport, owner, name, api=api or GhApiTransport())
-        )
+        if reused_merged is not None:
+            merged_prs = reused_merged
+            pulls_available = True
+            checks, shas_probed, shas_available = _check_evidence_graphql(
+                graphql_transport, owner, name, merged_prs, api=api or GhApiTransport()
+            )
+        else:
+            merged_prs, pulls_available, checks, shas_probed, shas_available = (
+                fetch_merged_prs_and_checks_graphql(
+                    graphql_transport, owner, name, api=api or GhApiTransport())
+            )
         source_tag = "github-graphql:governance"
     else:
         api = api or GhApiTransport()
-        merged_prs, pulls_available = _merged_prs(api, owner, name)
+        if reused_merged is not None:
+            merged_prs = reused_merged
+            pulls_available = True
+        else:
+            merged_prs, pulls_available = _merged_prs(api, owner, name)
         checks, shas_probed, shas_available = _check_evidence(api, owner, name, merged_prs)
         source_tag = "github-rest:governance"
     tree_paths = _read_tree_paths(raw_dir, key)
@@ -1026,7 +1129,7 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
             files[fname] = entry
             continue
         if fname in ORG_DEFAULT_FILES and (resolved_org_tree is not None or fetch_org_file is not None):
-            org_fetcher = fetch_org_file or fetch_file_text(owner, ".github")
+            org_fetcher = fetch_org_file or _cached_org_file_fetcher(owner)
             org_rel: Optional[str] = None
             org_body: Optional[str] = None
             if resolved_org_tree is not None:
