@@ -459,6 +459,8 @@ def promote_atomically(bundles: list[dict[str, Any]], db_path: str, as_of: datet
             for sidecar in ("-wal", "-shm"):
                 Path(f"{db_path}{sidecar}").unlink(missing_ok=True)
             os.replace(tmp_path, db_path)
+            for sidecar in ("-wal", "-shm"):
+                Path(f"{db_path}{sidecar}").unlink(missing_ok=True)
         else:
             Path(tmp_path).unlink(missing_ok=True)
     return n

@@ -169,7 +169,7 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
     con = open_snapshot_db(db)
     try:
         as_of_row = con.execute("SELECT as_of FROM snapshots LIMIT 1").fetchone()
-        as_of = as_of or (as_of_row[0] if as_of_row else datetime.now(timezone.utc).isoformat())
+        as_of = as_of or (as_of_row[0] if as_of_row else "1970-01-01T00:00:00Z")
         now = _parse(as_of)
         snap_row = con.execute("SELECT snapshot_id FROM repositories LIMIT 1").fetchone()
         if snap_row is None:

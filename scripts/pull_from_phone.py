@@ -168,30 +168,35 @@ def _set_aside(dest: Path, layer: str) -> None:
 
 def _extract(archive: Path, members: list[tarfile.TarInfo], dest: Path) -> int:
     count = 0
-    with tarfile.open(archive, "r:gz") as tar:
-        for info in members:
-            source = tar.extractfile(info)
-            if source is None:
-                raise PullError(4, f"cannot extract {info.name}")
-            target = dest / info.name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_name("." + target.name + ".tmp")
-            written = 0
-            try:
-                with open(tmp, "wb") as out:
-                    while True:
-                        buf = source.read(CHUNK)
-                        if not buf:
-                            break
-                        written += len(buf)
-                        if written > info.size:
-                            raise PullError(4, f"member {info.name} exceeded header size {info.size}")
-                        out.write(buf)
-                os.replace(tmp, target)
-            except BaseException:
-                tmp.unlink(missing_ok=True)
-                raise
-            count += 1
+    try:
+        with tarfile.open(archive, "r:gz") as tar:
+            for info in members:
+                source = tar.extractfile(info)
+                if source is None:
+                    raise PullError(4, f"cannot extract {info.name}")
+                target = dest / info.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                tmp = target.with_name("." + target.name + ".tmp")
+                written = 0
+                try:
+                    with open(tmp, "wb") as out:
+                        while True:
+                            buf = source.read(CHUNK)
+                            if not buf:
+                                break
+                            written += len(buf)
+                            if written > info.size:
+                                raise PullError(4, f"member {info.name} exceeded header size {info.size}")
+                            out.write(buf)
+                    if written != info.size:
+                        raise PullError(4, f"member {info.name} truncated ({written} != {info.size})")
+                    os.replace(tmp, target)
+                except BaseException:
+                    tmp.unlink(missing_ok=True)
+                    raise
+                count += 1
+    except (tarfile.TarError, EOFError, OSError) as exc:
+        raise PullError(4, f"corrupt archive stream: {exc}") from exc
     return count
 
 
