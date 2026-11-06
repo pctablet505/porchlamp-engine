@@ -42,8 +42,7 @@ export function renderQuadrant(quadrant) {
 export function renderSuspicionIcon(flags) {
   if (!flags || flags.length === 0) return "";
   const tooltip = copy.suspicionTooltip(flags);
-  const readableFlags = flags.map((f) => copy.SUSPICION_FLAG_LABELS[f] || f);
   return (
-    `<span class="suspicion-icon" tabindex="0" role="img" aria-label="${escapeHtml(copy.SUSPICION_LABEL)}: ${escapeHtml(readableFlags.join(", "))}" title="${escapeHtml(tooltip)}">⚠</span>`
+    `<span class="suspicion-icon" tabindex="0" role="img" aria-label="${escapeHtml(copy.SUSPICION_LABEL)}: ${escapeHtml(flags.join(", "))}" title="${escapeHtml(tooltip)}">⚠</span>`
   );
 }

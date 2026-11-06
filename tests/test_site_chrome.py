@@ -205,8 +205,8 @@ def test_every_page_carries_the_header_nav_and_footer_chrome_js_draws(built, tmp
     assert {json.loads(spec)["view"] for spec in lists} == {"ranked", "notranked"}  # the leaderboard's and the not-ranked view's
     assert len({page.chrome for page in pages.values()} - lists) == 10  # eight app views (the report among them), the lookup, every page with no nav entry
     report = expected[json.dumps({"view": "report"})]["nav"]
-    assert 'href="/black-holes/"' not in report, "the old report has no nav entry of its own"
-    assert 'href="/first-pull-requests/" aria-current="page">Report</a>' in report
+    assert 'aria-current' not in report and 'href="/black-holes/"' not in report, "the old report has no nav entry"
+    assert 'href="/first-pull-requests/">Report</a>' in report
     assert 'aria-current' not in expected[json.dumps({"nav": None})]["nav"]
     assert chrome_problems(site, pages, expected) == []
 
@@ -763,8 +763,7 @@ def test_the_verifier_passes_the_export_and_names_a_wrong_database_digest_and_a_
     assert [problem.split(":")[0] for problem in problems] == ["black-holes/index.html nav is chrome.js's"], problems
 
 
-def test_ui_ux_audit_css_and_project_parity_invariants(built):
-    site = built[0]
+def test_ui_ux_audit_css_and_project_parity_invariants():
     components_css = (ROOT / "web" / "app" / "styles" / "components.css").read_text(encoding="utf-8")
     views_css = (ROOT / "web" / "app" / "styles" / "views.css").read_text(encoding="utf-8")
 
@@ -775,8 +774,14 @@ def test_ui_ux_audit_css_and_project_parity_invariants(built):
     # DEF-07: matrix 2x2 quad grid and overflow-wrap anywhere
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in views_css
     assert "overflow-wrap: anywhere" in views_css
-    # DEF-09: mobile leaderboard card height auto (no hardcoded 180px height)
-    assert "height: 180px" not in components_css
+    # The phone's card list windows by a fixed pitch: a card's CSS height and margin add up to it, or the cards
+    # drift and jump while scrolling.
+    card = re.search(r"\n\.leaderboard-card \{(.*?)\n\}", components_css, re.DOTALL).group(1)
+    height = int(re.search(r"\n  height: (\d+)px;", card).group(1))
+    margin = int(re.search(r"\n  margin-bottom: (\d+)px;", card).group(1))
+    table_js = (ROOT / "web" / "app" / "components" / "table.js").read_text(encoding="utf-8")
+    pitch = int(re.search(r"export const CARD_HEIGHT_PX = (\d+);", table_js).group(1))
+    assert height + margin == pitch, (height, margin, pitch)
     # DEF-13: compare better mark uses --text-success; matrix scale tick has stroke halo
     assert "color: var(--text-success)" in views_css
     assert "paint-order: stroke;" in views_css

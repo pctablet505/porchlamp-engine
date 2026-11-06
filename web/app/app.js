@@ -314,7 +314,7 @@ export function boot(win = window, doc = document) {
   function buildFooterOnce() {
     if (!chromeDrawn) footer.innerHTML = renderFooter(footerFieldsFor(store.getState()));
     if (!footer.querySelector?.("[data-keymap-open]")) {
-      const btnHtml = `<button type="button" class="icon-button keymap-trigger" data-keymap-open="true" aria-label="${escapeHtml(copy.KEYMAP_TITLE)} (?)">Shortcuts (?)</button>`;
+      const btnHtml = `<button type="button" class="icon-button keymap-trigger" data-keymap-open="true">${escapeHtml(copy.KEYMAP_TRIGGER_LABEL)}</button>`;
       if (typeof footer.insertAdjacentHTML === "function") {
         footer.insertAdjacentHTML("beforeend", btnHtml);
       } else if (typeof footer.innerHTML === "string") {
@@ -956,7 +956,6 @@ export function boot(win = window, doc = document) {
         return;
       }
       store.dispatch({ type: "REPO_DETAIL_OK", repo: key, data: result.data });
-      if (store.getState().repo === key) replaceUrl(store.getState());
     });
   }
 

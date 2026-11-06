@@ -33,7 +33,6 @@ export const NAV = Object.freeze(
 /** The nav entry of a page: a view's (`state.tab`; the leaderboard's two lists share one), or none. */
 export function navEntryFor(page) {
   if (page === "ranked" || page === "notranked") return "ranked";
-  if (page === "report") return "first-pull-requests";
   return NAV.some((entry) => entry.id === page) ? page : null;
 }
 

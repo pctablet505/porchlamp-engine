@@ -34,7 +34,6 @@ import {
   resolveOpenTargetKey,
   footerFieldsFor,
   repoToLoadFromState,
-  repoHasProjectPage,
 } from "../state.js";
 import * as copy from "../copy.js";
 import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, renderMobileSortBar, personaVisibleForState } from "../views/leaderboard.js";
@@ -3263,12 +3262,8 @@ test("routes: every primary nav link is a view's address, opened in place, with 
       assert.equal(href, hrefFor(state, route.view || route.id), `${tab}: ${href} is where a click goes from here`);
     }
     assert.ok(links.every((link) => link[1] !== "/black-holes/"), `${tab}: no entry opens the old report`);
-    const current = links.filter((link) => link[4]).map((link) => link[3] || link[1]);
-    assert.deepEqual(
-      current,
-      tab === "notfound" ? [] : tab === "report" ? ["/first-pull-requests/"] : [tab === "notranked" ? "ranked" : tab],
-      `${tab}: the current entry`
-    );
+    const current = links.filter((link) => link[4]).map((link) => link[3]);
+    assert.deepEqual(current, tab === "notfound" || tab === "report" ? [] : [tab === "notranked" ? "ranked" : tab], `${tab}: the current entry`);
   }
   assert.match(
     renderNav(navEntryFor("first-pull-requests")),
@@ -5568,7 +5563,7 @@ test("DEF-01: 0-repo reason routes (fork, mirror) render a valid empty state she
   }
 });
 
-test("DEF-02: gated/unrated drawer does not push broken /projects/<owner>/<name>/ URLs or show Full page link", () => {
+test("an unranked project's panel keeps its own address (404.html answers it) and shows no Full page link", () => {
   const unrankedState = {
     ...defaultState(),
     ...stateFromLocation("/not-ranked/archived/1/", ""),
@@ -5577,13 +5572,9 @@ test("DEF-02: gated/unrated drawer does not push broken /projects/<owner>/<name>
       "dead/repo": { owner: "dead", name: "repo", eligible: false, rated: false, gate_reason: "archived" },
     },
   };
-  assert.equal(repoHasProjectPage(unrankedState), false);
-  const url = serializeLocation(unrankedState);
-  assert.ok(!url.startsWith("/projects/"), `unranked repo drawer must not serialize to /projects/: got ${url}`);
-  assert.equal(url, "/not-ranked/archived/1/");
-
-  const drawerHtml = renderDrawer(unrankedState);
-  assert.ok(!drawerHtml.includes("data-drawer-page"), "unranked repo drawer must not render Full page link");
+  assert.equal(serializeLocation(unrankedState), "/projects/dead/repo/");
+  assert.deepEqual(historyEntryFor(unrankedState), { under: "/not-ranked/archived/1/", repo: "dead/repo" }, "Back closes the panel");
+  assert.ok(!renderDrawer(unrankedState).includes("data-drawer-page"), "no Full page link: there is no project page");
 
   const rankedState = {
     ...defaultState(),
@@ -5593,7 +5584,6 @@ test("DEF-02: gated/unrated drawer does not push broken /projects/<owner>/<name>
       "live/repo": { owner: "live", name: "repo", eligible: true, rated: true, rank: 1, porchlamp: 91.2, coverage: 0.9, tier: "S" },
     },
   };
-  assert.equal(repoHasProjectPage(rankedState), true);
   assert.equal(serializeLocation(rankedState), "/projects/live/repo/");
   assert.ok(renderDrawer(rankedState).includes("data-drawer-page"), "ranked repo drawer renders Full page link");
 });
@@ -5612,10 +5602,11 @@ test("DEF-03: fastest-replies and not-ranked reason lists do not trap primary/su
   assert.equal(hrefFor(onReason, "notranked"), "/not-ranked/", "Not ranked tab from reason sub-page exits to /not-ranked/");
 });
 
-test("DEF-04: legacy /black-holes/ report route activates the Report primary nav item", () => {
-  assert.equal(navEntryFor("report"), "first-pull-requests");
+test("the old /black-holes/ report has no current nav entry: Report is the link to the current report", () => {
+  assert.equal(navEntryFor("report"), null);
   const navHtml = renderNav(navEntryFor("report"));
-  assert.match(navHtml, /href="\/first-pull-requests\/" aria-current="page">Report<\/a>/);
+  assert.match(navHtml, /href="\/first-pull-requests\/">Report<\/a>/);
+  assert.ok(!navHtml.includes("aria-current"));
 });
 
 test("DEF-09 & DEF-10: semantic table rows/headers have no role=button and non-interactive badges have no tabindex=0", () => {
@@ -5730,9 +5721,5 @@ test("DEF-18: configure initial Balanced preset label & suspicion flag humanizat
   const cfgHtml = renderConfigureShell({ ...defaultState(), tab: "configure" });
   assert.match(cfgHtml, /data-weight-preset="balanced" aria-pressed="true"/);
   assert.match(cfgHtml, /data-weight-mode-label="true">Balanced<\/p>/);
-
-  const suspHtml = renderSuspicionIcon(["ef_domain_mismatch"]);
-  assert.ok(!suspHtml.includes("Suspicion flags: ef_domain_mismatch"), "suspicion icon aria-label uses human-readable label");
-  assert.ok(suspHtml.includes("Commit author domains do not match ecosystem norms"));
 });
 

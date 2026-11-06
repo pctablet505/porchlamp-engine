@@ -431,39 +431,13 @@ export function parseLocation(pathname, search = "") {
 }
 
 /**
- * True when `state.repo` has a generated static `/projects/<owner>/<name>/` page (i.e. it is a ranked repository,
- * not opened from the Not ranked view and not known to be gated or unrated).
- */
-export function repoHasProjectPage(state) {
-  const panel = projectOf(state && state.repo);
-  if (!panel) return false;
-  if (state.notRankedReason) return false;
-  const key = `${panel.owner}/${panel.name}`;
-  const detailMap = state.repoDetailByKey || {};
-  const detail = detailMap[key] || detailMap[state.repo] || Object.entries(detailMap).find(([k]) => k.toLowerCase() === key.toLowerCase())?.[1];
-  if (detail) return Boolean(detail.eligible && detail.rated);
-  if (state.notRanked) {
-    const lowerKey = key.toLowerCase();
-    const inUnranked = [...(state.notRanked.gated || []), ...(state.notRanked.unrated || [])].some(
-      (r) => `${r.owner}/${r.name}`.toLowerCase() === lowerKey
-    );
-    if (inUnranked) return false;
-  }
-  if (state.compareReposByKey) {
-    const compareEntry = state.compareReposByKey[key] || state.compareReposByKey[state.repo];
-    if (compareEntry && compareEntry.data) return compareEntry.data.kind === "rated";
-  }
-  return true;
-}
-
-/**
  * The address of a state: an open panel's project address (with the persona when the view under it reads one),
  * else the address of its view's route (`routeForState`): the path, then the query fields that route reads, each
  * only when it is off the route's default. The "notfound" view keeps the address it answers.
  */
 export function serializeLocation(state) {
   const panel = projectOf(state.repo);
-  if (panel && repoHasProjectPage(state)) {
+  if (panel) {
     const under = routeById(state.tab) || routeById("ranked");
     const keys = routeById("project").query.filter((key) => under.query.includes(key));
     return projectPath(panel.owner, panel.name) + serializeQuery(state, keys);
@@ -500,7 +474,7 @@ function listAddress(fields) {
  * there is nothing to keep.
  */
 export function historyEntryFor(state) {
-  return projectOf(state.repo) && repoHasProjectPage(state) ? { under: serializeLocation({ ...state, repo: null }), repo: state.repo } : null;
+  return projectOf(state.repo) ? { under: serializeLocation({ ...state, repo: null }), repo: state.repo } : null;
 }
 
 /**

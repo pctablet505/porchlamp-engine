@@ -213,12 +213,11 @@ input.control::placeholder {
 /* Seven entries fit a tablet with tighter tabs; under the phone width the strip scrolls with its fade. */
 @media (max-width: 859px) {
   .primary-tabs {
-    gap: 2px;
+    gap: var(--space-2xs);
   }
 
   .primary-tab {
-    padding: var(--space-sm) 6px;
-    font-size: var(--text-caption);
+    padding: var(--space-sm);
   }
 }
 
@@ -836,11 +835,10 @@ input.control::placeholder {
 }
 
 .leaderboard-card {
-  min-height: 120px;
-  height: auto;
+  height: 180px;
   box-sizing: border-box;
   overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 12px; /* 180 + 12 = components/table.js CARD_HEIGHT_PX (192), the list's windowing pitch */
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
@@ -1139,6 +1137,13 @@ input.control::placeholder {
 
 .keymap-overlay [data-keymap-close] {
   margin-top: var(--space-md);
+}
+
+/* The footer's shortcuts button is for a keyboard: a touch screen has none to press. */
+@media (hover: none) and (pointer: coarse) {
+  .keymap-trigger {
+    display: none;
+  }
 }
 
 /* ---- Drawer ---- */

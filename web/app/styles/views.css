@@ -698,12 +698,20 @@
   }
 }
 
+/* Wide viewports (>= 1024px): keep overflow-x visible so the window is the
+ * scroll container and `.leaderboard-table thead th` sticks below the nav
+ * (the layout stacks below 1600px, so the table has the full width there).
+ * Narrow viewports (< 1024px): scroll horizontally in its own box and disable
+ * sticky thead offset inside the non-vertically-scrolling box. */
 .configure-table-col {
   min-width: 0;
-  overflow-x: auto;
 }
 
 @media (max-width: 1023px) {
+  .configure-table-col {
+    overflow-x: auto;
+  }
+
   .configure-table-col .leaderboard-table thead th {
     position: static;
   }
