@@ -313,6 +313,14 @@ export function boot(win = window, doc = document) {
 
   function buildFooterOnce() {
     if (!chromeDrawn) footer.innerHTML = renderFooter(footerFieldsFor(store.getState()));
+    if (!footer.querySelector?.("[data-keymap-open]")) {
+      const btnHtml = `<button type="button" class="icon-button keymap-trigger" data-keymap-open="true" aria-label="${escapeHtml(copy.KEYMAP_TITLE)} (?)">Shortcuts (?)</button>`;
+      if (typeof footer.insertAdjacentHTML === "function") {
+        footer.insertAdjacentHTML("beforeend", btnHtml);
+      } else if (typeof footer.innerHTML === "string") {
+        footer.innerHTML += btnHtml;
+      }
+    }
   }
 
   /**
@@ -1485,10 +1493,12 @@ export function boot(win = window, doc = document) {
     navigateTo(`${url.pathname}${url.search}`);
   }, listenerOpts());
 
-  // The footer's retry button (shown only while snapshotError is set).
+  // The footer's retry button (shown only while snapshotError is set) and keyboard shortcuts trigger.
   footer.addEventListener("click", (evt) => {
     if (evt.target.closest("[data-footer-retry]")) {
       loadSnapshot();
+    } else if (evt.target.closest("[data-keymap-open]")) {
+      store.dispatch({ type: "TOGGLE_KEYMAP" });
     }
   });
 
