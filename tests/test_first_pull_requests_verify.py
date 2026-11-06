@@ -150,3 +150,18 @@ def test_a_missing_page_is_an_error_and_not_a_crash(tmp_path: Path) -> None:
     stats_path, as_of, target = build(site)
     shutil.rmtree(target.parent)
     assert any("is missing" in error for error in errors_of(site, stats_path, as_of))
+
+
+def test_the_chrome_check_expects_the_nav_entry_the_export_draws(tmp_path: Path) -> None:
+    """The site check's table of pages must give the report and the lookup the nav entry the export draws for them: a
+    stale entry fails every published site at its last step."""
+    site = tmp_path / "site"
+    build(site)
+    export_static = verify._export_static()
+    record = json.loads((site / "data" / SID / page_module.DATA_FILE).read_text(encoding="utf-8"))
+    drawn = {
+        "first-pull-requests/index.html": export_static._write_first_pull_requests_page(tmp_path / "drawn", record, exported_on=date(2026, 11, 2))["nav"],
+        "lookup/index.html": export_static._write_lookup_page(tmp_path / "drawn")["nav"],
+    }
+    kinds = verify._page_kinds(site, SID)
+    assert {rel: kinds[rel]["nav"] for rel in drawn} == drawn

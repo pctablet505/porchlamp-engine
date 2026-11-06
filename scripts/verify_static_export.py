@@ -1445,7 +1445,7 @@ def _page_kinds(site: Path, snapshot_id: str) -> dict[str, dict]:
         if rel.startswith("projects/"):
             pages[rel] = {"nav": None, "kind": "project"}
         elif rel == "first-pull-requests/index.html":
-            pages[rel] = {"nav": None, "kind": "first_pull_requests"}
+            pages[rel] = {"nav": "first-pull-requests", "kind": "first_pull_requests"}
         elif rel == "lookup/index.html":
             pages[rel] = {"nav": "lookup", "kind": "lookup"}
         elif rel == "check/index.html":
