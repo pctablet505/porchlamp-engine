@@ -27,11 +27,12 @@ from pathlib import Path
 from typing import Any
 
 from porchlamp.audit.methodology_history import methodology_with_history
+from porchlamp.store.queries import reproduce_command
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CHANGELOG = REPO_ROOT / "docs" / "v2" / "rfcs" / "CHANGELOG.md"
 DEFAULT_OUT = REPO_ROOT / "docs" / "METHODOLOGY-v2.md"
-REPRODUCE_COMMAND_TEMPLATE = "porchlamp reproduce <snapshot dir>"
+REPRODUCE_COMMAND_TEMPLATE = reproduce_command("<snapshot-id>")  # the API's own command, with a placeholder id
 
 
 def _cell(text: Any) -> str:

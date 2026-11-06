@@ -8,6 +8,7 @@ a package, so its modules are loaded by file location rather than import.
 from __future__ import annotations
 
 import importlib.util
+import shlex
 import sys
 from pathlib import Path
 
@@ -46,11 +47,25 @@ def test_render_is_deterministic() -> None:
     )
 
 
-def test_render_contains_the_reproduce_command_template() -> None:
-    document = render_methodology.methodology_with_history(CHANGELOG)
-    rendered = render_methodology.render_markdown(document)
-    assert render_methodology.REPRODUCE_COMMAND_TEMPLATE in rendered
-    assert "porchlamp reproduce <snapshot dir>" in rendered
+def test_doc_reproduce_command_is_the_apis_and_the_snapshot_cli_accepts_it() -> None:
+    """The command under "Reproducing a snapshot" is the one the API serves
+    (`queries.reproduce_command`, which `snapshot_summary` uses), and it runs:
+    `python -m porchlamp.snapshot` exists and its own parser reads the rest as
+    the `reproduce` subcommand with the snapshot id. `pyproject.toml` declares
+    no console scripts, so a bare `porchlamp ...` command would not run."""
+    from porchlamp.snapshot import cli
+    from porchlamp.store import queries
+
+    committed = COMMITTED.read_text(encoding="utf-8")
+    section = committed.split("## Reproducing a snapshot\n\n```\n", 1)[1]
+    command = section.split("\n```", 1)[0]
+    assert command == queries.reproduce_command("<snapshot-id>")
+
+    argv = shlex.split(command)
+    assert argv[:3] == ["python", "-m", "porchlamp.snapshot"]
+    assert importlib.util.find_spec("porchlamp.snapshot.__main__") is not None
+    args = cli._parser().parse_args(argv[3:])
+    assert (args.command, args.snapshot_id) == ("reproduce", "<snapshot-id>")
 
 
 def test_render_links_the_rfc_procedure() -> None:

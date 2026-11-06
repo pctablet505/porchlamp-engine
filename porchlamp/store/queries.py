@@ -694,6 +694,15 @@ def list_not_ranked(
     return all_rows[offset : offset + limit], counts, len(all_rows)
 
 
+def reproduce_command(snapshot_id: str) -> str:
+    """The command that rebuilds snapshot ``snapshot_id`` from raw and compares its dump hash:
+    the invocation in ``porchlamp/snapshot/cli.py``'s own module docstring (``porchlamp/cli.py``,
+    the unified CLI, does not exist yet). :func:`snapshot_summary` and
+    ``scripts/render_methodology.py`` both print it from here, so the API and
+    ``docs/METHODOLOGY-v2.md`` cannot name different commands."""
+    return f"python -m porchlamp.snapshot reproduce {snapshot_id}"
+
+
 def snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> Optional[Dict[str, Any]]:
     """`04` section 7 / `06` section 3 F: the ``GET /v1/porchlamp/snapshot``
     manifest summary. ``None`` if ``snapshot_id`` does not exist.
@@ -727,9 +736,7 @@ def snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> Optional[Dic
     04 section 3; a flag this snapshot never raised simply does not
     appear, which is a correct summary of the DATA, not a stale catalogue).
 
-    ``reproduce_command``: the exact invocation named in
-    ``porchlamp/snapshot/cli.py``'s own module docstring, filled in with this
-    snapshot's id.
+    ``reproduce_command``: :func:`reproduce_command` for this snapshot's id.
     """
     snap_row = conn.execute("SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)).fetchone()
     if snap_row is None:
@@ -780,7 +787,7 @@ def snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> Optional[Dic
         "counts": {"rated": rated, "gated": gated, "unrated": unrated, "total": total},
         "persona_visible_counts": persona_visible_counts,
         "detector_summary": detector_summary,
-        "reproduce_command": f"python -m porchlamp.snapshot reproduce {snapshot_id}",
+        "reproduce_command": reproduce_command(snapshot_id),
     }
 
 
