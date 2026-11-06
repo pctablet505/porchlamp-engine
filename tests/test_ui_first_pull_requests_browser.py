@@ -156,6 +156,13 @@ const tiles = doc.querySelector('.fpr-tiles').getBoundingClientRect();
 return { chartTop: chart.top, chartBottom: chart.bottom, tilesTop: tiles.top, screen: win.innerHeight };
 """
 
+_NAV_CURRENT = _READY + """
+const current = [...doc.querySelectorAll('.primary-tab[aria-current="page"]')].map((a) => [a.getAttribute('href'), a.textContent]);
+const report = [...doc.querySelectorAll('.primary-tab')].filter((a) => a.textContent === 'Report').map((a) => a.getAttribute('href'));
+const footer = [...doc.querySelectorAll('#app-footer a')].map((a) => a.getAttribute('href'));
+return { current, report, footer };
+"""
+
 _OVERFLOW = """
 await until(() => doc.querySelector('.report-page'), 15000);
 await sleep(150);
@@ -232,6 +239,7 @@ def measured(tmp_path_factory):
         {"name": "slider", "path": REPORT, **DESKTOP, "script": _SLIDER},
         {"name": "pair", "path": REPORT, **DESKTOP, "script": _PAIR},
         {"name": "first-screen", "path": REPORT, **DESKTOP, "script": _FIRST_SCREEN},
+        {"name": "nav-current", "path": REPORT, **DESKTOP, "script": _NAV_CURRENT},
         {"name": "long-login", "path": LOOKUP, "width": 320, "height": 640, "script": _LOOKUP_RUN % json.dumps("a" * 39)},
         {"name": "keyboard-up", "path": LOOKUP, "width": 375, "height": 430, "script": _LOOKUP_RUN % json.dumps("ann")},
     ]
@@ -303,6 +311,13 @@ def test_the_first_chart_is_on_the_first_screen_and_the_tiles_come_after_it(meas
     row = measured["first-screen"]
     assert row["chartBottom"] <= row["screen"], row
     assert row["tilesTop"] > row["chartBottom"], row
+
+
+def test_the_report_tab_opens_this_report_and_is_marked_current_here(measured):
+    row = measured["nav-current"]
+    assert row["current"] == [["/first-pull-requests/", "Report"]], row
+    assert row["report"] == ["/first-pull-requests/"], row
+    assert "/black-holes/" not in row["footer"] and row["footer"].count("/first-pull-requests/") == 1, row
 
 
 def test_the_longest_github_username_keeps_the_page_a_phone_wide(measured):

@@ -55,7 +55,9 @@ def test_the_generated_home_is_verified_and_reads_without_javascript(built, repo
     # what a reader without JavaScript gets: the finding, the first page of rows, and the ten landing pages by address
     shown = visible_text(text)
     values = report_record["values"]
-    assert f"More than 1 in {values['one_in']} active projects" in shown
+    assert report_pages.copy_js_string("FINDINGS_LINE") in shown
+    assert "More than 1 in" not in shown and 'href="/black-holes/"' not in text
+    assert re.search(r'<a href="/first-pull-requests/"[^>]*>Read the report</a>', text)
     assert len(verify_static_export.keyed_items(text, "tr")) == home_pages.TOP_ROWS
     links = re.findall(r'href="([^"]*)"', text)
     assert all(path in links for path in LANDING_PATHS), [p for p in LANDING_PATHS if p not in links]
@@ -116,7 +118,7 @@ def test_no_number_is_typed_into_the_home_template_or_the_finding_lines():
     # the check can fail: a planted count in the description, a planted share in the line
     planted = template.replace('content="Porchlamp measures open-source', 'content="Porchlamp measures 11,000 open-source', 1)
     assert planted != template and number_literals(visible_text(planted)) == ["1", "1", "0", "0", "0"]
-    assert number_literals(report_pages.copy_js_string("FINDINGS_LINE").replace("{one_in}", "6", 1)) == ["1", "6"]
+    assert number_literals(report_pages.copy_js_string("FINDINGS_LINE").replace("most open source", "79% of open source", 1)) == ["7", "9"]
     assert number_literals(report_pages.copy_js_string("WHY_FINDING_TEMPLATE").replace("{deadline_days}", "14", 1)) == ["1", "4"]
 
 
@@ -158,10 +160,14 @@ def test_an_address_in_a_generated_file_that_the_export_lacks_is_named(built, re
 def test_a_wrong_finding_or_a_missing_row_on_the_home_is_named(built, report_record, tmp_path):
     site, db, *_ = built
     copy_dir = _copy_site(site, tmp_path)
-    one_in = report_record["values"]["one_in"]
-    _plant(copy_dir, "index.html", f'<span data-v="one_in">{one_in}</span>', f'<span data-v="one_in">{int(one_in) + 1}</span>')
+    _plant(copy_dir, "index.html", "one person gives most of the first answers.</span>", "one person gives all of the first answers.</span>")
     errors = _verify(db, copy_dir, report_record)["errors"]
-    assert any("home findings line" in e and "'one_in'" in e for e in errors), errors[:3]
+    assert any("home findings line" in e for e in errors), errors[:3]
+
+    copy_dir = _copy_site(site, tmp_path / "report-link")
+    _plant(copy_dir, "index.html", 'href="/first-pull-requests/" class="onboarding-link"', 'href="/black-holes/" class="onboarding-link"')
+    errors = _verify(db, copy_dir, report_record)["errors"]
+    assert any("home findings line links" in e for e in errors), errors[:3]
 
     copy_dir = _copy_site(site, tmp_path / "rows")
     text = (copy_dir / "index.html").read_text(encoding="utf-8")

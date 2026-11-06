@@ -601,7 +601,7 @@ def _write_first_pull_requests_page(out: Path, record: dict, *, exported_on: dat
     target = out / fpr_page.PATH.strip("/")
     target.mkdir(parents=True, exist_ok=True)
     (target / "index.html").write_text(fpr_page.report_page(record, exported_on=exported_on), encoding="utf-8")
-    return {"path": f"{fpr_page.PATH.strip('/')}/index.html", "nav": None, "draw": "first-pull-requests"}
+    return {"path": f"{fpr_page.PATH.strip('/')}/index.html", "nav": "first-pull-requests", "draw": "first-pull-requests"}
 
 
 def _write_lookup_page(out: Path) -> dict:
