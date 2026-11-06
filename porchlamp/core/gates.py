@@ -912,15 +912,16 @@ def is_excluded_from_review_denominator(
         )
         if (
             latest_close_event is not None
-            and is_currently_closed
             and not pr.get("mergedAt")
             and not closed_by_author
             and closed_by_maint_at is None
         ):
             actor = latest_close_event.get("actor")
             actor_login = _node_login(actor)
+            # A pull request its author closed and then reopened is open, not closed by its author; a maintainer's
+            # close answered the pull request even when someone reopened it later.
             if actor_login and actor_login == author_login:
-                closed_by_author = True
+                closed_by_author = is_currently_closed
             elif actor_login and not is_bot_actor_node(actor):
                 ev_created = latest_close_event.get("createdAt")
                 closed_by_maint_at = (

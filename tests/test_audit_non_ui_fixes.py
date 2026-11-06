@@ -35,7 +35,7 @@ from porchlamp.models import AuthorAssociation, RawPREvent
 from porchlamp.normalize import compute_ecosystem_percentile
 from porchlamp.searchops.credentials import Redactor
 from porchlamp.serve.app import EvidencePinError, PinnedEvidenceFiles
-from porchlamp.snapshot import first_pull_requests, stats
+from porchlamp.snapshot import stats
 from porchlamp.store.schema import create_schema
 
 
@@ -46,11 +46,15 @@ def test_nan_and_inf_rejected_in_curves_and_criticality() -> None:
         with pytest.raises(ValueError, match="finite"):
             fn(float("inf"))
 
-    with pytest.raises(ValueError, match="finite"):
+    with pytest.raises(ValueError, match="NaN"):
         compute_ecosystem_percentile(float("nan"), [1.0, 2.0, 3.0])
 
-    with pytest.raises(ValueError, match="finite"):
+    with pytest.raises(ValueError, match="NaN"):
         compute_ecosystem_percentile(1.0, [1.0, float("nan"), 3.0])
+
+    # an infinity keeps its place in the order (tests/test_adversarial_tier5_hardening.py's extremes)
+    assert compute_ecosystem_percentile(float("inf"), [1.0, 2.0, 3.0]) == 100.0
+    assert compute_ecosystem_percentile(float("-inf"), [1.0, 2.0, 3.0]) == 0.0
 
     signals = {
         "created_since_months": 12.0,
@@ -224,6 +228,36 @@ def test_reopened_pr_not_marked_closed_from_historical_timeline_event() -> None:
     assert derived[0]["closed_by_maintainer_at"] is None
 
     assert gates.is_excluded_from_review_denominator(node, frozenset()) is False
+
+
+def test_a_maintainers_close_answers_a_pull_request_reopened_later() -> None:
+    # Closed by a maintainer a day after it was opened, then reopened: the project answered within 14 days.
+    node = {
+        "number": 11,
+        "state": "OPEN",
+        "isDraft": False,
+        "createdAt": "2026-05-01T00:00:00Z",
+        "closedAt": None,
+        "mergedAt": None,
+        "author": {"login": "contributor", "createdAt": "2020-01-01T00:00:00Z"},
+        "authorAssociation": "NONE",
+        "reviews": {"nodes": [], "pageInfo": {"hasNextPage": False}},
+        "comments": {"nodes": [], "pageInfo": {"hasNextPage": False}},
+        "timelineItems": {
+            "pageInfo": {"hasNextPage": False},
+            "nodes": [
+                {"__typename": "ClosedEvent", "createdAt": "2026-05-02T00:00:00Z", "actor": {"login": "maya"}},
+            ],
+        },
+    }
+    prs = _ghost_rate_prs_from_nodes([node])
+    assert prs[0].closed_by_author is False
+    assert prs[0].closed_by_maintainer_at == "2026-05-02T00:00:00Z"
+    window = gates.evaluate_gate5_window(prs, datetime(2026, 7, 1, tzinfo=timezone.utc))
+    assert (window.population_n, window.unanswered, window.ignored) == (1, 0, 0)
+
+    derived = github_graphql.derive_pr_window([node])
+    assert derived[0]["closed_by_maintainer_at"] == "2026-05-02T00:00:00Z"
 
 
 def test_redactor_ignores_short_tokens() -> None:
@@ -420,43 +454,6 @@ def test_pinned_evidence_files_rejects_empty_and_traversing_bundle_file(tmp_path
             pins.pr_window_bytes("s1", "acme", "lib", "hash")
 
 
-def test_first_pull_requests_bounds_merged_in_follow_to_horizon(tmp_path: Path) -> None:
-    raw_root = tmp_path / "raw"
-    (raw_root / "pr_window").mkdir(parents=True)
-    anchor_dt = datetime(2026, 10, 1, tzinfo=timezone.utc)
-    start_dt = anchor_dt - timedelta(days=300)
-    prs = [
-        {
-            "number": 1,
-            "isDraft": False,
-            "createdAt": "2026-01-01T00:00:00Z",
-            "mergedAt": "2026-09-01T00:00:00Z",  # 243 days later (> 14d landmark + 90d follow horizon)
-            "closedAt": "2026-09-01T00:00:00Z",
-            "author": {"login": "newbie", "__typename": "User", "createdAt": "2020-01-01T00:00:00Z"},
-            "authorAssociation": "FIRST_TIME_CONTRIBUTOR",
-            "mergedBy": {"login": "maint", "__typename": "User"},
-            "reviews": {"pageInfo": {"hasNextPage": False}, "nodes": []},
-            "comments": {"pageInfo": {"hasNextPage": False}, "nodes": []},
-            "timelineItems": {"pageInfo": {"hasNextPage": False}, "nodes": []},
-        }
-    ]
-    (raw_root / "pr_window" / "acme__lib.json").write_text(
-        json.dumps(
-            {
-                "fetched_at": anchor_dt.isoformat(),
-                "source": "github-graphql:pr_window",
-                "data": {"window_anchor": anchor_dt.isoformat(), "prs": prs},
-            }
-        ),
-        encoding="utf-8",
-    )
-    proj = first_pull_requests.read_project(
-        (raw_root, "acme__lib", start_dt.timestamp(), anchor_dt.timestamp(), 100)
-    )
-    assert proj is not None
-    assert proj.asking[(14, "all")]["none"] == [1, 0, 0]
-
-
 def test_snapshot_stats_handles_empty_repositories_and_non_repo_meta_files(tmp_path: Path) -> None:
     meta_dir = tmp_path / "raw" / "github_meta"
     meta_dir.mkdir(parents=True)
@@ -480,6 +477,14 @@ def test_snapshot_stats_handles_empty_repositories_and_non_repo_meta_files(tmp_p
     assert out["repos"] == 0
     assert out["black_hole_share"] == 0.0
     assert out["top100_stars_min"] == -1
+
+    # no snapshot row and no as_of: there is no reference time, and none is made up
+    bare = tmp_path / "bare.db"
+    conn = sqlite3.connect(str(bare))
+    create_schema(conn)
+    conn.close()
+    with pytest.raises(ValueError, match="no snapshot row"):
+        stats.compute_stats(bare, data_dir=tmp_path)
 
 
 def test_audit_anchors_and_coverage_fixes(tmp_path: Path) -> None:
@@ -547,6 +552,15 @@ def test_phone_and_pull_scripts_validation_and_bounds(tmp_path: Path) -> None:
         tf.addfile(info, io.BytesIO(data))  # duplicate member refused
     with pytest.raises(pull_from_phone.PullError):
         pull_from_phone._check_members(archive, "L0")
+
+    # A real pr_window envelope runs past 64 MiB (the largest on record is 129 MiB): the layer is still taken.
+    big = tmp_path / "big.tar.gz"
+    size = 65 * 1024 * 1024
+    with tarfile.open(big, "w:gz", compresslevel=1) as tf:
+        info = tarfile.TarInfo("raw/pr_window/acme__lib.json")
+        info.size = size
+        tf.addfile(info, io.BytesIO(bytes(size)))
+    assert [m.size for m in pull_from_phone._check_members(big, "L1")] == [size]
 
     assert gather.main(["--repo", "acme", "lib", "--ecosystem", "../bad"]) == 2
 

@@ -20,11 +20,12 @@ def compute_ecosystem_percentile(
 
     An empty population returns the neutral median fallback of 50.0.
     """
-    if not math.isfinite(float(target_value)):
-        raise ValueError(f"target_value must be finite, got {target_value!r}")
+    # NaN compares false with everything, so it would read as the bottom; an infinity has a place in the order.
+    if math.isnan(float(target_value)):
+        raise ValueError("target_value is NaN")
     values = [float(x) for x in population]
-    if any(not math.isfinite(x) for x in values):
-        raise ValueError("population values must be finite")
+    if any(math.isnan(x) for x in values):
+        raise ValueError("population values include NaN")
     if not values:
         return 50.0
     count_below_or_equal = sum(1 for x in values if x <= target_value)

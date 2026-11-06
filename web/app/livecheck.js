@@ -349,7 +349,7 @@ export function evaluateLiveGates(facts, now) {
   // which record and inspect `author_login` only (unlinked commits have login "").
   if (!commits) checks.push({ id: "D-GATE-4", status: "undecided", reason: "commits_unreadable", detail: {} });
   else {
-    const human = commits.rows.filter((c) => !isBotActor({ login: c.login, type: c.type })).length;
+    const human = commits.rows.filter((c) => !isBotActor({ login: c.login })).length;
     if (human > 0) {
       checks.push({ id: "D-GATE-4", status: "pass", reason: "human_commits", detail: { count: human, more: !commits.complete, days: VITALITY_WINDOW_DAYS } });
     } else if (commits.complete) {

@@ -431,8 +431,9 @@ function reprojectAll(base, weights) {
       cov += w[i] * (c === null ? 0 : c);
     }
     const composite = den === 0 ? null : num / den;
-    // queries.reproject: MIN(1.0, ...). Products added left to right over the compensated total can come to 1.0000000000000002.
-    const coverage = Math.min(1, cov / totalWeight);
+    // queries.reproject: MIN(1.0, ROUND(..., RATIO_DECIMALS)). Products added left to right over the compensated total can
+    // come to 1.0000000000000002, or to 0.5999999999999999 for a coverage that is 0.6 and must clear the floor.
+    const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));
     if (composite === null || !(coverage >= base.rated_min_coverage)) continue;
     // D-EVID-1's required pillars (RFC-0024), measured as the composite terms above read it.
     const required = base.evidence_required_pillars.every((p) => row[`c_${p}`] !== null && row[`c_${p}`] > 0 && row[`p_${p}`] !== null);

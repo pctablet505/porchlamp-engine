@@ -26,6 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from phone.archive import LAYERS, MAIN_LAYERS
 from phone.auth import MAC_HEADER, NONCE_HEADER, sign_request, verify_response
+# The drop's caps, measured on the phone's own data (the largest envelope 129 MiB, the pr_window layer 10.2 GiB):
+# a layer pulled over the LAN is the same archive.
+from scripts.pull_from_drop import MAX_LAYER_FILES, MAX_LAYER_UNCOMPRESSED_BYTES, MAX_MEMBER_BYTES
 
 CHUNK = 1 << 20
 TIMEOUT_S = 60
@@ -125,9 +128,6 @@ def _check_members(archive: Path, layer: str) -> list[tarfile.TarInfo]:
     """Every member must be a regular ``raw/<collector>/<name>.json`` of this layer; otherwise exit 4."""
     members = []
     seen_names: set[str] = set()
-    max_member_bytes = 64 * 1024 * 1024
-    max_total_bytes = 8 * 1024 * 1024 * 1024
-    max_layer_files = 200_000
     total_bytes = 0
     with tarfile.open(archive, "r:gz") as tar:
         for info in tar:
@@ -135,9 +135,9 @@ def _check_members(archive: Path, layer: str) -> list[tarfile.TarInfo]:
             total_bytes += max(0, info.size)
             ok = (
                 info.isreg()
-                and 0 <= info.size <= max_member_bytes
-                and total_bytes <= max_total_bytes
-                and len(members) < max_layer_files
+                and 0 <= info.size <= MAX_MEMBER_BYTES
+                and total_bytes <= MAX_LAYER_UNCOMPRESSED_BYTES
+                and len(members) < MAX_LAYER_FILES
                 and info.name not in seen_names
                 and len(parts) == 3
                 and parts[0] == "raw"
