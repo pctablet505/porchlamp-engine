@@ -23,7 +23,7 @@ jobs:
         run: pip install "pytest==9.1.1" "pytest-xdist==3.8.0" "fastapi==0.141.1" "httpx==0.28.1" "ruff==0.16.7" "pyyaml==6.0.3" "uvicorn==0.52.4"
 
       - name: "Lint (gate 1, ratchet: must stay clean)"
-        run: ruff check porchlamp/ scripts/ tests/
+        run: ruff check porchlamp/ phone/ scripts/ tests/
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -42,7 +42,7 @@ jobs:
           # by 2. A local run and the standalone node step above (factor unset) enforce
           # the real numbers.
           PORCHLAMP_PERF_HOST_FACTOR: "2"
-        run: env -u PYTEST_ADDOPTS python -m pytest tests/ -n auto -p no:cacheprovider
+        run: env -u PYTEST_ADDOPTS python -m pytest tests/ -n auto --maxprocesses=16 -p no:cacheprovider
 
       - name: Anchors, sensitivity, reproduce (fixture snapshot)
         run: >

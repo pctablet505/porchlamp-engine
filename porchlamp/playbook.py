@@ -142,7 +142,7 @@ def generate_maintainer_playbook(
         current_tier = scored.rank_tier.value
         current_quadrant = scored.matrix_quadrant.value
         if scored.is_stage0_disqualified:
-            if scored.stage0.is_black_hole:
+            if scored.stage0 is not None and scored.stage0.is_black_hole:
                 is_black_hole = True
             base_pillars = normal_pillars if is_black_hole else PillarScores(0.0, 0.0, 0.0, 0.0, 0.0)
         else:

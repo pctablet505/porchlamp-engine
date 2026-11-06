@@ -457,8 +457,8 @@ class Engine:
             self.gate.stop()
             self._cancel.set()
         self.lan.stop_server()
-        for thread in (self._collector, self._upload_worker):
-            if thread is not None and thread.is_alive():
+        for thread in (self._collector, self._upload_worker, self._monitor, self._token_worker):
+            if thread is not None and thread.is_alive() and thread is not threading.current_thread():
                 thread.join(timeout=5)
         self.stats.flush()
         if ghcli.on_event == self._gh_event:

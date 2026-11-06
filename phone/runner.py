@@ -704,8 +704,9 @@ def refresh_stale_anchors(
     except (Exception, SystemExit):
         log("anchor refresh gave up; every record it did not fetch stays as it was")
         log(traceback.format_exc())
-    if state is not None:
-        state.refresh_deadline = None
+    finally:
+        if state is not None:
+            state.refresh_deadline = None
 
 
 def run_cycle(

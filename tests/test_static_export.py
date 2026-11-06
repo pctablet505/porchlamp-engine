@@ -46,7 +46,9 @@ _FIXTURE_CATCHES = (
     "ecosystem filter ignored",
     "repo looked up in the wrong bucket",
     "custom tie groups keep singletons",
-    "custom coverage not clamped to 1",
+    # The fixture's 1.0000000000000002 rounds to 1 at RATIO_DECIMALS, so the clamp's mutant has nothing to show here;
+    # the rounding's mutant shows the 0.9000000000000001 the API rounds away.
+    "custom coverage not rounded as the API rounds it",
 )
 
 

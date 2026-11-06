@@ -1077,7 +1077,7 @@ def reproject(
     # left to right here and divided by the compensated total below, which can come to 1.0000000000000002 (for
     # example weights 0.25, 0.05, 0.55, 0.05, 0.1). Coverage is a share, so it is clamped: the response model
     # refuses a value over 1, and ``web/static/api.js`` clamps the same way.
-    coverage_sql = f"MIN(1.0, (({' + '.join(cov_terms)}) / ?))"
+    coverage_sql = f"MIN(1.0, ROUND(({' + '.join(cov_terms)}) / ?, {RATIO_DECIMALS}))"
     cov_params.append(total_weight)
     proj_params = [*num_params, *den_params, *cov_params]
     # D-EVID-1's required pillars (RFC-0024), "measured" exactly as the composite terms above read it.

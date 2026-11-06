@@ -220,7 +220,7 @@ jobs:
           git -C porchlamp-site add -A
           git -C porchlamp-site commit -m "Publish snapshot ${SNAP_ID} (${REL_TAG})"
           git -C porchlamp-site -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push --force origin "HEAD:refs/heads/${BRANCH}"
-          if ! gh pr view "${BRANCH}" --repo "${SITE_REPO}" >/dev/null 2>&1; then
+          if [ "$(gh pr view "${BRANCH}" --repo "${SITE_REPO}" --json state -q .state 2>/dev/null || true)" != "OPEN" ]; then
             gh pr create \
               --repo "${SITE_REPO}" \
               --base main \

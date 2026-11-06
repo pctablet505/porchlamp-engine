@@ -258,8 +258,10 @@ class RepoEvidence:
         if isinstance(raw_events, list):
             return [event for event in raw_events if isinstance(event, dict)]
         raw_pr_win = self.envelope("pr_window")
-        if isinstance(raw_pr_win, dict) and isinstance(raw_pr_win.get("events"), list):
-            return [event for event in raw_pr_win["events"] if isinstance(event, dict)]
+        if isinstance(raw_pr_win, dict):
+            win_list = raw_pr_win.get("events") if isinstance(raw_pr_win.get("events"), list) else raw_pr_win.get("prs")
+            if isinstance(win_list, list):
+                return [event for event in win_list if isinstance(event, dict)]
         return []
 
     def latency_hours(self) -> List[float]:
@@ -743,7 +745,13 @@ def _repo_row(repo: RepoEvidence) -> RepoRow:
         issues_value is None or issues_value < BLACK_HOLE_DENOMINATOR
     )
     open_external = sum(
-        1 for record in records if repo.is_external(record) and not record.get("merged_at") and not record.get("closed_at")
+        1
+        for record in records
+        if repo.is_external(record)
+        and not record.get("merged_at")
+        and not record.get("mergedAt")
+        and not record.get("closed_at")
+        and not record.get("closedAt")
     )
     return RepoRow(
         repo=repo.repo,

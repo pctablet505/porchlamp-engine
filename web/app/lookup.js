@@ -88,8 +88,8 @@ export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}
   const repo = String(item.repository_url || "").split("/repos/")[1] || "";
   const base = { repo, number: item.number, title: String(item.title || ""), url: String(item.html_url || ""), group: !sentBefore && FIRST_ASSOCIATIONS.has(String(item.author_association || "").toUpperCase()) ? "first" : "returning" };
   let ready = null;
-  let closedByProject = null;
   let closedByAuthor = false;
+  const projectCloses = [];
   const answers = [];
   const authorComments = [];
   for (const event of events) {
@@ -108,7 +108,7 @@ export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}
       const login = String(actor.login || "").toLowerCase();
       closedByAuthor = login === author;
       if (login && login !== author && !isBotActor({ type: actor.type, login })) {
-        closedByProject = at;
+        projectCloses.push(at);
         answers.push(at);
       }
     }
@@ -118,6 +118,7 @@ export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}
   if (item.draft === true) return { ...base, status: item.state === "closed" ? "closed_quiet" : "draft", answerHours: null, silentDays: null, asked: false };
   const clock = ready === null ? created : Math.max(created, ready);
   const first = answers.filter((at) => at >= clock).sort((a, b) => a - b)[0];
+  const closedByProject = projectCloses.filter((at) => at >= clock).sort((a, b) => a - b)[0] ?? null;
   const answerHours = first === undefined ? null : (first - clock) / HOUR_MS;
   const asked = authorComments.some((c) => (c.at - clock) / HOUR_MS > ASK_AFTER_HOURS && commentKind(c.body) === "ask");
   let status;

@@ -73,16 +73,22 @@ class ParamDef:
 
 def fill_rate_score(rate: float) -> float:
     """The shared 02 section 4 rate curve: ``min(100, 125 * rate)``."""
-    return min(100.0, RATE_SLOPE * rate)
+    if not math.isfinite(float(rate)):
+        raise ValueError(f"rate must be finite, got {rate!r}")
+    return max(0.0, min(100.0, RATE_SLOPE * rate))
 
 
 def cohort_rate_score(rate: float) -> float:
     """The shared 02 section 4 cohort-rate curve: ``min(100, 200 * rate)``."""
-    return min(100.0, COHORT_RATE_SLOPE * rate)
+    if not math.isfinite(float(rate)):
+        raise ValueError(f"rate must be finite, got {rate!r}")
+    return max(0.0, min(100.0, COHORT_RATE_SLOPE * rate))
 
 
 def clamped_identity(value: float) -> float:
     """Identity clamped to [0, 100] (02 section 4: 4.1 and 5.4 composites)."""
+    if not math.isfinite(float(value)):
+        raise ValueError(f"value must be finite, got {value!r}")
     return max(0.0, min(100.0, value))
 
 
@@ -92,6 +98,8 @@ def reference_ecdf(value: float) -> float:
     Probe population for the D-PARAM-MONO check of the ECDF-normalised
     curves (1.5, 2.1, 2.3). Not a frozen v2 population: those are
     per-snapshot and per-ecosystem (D-NORM-2)."""
+    if not math.isfinite(float(value)):
+        raise ValueError(f"value must be finite, got {value!r}")
     below = sum(1 for s in _REFERENCE_SAMPLE if s < value)
     tied = sum(1 for s in _REFERENCE_SAMPLE if s == value)
     return 100.0 * (below + 0.5 * tied) / len(_REFERENCE_SAMPLE)

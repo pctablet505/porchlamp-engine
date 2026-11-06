@@ -599,6 +599,48 @@ class Maintainers(frozenset):
 
     automated: frozenset[tuple[str, str]] = frozenset()
 
+    def _merged_automated(self, other: object = None) -> frozenset[tuple[str, str]]:
+        other_auto = getattr(other, "automated", frozenset())
+        return self.automated | (other_auto if isinstance(other_auto, frozenset) else frozenset(other_auto))
+
+    def _with_automated(self, items: Iterable[str], other: object = None) -> "Maintainers":
+        result = Maintainers(items)
+        kept = set(result)
+        result.automated = frozenset(pair for pair in self._merged_automated(other) if pair[0] in kept)
+        return result
+
+    def __or__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__or__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __ror__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__ror__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __and__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__and__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __rand__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__rand__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __sub__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__sub__(other)  # type: ignore[arg-type]
+        return self._with_automated(res) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __rsub__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__rsub__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __xor__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__xor__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __rxor__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__rxor__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
 
 def maintainer_logins(prs: Iterable[object]) -> Maintainers:
     """D-IN-2: the accounts a recorded PR window shows holding access to the
@@ -862,6 +904,12 @@ def is_excluded_from_review_denominator(
                 latest_close_dt, latest_close_event = ev_dt, ev
         if ready_for_review_at is None and latest_ready_at is not None:
             ready_for_review_at = latest_ready_at
+        state_upper = str(pr.get("state") or "").upper()
+        is_currently_closed = (
+            state_upper == "CLOSED"
+            if state_upper
+            else (pr.get("closedAt") is not None)
+        )
         if (
             latest_close_event is not None
             and not pr.get("mergedAt")
@@ -870,8 +918,10 @@ def is_excluded_from_review_denominator(
         ):
             actor = latest_close_event.get("actor")
             actor_login = _node_login(actor)
+            # A pull request its author closed and then reopened is open, not closed by its author; a maintainer's
+            # close answered the pull request even when someone reopened it later.
             if actor_login and actor_login == author_login:
-                closed_by_author = True
+                closed_by_author = is_currently_closed
             elif actor_login and not is_bot_actor_node(actor):
                 ev_created = latest_close_event.get("createdAt")
                 closed_by_maint_at = (
@@ -1132,9 +1182,9 @@ def wilson_lower_bound_from_share(
 ) -> float:
     """Compute the one-sided Wilson lower confidence bound for a sample share.
 
-    Returns 0.0 when n <= 0 or p_hat <= 0.0. p_hat is clamped to [0.0, 1.0].
+    Returns 0.0 when n <= 0, p_hat <= 0.0, or inputs are non-finite. p_hat is clamped to [0.0, 1.0].
     """
-    if n <= 0 or p_hat <= 0.0:
+    if n <= 0 or not math.isfinite(float(p_hat)) or not math.isfinite(float(z)) or p_hat <= 0.0:
         return 0.0
     p = min(1.0, max(0.0, float(p_hat)))
     z2 = z * z
@@ -1512,6 +1562,7 @@ def evaluate_gates(
         or evidence.pr_window_complete is False
         or not isinstance(ghost, Measured)
         or ghost.n < GATE5_MIN_N
+        or (evidence.pr_ignored_n is not None and evidence.pr_ignored_n < GATE5_MIN_N)
     ):
         undecided.append(GATE_5)
     elif not rank_black_holes and _is_black_hole(evidence, ghost):

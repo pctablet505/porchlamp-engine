@@ -597,7 +597,12 @@ def pull_from_drop(
                 raise PullError(1, f"{layer}: malformed layer entry in manifest.json")
             completed_at = _clean_iso_timestamp(entry.get("completed_at"), f"{layer}.completed_at")
             marker = pulled_dir / f"{layer}.sha256"
-            if marker.exists() and marker.read_text(encoding="utf-8").strip() == entry.get("sha256"):
+            layer_dirs_present = any((dest / "raw" / c).is_dir() for c in LAYERS[layer])
+            if (
+                marker.exists()
+                and layer_dirs_present
+                and marker.read_text(encoding="utf-8").strip() == entry.get("sha256")
+            ):
                 _log(f"{layer}: unchanged")
                 continue
             arc_path = _download_layer_archive(safe_api, repo, token, layer, entry, assets, tmp_dir)
