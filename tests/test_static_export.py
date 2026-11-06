@@ -418,3 +418,13 @@ def test_the_verify_command_answers_the_grid_on_every_cpu(tmp_path, monkeypatch)
     (tmp_path / "site").mkdir()
     verify_static_export.main(["--db", str(tmp_path / "db.sqlite"), "--site", str(tmp_path / "site")])
     assert "workers" in seen and seen["workers"] is None
+
+
+def test_the_app_page_without_javascript_points_at_the_current_report():
+    """The app's page template, used for every view the app draws, tells a reader without JavaScript where the
+    rankings, the report and the methodology are: the report is the current one, not the older black-holes report."""
+    shell = export_static.APP_SHELL.read_text(encoding="utf-8")
+    fallback = re.search(r"<noscript>(.*?)</noscript>", shell, re.S)
+    assert fallback, "the template has its no-script line"
+    assert 'href="/first-pull-requests/">report</a>' in fallback.group(1)
+    assert "/black-holes/" not in fallback.group(1)
