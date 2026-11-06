@@ -427,7 +427,7 @@ class PinnedEvidenceFiles:
         bundle_rel = str(entry.get("bundle_file") or "")
         snapshot_root = self.snapshot_dir.resolve()
         bundle_path = (self.snapshot_dir / bundle_rel).resolve()
-        if not bundle_path.is_relative_to(snapshot_root):
+        if not bundle_rel or bundle_path == snapshot_root or not bundle_path.is_relative_to(snapshot_root):
             raise EvidencePinError(f"bundle_file {bundle_rel!r} escapes snapshot_dir")
         try:
             bundle = json.loads(bundle_path.read_text(encoding="utf-8"))

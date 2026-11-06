@@ -599,10 +599,14 @@ class Maintainers(frozenset):
 
     automated: frozenset[tuple[str, str]] = frozenset()
 
+    def _merged_automated(self, other: object = None) -> frozenset[tuple[str, str]]:
+        other_auto = getattr(other, "automated", frozenset())
+        return self.automated | (other_auto if isinstance(other_auto, frozenset) else frozenset(other_auto))
+
     def _with_automated(self, items: Iterable[str], other: object = None) -> "Maintainers":
         result = Maintainers(items)
-        other_auto = getattr(other, "automated", frozenset())
-        result.automated = self.automated | (other_auto if isinstance(other_auto, frozenset) else frozenset(other_auto))
+        kept = set(result)
+        result.automated = frozenset(pair for pair in self._merged_automated(other) if pair[0] in kept)
         return result
 
     def __or__(self, other: object) -> "Maintainers":  # type: ignore[override]
@@ -615,21 +619,27 @@ class Maintainers(frozenset):
 
     def __and__(self, other: object) -> "Maintainers":  # type: ignore[override]
         res = super().__and__(other)  # type: ignore[arg-type]
-        if res is NotImplemented:
-            return NotImplemented  # type: ignore[return-value]
-        kept = set(res)
-        result = Maintainers(res)
-        result.automated = frozenset(pair for pair in self.automated if pair[0] in kept)
-        return result
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __rand__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__rand__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
 
     def __sub__(self, other: object) -> "Maintainers":  # type: ignore[override]
         res = super().__sub__(other)  # type: ignore[arg-type]
-        if res is NotImplemented:
-            return NotImplemented  # type: ignore[return-value]
-        kept = set(res)
-        result = Maintainers(res)
-        result.automated = frozenset(pair for pair in self.automated if pair[0] in kept)
-        return result
+        return self._with_automated(res) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __rsub__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__rsub__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __xor__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__xor__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __rxor__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__rxor__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
 
 
 def maintainer_logins(prs: Iterable[object]) -> Maintainers:
@@ -894,8 +904,15 @@ def is_excluded_from_review_denominator(
                 latest_close_dt, latest_close_event = ev_dt, ev
         if ready_for_review_at is None and latest_ready_at is not None:
             ready_for_review_at = latest_ready_at
+        state_upper = str(pr.get("state") or "").upper()
+        is_currently_closed = (
+            state_upper == "CLOSED"
+            if state_upper
+            else (pr.get("closedAt") is not None)
+        )
         if (
             latest_close_event is not None
+            and is_currently_closed
             and not pr.get("mergedAt")
             and not closed_by_author
             and closed_by_maint_at is None
@@ -1544,6 +1561,7 @@ def evaluate_gates(
         or evidence.pr_window_complete is False
         or not isinstance(ghost, Measured)
         or ghost.n < GATE5_MIN_N
+        or (evidence.pr_ignored_n is not None and evidence.pr_ignored_n < GATE5_MIN_N)
     ):
         undecided.append(GATE_5)
     elif not rank_black_holes and _is_black_hole(evidence, ghost):

@@ -646,8 +646,15 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
                     latest_close_dt, latest_close_event = ev_dt, ev
             if ready_for_review_at is None and latest_ready_at is not None:
                 ready_for_review_at = latest_ready_at
+            state_upper = str(pr.get("state") or "").upper()
+            is_currently_closed = (
+                state_upper == "CLOSED"
+                if state_upper
+                else (pr.get("closedAt") is not None)
+            )
             if (
                 latest_close_event is not None
+                and is_currently_closed
                 and not pr.get("mergedAt")
                 and not closed_by_author
                 and closed_by_maint_at is None

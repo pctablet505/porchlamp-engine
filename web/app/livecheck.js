@@ -465,7 +465,7 @@ export function commitFactsFrom(res) {
   if (!res.ok) return null;
   const rows = (Array.isArray(res.data) ? res.data : []).map((c) => {
     const author = c && c.author && typeof c.author === "object" ? c.author : {};
-    return { login: str(author.login), type: str(author.type) };
+    return { login: str(author.login) };
   });
   return { rows, complete: rows.length < LIVE_PAGE_SIZE };
 }

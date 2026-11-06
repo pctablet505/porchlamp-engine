@@ -161,7 +161,7 @@ class UserCache:
         }
         # D4: projects in flight on several threads share one cache; a count is a read-modify-write.
         self._stats_lock = threading.Lock()
-        self._db_lock = threading.Lock()
+        self._db_lock = threading.RLock()
         self._conn: Optional[sqlite3.Connection] = None
         #: The class of the first SQLite failure in this process, for the gather log; None while it works.
         self.sqlite_error: Optional[str] = None
@@ -316,8 +316,8 @@ class UserCache:
             row = None
             if self.db_path.is_file() or self._conn is not None:
                 try:
-                    conn = self._ensure_db()
                     with self._db_lock:
+                        conn = self._ensure_db()
                         cur = conn.execute(
                             "SELECT login, account_created_at, public_event_count, observed_at"
                             " FROM users WHERE login = ?",
@@ -373,20 +373,21 @@ class UserCache:
 
         if self._use_sqlite:
             try:
-                conn = self._ensure_db()
-                with self._db_lock, conn:
-                    conn.execute(
-                        "INSERT INTO users"
-                        " (login, typename, account_created_at, public_event_count, observed_at, source)"
-                        " VALUES (?, 'User', ?, ?, ?, ?)"
-                        " ON CONFLICT(login) DO UPDATE SET"
-                        " account_created_at = excluded.account_created_at,"
-                        " public_event_count = excluded.public_event_count,"
-                        " observed_at = excluded.observed_at,"
-                        " source = excluded.source"
-                        " WHERE excluded.observed_at >= users.observed_at",
-                        (login, account, events, obs_iso, USER_CACHE_SOURCE),
-                    )
+                with self._db_lock:
+                    conn = self._ensure_db()
+                    with conn:
+                        conn.execute(
+                            "INSERT INTO users"
+                            " (login, typename, account_created_at, public_event_count, observed_at, source)"
+                            " VALUES (?, 'User', ?, ?, ?, ?)"
+                            " ON CONFLICT(login) DO UPDATE SET"
+                            " account_created_at = excluded.account_created_at,"
+                            " public_event_count = excluded.public_event_count,"
+                            " observed_at = excluded.observed_at,"
+                            " source = excluded.source"
+                            " WHERE excluded.observed_at >= users.observed_at",
+                            (login, account, events, obs_iso, USER_CACHE_SOURCE),
+                        )
                 self._count("writes")
                 return True
             except (sqlite3.Error, OSError) as exc:
@@ -435,19 +436,20 @@ class UserCache:
         if not rows:
             return 0
         try:
-            conn = self._ensure_db()
-            with self._db_lock, conn:
-                conn.executemany(
-                    "INSERT INTO users (login, typename, account_created_at, public_event_count, observed_at, source)"
-                    " VALUES (?, ?, ?, ?, ?, ?)"
-                    " ON CONFLICT(login) DO UPDATE SET"
-                    " account_created_at = excluded.account_created_at,"
-                    " public_event_count = excluded.public_event_count,"
-                    " observed_at = excluded.observed_at,"
-                    " source = excluded.source"
-                    " WHERE excluded.observed_at >= users.observed_at",
-                    rows,
-                )
+            with self._db_lock:
+                conn = self._ensure_db()
+                with conn:
+                    conn.executemany(
+                        "INSERT INTO users (login, typename, account_created_at, public_event_count, observed_at, source)"
+                        " VALUES (?, ?, ?, ?, ?, ?)"
+                        " ON CONFLICT(login) DO UPDATE SET"
+                        " account_created_at = excluded.account_created_at,"
+                        " public_event_count = excluded.public_event_count,"
+                        " observed_at = excluded.observed_at,"
+                        " source = excluded.source"
+                        " WHERE excluded.observed_at >= users.observed_at",
+                        rows,
+                    )
         except (sqlite3.Error, OSError) as exc:
             self._sqlite_failed(exc)
             raise
@@ -461,15 +463,16 @@ class UserCache:
             if not self.db_path.is_file() and self._conn is None:
                 return 0
             try:
-                conn = self._ensure_db()
                 with self._db_lock:
+                    conn = self._ensure_db()
                     row = conn.execute("SELECT COUNT(*) FROM users").fetchone()
                     return int(row[0]) if row else 0
             except (sqlite3.Error, OSError) as exc:
                 self._sqlite_failed(exc)
-        if not self.root.is_dir():
+        json_dir = self.root.parent / "users" if self.root == self.db_path else self.root
+        if not json_dir.is_dir():
             return 0
-        return sum(1 for p in self.root.glob("*.json") if p.is_file())
+        return sum(1 for p in json_dir.glob("*.json") if p.is_file())
 
     def summary(self) -> str:
         """One line for the gather log."""

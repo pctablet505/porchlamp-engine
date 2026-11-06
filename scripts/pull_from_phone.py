@@ -16,7 +16,6 @@ import argparse
 import hashlib
 import json
 import os
-import shutil
 import sys
 import tarfile
 from datetime import datetime, timezone
@@ -81,11 +80,14 @@ def _request(url: str, token: str, method: str = "GET", headers=None, data: byte
 
 def _get_json(url: str, token: str):
     """GET a JSON reply and parse it only after its ``X-Porch-Mac`` verifies; otherwise exit 1."""
+    max_json_bytes = 16 * 1024 * 1024
     resp, nonce = _open(url, token)
     with resp:
-        raw = resp.read()
+        raw = resp.read(max_json_bytes + 1)
         mac = resp.headers.get(MAC_HEADER)
         status = resp.status
+    if len(raw) > max_json_bytes:
+        raise PullError(1, f"GET {url.split('/', 3)[-1]}: reply exceeds {max_json_bytes} bytes")
     if not verify_response(token, nonce, status, raw, mac):
         raise PullError(1, f"GET {url.split('/', 3)[-1]}: reply signature missing or wrong; nothing used")
     return json.loads(raw.decode("utf-8"))
@@ -122,13 +124,21 @@ def _download(base: str, token: str, layer: str, entry: dict, part: Path) -> int
 def _check_members(archive: Path, layer: str) -> list[tarfile.TarInfo]:
     """Every member must be a regular ``raw/<collector>/<name>.json`` of this layer; otherwise exit 4."""
     members = []
+    seen_names: set[str] = set()
     max_member_bytes = 64 * 1024 * 1024
+    max_total_bytes = 8 * 1024 * 1024 * 1024
+    max_layer_files = 200_000
+    total_bytes = 0
     with tarfile.open(archive, "r:gz") as tar:
         for info in tar:
             parts = info.name.split("/")
+            total_bytes += max(0, info.size)
             ok = (
                 info.isreg()
                 and 0 <= info.size <= max_member_bytes
+                and total_bytes <= max_total_bytes
+                and len(members) < max_layer_files
+                and info.name not in seen_names
                 and len(parts) == 3
                 and parts[0] == "raw"
                 and parts[1] in LAYERS[layer]
@@ -138,6 +148,7 @@ def _check_members(archive: Path, layer: str) -> list[tarfile.TarInfo]:
             )
             if not ok:
                 raise PullError(4, f"{layer}: unsafe archive member refused")
+            seen_names.add(info.name)
             members.append(info)
     return members
 
@@ -160,12 +171,26 @@ def _extract(archive: Path, members: list[tarfile.TarInfo], dest: Path) -> int:
     with tarfile.open(archive, "r:gz") as tar:
         for info in members:
             source = tar.extractfile(info)
+            if source is None:
+                raise PullError(4, f"cannot extract {info.name}")
             target = dest / info.name
             target.parent.mkdir(parents=True, exist_ok=True)
             tmp = target.with_name("." + target.name + ".tmp")
-            with open(tmp, "wb") as out:
-                shutil.copyfileobj(source, out, CHUNK)
-            os.replace(tmp, target)
+            written = 0
+            try:
+                with open(tmp, "wb") as out:
+                    while True:
+                        buf = source.read(CHUNK)
+                        if not buf:
+                            break
+                        written += len(buf)
+                        if written > info.size:
+                            raise PullError(4, f"member {info.name} exceeded header size {info.size}")
+                        out.write(buf)
+                os.replace(tmp, target)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
             count += 1
     return count
 
@@ -209,7 +234,8 @@ def pull(base: str, token: str, dest: Path, wanted: list[str] | None) -> None:
     for layer in todo:
         entry = layers[layer]
         marker = pulled_dir / f"{layer}.sha256"
-        if marker.exists() and marker.read_text(encoding="utf-8").strip() == entry["sha256"]:
+        layer_dirs_present = any((dest / "raw" / c).is_dir() for c in LAYERS[layer])
+        if marker.exists() and marker.read_text(encoding="utf-8").strip() == entry["sha256"] and layer_dirs_present:
             _log(f"{layer}: unchanged")
             continue
         part = dest / "pull-tmp" / f"{layer}.tar.gz.part"
