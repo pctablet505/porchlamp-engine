@@ -594,8 +594,13 @@ def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.G
                     latest_close_dt, latest_close_event = ev_dt, ev
             if ready_for_review_at is None and latest_ready_at is not None:
                 ready_for_review_at = latest_ready_at
+            is_currently_closed = (
+                closed_at is not None
+                or str(pr.get("state") or "").upper() == "CLOSED"
+            )
             if (
                 latest_close_event is not None
+                and is_currently_closed
                 and not merged_at
                 and not closed_by_author
                 and closed_by_maint_at is None

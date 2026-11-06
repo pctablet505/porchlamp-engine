@@ -55,8 +55,10 @@ class Redactor:
 
     def add(self, secret: str) -> None:
         """Register ``secret`` (and its quoted, JSON-escaped and repr-escaped forms)."""
+        if not isinstance(secret, str) or len(secret) < 4:
+            return
         forms = {secret, quote(secret, safe=""), quote_plus(secret), json.dumps(secret)[1:-1], repr(secret)[1:-1]}
-        self._secrets.update(form for form in forms if form)
+        self._secrets.update(form for form in forms if len(form) >= 4)
 
     def __call__(self, text: str) -> str:
         for secret in sorted(self._secrets, key=len, reverse=True):

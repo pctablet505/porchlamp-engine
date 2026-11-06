@@ -97,8 +97,11 @@ export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}
     const at = when(event.created_at || event.submitted_at);
     if (at === null) continue;
     if (event.event === "ready_for_review") ready = ready === null ? at : Math.max(ready, at);
-    else if (event.event === "reviewed" && isOwnPeople(event, author)) answers.push(at);
-    else if (event.event === "commented") {
+    else if (event.event === "reviewed" && isOwnPeople(event, author)) {
+      const state = String(event.state || "").toUpperCase();
+      const body = String(event.body || "").trim();
+      if (state === "APPROVED" || state === "CHANGES_REQUESTED" || body.length > 0) answers.push(at);
+    } else if (event.event === "commented") {
       const login = String(((event.user || event.actor || {}).login) || "").toLowerCase();
       if (login === author) authorComments.push({ at, body: event.body });
       else if (isOwnPeople(event, author) && commentLength(String(event.body || "")) >= SUBSTANTIVE_COMMENT_MIN_CHARS) answers.push(at);
@@ -108,7 +111,7 @@ export function readPullRequest(item, events, nowMs, { sentBefore = false } = {}
       const login = String(actor.login || "").toLowerCase();
       closedByAuthor = login === author;
       if (login && login !== author && !isBotActor({ type: actor.type, login })) {
-        closedByProject = at;
+        if (closedByProject === null || at < closedByProject) closedByProject = at;
         answers.push(at);
       }
     }

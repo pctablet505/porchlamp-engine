@@ -122,11 +122,13 @@ def _download(base: str, token: str, layer: str, entry: dict, part: Path) -> int
 def _check_members(archive: Path, layer: str) -> list[tarfile.TarInfo]:
     """Every member must be a regular ``raw/<collector>/<name>.json`` of this layer; otherwise exit 4."""
     members = []
+    max_member_bytes = 64 * 1024 * 1024
     with tarfile.open(archive, "r:gz") as tar:
         for info in tar:
             parts = info.name.split("/")
             ok = (
                 info.isreg()
+                and 0 <= info.size <= max_member_bytes
                 and len(parts) == 3
                 and parts[0] == "raw"
                 and parts[1] in LAYERS[layer]

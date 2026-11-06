@@ -599,6 +599,38 @@ class Maintainers(frozenset):
 
     automated: frozenset[tuple[str, str]] = frozenset()
 
+    def _with_automated(self, items: Iterable[str], other: object = None) -> "Maintainers":
+        result = Maintainers(items)
+        other_auto = getattr(other, "automated", frozenset())
+        result.automated = self.automated | (other_auto if isinstance(other_auto, frozenset) else frozenset(other_auto))
+        return result
+
+    def __or__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__or__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __ror__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__ror__(other)  # type: ignore[arg-type]
+        return self._with_automated(res, other) if res is not NotImplemented else NotImplemented  # type: ignore[return-value]
+
+    def __and__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__and__(other)  # type: ignore[arg-type]
+        if res is NotImplemented:
+            return NotImplemented  # type: ignore[return-value]
+        kept = set(res)
+        result = Maintainers(res)
+        result.automated = frozenset(pair for pair in self.automated if pair[0] in kept)
+        return result
+
+    def __sub__(self, other: object) -> "Maintainers":  # type: ignore[override]
+        res = super().__sub__(other)  # type: ignore[arg-type]
+        if res is NotImplemented:
+            return NotImplemented  # type: ignore[return-value]
+        kept = set(res)
+        result = Maintainers(res)
+        result.automated = frozenset(pair for pair in self.automated if pair[0] in kept)
+        return result
+
 
 def maintainer_logins(prs: Iterable[object]) -> Maintainers:
     """D-IN-2: the accounts a recorded PR window shows holding access to the
@@ -1132,9 +1164,9 @@ def wilson_lower_bound_from_share(
 ) -> float:
     """Compute the one-sided Wilson lower confidence bound for a sample share.
 
-    Returns 0.0 when n <= 0 or p_hat <= 0.0. p_hat is clamped to [0.0, 1.0].
+    Returns 0.0 when n <= 0, p_hat <= 0.0, or inputs are non-finite. p_hat is clamped to [0.0, 1.0].
     """
-    if n <= 0 or p_hat <= 0.0:
+    if n <= 0 or not math.isfinite(float(p_hat)) or not math.isfinite(float(z)) or p_hat <= 0.0:
         return 0.0
     p = min(1.0, max(0.0, float(p_hat)))
     z2 = z * z

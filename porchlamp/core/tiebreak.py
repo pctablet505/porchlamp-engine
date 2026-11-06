@@ -136,7 +136,7 @@ def ttfhr_p75_from_pr_window(pr_window: PRWindow) -> float | None:
     in the window has a recorded first human response -- never ``0.0`` or
     another guessed placeholder."""
     hours = sorted(
-        _hours_between(event.created_at, event.first_human_review_at)
+        max(0.0, _hours_between(event.created_at, event.first_human_review_at))
         for event in pr_window.events
         if event.is_external and event.first_human_review_at is not None
     )

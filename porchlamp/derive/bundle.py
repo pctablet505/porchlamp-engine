@@ -732,18 +732,22 @@ def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValu
     records = commit_domains.records_from_rows(data)
     window_method = _COMMIT_FACT_METHOD_180D_FALLBACK if used_fallback else _COMMIT_FACT_METHOD_365D
 
+    window = None if used_fallback else commit_domains.commit_window(_envelope_data(path))
     last_commit = commit_domains.last_non_bot_commit_date(records)
-    last_value = _iso_utc_z(last_commit) if last_commit is not None else None
-    last_method = window_method if last_commit is not None else (
-        _COMMIT_FACT_METHOD_NO_NON_BOT_180D_FALLBACK if used_fallback else _COMMIT_FACT_METHOD_NO_NON_BOT_365D
-    )
-    last_fact = LastNonBotCommitMeasured(
-        value=last_value, method=last_method, source=source, source_hash=source_hash, fetched_at=fetched_at,
-    )
+    last_fact: LastNonBotCommitValue
+    if last_commit is None and window is not None and window.cut:
+        last_fact = Unmeasured(reason="collector_failure", detail=commit_domains.COMMIT_WINDOW_CUT_DETAIL)
+    else:
+        last_value = _iso_utc_z(last_commit) if last_commit is not None else None
+        last_method = window_method if last_commit is not None else (
+            _COMMIT_FACT_METHOD_NO_NON_BOT_180D_FALLBACK if used_fallback else _COMMIT_FACT_METHOD_NO_NON_BOT_365D
+        )
+        last_fact = LastNonBotCommitMeasured(
+            value=last_value, method=last_method, source=source, source_hash=source_hash, fetched_at=fetched_at,
+        )
 
     domain = commit_domains.top_domain_share(records)
     domain_fact: TopEmailDomainShareValue
-    window = None if used_fallback else commit_domains.commit_window(_envelope_data(path))
     if window is not None and window.cut:
         # RFC-0021: the newest days of a busier year are not the window's
         # commits; the share is refused like the EF it is compared with.

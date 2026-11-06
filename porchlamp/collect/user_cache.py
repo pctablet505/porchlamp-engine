@@ -32,6 +32,7 @@ aside, never deleted.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -207,17 +208,13 @@ class UserCache:
             conn, self._conn = self._conn, None
             self._use_sqlite = False
             if conn is not None:
-                try:
+                with contextlib.suppress(sqlite3.Error):
                     conn.close()
-                except sqlite3.Error:
-                    pass
             if type(exc) is sqlite3.DatabaseError:
                 stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
                 for suffix in ("", "-wal", "-shm"):
-                    try:
+                    with contextlib.suppress(OSError):
                         os.replace(f"{self.db_path}{suffix}", f"{self.db_path}.corrupt-{stamp}{suffix}")
-                    except OSError:
-                        pass
 
     def _migrate_json_dir_locked(self, conn: sqlite3.Connection) -> int:
         """Import the JSON files, newest ``observed_at`` winning, unless the folder is as the last import left it:
@@ -267,10 +264,8 @@ class UserCache:
     def close(self) -> None:
         with self._db_lock:
             if self._conn is not None:
-                try:
+                with contextlib.suppress(sqlite3.Error):
                     self._conn.close()
-                except sqlite3.Error:
-                    pass
                 self._conn = None
 
     def _count(self, name: str) -> None:
@@ -280,6 +275,8 @@ class UserCache:
     def _path(self, login: str) -> Optional[Path]:
         if not _CACHEABLE_LOGIN.fullmatch(login):
             return None
+        if self.root == self.db_path:
+            return self.root.parent / "users" / f"{login}.json"
         return self.root / f"{login}.json"
 
     def _validate_doc(self, login: str, doc: Any, now: datetime) -> tuple[str, Optional[dict[str, Any]]]:
@@ -369,19 +366,25 @@ class UserCache:
         if not isinstance(account, str) or not _storable_count(events):
             return False
 
+        obs_aware = observed_at if observed_at.tzinfo is not None else observed_at.replace(tzinfo=timezone.utc)
+        obs_iso = _utc_iso(obs_aware)
+        if obs_iso is None:
+            return False
+
         if self._use_sqlite:
-            obs_iso = (
-                observed_at.astimezone(timezone.utc).isoformat()
-                if observed_at.tzinfo is not None
-                else observed_at.isoformat()
-            )
             try:
                 conn = self._ensure_db()
                 with self._db_lock, conn:
                     conn.execute(
-                        "INSERT OR REPLACE INTO users"
+                        "INSERT INTO users"
                         " (login, typename, account_created_at, public_event_count, observed_at, source)"
-                        " VALUES (?, 'User', ?, ?, ?, ?)",
+                        " VALUES (?, 'User', ?, ?, ?, ?)"
+                        " ON CONFLICT(login) DO UPDATE SET"
+                        " account_created_at = excluded.account_created_at,"
+                        " public_event_count = excluded.public_event_count,"
+                        " observed_at = excluded.observed_at,"
+                        " source = excluded.source"
+                        " WHERE excluded.observed_at >= users.observed_at",
                         (login, account, events, obs_iso, USER_CACHE_SOURCE),
                     )
                 self._count("writes")
@@ -394,7 +397,7 @@ class UserCache:
         try:
             tmp.write_text(json.dumps({
                 "login": login, "typename": "User", "account_created_at": account,
-                "public_event_count": events, "observed_at": observed_at.isoformat(),
+                "public_event_count": events, "observed_at": obs_iso,
                 "source": USER_CACHE_SOURCE,
             }, sort_keys=True))
             os.replace(tmp, path)
@@ -424,7 +427,8 @@ class UserCache:
                 continue
             account = record.get("account_created_at")
             events = record.get("public_event_count")
-            obs_iso = _utc_iso(observed_at) if observed_at.tzinfo is not None else None
+            obs_aware = observed_at if observed_at.tzinfo is not None else observed_at.replace(tzinfo=timezone.utc)
+            obs_iso = _utc_iso(obs_aware)
             if obs_iso is None or not isinstance(account, str) or not _storable_count(events):
                 continue
             rows.append((login, "User", account, events, obs_iso, USER_CACHE_SOURCE))

@@ -2949,7 +2949,6 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
                     owner, name, unsearched_reserve, t, repo=repo_searched, guard=False
                 )
                 histories.update(res_histories)
-                search_sample.update(unsearched_reserve)
                 cost += res_cost
                 if res_rem is not None:
                     remaining = res_rem
@@ -2961,6 +2960,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
                     retained.append(cand)
             sample = tuple(sorted(retained))
             newcomers = sorted(set(sample))
+            search_sample.update(newcomers)
             needed = sorted(set(decision_logins) | set(newcomers))
         for login in needed:
             record = {

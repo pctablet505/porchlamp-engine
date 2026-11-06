@@ -644,6 +644,8 @@ def _check_newcomer_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> An
             if prow is None:
                 continue
             raw_val, score, _measured = prow[0], prow[1], prow[2]
+            if not _measured:
+                continue
             if score is not None and float(score) > 0:
                 positive_scores += 1
             if raw_val is not None:

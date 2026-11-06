@@ -424,7 +424,11 @@ class PinnedEvidenceFiles:
         entry = self._entries(snapshot_id).get((owner, name))
         if entry is None:
             raise EvidencePinError(f"{owner}/{name} is not in the snapshot manifest of {snapshot_id}")
-        bundle_path = self.snapshot_dir / str(entry.get("bundle_file"))
+        bundle_rel = str(entry.get("bundle_file") or "")
+        snapshot_root = self.snapshot_dir.resolve()
+        bundle_path = (self.snapshot_dir / bundle_rel).resolve()
+        if not bundle_path.is_relative_to(snapshot_root):
+            raise EvidencePinError(f"bundle_file {bundle_rel!r} escapes snapshot_dir")
         try:
             bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:

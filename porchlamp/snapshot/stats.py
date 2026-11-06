@@ -143,6 +143,8 @@ def open_snapshot_db(db: Path) -> sqlite3.Connection:
 def _read_stars(meta_dir: Path) -> dict[tuple[str, str], int]:
     stars: dict[tuple[str, str], int] = {}
     for path in meta_dir.glob("*.json"):
+        if "__" not in path.stem:
+            continue
         owner, name = path.stem.split("__", 1)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))["data"]
@@ -209,7 +211,7 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
     bh = sum(r[2] == "black_hole" for r in decided)
     out["gate5_decided"] = len(decided)
     out["black_holes"] = bh
-    out["black_hole_share"] = round(bh / len(decided), 4)
+    out["black_hole_share"] = round(bh / len(decided), 4) if decided else 0.0
     out["by_stars"] = {}
     for lo, hi in STAR_BUCKETS:
         sub = [r for r in decided if lo <= stars.get(key(r), -1) < hi]
@@ -230,7 +232,7 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
     by_stars = sorted(rows, key=lambda r: -stars.get(key(r), -1))[:100]
     top100_rank = {key(r) for r in rows if r[7] is not None and r[7] <= 100}
     out["top100_overlap"] = sum(key(r) in top100_rank for r in by_stars)
-    out["top100_stars_min"] = stars.get(key(by_stars[-1]), -1)
+    out["top100_stars_min"] = stars.get(key(by_stars[-1]), -1) if by_stars else -1
     fate: dict[str, int] = {}
     for r in by_stars:
         k = r[2] or ("rated" if r[4] else "unrated")

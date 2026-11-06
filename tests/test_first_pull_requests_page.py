@@ -136,7 +136,7 @@ def test_every_slot_of_every_sentence_has_a_value() -> None:
         elif isinstance(node, list):
             for item in node:
                 yield from strings(item)
-    for sentence in strings({k: v for k, v in built["sentences"].items()}):
+    for sentence in strings(dict(built["sentences"])):
         sentence.format(**values)
 
 

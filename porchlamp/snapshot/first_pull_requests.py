@@ -362,12 +362,16 @@ def read_project(job: tuple[Path, str, float, float, Optional[int]]) -> Optional
                 comments = _author_comments(pr, author, clock)
             arms = _arms(comments, landmark)
             answered = answer is not None and answer <= hours + FOLLOW_DAYS * 24
+            merged_in_follow = (
+                merged_at is not None
+                and (merged_at - clock) / 3600 <= hours + FOLLOW_DAYS * 24
+            )
             for label in ("all", "first") if group == "first" else ("all",):
                 tally = out.asking.setdefault((landmark, label), {arm: [0, 0, 0] for arm in ("none", *_ARMS)})
                 for arm in arms:
                     tally[arm][0] += 1
                     tally[arm][1] += answered
-                    tally[arm][2] += merged
+                    tally[arm][2] += merged_in_follow
 
     if weekday[0] >= WEEKDAY_MIN_WEEKDAY and weekend[0] >= WEEKDAY_MIN_WEEKEND:
         out.weekday_pair = (weekday[1] / weekday[0], weekend[1] / weekend[0])

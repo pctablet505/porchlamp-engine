@@ -349,7 +349,7 @@ export function evaluateLiveGates(facts, now) {
   // which record and inspect `author_login` only (unlinked commits have login "").
   if (!commits) checks.push({ id: "D-GATE-4", status: "undecided", reason: "commits_unreadable", detail: {} });
   else {
-    const human = commits.rows.filter((c) => !isBotActor({ login: c.login })).length;
+    const human = commits.rows.filter((c) => !isBotActor({ login: c.login, type: c.type })).length;
     if (human > 0) {
       checks.push({ id: "D-GATE-4", status: "pass", reason: "human_commits", detail: { count: human, more: !commits.complete, days: VITALITY_WINDOW_DAYS } });
     } else if (commits.complete) {
@@ -465,7 +465,7 @@ export function commitFactsFrom(res) {
   if (!res.ok) return null;
   const rows = (Array.isArray(res.data) ? res.data : []).map((c) => {
     const author = c && c.author && typeof c.author === "object" ? c.author : {};
-    return { login: str(author.login) };
+    return { login: str(author.login), type: str(author.type) };
   });
   return { rows, complete: rows.length < LIVE_PAGE_SIZE };
 }

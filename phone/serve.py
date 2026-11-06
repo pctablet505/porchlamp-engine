@@ -239,15 +239,14 @@ class PhoneHandler(BaseHTTPRequestHandler):
         body = b""
         raw_length = self.headers.get("Content-Length")
         if self.command == "PUT":
+            if not headers_look_signed(self.headers, now):
+                self._deny("malformed")
+                return None
             try:
                 length = int(raw_length if raw_length is not None else "-1")
             except ValueError:
                 length = -1
             if length < 0 or length > CANDIDATES_CAP:
-                # The MAC binds the body, so it cannot be checked without reading it. Unsigned callers still get 401.
-                if not headers_look_signed(self.headers, now):
-                    self._deny("malformed")
-                    return None
                 self.close_connection = True  # do not read the body; nothing is written
                 self._reply(411 if length < 0 else 413)
                 return None
