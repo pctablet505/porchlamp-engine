@@ -423,14 +423,14 @@ def _repo_object_from_meta_envelope(raw_dir: Path, key: str) -> Optional[dict[st
         or not isinstance(mdata.get("pull_requests_total"), int)
     ):
         return None
-    spdx = mdata.get("license_spdx")
+    spdx = mdata.get("license_spdx_id") if "license_spdx_id" in mdata else mdata.get("license_spdx")
     parent = mdata.get("parent")
     return {
         "archived": mdata["archived"],
         "mirror_url": mdata.get("mirror_url"),
         "fork": mdata["fork"],
         "parent": parent if isinstance(parent, dict) else None,
-        "license_spdx_id": None if spdx == "NOASSERTION" and "license_spdx_id" in mdata else spdx,
+        "license_spdx_id": spdx,
         "pull_requests_total": mdata["pull_requests_total"],
         "graphql_partial": False,
         "graphql_error": None,

@@ -229,14 +229,20 @@ query RepoTags($owner: String!, $name: String!, $first: Int!) {
           oid
           ... on Commit {
             author { date }
-            committedDate
           }
           ... on Tag {
             target {
               oid
               ... on Commit {
                 author { date }
-                committedDate
+              }
+              ... on Tag {
+                target {
+                  oid
+                  ... on Commit {
+                    author { date }
+                  }
+                }
               }
             }
           }
@@ -269,13 +275,14 @@ def _fetch_tags_graphql(graphql_transport: Any, owner: str, name: str) -> Option
     for node in nodes:
         if not isinstance(node, Mapping):
             continue
-        target = node.get("target") or {}
-        if not isinstance(target, Mapping):
-            target = {}
-        commit_target = target.get("target") if isinstance(target.get("target"), Mapping) else target
-        sha = str(commit_target.get("oid") or target.get("oid") or "")
+        commit_target: Mapping[str, Any] = (
+            node.get("target") if isinstance(node.get("target"), Mapping) else {}
+        )
+        while isinstance(commit_target.get("target"), Mapping):
+            commit_target = commit_target["target"]
+        sha = str(commit_target.get("oid") or "")
         author = commit_target.get("author") if isinstance(commit_target.get("author"), Mapping) else {}
-        commit_date = author.get("date") or commit_target.get("committedDate")
+        commit_date = author.get("date")
         records.append({
             "name": node.get("name"),
             "sha": sha,

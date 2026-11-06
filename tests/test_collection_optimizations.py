@@ -118,6 +118,49 @@ def test_opt2_commits_180d_shapes_actor_fields_and_stops_after_page_1_human_comm
     assert env.data[0]["signed_off"] is True
 
 
+def test_opt2_commits_180d_continues_past_bot_only_page_1(
+    gather_mod: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OPT-2: When page 1 consists of 100 bot commits (0 human commits), commits_180d
+    continues to page 2 so human commits behind a bot flood are not missed."""
+    monkeypatch.setattr(gather_mod.time, "sleep", lambda _s: None)
+    pages_requested: list[str] = []
+
+    def _fake_gh(path: str, *flags: str):
+        page_flag = next(f for f in flags if f.startswith("page="))
+        pages_requested.append(page_flag)
+        if page_flag == "page=1":
+            return [
+                {
+                    "sha": f"bot-sha-{i}",
+                    "author": {"login": "dependabot[bot]", "type": "Bot"},
+                    "commit": {
+                        "author": {"date": "2026-10-02T00:00:00Z", "email": "dependabot@users.noreply.github.com"},
+                        "message": "chore(deps): bump dep",
+                    },
+                }
+                for i in range(100)
+            ]
+        return [
+            {
+                "sha": "human-sha-1",
+                "author": {"login": "alice", "type": "User"},
+                "commit": {
+                    "author": {"date": "2026-10-01T00:00:00Z", "email": "alice@example.com"},
+                    "message": "fix: real human commit",
+                },
+            }
+        ]
+
+    monkeypatch.setattr(gather_mod, "_gh", _fake_gh)
+    st = gather_mod.gather_repo("acme", "bot-flood", "pypi", collectors=frozenset({"commits_180d"}))
+    assert st["commits_180d"] == "ok"
+    assert pages_requested == ["page=1", "page=2"]
+    env = read_envelope(gather_mod.DATA / "commits_180d" / "acme__bot-flood.json")
+    assert len(env.data) == 101
+    assert env.data[-1]["author_login"] == "alice"
+
+
 def test_opt3_collect_releases_uses_single_graphql_call_for_tag_fallback(tmp_path: Path) -> None:
     """OPT-3: When a repo has 0 GitHub releases, collect_releases resolves tag commit dates
     in 1 GraphQL query instead of 100 sequential REST /commits/{sha} calls."""
@@ -285,6 +328,22 @@ def test_opt5_governance_reuses_pr_window_and_caches_org_defaults(
     ) == "ok"
     # <owner>/.github SECURITY.md fetched only ONCE across both repos in the same org
     assert org_fetch_calls == [("acme", "SECURITY.md")]
+
+    # When boundary_overflow_prs is non-empty, 0 merged PRs in 180d does NOT mean 0 all-time merged PRs
+    write_envelope(
+        tmp_path / "pr_window" / "acme__r3.json",
+        source="github-graphql:pr_window",
+        data={
+            "window_days": 180,
+            "window_anchor": "2026-10-01T00:00:00Z",
+            "truncated": False,
+            "window_exhausted": True,
+            "boundary_overflow_prs": [{"number": 1, "createdAt": "2025-01-01T00:00:00Z"}],
+            "prs": [],
+        },
+        fetched_at="2026-10-01T00:00:00Z",
+    )
+    assert governance._reusable_merged_prs_from_pr_window(tmp_path, "acme__r3") is None
 
 
 def test_opt6_depsdev_fetches_latest_only_for_winning_candidate(monkeypatch: pytest.MonkeyPatch) -> None:

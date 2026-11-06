@@ -34,6 +34,7 @@ from porchlamp.collect.commits import (
     collect_commits_365d,
     commit_total_fetcher,
     derive_commits_180d_rows,
+    is_bot,
     records_from_rows,
     shape_commit_rows,
 )
@@ -251,11 +252,13 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 r = None
             if r:
                 parent_node = r.get("parent")
+                raw_spdx = (r.get("licenseInfo") or {}).get("spdxId")
                 meta_payload: dict[str, Any] = {
                     "stars": r["stargazerCount"], "forks": r["forkCount"],
                     "pushed_at": r["pushedAt"], "archived": r["isArchived"],
                     "created_at": r["createdAt"],
-                    "license_spdx": (r.get("licenseInfo") or {}).get("spdxId") or "NOASSERTION",
+                    "license_spdx": raw_spdx or "NOASSERTION",
+                    "license_spdx_id": raw_spdx,
                     "default_branch": (r.get("defaultBranchRef") or {}).get("name") or "main",
                 }
                 if "mirrorUrl" in r or "isFork" in r:
@@ -315,11 +318,14 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 print(f"  WARN tree {owner}/{name}: {e}")
 
     # Early ineligibility short-circuit once github_meta + tree are collected (OPT-1)
-    if skip_ineligible or (
-        selected("github_meta")
-        and selected("tree")
-        and status.get("github_meta") == "ok"
-        and status.get("tree") == "ok"
+    if not force and (
+        skip_ineligible
+        or (
+            selected("github_meta")
+            and selected("tree")
+            and status.get("github_meta") == "ok"
+            and status.get("tree") == "ok"
+        )
     ):
         pruned_after_tree = should_skip_ineligible(
             owner, name, raw_dir=DATA, now=datetime.now(timezone.utc)
@@ -372,7 +378,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                             "-f", "per_page=100", "-f", f"since={since}",
                             "-f", f"page={page}") or []
                     rows.extend(shape_commit_rows(d))
-                    if len(d) < 100 or records_from_rows(rows):
+                    human_count = sum(1 for rec in records_from_rows(rows) if not is_bot(rec.actor))
+                    if len(d) < 100 or human_count >= 30:
                         break
                 _env("commits_180d", key, "github-rest:commits", rows)
                 status["commits_180d"] = "ok"
@@ -416,7 +423,10 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # actions_runs (paged: the settled pull_request runs behind 5.4's CI wait)
     if done("actions_runs"):
         status["actions_runs"] = "skip"
-    elif (skip_ineligible or (selected("github_meta") and selected("tree"))):
+    elif not force and (
+        skip_ineligible
+        or (selected("github_meta") and selected("tree") and status.get("pr_window") == "ok")
+    ):
         from porchlamp.collect.fingerprint import is_confirmed_black_hole_in_raw
 
         if is_confirmed_black_hole_in_raw(DATA, owner, name):

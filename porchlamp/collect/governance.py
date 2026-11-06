@@ -958,7 +958,7 @@ def policy_file_body(
     return None
 
 
-_ORG_DEFAULT_FILE_CACHE: dict[tuple[str, str], Optional[str]] = {}
+_ORG_DEFAULT_FILE_CACHE: dict[tuple[int, int, int, str, str], Optional[str]] = {}
 _ORG_DEFAULT_CACHE_LOCK = threading.Lock()
 
 
@@ -971,9 +971,10 @@ def clear_org_default_file_cache() -> None:
 def _cached_org_file_fetcher(owner: str) -> FileFetcher:
     """Return a thread-safe cached :data:`FileFetcher` for ``<owner>/.github``."""
     raw_fetcher = fetch_file_text(owner, ".github")
+    scope_ids = (id(fetch_file_text), id(net._gate), id(urllib.request.urlopen))
 
     def fetch(path: str) -> Optional[str]:
-        cache_key = (owner, path)
+        cache_key = (*scope_ids, owner, path)
         with _ORG_DEFAULT_CACHE_LOCK:
             if cache_key in _ORG_DEFAULT_FILE_CACHE:
                 return _ORG_DEFAULT_FILE_CACHE[cache_key]
@@ -991,10 +992,11 @@ def _reusable_merged_prs_from_pr_window(
     """Reuse merged PRs from ``raw_dir/pr_window/<repo_key>.json`` when complete (OPT-5).
 
     Returns a list of up to :data:`MERGED_PR_CAP` merged PR dicts when ``pr_window``
-    is uncut and either:
-    - ``window_exhausted`` is True and there are 0 merged PRs in the repository, or
-    - at least :data:`MERGED_PR_CAP` merged PRs (or all merged PRs on an exhausted window)
-      already carry ``headRefOid`` / ``head_sha``.
+    is uncut, not reply-sampled, and either:
+    - ``window_exhausted`` is True with no ``boundary_overflow_prs`` (all-time PR history
+      is inside the window) and there are 0 merged PRs in the repository, or
+    - at least :data:`MERGED_PR_CAP` merged PRs (or all merged PRs on an all-time exhausted
+      window with no boundary overflow) already carry ``headRefOid`` / ``head_sha``.
     Returns ``None`` when ``governance`` must query GitHub directly.
     """
     prw_path = raw_dir / "pr_window" / f"{repo_key}.json"
@@ -1007,18 +1009,23 @@ def _reusable_merged_prs_from_pr_window(
     data = prw_env.data
     if not isinstance(data, Mapping) or pr_window.pr_window_cut_short(data):
         return None
+    if int(data.get("reply_sampled_prs") or 0) > 0:
+        return None
     prs = data.get("prs")
     if not isinstance(prs, list):
         return None
-    exhausted = data.get("window_exhausted") is True
+    all_time_exhausted = (
+        data.get("window_exhausted") is True
+        and not data.get("boundary_overflow_prs")
+    )
     merged_nodes = [
         pr for pr in prs
         if isinstance(pr, Mapping) and (pr.get("mergedAt") or pr.get("merged_at"))
     ]
     if not merged_nodes:
-        return [] if exhausted else None
+        return [] if all_time_exhausted else None
     sample = merged_nodes[:MERGED_PR_CAP]
-    if len(sample) < MERGED_PR_CAP and not exhausted:
+    if len(sample) < MERGED_PR_CAP and not all_time_exhausted:
         return None
     shaped: list[dict[str, Any]] = []
     for pr in sample:
