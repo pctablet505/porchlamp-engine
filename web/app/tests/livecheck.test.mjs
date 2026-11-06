@@ -347,13 +347,13 @@ test("treeFactsFrom: every entry's path (folders too, as the engine's envelope r
   assert.equal(treeFactsFrom({ ok: false, error: { kind: "http", status: 500 } }), null);
 });
 
-test("commitFactsFrom: a full page is incomplete; only author.login is read, matching scripts/gather.py", () => {
+test("commitFactsFrom: a full page is incomplete; login, account type and author email are read, as scripts/gather.py records them", () => {
   const row = { author: { login: "Alice", type: "User" }, commit: { author: { email: "a@x" } } };
   const page = (n) => ({ ok: true, data: Array.from({ length: n }, () => row) });
   assert.equal(commitFactsFrom(page(LIVE_PAGE_SIZE)).complete, false);
   assert.equal(commitFactsFrom(page(LIVE_PAGE_SIZE - 1)).complete, true);
-  assert.deepEqual(commitFactsFrom(page(1)).rows, [{ login: "Alice" }]);
-  assert.deepEqual(commitFactsFrom({ ok: true, data: [{ author: null, commit: null }] }).rows, [{ login: "" }]);
+  assert.deepEqual(commitFactsFrom(page(1)).rows, [{ login: "Alice", type: "User", email: "a@x" }]);
+  assert.deepEqual(commitFactsFrom({ ok: true, data: [{ author: null, commit: null }] }).rows, [{ login: "", type: "", email: "" }]);
   assert.equal(commitFactsFrom({ ok: false, error: { kind: "empty" } }), null);
   assert.equal(commitFactsFrom({ ok: false, error: { kind: "timeout" } }), null);
 });

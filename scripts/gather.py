@@ -34,8 +34,6 @@ from porchlamp.collect.commits import (
     collect_commits_365d,
     commit_total_fetcher,
     derive_commits_180d_rows,
-    is_bot,
-    records_from_rows,
     shape_commit_rows,
 )
 from porchlamp.collect.envelope import write_envelope
@@ -317,16 +315,9 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 status["tree"] = "fail"
                 print(f"  WARN tree {owner}/{name}: {e}")
 
-    # Early ineligibility short-circuit once github_meta + tree are collected (OPT-1)
-    if not force and (
-        skip_ineligible
-        or (
-            selected("github_meta")
-            and selected("tree")
-            and status.get("github_meta") == "ok"
-            and status.get("tree") == "ok"
-        )
-    ):
+    # --skip-ineligible: with this run's github_meta and tree fresh, the prune is decided again on them (OPT-1). Never
+    # without the flag: L0 runs without it, and it is how a repo that woke up is found (phone/runner.py LAYER_FLAGS).
+    if not force and skip_ineligible and status.get("github_meta") == "ok" and status.get("tree") == "ok":
         pruned_after_tree = should_skip_ineligible(
             owner, name, raw_dir=DATA, now=datetime.now(timezone.utc)
         )
@@ -366,7 +357,9 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 status["repo_object"] = "fail"
                 print(f"  WARN repo_object {owner}/{name}: {e}")
 
-    # --- commits_180d (paged, capped; stops early once page 1 confirms >=1 non-bot commit, OPT-2) ---
+    # --- commits_180d (paged, capped; rows shaped as commits_365d's, so D-GATE-4 reads account type and email) ---
+    # Every page up to the cap, never fewer: D-GATE-4 counts only the commits dated before the snapshot's as_of,
+    # and a busy repo's newest page can lie entirely after it.
     if not done("commits_180d"):
         with _collector_scope(key, "commits_180d"):
             since = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
@@ -378,8 +371,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                             "-f", "per_page=100", "-f", f"since={since}",
                             "-f", f"page={page}") or []
                     rows.extend(shape_commit_rows(d))
-                    human_count = sum(1 for rec in records_from_rows(rows) if not is_bot(rec.actor))
-                    if len(d) < 100 or human_count >= 30:
+                    if len(d) < 100:
                         break
                 _env("commits_180d", key, "github-rest:commits", rows)
                 status["commits_180d"] = "ok"
@@ -423,24 +415,6 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # actions_runs (paged: the settled pull_request runs behind 5.4's CI wait)
     if done("actions_runs"):
         status["actions_runs"] = "skip"
-    elif not force and (
-        skip_ineligible
-        or (selected("github_meta") and selected("tree") and status.get("pr_window") == "ok")
-    ):
-        from porchlamp.collect.fingerprint import is_confirmed_black_hole_in_raw
-
-        if is_confirmed_black_hole_in_raw(DATA, owner, name):
-            status["actions_runs"] = "skip"
-        else:
-            with _collector_scope(key, "actions_runs"):
-                time.sleep(SLEEP_REST)
-                try:
-                    _env("actions_runs", key, f"github-rest:repos/{owner}/{name}/actions/runs",
-                         _fetch_pr_runs(owner, name))
-                    status["actions_runs"] = "ok"
-                except Exception as e:  # review-ok: gate-network — per-collector retry on rerun
-                    status["actions_runs"] = "fail"
-                    print(f"  WARN actions_runs {owner}/{name}: {e}")
     else:
         with _collector_scope(key, "actions_runs"):
             time.sleep(SLEEP_REST)
@@ -1330,6 +1304,11 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 
 def _run_main(a: argparse.Namespace) -> int:
+    from porchlamp.collect import governance as gov_mod
+
+    # The org-default file cache lives for one run: the phone's engine stays up across cycles, and a .github file can
+    # change between them.
+    gov_mod.clear_org_default_file_cache()
     if a.incremental_ledgers or a.light_author_history:
         print(EXPERIMENTAL, file=sys.stderr)
     if a.cost_log:

@@ -28,11 +28,8 @@ def gather_mod(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return module
 
 
-def test_opt1_gather_repo_short_circuits_after_archived_meta_and_tree(
-    gather_mod: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """OPT-1: Once github_meta + tree confirm a repo is archived/unlicensed/non_software,
-    contributors, commits_180d, and actions_runs are skipped without extra REST calls."""
+def _archived_repo_transport(gather_mod: ModuleType, monkeypatch: pytest.MonkeyPatch, rest_calls: list[str]) -> None:
+    """github_meta answers an archived repo, the tree a pyproject; commits answer one person's commit."""
     monkeypatch.setattr(gather_mod.time, "sleep", lambda _s: None)
 
     def _fake_gh_run(cmd, timeout=90):
@@ -56,22 +53,31 @@ def test_opt1_gather_repo_short_circuits_after_archived_meta_and_tree(
         }
         return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
 
-    rest_calls: list[str] = []
-
     def _fake_gh(path: str, *flags: str):
         rest_calls.append(path)
         if "/git/trees/" in path:
             return {"tree": [{"path": "pyproject.toml"}], "truncated": False}
+        if path.endswith("/commits"):
+            return [{"sha": "s1", "author": {"login": "alice", "type": "User"},
+                     "commit": {"author": {"date": "2026-10-01T00:00:00Z", "email": "alice@example.com"}, "message": "fix"}}]
         raise AssertionError(f"Unexpected downstream REST call for archived repo: {path}")
 
     monkeypatch.setattr(gather_mod.ghcli, "run", _fake_gh_run)
     monkeypatch.setattr(gather_mod, "_gh", _fake_gh)
 
+
+def test_opt1_skip_ineligible_decides_again_on_fresh_meta_and_tree(
+    gather_mod: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OPT-1 under --skip-ineligible: once this run's github_meta + tree show a repo archived, the rest is skipped."""
+    rest_calls: list[str] = []
+    _archived_repo_transport(gather_mod, monkeypatch, rest_calls)
     st = gather_mod.gather_repo(
         "acme",
         "archived-lib",
         "pypi",
         collectors=frozenset({"github_meta", "pr_events", "pr_reviews", "tree", "contributors", "commits_180d", "actions_runs"}),
+        skip_ineligible=True,
     )
     assert st["github_meta"] == "ok"
     assert st["tree"] == "ok"
@@ -82,21 +88,34 @@ def test_opt1_gather_repo_short_circuits_after_archived_meta_and_tree(
     assert rest_calls == ["repos/acme/archived-lib/git/trees/main"]
 
 
-def test_opt2_commits_180d_shapes_actor_fields_and_stops_after_page_1_human_commit(
+def test_opt1_without_the_flag_l0_collects_an_ineligible_repo_whole(
     gather_mod: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """OPT-2: commits_180d preserves author_type/author_email and stops after page 1
-    once at least one non-bot commit is recorded."""
+    """The phone runs L0 without --skip-ineligible: it is how a repo that woke up is found, so nothing is pruned."""
+    rest_calls: list[str] = []
+    _archived_repo_transport(gather_mod, monkeypatch, rest_calls)
+    st = gather_mod.gather_repo(
+        "acme", "archived-lib", "pypi", collectors=frozenset({"github_meta", "tree", "commits_180d"}),
+    )
+    assert "skipped_ineligible" not in st
+    assert st["commits_180d"] == "ok"
+    assert "repos/acme/archived-lib/commits" in rest_calls
+
+
+def test_opt2_commits_180d_shapes_actor_fields_and_reads_every_page_to_the_cap(
+    gather_mod: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """commits_180d keeps author_type/author_email/signed_off and reads every full page up to COMMIT_PAGES: D-GATE-4
+    counts only commits dated before as_of, and a busy repo's newest page can lie entirely after it."""
     monkeypatch.setattr(gather_mod.time, "sleep", lambda _s: None)
     pages_requested: list[str] = []
 
     def _fake_gh(path: str, *flags: str):
         page_flag = next(f for f in flags if f.startswith("page="))
         pages_requested.append(page_flag)
-        # Return 100 commits on page 1 so len(d) == 100 would previously trigger page 2
         return [
             {
-                "sha": f"sha-{i}",
+                "sha": f"sha-{page_flag}-{i}",
                 "author": {"login": "alice-bot", "type": "User"},
                 "commit": {
                     "author": {"date": "2026-10-01T00:00:00Z", "email": "alice@example.com"},
@@ -109,9 +128,9 @@ def test_opt2_commits_180d_shapes_actor_fields_and_stops_after_page_1_human_comm
     monkeypatch.setattr(gather_mod, "_gh", _fake_gh)
     st = gather_mod.gather_repo("acme", "active-lib", "pypi", collectors=frozenset({"commits_180d"}))
     assert st["commits_180d"] == "ok"
-    assert pages_requested == ["page=1"]
+    assert pages_requested == [f"page={n}" for n in range(1, gather_mod.COMMIT_PAGES + 1)]
     env = read_envelope(gather_mod.DATA / "commits_180d" / "acme__active-lib.json")
-    assert len(env.data) == 100
+    assert len(env.data) == 100 * gather_mod.COMMIT_PAGES
     assert env.data[0]["author_login"] == "alice-bot"
     assert env.data[0]["author_type"] == "User"
     assert env.data[0]["author_email"] == "alice@example.com"
@@ -410,3 +429,10 @@ def test_opt7_labels_stops_paging_once_page_1_crosses_90d_cutoff() -> None:
     assert pages_called == ["page=1"]
     assert len(result.issues) == 90
     assert result.truncated is False
+
+
+def test_opt5_org_default_cache_lives_for_one_gather_run(gather_mod: ModuleType) -> None:
+    """The phone's engine stays up across cycles: every gather run starts with an empty org-default file cache."""
+    governance._ORG_DEFAULT_FILE_CACHE[(0, 0, 0, "acme", "CONTRIBUTING.md")] = "an old body"
+    assert gather_mod.main(["--repo", "acme", "bad name!"]) == 2  # refused before any fetch, after the reset
+    assert governance._ORG_DEFAULT_FILE_CACHE == {}

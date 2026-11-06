@@ -345,11 +345,11 @@ export function evaluateLiveGates(facts, now) {
   } else checks.push({ id: "D-GATE-3", status: "fail", reason: "not_osi", detail: { spdx } });
 
   // D-GATE-4: >= 1 non-bot commit on the default branch in the trailing window.
-  // Mirrors scripts/gather.py:336-338 + gate_evidence._vitality_commit_count,
-  // which record and inspect `author_login` only (unlinked commits have login "").
+  // Mirrors gate_evidence._vitality_commit_count, which reads each row's login, account type and author email
+  // (an unlinked commit has login "", and a bot's email still names it).
   if (!commits) checks.push({ id: "D-GATE-4", status: "undecided", reason: "commits_unreadable", detail: {} });
   else {
-    const human = commits.rows.filter((c) => !isBotActor({ login: c.login })).length;
+    const human = commits.rows.filter((c) => !isBotActor({ login: c.login, type: c.type, email: c.email })).length;
     if (human > 0) {
       checks.push({ id: "D-GATE-4", status: "pass", reason: "human_commits", detail: { count: human, more: !commits.complete, days: VITALITY_WINDOW_DAYS } });
     } else if (commits.complete) {
@@ -458,14 +458,16 @@ export function treeFactsFrom(res) {
 }
 
 /**
- * `{ rows: [{ login }], complete }` from one page of commits, or null.
- * Mirrors scripts/gather.py:336-338, which records `author_login` only.
+ * `{ rows: [{ login, type, email }], complete }` from one page of commits, or null.
+ * Mirrors scripts/gather.py's commits_180d rows (porchlamp.collect.commits.shape_commit_rows): the linked
+ * account's login and type, and the git author's email.
  */
 export function commitFactsFrom(res) {
   if (!res.ok) return null;
   const rows = (Array.isArray(res.data) ? res.data : []).map((c) => {
     const author = c && c.author && typeof c.author === "object" ? c.author : {};
-    return { login: str(author.login) };
+    const gitAuthor = c && c.commit && c.commit.author && typeof c.commit.author === "object" ? c.commit.author : {};
+    return { login: str(author.login), type: str(author.type), email: str(gitAuthor.email) };
   });
   return { rows, complete: rows.length < LIVE_PAGE_SIZE };
 }
