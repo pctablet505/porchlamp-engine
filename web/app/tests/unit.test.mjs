@@ -14,7 +14,7 @@ import vm from "node:vm";
 
 import { decidingTieLevel, SORTABLE_COLUMNS, renderColumnHeader, sortColumnLabel } from "../components/table.js";
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
-import { renderCoverageBadge } from "../components/badge.js";
+import { renderCoverageBadge, renderQuadrant } from "../components/badge.js";
 import { renderBrand } from "../components/brand.js";
 import { escapeHtml } from "../escape.js";
 import {
@@ -34,6 +34,7 @@ import {
   resolveOpenTargetKey,
   footerFieldsFor,
   repoToLoadFromState,
+  repoHasProjectPage,
 } from "../state.js";
 import * as copy from "../copy.js";
 import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, renderMobileSortBar, personaVisibleForState } from "../views/leaderboard.js";
@@ -43,12 +44,12 @@ import { fill as fillTemplate } from "../components/fill.js";
 import { centeredScrollLeft, renderNav, navEntryFor, renderFooter, renderHeader, renderAppHeader, headerControlsFor } from "../components/chrome.js";
 import { ROUTES, matchRoute, projectPath, routeById, routePath, routeTitle } from "../routes.js";
 import { fetchManifest, postReproject } from "../api.js";
-import { normalizeWeights, applyPresetRespectingLocks, renderControls, renderShell as renderConfigureShell, sortReprojectRows, filterReprojectRows, renderPager as renderConfigurePager, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
+import { normalizeWeights, applyPresetRespectingLocks, renderControls, renderShell as renderConfigureShell, sortReprojectRows, filterReprojectRows, renderPager as renderConfigurePager, topMovers, remainingReprojectPages, mergeReprojectPages, activePresetForWeights } from "../views/configure.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
 import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, renderShell as renderMatrixShell, shellShape as matrixShellShape, clientToDomainCoords } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY, renderScatterSvg } from "../components/scatter.js";
 import { synthesizeRows } from "./synthetic-rows.js";
-import { shellKey as compareShellKey, shellShape as compareShellShape, renderShell as renderCompareShell, computeVerdict } from "../views/compare.js";
+import { shellKey as compareShellKey, shellShape as compareShellShape, renderShell as renderCompareShell, computeVerdict, formatCompareValue } from "../views/compare.js";
 import { renderDrawer, classifyKind, classifyKindForLens, findRow } from "../views/drawer.js";
 import { renderProject, renderPillarRadar, formatParameterValue, replyTimeText } from "../views/project.js";
 import { OPENING_DAYS, answeredX, curveX, rangeAxis, renderFirstPullRequests, roundUp } from "../views/first_pull_requests.js";
@@ -1063,9 +1064,9 @@ test("leaderboard: personaVisibleCount follows the lens, not the balanced rated 
 
 test("leaderboard: the Ranked tab count matches what the table actually pages", () => {
   const html = renderTabs("ranked", L3GP_COUNTS, personaVisibleCount(L3GP_COUNTS, L3GP_SNAPSHOT, "ai_assisted"));
-  assert.match(html, /Ranked<span class="count">303<\/span>/);
+  assert.match(html, /Ranked <span class="count">303<\/span>/);
   // Not-ranked is persona-independent (gate reasons are persona-free).
-  assert.match(html, /Not ranked<span class="count">5661<\/span>/);
+  assert.match(html, /Not ranked <span class="count">5661<\/span>/);
 });
 
 test("leaderboard: personaDelta reports BOTH directions, not just hidden", () => {
@@ -3262,8 +3263,12 @@ test("routes: every primary nav link is a view's address, opened in place, with 
       assert.equal(href, hrefFor(state, route.view || route.id), `${tab}: ${href} is where a click goes from here`);
     }
     assert.ok(links.every((link) => link[1] !== "/black-holes/"), `${tab}: no entry opens the old report`);
-    const current = links.filter((link) => link[4]).map((link) => link[3]);
-    assert.deepEqual(current, tab === "notfound" || tab === "report" ? [] : [tab === "notranked" ? "ranked" : tab], `${tab}: the current entry`);
+    const current = links.filter((link) => link[4]).map((link) => link[3] || link[1]);
+    assert.deepEqual(
+      current,
+      tab === "notfound" ? [] : tab === "report" ? ["/first-pull-requests/"] : [tab === "notranked" ? "ranked" : tab],
+      `${tab}: the current entry`
+    );
   }
   assert.match(
     renderNav(navEntryFor("first-pull-requests")),
@@ -4980,7 +4985,7 @@ const pagesOf = (reason) => Math.max(1, Math.ceil(REASON_COUNTS[reason] / 200));
 /** The list items of `html`: `{ owner, name, text }`, `text` the item's whole text. An item holding any element (a
  *  label, a badge, a chip, a hook) is an error: a row is one plain sentence. */
 function reasonItemsOf(html) {
-  return [...html.matchAll(/<li data-owner="([^"]*)" data-name="([^"]*)">(.*?)<\/li>/g)].map(([, owner, name, inner]) => {
+  return [...html.matchAll(/<li data-owner="([^"]*)" data-name="([^"]*)"(?: tabindex="0")?>(.*?)<\/li>/g)].map(([, owner, name, inner]) => {
     if (/[<>]/.test(inner)) throw new Error(`${owner}/${name}: the item holds markup: ${inner}`);
     return { owner: decodeAttr(owner), name: decodeAttr(name), text: decodeAttr(inner) };
   });
@@ -5031,10 +5036,10 @@ test("not-ranked lists: a reason at 200 a page writes its path; a lens, an ecosy
     assert.equal(serializeLocation(next), address, JSON.stringify(payload));
     assert.equal(next.notRankedReason, null, `${address}: the reason is left`);
   }
-  // the tabs: Ranked from a list, and the whole list back from there; the Not ranked tab on a list is the list itself
+  // the tabs: Ranked from a list, and the whole list back from there; the Not ranked tab on a list returns to the whole list
   assert.equal(hrefFor(onList, "ranked"), "/");
   assert.equal(hrefFor(reduce(onList, { type: "SET_TAB", tab: "ranked" }), "notranked"), "/not-ranked/");
-  assert.equal(hrefFor(onList, "notranked"), "/not-ranked/stale/3/");
+  assert.equal(hrefFor(onList, "notranked"), "/not-ranked/");
   // another view never reads a reason
   assert.equal(serializeLocation({ ...defaultState(), notRankedReason: "stale", ecosystem: "crates", pageSize: 50 }), "/rust/");
 });
@@ -5209,7 +5214,7 @@ test("not-ranked lists: the \"Lists by reason\" line links each list's first pag
 });
 
 test("not-ranked tab: it counts the list it opens, the ecosystem's on /rust/, and never another list's number", () => {
-  const tabCount = (html) => html.match(/Not ranked<span class="count">([^<]*)<\/span>/)[1];
+  const tabCount = (html) => html.match(/Not ranked <span class="count">([^<]*)<\/span>/)[1];
   const rustRows = [...NR_LIST.gated, ...NR_LIST.unrated].filter((row) => row.ecosystem === "crates").length;
   const all = HOME_COUNTS.gated + HOME_COUNTS.unrated;
   assert.notEqual(rustRows, all);
@@ -5233,7 +5238,7 @@ test("not-ranked tab: it counts the list it opens, the ecosystem's on /rust/, an
   const nrRust = atReason("/not-ranked/", { ecosystem: "crates", notRanked: NR_LIST, leaderboard: HOME_LEADERBOARD });
   assert.equal(tabCount(notRankedRenderShell(nrRust)), String(rustRows));
   assert.equal(nrState.notRankedTabCount(nrRust), notRankedFlatten(NR_LIST, { ecosystem: "crates" }).length);
-  assert.equal(renderTabs("ranked", HOME_COUNTS, 1, null).match(/Not ranked<span class="count">([^<]*)</)[1], "", "null draws no number");
+  assert.equal(renderTabs("ranked", HOME_COUNTS, 1, null).match(/Not ranked <span class="count">([^<]*)</)[1], "", "null draws no number");
 });
 
 test("not-ranked lists: the app takes over a list's prerendered page for its own state, and leaves a page of another list alone", () => {
@@ -5361,7 +5366,7 @@ test("not-ranked lists: the prerender draws a list's page from its address: the 
   // a list with an ecosystem draws the Not ranked tab with the ecosystem's count from the same list
   const rust = drawPage(frame, { path: "rust/index.html", view: "ranked", address: "/rust/" }, { ...data, methodology: METHODOLOGY_DOC, leaderboard: listBoard(LIST_ROWS) });
   const rustRows = [...NR_LIST.gated, ...NR_LIST.unrated].filter((row) => row.ecosystem === "crates").length;
-  assert.ok(rust.includes(`Not ranked<span class="count">${rustRows}</span>`), "the ecosystem's count");
+  assert.ok(rust.includes(`Not ranked <span class="count">${rustRows}</span>`), "the ecosystem's count");
   assert.equal(nrPrerender.needsNotRanked(nrPrerender.stateForAddress("/rust/")), true);
   assert.equal(nrPrerender.needsNotRanked(nrPrerender.stateForAddress("/career/")), false);
 });
@@ -5544,3 +5549,190 @@ for (const [rel, draw] of Object.entries(ESCAPING_MODULES)) {
     assert.ok(!html.includes(MARKUP), "the markup is not left raw");
   });
 }
+
+// ---------------------------------------------------------------------
+// UI/UX & Accessibility Audit Regressions (DEF-01 through DEF-18)
+// ---------------------------------------------------------------------
+
+test("DEF-01: 0-repo reason routes (fork, mirror) render a valid empty state shell without crashing", () => {
+  for (const slug of ["fork", "mirror"]) {
+    const state = {
+      ...defaultState(),
+      ...stateFromLocation(`/not-ranked/${slug}/1/`, ""),
+      notRanked: { gated: [], unrated: [], persona_hidden: [], counts: { gated: 0, unrated: 0, persona_hidden: 0 }, truncated: false },
+      snapshot: { snapshot_id: "2026-10-14", counts: { gated: 0, unrated: 0, rated: 100 } },
+    };
+    const html = notRankedRenderShell(state);
+    assert.ok(html.includes('class="empty-state"'), `${slug} reason list renders .empty-state when 0 rows exist`);
+    assert.ok(html.includes('data-list-intro="true"'), `${slug} reason list includes the list intro`);
+  }
+});
+
+test("DEF-02: gated/unrated drawer does not push broken /projects/<owner>/<name>/ URLs or show Full page link", () => {
+  const unrankedState = {
+    ...defaultState(),
+    ...stateFromLocation("/not-ranked/archived/1/", ""),
+    repo: "dead/repo",
+    repoDetailByKey: {
+      "dead/repo": { owner: "dead", name: "repo", eligible: false, rated: false, gate_reason: "archived" },
+    },
+  };
+  assert.equal(repoHasProjectPage(unrankedState), false);
+  const url = serializeLocation(unrankedState);
+  assert.ok(!url.startsWith("/projects/"), `unranked repo drawer must not serialize to /projects/: got ${url}`);
+  assert.equal(url, "/not-ranked/archived/1/");
+
+  const drawerHtml = renderDrawer(unrankedState);
+  assert.ok(!drawerHtml.includes("data-drawer-page"), "unranked repo drawer must not render Full page link");
+
+  const rankedState = {
+    ...defaultState(),
+    tab: "ranked",
+    repo: "live/repo",
+    repoDetailByKey: {
+      "live/repo": { owner: "live", name: "repo", eligible: true, rated: true, rank: 1, porchlamp: 91.2, coverage: 0.9, tier: "S" },
+    },
+  };
+  assert.equal(repoHasProjectPage(rankedState), true);
+  assert.equal(serializeLocation(rankedState), "/projects/live/repo/");
+  assert.ok(renderDrawer(rankedState).includes("data-drawer-page"), "ranked repo drawer renders Full page link");
+});
+
+test("DEF-03: fastest-replies and not-ranked reason lists do not trap primary/sub-tab navigation", () => {
+  const onFastest = { ...defaultState(), ...stateFromLocation("/fastest-replies/", "") };
+  assert.equal(hrefFor(onFastest, "ranked"), "/", "Ranked tab from /fastest-replies/ exits to /");
+  const afterTabClick = reduce(onFastest, { type: "SET_TAB", tab: "ranked" });
+  assert.equal(afterTabClick.sort, "rank", "SET_TAB ranked from fastest-replies resets sort to rank");
+
+  const firstReplyHeader = renderColumnHeader("first_reply", "asc");
+  assert.match(firstReplyHeader, /aria-sort="ascending"/, "first_reply column header carries aria-sort=ascending on fastest-replies");
+  assert.match(firstReplyHeader, /class="sort-arrow"[^>]*>↑<\/span>/, "first_reply column header shows ascending arrow");
+
+  const onReason = { ...defaultState(), ...stateFromLocation("/not-ranked/stale/3/", "") };
+  assert.equal(hrefFor(onReason, "notranked"), "/not-ranked/", "Not ranked tab from reason sub-page exits to /not-ranked/");
+});
+
+test("DEF-04: legacy /black-holes/ report route activates the Report primary nav item", () => {
+  assert.equal(navEntryFor("report"), "first-pull-requests");
+  const navHtml = renderNav(navEntryFor("report"));
+  assert.match(navHtml, /href="\/first-pull-requests\/" aria-current="page">Report<\/a>/);
+});
+
+test("DEF-09 & DEF-10: semantic table rows/headers have no role=button and non-interactive badges have no tabindex=0", () => {
+  const row = {
+    owner: "acme",
+    name: "widget",
+    rank: 1,
+    porchlamp: 88.5,
+    coverage: 0.95,
+    tier: "S",
+    tier_ceiling: null,
+    quadrant: "Sweet Spot",
+    p_responsiveness: 90,
+    p_criticality: 80,
+    p_governance: 85,
+    p_rigor: 88,
+    p_accessibility: 92,
+    stars_audited: 1200,
+    suspicion: [],
+  };
+  const headerHtml = renderColumnHeader("porchlamp", "desc");
+  assert.ok(!headerHtml.includes('role="button"'), "<th> must not override columnheader semantics with role=button");
+  assert.match(headerHtml, /aria-sort="descending"/);
+
+  const sparkHtml = renderSparkbarGroup([{ id: "responsiveness", label: "Resp", score: 90, coverage: 1 }]);
+  assert.ok(!sparkHtml.includes('tabindex="0"'), ".sparkbar must not carry tabindex=0");
+
+  const tierHtml = renderTierCell("S", "A");
+  assert.ok(!tierHtml.includes('tabindex="0"'), ".tier-pill must not carry tabindex=0");
+
+  const doc = {
+    createElement(tag) {
+      return {
+        tagName: tag.toUpperCase(),
+        className: "",
+        classList: { add() {} },
+        dataset: {},
+        innerHTML: "",
+        children: [],
+        attrs: {},
+        setAttribute(k, v) { this.attrs[k] = v; },
+        appendChild(c) { this.children.push(c); },
+      };
+    },
+  };
+  const tr = createRowElement(doc, row, {});
+  assert.equal(tr.attrs.role, undefined, "<tr> must not set role=button");
+  assert.ok(tr.children.some((td) => td.innerHTML.includes('class="repo-link"')), "<tr> contains a focusable .repo-link anchor");
+
+  const card = createCardElement(doc, row, {});
+  assert.equal(card.attrs.role, undefined, ".leaderboard-card must not set role=button");
+  assert.ok(!card.innerHTML.includes("<div></div>"), "card without suspicion flags omits empty trailing div");
+});
+
+test("DEF-11: not-ranked reason list items carry tabindex=0 for keyboard accessibility", () => {
+  const state = reasonPageState("/not-ranked/archived/1/");
+  const html = notRankedRenderShell(state);
+  assert.match(html, /<li data-owner="[^"]+" data-name="[^"]+" tabindex="0">/);
+});
+
+test("DEF-12 & DEF-16: compare search combobox ARIA, human-readable rubric badge, and formatted raw parameter values", () => {
+  assert.equal(copy.COMPARE_DIRECTION_ENUM, "categorical rubric");
+  const compareHtml = renderCompareShell({
+    ...defaultState(),
+    tab: "compare",
+    compareRepos: ["a/one", "b/two"],
+    compareQuery: "py",
+    compareSearchResults: [{ owner: "psf", name: "requests", ecosystem: "pypi" }],
+  });
+  assert.match(compareHtml, /role="combobox"[^>]*aria-expanded="true"[^>]*aria-controls="compare-search-results"/);
+  assert.match(compareHtml, /id="compare-search-results"[^>]*role="listbox"/);
+  assert.match(compareHtml, /role="option"/);
+
+  assert.equal(formatCompareValue("ttfhr_hours", 0.35), "0.4 hours (0 days)");
+  assert.equal(formatCompareValue("gr14_ghost_rate", 0.043478), "4.3%");
+  assert.equal(formatCompareValue("downloads_monthly", 164729285), "164.7 million downloads a month");
+  assert.equal(formatCompareValue("openssf_criticality", 0.72894), "0.73");
+  assert.equal(formatCompareValue("legal_ip", "DCO"), "Sign-off on commits (DCO)");
+  assert.equal(formatCompareValue("ai_posture", "REGULATED"), "Written AI policy");
+  assert.equal(formatCompareValue("promotion_ladder", "AD_HOC"), "No written path to becoming a maintainer");
+});
+
+test("DEF-14: keymap overlay table includes sr-only column headers", () => {
+  const html = renderKeymapOverlay();
+  assert.match(html, /<thead class="sr-only"><tr><th scope="col">Shortcut<\/th><th scope="col">Action<\/th><\/tr><\/thead>/);
+});
+
+test("DEF-15: form controls carry id/name and adjacent badge/count spans include separating whitespace", () => {
+  const tabsHtml = renderTabs("ranked", 1000, 500, defaultState());
+  assert.match(tabsHtml, /Ranked <span class="count">/);
+  assert.match(tabsHtml, /Not ranked <span class="count">/);
+
+  const quadHtml = renderQuadrant("Sweet Spot");
+  assert.match(quadHtml, /<\/span> Sweet Spot<\/span>/);
+
+  const sortBarHtml = renderMobileSortBar("porchlamp", "desc");
+  assert.match(sortBarHtml, /id="mobile-sort-select" name="sort"/);
+
+  const cfgPagerHtml = renderConfigurePager(1, 25, 100);
+  assert.match(cfgPagerHtml, /id="configure-pager-size-select" name="page_size"/);
+});
+
+test("DEF-17: First Pull Requests h2 sections carry .fpr-h2 styling class", () => {
+  const html = renderFirstPullRequests(FIRST_PULL_REQUESTS);
+  assert.match(html, /<h2 class="report-h2 fpr-h2" id="how-measured">/);
+  assert.match(html, /<h2 class="report-h2 fpr-h2" id="not-covered">/);
+  assert.match(html, /<h2 class="report-h2 fpr-h2" id="cite">/);
+});
+
+test("DEF-18: configure initial Balanced preset label & suspicion flag humanization", () => {
+  assert.equal(activePresetForWeights(BALANCED_WEIGHTS), "balanced");
+  const cfgHtml = renderConfigureShell({ ...defaultState(), tab: "configure" });
+  assert.match(cfgHtml, /data-weight-preset="balanced" aria-pressed="true"/);
+  assert.match(cfgHtml, /data-weight-mode-label="true">Balanced<\/p>/);
+
+  const suspHtml = renderSuspicionIcon(["ef_domain_mismatch"]);
+  assert.ok(!suspHtml.includes("Suspicion flags: ef_domain_mismatch"), "suspicion icon aria-label uses human-readable label");
+  assert.ok(suspHtml.includes("Commit author domains do not match ecosystem norms"));
+});
+

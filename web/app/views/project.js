@@ -590,7 +590,7 @@ function integrityBlock(rec, mode, opts, ranked) {
   const d = rec.detail;
   const tag = headings(mode).section;
   const key = `${d.owner}/${d.name}`;
-  const flags = d.suspicion && d.suspicion.length ? e(d.suspicion.join(", ")) : e(copy.SUSPICION_NONE_TEXT);
+  const flags = d.suspicion && d.suspicion.length ? e(d.suspicion.map((f) => copy.SUSPICION_FLAG_LABELS[f] || f).join(", ")) : e(copy.SUSPICION_NONE_TEXT);
   const issue = copy.ISSUE_BASE + encodeURIComponent(copy.ISSUE_TITLE_PREFIX + key);
   const cite = ranked
     ? `<p class="project-cite">${fill(copy.PROJECT_CITE_LINE, {

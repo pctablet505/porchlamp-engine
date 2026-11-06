@@ -35,14 +35,15 @@ export function renderQuadrant(quadrant) {
   const glyph = copy.QUADRANT_GLYPHS[quadrant] || "?";
   const label = copy.QUADRANT_LABELS[quadrant] || quadrant;
   const cls = `quad-${quadrant.toLowerCase().replace(/\s+/g, "-")}`;
-  return `<span class="${cls}"><span class="quadrant-glyph" aria-hidden="true">${glyph}</span>${escapeHtml(label)}</span>`;
+  return `<span class="${cls}"><span class="quadrant-glyph" aria-hidden="true">${glyph}</span> ${escapeHtml(label)}</span>`;
 }
 
 /** Suspicion icon with the detector-name reason list on hover/focus. */
 export function renderSuspicionIcon(flags) {
   if (!flags || flags.length === 0) return "";
   const tooltip = copy.suspicionTooltip(flags);
+  const readableFlags = flags.map((f) => copy.SUSPICION_FLAG_LABELS[f] || f);
   return (
-    `<span class="suspicion-icon" tabindex="0" role="img" aria-label="${escapeHtml(copy.SUSPICION_LABEL)}: ${escapeHtml(flags.join(", "))}" title="${escapeHtml(tooltip)}">⚠</span>`
+    `<span class="suspicion-icon" tabindex="0" role="img" aria-label="${escapeHtml(copy.SUSPICION_LABEL)}: ${escapeHtml(readableFlags.join(", "))}" title="${escapeHtml(tooltip)}">⚠</span>`
   );
 }

@@ -9,6 +9,7 @@ import * as copy from "../copy.js";
 import { renderCoverageBadge, renderTierCell } from "../components/badge.js";
 import { COMPARE_MIN, COMPARE_MAX } from "../state.js";
 import { classifyKindForLens, projectRowForLens, deriveTierCeiling } from "./drawer.js";
+import { formatParameterValue as formatProjectParamValue } from "./project.js";
 import { escapeHtml } from "../escape.js";
 
 /**
@@ -237,14 +238,14 @@ function renderPickerResults(state) {
     .map((r) => {
       const key = `${r.owner}/${r.name}`;
       return (
-        `<li><button type="button" data-compare-add="${escapeHtml(key)}" aria-label="${escapeHtml(copy.COMPARE_ADD_LABEL)}: ${escapeHtml(key)}">` +
+        `<li role="presentation"><button type="button" role="option" data-compare-add="${escapeHtml(key)}" aria-label="${escapeHtml(copy.COMPARE_ADD_LABEL)}: ${escapeHtml(key)}">` +
         `${escapeHtml(key)} <span class="eco-chip">${escapeHtml(copy.ecosystemName(r.ecosystem))}</span></button></li>`
       );
     })
     .join("");
   return (
     (atMax ? `<p class="matrix-caption">${escapeHtml(copy.COMPARE_MAX_TEXT)}</p>` : "") +
-    (results ? `<ul class="compare-results" data-compare-results="true">${results}</ul>` : "")
+    (results ? `<ul class="compare-results" id="compare-search-results" role="listbox" data-compare-results="true">${results}</ul>` : "")
   );
 }
 
@@ -261,9 +262,11 @@ function renderPickerResults(state) {
  */
 function renderPickerShell(state) {
   const atMax = state.compareRepos.length >= COMPARE_MAX;
+  const hasResults = Boolean(state.compareSearchResults && state.compareSearchResults.length > 0);
   return (
     `<div class="compare-picker">` +
-    `<input type="search" class="control" data-compare-search="true" value="${escapeHtml(state.compareQuery)}" ` +
+    `<input type="search" class="control" id="compare-search-input" name="compare_q" role="combobox" aria-autocomplete="list" ` +
+    `aria-expanded="${hasResults}" aria-controls="compare-search-results" data-compare-search="true" value="${escapeHtml(state.compareQuery)}" ` +
     `placeholder="${escapeHtml(copy.COMPARE_SEARCH_PLACEHOLDER)}" aria-label="${escapeHtml(copy.COMPARE_SEARCH_LABEL)}" ` +
     `${atMax ? "disabled" : ""}>` +
     `<div data-compare-results-host="true">${renderPickerResults(state)}</div>` +
@@ -276,6 +279,10 @@ function renderPickerShell(state) {
 export function patchResults(main, state) {
   const host = main.querySelector("[data-compare-results-host]");
   if (host) host.innerHTML = renderPickerResults(state);
+  const input = main.querySelector("[data-compare-search]");
+  if (input && typeof input.setAttribute === "function") {
+    input.setAttribute("aria-expanded", String(Boolean(state.compareSearchResults && state.compareSearchResults.length > 0)));
+  }
 }
 
 /** Patches ONLY the comparison table host — a per-repo-data-change path,
@@ -372,6 +379,13 @@ function directionBadgeHtml(direction) {
   return "";
 }
 
+export function formatCompareValue(paramId, raw) {
+  if (paramId === "openssf_criticality" && typeof raw === "number" && Number.isFinite(raw)) {
+    return raw.toFixed(2);
+  }
+  return formatProjectParamValue(paramId, raw);
+}
+
 function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
   const values = valuesForParam(paramEntry.input_id, evidenceByRepo, repoKeys);
   const winner = betterRepoKey(paramEntry, values, persona);
@@ -386,7 +400,7 @@ function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
       const evidenceRow = evidenceRows.find((e) => e.param_id === paramEntry.input_id);
       if (raw === null || raw === undefined) {
         const reason = evidenceRow ? copy.missingValueReason(evidenceRow.unmeasured_reason) : copy.missingValueReason();
-        return `<td class="cell-missing" tabindex="0" title="${escapeHtml(reason)}"><span class="unmeasured-badge">${escapeHtml(copy.COMPARE_UNMEASURED_LABEL)}</span></td>`;
+        return `<td class="cell-missing" title="${escapeHtml(reason)}"><span class="unmeasured-badge">${escapeHtml(copy.COMPARE_UNMEASURED_LABEL)}</span></td>`;
       }
       const isBetter = winner === key;
       const title = evidenceRow
@@ -396,8 +410,8 @@ function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
       const mark = isBetter
         ? `<span class="compare-better-mark" title="${escapeHtml(betterTitle)}" aria-label="${escapeHtml(betterTitle)}">${copy.COMPARE_BETTER_MARK}</span>`
         : "";
-      const formattedRaw = copy.formatParameterValue(raw);
-      return `<td class="cell-numeric${isBetter ? " compare-better-cell" : ""}" tabindex="0" title="${escapeHtml(title)}">${escapeHtml(formattedRaw)} ${mark}</td>`;
+      const formattedRaw = formatCompareValue(paramEntry.input_id, raw);
+      return `<td class="cell-numeric${isBetter ? " compare-better-cell" : ""}" title="${escapeHtml(title)}">${escapeHtml(formattedRaw)} ${mark}</td>`;
     })
     .join("");
   return (

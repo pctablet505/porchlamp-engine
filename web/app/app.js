@@ -127,6 +127,7 @@ import {
   REPROJECT_PAGE_SIZE,
   remainingReprojectPages,
   mergeReprojectPages,
+  activePresetForWeights,
 } from "./views/configure.js";
 import {
   renderShell as renderCompareShell,
@@ -762,6 +763,16 @@ export function boot(win = window, doc = document) {
       if (sumEl.textContent !== text) sumEl.textContent = text;
       sumEl.classList.toggle("weight-sum-warning", Math.abs(sum - 1) > 0.005);
     }
+    const activePreset = activePresetForWeights(state.weights);
+    const modeEl = main.querySelector("[data-weight-mode-label]");
+    if (modeEl) {
+      const modeText = activePreset ? copy.PERSONA_NAMES[activePreset] : copy.CONFIGURE_CUSTOM_LABEL;
+      if (modeEl.textContent !== modeText) modeEl.textContent = modeText;
+    }
+    for (const btn of main.querySelectorAll("[data-weight-preset]")) {
+      const pressed = String(btn.dataset.weightPreset === activePreset);
+      if (btn.getAttribute("aria-pressed") !== pressed) btn.setAttribute("aria-pressed", pressed);
+    }
   }
 
   // ------------------------------------------------------------- URL sync
@@ -937,6 +948,7 @@ export function boot(win = window, doc = document) {
         return;
       }
       store.dispatch({ type: "REPO_DETAIL_OK", repo: key, data: result.data });
+      if (store.getState().repo === key) replaceUrl(store.getState());
     });
   }
 
@@ -1288,6 +1300,11 @@ export function boot(win = window, doc = document) {
       keymapTriggerEl = null;
     }
     if (state.repo && !wasDrawerOpen) drawerRoot.querySelector("[data-drawer-close]")?.focus();
+    const bgInert = Boolean(state.repo || state.keymapOpen);
+    for (const el of [header, primaryNav, main, footer]) {
+      if (el) el.inert = bgInert;
+    }
+    if (drawerRoot) drawerRoot.inert = Boolean(state.keymapOpen && state.repo);
     wasDrawerOpen = !!state.repo;
     wasKeymapOpen = !!state.keymapOpen;
   }
@@ -1443,6 +1460,12 @@ export function boot(win = window, doc = document) {
   // nav or Ranked/Not ranked link (`data-route-tab`) opens its view with its own page and sort (`goToTab`,
   // whose address is the link's href); any other view link opens exactly its address.
   doc.addEventListener("click", (evt) => {
+    if (
+      store.getState().compareSearchResults.length > 0 &&
+      !(evt.target && typeof evt.target.closest === "function" && evt.target.closest(".compare-picker"))
+    ) {
+      store.dispatch({ type: "COMPARE_SET_RESULTS", results: [] });
+    }
     if (evt.defaultPrevented || !isPlainLeftClick(evt)) return;
     const link = evt.target && typeof evt.target.closest === "function" ? evt.target.closest("a[href]") : null;
     if (!link || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
@@ -1660,6 +1683,15 @@ export function boot(win = window, doc = document) {
       store.dispatch({ type: "COMPARE_SET_QUERY", query });
       clearTimeout(compareSearchDebounce);
       compareSearchDebounce = setTimeout(() => searchCompare(query), 100);
+    }
+  });
+
+  main.addEventListener("focusout", (evt) => {
+    const picker = evt.target && typeof evt.target.closest === "function" ? evt.target.closest(".compare-picker") : null;
+    if (picker && (!evt.relatedTarget || !picker.contains(evt.relatedTarget))) {
+      if (store.getState().compareSearchResults.length > 0) {
+        store.dispatch({ type: "COMPARE_SET_RESULTS", results: [] });
+      }
     }
   });
 

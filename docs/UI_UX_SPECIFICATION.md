@@ -538,6 +538,40 @@ flowchart LR
 
 ---
 
+### 5.5 Enforced UI/UX, Accessibility & Cross-Page Parity Invariants
+
+Every change to `web/app/`, `web/prerender.mjs`, or `porchlamp/serve/` must preserve the following invariants (enforced by `web/app/tests/unit.test.mjs` and `tests/`):
+
+1. **Routing, Sub-View Navigation & Drawer URL Safety (`DEF-01`–`DEF-04`):**
+   - Every `REASON_SLUGS` route (`/not-ranked/<reason>/<page>/`, including zero-row reasons such as `fork` and `mirror`) renders a valid shell with an `.empty-state` fallback when `rows.length === 0`.
+   - Opening the drawer for a gated or unrated repository (`repoHasProjectPage(state) === false`) must never push `/projects/<owner>/<name>/` via `history.pushState` or render a `"Full page →"` link to an ungenerated static project page; if a repository's detail payload resolves with `rated: false`, `replaceUrl` restores the underlying view URL.
+   - Sub-tabs (`Ranked`, `Not ranked`) and primary navigation (`Leaderboard`) must never trap the reader on a preset sub-view: clicking `Ranked` or `Leaderboard` from `/fastest-replies/` navigates to `/` (or `/<eco>/`), and clicking `Not ranked` from `/not-ranked/<reason>/<page>/` navigates to `/not-ranked/`.
+   - `/fastest-replies/` marks the `First reply (median)` column header with `class="is-active"`, `aria-sort="ascending"`, and a visible `↑` sort indicator.
+   - Both `/first-pull-requests/` and `/black-holes/` (`page === "report"`) mark the `Report` primary navigation tab active (`aria-current="page"`).
+   - `.black-hole-pr-scroll` uses `max-height: none; overflow-y: visible` so `.drawer` never creates nested vertical scrollbars.
+
+2. **Responsive Layout & Sticky Chrome Integrity (`DEF-05`–`DEF-09`):**
+   - `.app-header` sets `min-height: var(--header-height); box-sizing: border-box` so sticky offsets never leave a bleed-through gap between `.app-header` and `.app-primary-nav` on static (`shell: false`) pages.
+   - On `/weights/`, `.configure-layout` stacks `.configure-delta-col` below `1600px` and `.configure-table-col` sets `overflow-x: auto` so `table.leaderboard-table` never overlaps the delta sidebar.
+   - On `/matrix/`, `.matrix-quad-grid` uses a balanced 2×2 grid (`grid-template-columns: repeat(2, minmax(0, 1fr))` on `>= 640px`, `minmax(0, 1fr)` below `640px`), and `.matrix-top-repo-name` truncates cleanly with `overflow: hidden; text-overflow: ellipsis; white-space: nowrap`.
+   - At tablet widths (`768px–1023px`), `.leaderboard-table td[data-cell="repository"]` enforces `min-width: 180px; max-width: 220px` and stacks `.repo-line` vertically so repository names are never truncated to unreadable widths.
+   - At mobile widths (`< 768px`), `.leaderboard-card` uses `min-height: 120px; height: auto` and omits empty trailing metadata rows when a repository has no suspicion flags.
+
+3. **WCAG 2.1 AA Semantic Markup, Keyboard Focus & Contrast (`DEF-10`–`DEF-15`):**
+   - Native `<table>` semantics are preserved: `<tr>` elements must never carry `role="button"` or `tabindex="0"`; sortable `<th data-sortable="true">` cells must keep `role="columnheader"` (no `role="button"` override) with `aria-sort`; non-interactive `.sparkbar`, `.tier-pill`, and `.compare-raw-cell` elements must not carry `tabindex="0"`. Every row's `.repo-link` is keyboard-focusable (`<a class="repo-link">` for ranked projects, `<span class="repo-link" tabindex="0">` when unranked).
+   - Reason-list items (`<ol class="reason-list"> <li tabindex="0">`) are keyboard-focusable with a high-contrast `:focus-visible` outline.
+   - The `/compare/` search picker implements WAI-ARIA 1.2 combobox semantics (`role="combobox"`, `aria-autocomplete="list"`, `aria-expanded`, `aria-controls="compare-search-results"`, `role="listbox"`, `role="option"`) and closes on `Escape`, outside click, and focus leaving `.compare-picker`.
+   - `.compare-better-mark` uses `color: var(--text-success)` (meeting WCAG AA in both light and dark themes), and `.matrix-scale-tick` uses `fill: var(--text-secondary); opacity: 1; paint-order: stroke; stroke: var(--bg-surface)` for legibility over scatter markers.
+   - Modal exclusivity: when `.drawer` or `.keymap-overlay` is open, background landmarks (`header`, `nav`, `main`, `footer`) set `inert = true`, and opening `.keymap-overlay` while `.drawer` is open sets `drawerRoot.inert = true`. `.keymap-overlay` includes `<thead class="sr-only">` column headers and `white-space: nowrap` on `<kbd>`.
+   - Interactive controls (`.pillar-sort-btn`, `.compare-chip button`, `.compare-clear-btn`, `.browse-groups .onboarding-link`) enforce `>= 24x24px` target size (WCAG 2.5.8). Every `<input>` and `<select>` carries an `id` and `name`. Inline badges (`.count`, `.sort-arrow`, `.quadrant-glyph`, `.doc-index-count`, `.section-count`) include leading/trailing whitespace so screen readers never concatenate labels and numbers.
+
+4. **Data Formatting, Typography & Cross-Page Parity (`DEF-16`–`DEF-18`):**
+   - `/compare/` formats raw parameter values via `formatCompareValue` (delegating to `formatParameterValue` from `views/project.js`) so durations (`ttfhr_hours`, `ttm_p90_hours`), shares (`dr90_decision_rate`, `gr14_ghost_rate`, `substantive_review_rate`, `mr_first_rate`, `newcomer_conversion`, `rr90_return_rate`), counts (`downloads_monthly`, `dependents_deduped`, `elephant_factor`, `newcomer_issue_supply`), `openssf_criticality` (2 decimals), and categorical rubric codes (`legal_ip`, `ai_posture`, `promotion_ladder`) match the Project view, with `"categorical rubric"` (`COMPARE_DIRECTION_ENUM`) as the enum direction label.
+   - Section headings (`<h2>` across `/weights/`, `/not-ranked/`, and `/first-pull-requests/` `.report-h2.fpr-h2`) and methodology subheadings (`.doc-subhead` `<h3>` at `var(--text-body-lg)` vs `.spec-entry-title` `<h4>`) maintain a strict visual hierarchy (`h1 > h2 > h3 > h4`).
+   - Standalone `/projects/<owner>/<name>/` pages include the `MAINTAINER README BADGE` box (`renderMaintainerBadge`) matching the drawer, `.project-table td[data-label]::before` appends `": "`, suspicion flag codes (`ef_domain_mismatch`, etc.) render via human-readable `SUSPICION_FLAG_LABELS`, and `/weights/` displays `"Balanced"` (`activePresetForWeights`) on initial load when weights match the Balanced preset.
+
+---
+
 ## 6. Verification & Design Deliverable Checklist
 
 | Design Dimension | Target Specification | Validation Status |

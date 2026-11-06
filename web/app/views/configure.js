@@ -153,11 +153,21 @@ function renderSlider(pillar, weights, locks, unlockedCount) {
   );
 }
 
-function renderPresets() {
+export function activePresetForWeights(weights) {
+  if (!weights) return null;
+  for (const [persona, preset] of Object.entries(PERSONA_PRESET_WEIGHTS)) {
+    if (PILLAR_IDS.every((p) => Math.abs((weights[p] ?? 0) - (preset[p] ?? 0)) < 0.005)) {
+      return persona;
+    }
+  }
+  return null;
+}
+
+function renderPresets(activePreset = null) {
   const buttons = Object.keys(PERSONA_PRESET_WEIGHTS)
     .map(
       (persona) =>
-        `<button type="button" class="icon-button" data-weight-preset="${persona}">${escapeHtml(copy.PERSONA_NAMES[persona])}</button>`
+        `<button type="button" class="icon-button" data-weight-preset="${persona}" aria-pressed="${persona === activePreset}">${escapeHtml(copy.PERSONA_NAMES[persona])}</button>`
     )
     .join("");
   return `<div class="weight-presets"><span class="field-label">${escapeHtml(copy.CONFIGURE_PRESETS_LABEL)}</span>${buttons}</div>`;
@@ -168,12 +178,14 @@ export function renderControls(state) {
   const unlockedCount = PILLAR_IDS.filter((p) => !state.weightLocks[p]).length;
   const sliders = PILLAR_IDS.map((p) => renderSlider(p, state.weights, state.weightLocks, unlockedCount)).join("");
   const sumOffBy1 = Math.abs(sum - 1) > 0.005;
+  const activePreset = activePresetForWeights(state.weights);
+  const modeLabel = activePreset ? copy.PERSONA_NAMES[activePreset] : copy.CONFIGURE_CUSTOM_LABEL;
   return (
     `<div class="weight-controls">` +
     `<div class="weight-sliders">${sliders}</div>` +
-    renderPresets() +
+    renderPresets(activePreset) +
     `<p class="weight-sum${sumOffBy1 ? " weight-sum-warning" : ""}" data-weight-sum="true">${escapeHtml(copy.configureSumText(sum))}</p>` +
-    `<p class="custom-label-note">${escapeHtml(copy.CONFIGURE_CUSTOM_LABEL)}</p>` +
+    `<p class="custom-label-note" data-weight-mode-label="true">${escapeHtml(modeLabel)}</p>` +
     `</div>`
   );
 }
@@ -230,7 +242,7 @@ export function renderPager(page, pageSize, total, { bottom = false } = {}) {
   const sizeOptions = PAGE_SIZES.map((n) => `<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("");
   const sizeControl = bottom
     ? ""
-    : `<label>${escapeHtml(copy.PAGE_SIZE_LABEL)} <select class="control" data-configure-pager-size-select="true">${sizeOptions}</select></label>`;
+    : `<label>${escapeHtml(copy.PAGE_SIZE_LABEL)} <select class="control" id="configure-pager-size-select" name="page_size" data-configure-pager-size-select="true">${sizeOptions}</select></label>`;
   return (
     `<div class="pager${bottom ? " pager-bottom" : ""}">` +
     sizeControl +

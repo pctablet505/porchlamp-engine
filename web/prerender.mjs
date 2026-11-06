@@ -48,6 +48,7 @@ import { reasonListDescription, renderPrerenderedNotRanked } from "./app/views/n
 import { renderShell as renderMethodology } from "./app/views/methodology.js";
 import { renderFirstPullRequests } from "./app/views/first_pull_requests.js";
 import { renderLookupPage } from "./app/views/lookup.js";
+import { renderMaintainerBadge } from "./app/views/drawer.js";
 import { renderProject } from "./app/views/project.js";
 import { renderShell as renderReport } from "./app/views/report.js";
 
@@ -161,7 +162,12 @@ function writeHead(html, title, description, what) {
 
 /** A project's page: its view in page mode, from what `loadProject` read for it, with the methodology's coverage floor. */
 function projectView(project, methodology) {
-  return renderProject(project.record, { mode: "page", recordFile: project.recordFile, coverageFloor: copy.unratedCoverageFloor(methodology) });
+  return renderProject(project.record, {
+    mode: "page",
+    recordFile: project.recordFile,
+    coverageFloor: copy.unratedCoverageFloor(methodology),
+    badgeHtml: renderMaintainerBadge(project.record.detail, "https://porchlamp.org/"),
+  });
 }
 
 /** The header, nav and footer of `page` ({view} or {nav}) as the export draws them from `snapshot`. A list's page

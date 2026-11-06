@@ -137,7 +137,7 @@ export function renderColumnHeader(sortField, showPersonaDelta, labels = {}) {
           const isActive = sortField.replace(/^-/, "") === field;
           const dir = isActive ? sortDirectionLabel(sortField) : null;
           const ariaSort = dir ? ` aria-sort="${dir}"` : "";
-          const arrow = dir ? `<span class="sort-arrow" aria-hidden="true">${dir === "ascending" ? "↑" : "↓"}</span>` : "";
+          const arrow = dir ? ` <span class="sort-arrow" aria-hidden="true">${dir === "ascending" ? "↑" : "↓"}</span>` : "";
           const shortLabel = copy.PILLAR_SHORT_NAMES[p] || p;
           const tooltip = copy.pillarSortTooltip(p);
           return (
@@ -151,15 +151,20 @@ export function renderColumnHeader(sortField, showPersonaDelta, labels = {}) {
       if (!col.sortable) {
         const tooltip = col.vanity ? ` title="${escapeHtml(copy.VANITY_TOOLTIP)}"` : "";
         const label = col.key === "no_reply_14d" && labels.noReply ? labels.noReply : col.label;
+        if (col.key === "first_reply" && String(sortField || "").replace(/^-/, "") === "first_reply") {
+          const dir = String(sortField || "").startsWith("-") ? "descending" : "ascending";
+          const glyph = dir === "ascending" ? "↑" : "↓";
+          return `<th data-col="${col.key}" class="is-active" aria-sort="${dir}">${escapeHtml(label)} <span class="sort-arrow" aria-hidden="true">${glyph}</span></th>`;
+        }
         return `<th data-col="${col.key}"${tooltip}>${escapeHtml(label)}</th>`;
       }
       const isActive = sortField.replace(/^-/, "") === col.key;
       const dir = isActive ? sortDirectionLabel(sortField) : null;
       const ariaSort = dir ? ` aria-sort="${dir}"` : "";
       const activeCls = isActive ? ` class="is-active"` : "";
-      const arrow = dir ? `<span class="sort-arrow" aria-hidden="true">${dir === "ascending" ? "↑" : "↓"}</span>` : "";
+      const arrow = dir ? ` <span class="sort-arrow" aria-hidden="true">${dir === "ascending" ? "↑" : "↓"}</span>` : "";
       return (
-        `<th data-col="${col.key}"${activeCls} data-sortable="true" data-sort-field="${col.key}" tabindex="0" role="button"` +
+        `<th data-col="${col.key}"${activeCls} data-sortable="true" data-sort-field="${col.key}" tabindex="0"` +
         `${ariaSort}>${escapeHtml(col.label)}${arrow}</th>`
       );
     })
@@ -294,7 +299,7 @@ export function repoLinkHtml(row, onLens = false) {
   const name =
     `<span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span>`;
   const hasProjectPage = !onLens || (row.balanced_rank !== null && row.balanced_rank !== undefined);
-  if (!hasProjectPage) return name;
+  if (!hasProjectPage) return `<span class="repo-link" tabindex="0">${name}</span>`;
   return `<a class="repo-link" href="${escapeHtml(projectPath(row.owner, row.name))}">${name}</a>`;
 }
 
@@ -326,10 +331,6 @@ export function handleRepoLinkClick(evt) {
   else evt.stopPropagation();
 }
 
-function rowAriaLabel(row) {
-  return `Open ${escapeHtml(row.owner)}/${escapeHtml(row.name)}`;
-}
-
 /** Builds a brand-new `<tr>` DOM node (only for a key not already present). */
 export function createRowElement(doc, row, opts) {
   const { selected = false } = opts || {};
@@ -337,9 +338,6 @@ export function createRowElement(doc, row, opts) {
   const tr = doc.createElement("tr");
   tr.dataset.owner = row.owner;
   tr.dataset.name = row.name;
-  tr.tabIndex = 0;
-  tr.setAttribute("role", "button");
-  tr.setAttribute("aria-label", rowAriaLabel(row));
   tr.setAttribute("title", copy.ROW_OPEN_HINT);
   tr.className = [tied ? "row-tied" : "", selected ? "row-selected" : ""].filter(Boolean).join(" ");
   tr.addEventListener?.("click", handleRepoLinkClick); // the hand-made documents of some tests have no listeners
@@ -364,8 +362,6 @@ export function updateRowElement(tr, row, opts) {
   const { cells, tied } = rowCells(row, opts);
   tr.classList.toggle("row-tied", tied);
   tr.classList.toggle("row-selected", selected);
-  const label = rowAriaLabel(row);
-  if (tr.getAttribute("aria-label") !== label) tr.setAttribute("aria-label", label);
 
   const tds = tr.children;
   for (let i = 0; i < cells.length; i++) {
@@ -451,14 +447,14 @@ function cardInnerHtml(row, opts) {
     `<span data-card-field="first_reply">${firstReplyHtml(row, top)}</span> · ` +
     `${escapeHtml(noReplyLabel || copy.paramName("gr14_ghost_rate"))} <span data-card-field="no_reply_14d">${noReplyHtml(row)}</span></div>` +
     `<div class="leaderboard-card-line-4">${renderQuadrant(row.quadrant)} ${pillarBarsHtml(row)}${showPersonaDelta ? ` ${deltaHtml(row)}` : ""}</div>` +
-    `<div>${renderSuspicionIcon(row.suspicion)}</div>`;
+    (row.suspicion && row.suspicion.length ? `<div>${renderSuspicionIcon(row.suspicion)}</div>` : "");
   return { html, tied };
 }
 
 export function renderCard(row, opts) {
   const { html, tied } = cardInnerHtml(row, opts);
   return (
-    `<div class="leaderboard-card${tied ? " row-tied" : ""}" data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(row.owner)}/${escapeHtml(row.name)}">` +
+    `<div class="leaderboard-card${tied ? " row-tied" : ""}" data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}">` +
     html +
     `</div>`
   );
@@ -471,9 +467,6 @@ export function createCardElement(doc, row, opts) {
   const div = doc.createElement("div");
   div.dataset.owner = row.owner;
   div.dataset.name = row.name;
-  div.tabIndex = 0;
-  div.setAttribute("role", "button");
-  div.setAttribute("aria-label", rowAriaLabel(row));
   div.setAttribute("title", copy.ROW_OPEN_HINT);
   const { html, tied } = cardInnerHtml(row, opts);
   div.className = ["leaderboard-card", tied ? "row-tied" : "", selected ? "row-selected" : ""].filter(Boolean).join(" ");

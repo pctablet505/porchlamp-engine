@@ -380,11 +380,15 @@ export const LOADING_ROW_SR_TEXT = "Loading repositories…";
 const SUSPICION_FLAG_COPY = Object.freeze({
   black_hole:
     "Black hole (>50% of external non-bot PRs had received no maintainer reply, review, merge or close when the data was read, and 95% one-sided Wilson lower confidence bound > 50% over n >= 10 external PRs)",
+  ef_domain_mismatch: "Commit author domains do not match ecosystem norms",
+  closed_unread: "Pull requests closed without maintainer review",
+  bot_merge_flood: "High share of automated or bot merges",
+  star_spike: "Unusual star growth pattern",
 });
 export const SUSPICION_LABEL = "Suspicion flags";
 export function suspicionTooltip(flags) {
   if (!flags || flags.length === 0) return "";
-  const formatted = flags.map((f) => (SUSPICION_FLAG_COPY[f] ? `${f} (${SUSPICION_FLAG_COPY[f]})` : f));
+  const formatted = flags.map((f) => SUSPICION_FLAG_COPY[f] || f);
   return `Flagged by: ${formatted.join(", ")}`;
 }
 
@@ -660,6 +664,14 @@ export const RETRY_LABEL = "Retry";  // every retry button in the app: the foote
 export const RAW_HASH_LABEL = "Raw hash";
 export const SNAPSHOT_ID_LABEL = "Snapshot";
 export const SUSPICION_NONE_TEXT = "No suspicion flags on this repository.";
+export const SUSPICION_FLAG_LABELS = Object.freeze({
+  ef_domain_mismatch: "Commit author domains do not match ecosystem norms",
+  closed_unread: "Pull requests closed without maintainer review",
+  bot_merge_flood: "High share of automated or bot merges",
+  star_spike: "Unusual star growth pattern",
+});
+export const KEYMAP_COL_KEYS = "Shortcut";
+export const KEYMAP_COL_ACTION = "Action";
 export const RATED_LABEL = "Rated";
 export const NOT_RATED_LABEL = "Not rated under this lens";
 export const COORDINATES_LABEL = "Coordinates";
@@ -948,7 +960,7 @@ export function compareWinScoreText(wins, totalMeasured) {
 }
 export const COMPARE_DIRECTION_HIGHER = "↑ higher is better";
 export const COMPARE_DIRECTION_LOWER = "↓ lower is better";
-export const COMPARE_DIRECTION_ENUM = "scale";
+export const COMPARE_DIRECTION_ENUM = "categorical rubric";
 
 // --------------------------------------------------------------------- //
 // Screen F: Methodology and snapshot

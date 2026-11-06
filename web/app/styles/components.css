@@ -9,6 +9,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-md);
+  min-height: var(--header-height);
+  box-sizing: border-box;
   padding: var(--space-sm) var(--space-md);
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
@@ -211,11 +213,12 @@ input.control::placeholder {
 /* Seven entries fit a tablet with tighter tabs; under the phone width the strip scrolls with its fade. */
 @media (max-width: 859px) {
   .primary-tabs {
-    gap: var(--space-2xs);
+    gap: 2px;
   }
 
   .primary-tab {
-    padding: var(--space-sm);
+    padding: var(--space-sm) 6px;
+    font-size: var(--text-caption);
   }
 }
 
@@ -611,6 +614,11 @@ input.control::placeholder {
 }
 
 .pillar-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
   border: 0;
   background: transparent;
   padding: 2px 3px;
@@ -668,9 +676,20 @@ input.control::placeholder {
   }
 
   .leaderboard-table td[data-cell="repository"] {
-    max-width: 135px;
+    min-width: 180px;
+    max-width: 220px;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .leaderboard-table .repo-line {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+
+  .leaderboard-table .repo-line .eco-chip {
+    margin-left: 0;
   }
 }
 
@@ -817,10 +836,11 @@ input.control::placeholder {
 }
 
 .leaderboard-card {
-  height: 180px;
+  min-height: 120px;
+  height: auto;
   box-sizing: border-box;
   overflow: hidden;
-  margin-bottom: 12px; /* 180 + 12 = components/table.js CARD_HEIGHT_PX (192): six lines, the replies one of them */
+  margin-bottom: 12px;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
@@ -935,6 +955,12 @@ input.control::placeholder {
 }
 
 .reason-list li:hover {
+  background: var(--bg-surface-hover);
+}
+
+.reason-list li:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
   background: var(--bg-surface-hover);
 }
 
@@ -1108,6 +1134,11 @@ input.control::placeholder {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-badge);
   padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.keymap-overlay [data-keymap-close] {
+  margin-top: var(--space-md);
 }
 
 /* ---- Drawer ---- */
@@ -1600,8 +1631,9 @@ p.cell-numeric {
 
 .black-hole-pr-scroll {
   margin: var(--space-sm) 0;
-  max-height: 240px;
-  overflow: auto;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: visible;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);

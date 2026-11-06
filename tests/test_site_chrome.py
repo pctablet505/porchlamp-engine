@@ -205,8 +205,8 @@ def test_every_page_carries_the_header_nav_and_footer_chrome_js_draws(built, tmp
     assert {json.loads(spec)["view"] for spec in lists} == {"ranked", "notranked"}  # the leaderboard's and the not-ranked view's
     assert len({page.chrome for page in pages.values()} - lists) == 10  # eight app views (the report among them), the lookup, every page with no nav entry
     report = expected[json.dumps({"view": "report"})]["nav"]
-    assert 'aria-current' not in report and 'href="/black-holes/"' not in report, "the old report has no nav entry"
-    assert 'href="/first-pull-requests/">Report</a>' in report
+    assert 'href="/black-holes/"' not in report, "the old report has no nav entry of its own"
+    assert 'href="/first-pull-requests/" aria-current="page">Report</a>' in report
     assert 'aria-current' not in expected[json.dumps({"nav": None})]["nav"]
     assert chrome_problems(site, pages, expected) == []
 
@@ -598,14 +598,15 @@ def test_a_project_page_is_what_the_prerender_draws_from_its_record_in_any_local
 
 
 _BROWSER_VIEW = """
-const [view, api] = await Promise.all([import('/views/project.js'), import('/api.js')]);
+const [view, drawer, api] = await Promise.all([import('/views/project.js'), import('/views/drawer.js'), import('/api.js')]);
 const [owner, name] = %(key)s.split('/');
 const [detail, evidence, extras] = await Promise.all([
   api.fetchRepoDetail(owner, name), api.fetchEvidence(owner, name), api.fetchProjectExtras(owner, name),
 ]);
 const { recordFile, ...rest } = extras.data;
+const badgeHtml = drawer.renderMaintainerBadge(detail.data, 'https://porchlamp.org/');
 return {
-  html: view.renderProject({ detail: detail.data, evidence: evidence.data, ...rest }, { mode: 'page', recordFile }),
+  html: view.renderProject({ detail: detail.data, evidence: evidence.data, ...rest }, { mode: 'page', recordFile, badgeHtml }),
   zone: Intl.DateTimeFormat().resolvedOptions().timeZone, language: navigator.language,
 };
 """
@@ -760,3 +761,31 @@ def test_the_verifier_passes_the_export_and_names_a_wrong_database_digest_and_a_
     _rewrite(planted, "black-holes/index.html", nav.group(0), nav.group(0).replace(nav.group(1), ""))
     problems = verify_static_export.verify_chrome(db, planted, log=quiet)["errors"]
     assert [problem.split(":")[0] for problem in problems] == ["black-holes/index.html nav is chrome.js's"], problems
+
+
+def test_ui_ux_audit_css_and_project_parity_invariants(built):
+    site = built[0]
+    components_css = (ROOT / "web" / "app" / "styles" / "components.css").read_text(encoding="utf-8")
+    views_css = (ROOT / "web" / "app" / "styles" / "views.css").read_text(encoding="utf-8")
+
+    # DEF-05: configure layout horizontal scroll & column hiding
+    assert "overflow-x: auto" in views_css
+    # DEF-06: sticky header min-height matches --header-height
+    assert "min-height: var(--header-height)" in components_css
+    # DEF-07: matrix 2x2 quad grid and overflow-wrap anywhere
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in views_css
+    assert "overflow-wrap: anywhere" in views_css
+    # DEF-09: mobile leaderboard card height auto (no hardcoded 180px height)
+    assert "height: 180px" not in components_css
+    # DEF-13: compare better mark uses --text-success; matrix scale tick has stroke halo
+    assert "color: var(--text-success)" in views_css
+    assert "paint-order: stroke;" in views_css
+    # DEF-14: keymap kbd nowrap
+    assert "white-space: nowrap" in components_css
+    # DEF-18: mobile project-table pseudo-label includes ': '
+    assert 'content: attr(data-label) ": "' in views_css
+
+    # DEF-18: standalone project pages pass renderMaintainerBadge into renderProject in prerender.mjs
+    prerender_mjs = (ROOT / "web" / "prerender.mjs").read_text(encoding="utf-8")
+    assert 'badgeHtml: renderMaintainerBadge(project.record.detail, "https://porchlamp.org/")' in prerender_mjs
+

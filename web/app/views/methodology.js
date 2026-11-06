@@ -543,7 +543,7 @@ export function sectionIndex(doc, snapshot, sourceDbSha256 = null) {
 
 function countBadge(count, cls, sectionKey) {
   if (typeof count !== "number") return "";
-  return `<span class="${cls}" data-v="${escapeHtml(`section.${sectionKey}.count`)}">${escapeHtml(copy.methodologyIntText(count))}</span>`;
+  return ` <span class="${cls}" data-v="${escapeHtml(`section.${sectionKey}.count`)}">${escapeHtml(copy.methodologyIntText(count))}</span>`;
 }
 
 function renderIndex(entries) {

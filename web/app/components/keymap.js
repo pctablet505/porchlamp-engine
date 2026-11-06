@@ -64,7 +64,7 @@ export function renderKeymapOverlay() {
     `<div class="keymap-overlay-backdrop" data-keymap-backdrop="true">` +
     `<div class="keymap-overlay" role="dialog" aria-modal="true" aria-labelledby="keymap-title">` +
     `<h2 id="keymap-title">${escapeHtml(copy.KEYMAP_TITLE)}</h2>` +
-    `<table>${rows}</table>` +
+    `<table><thead class="sr-only"><tr><th scope="col">${escapeHtml(copy.KEYMAP_COL_KEYS)}</th><th scope="col">${escapeHtml(copy.KEYMAP_COL_ACTION)}</th></tr></thead><tbody>${rows}</tbody></table>` +
     `<button type="button" class="icon-button" data-keymap-close="true">${escapeHtml(copy.KEYMAP_CLOSE_LABEL)}</button>` +
     `</div></div>`
   );

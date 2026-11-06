@@ -345,7 +345,7 @@ export function renderReasonListsLine(state) {
 /** The rows of a page of a list by reason: an ordered list numbered from the page's first position. */
 function reasonRowsHtml(at, report, floor) {
   const items = at.rows
-    .map((row) => `<li data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}">${escapeHtml(reasonRowText(row, report, floor))}</li>`)
+    .map((row) => `<li data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}" tabindex="0">${escapeHtml(reasonRowText(row, report, floor))}</li>`)
     .join("");
   return `<ol class="reason-list" start="${at.first}" data-reason-rows="true">${items}</ol>`;
 }
@@ -369,7 +369,8 @@ export function renderReasonListShell(state, at = reasonListPage(state)) {
   let body;
   if (at.rows) {
     const pages = reasonPagesLine(at);
-    body = renderReasonListsLine(state) + pages + reasonRowsHtml(at, state.report, copy.unratedCoverageFloor(state.methodology)) + pages;
+    const emptyNote = at.rows.length === 0 ? `<div class="empty-state">${escapeHtml(copy.NOT_RANKED_EMPTY)}</div>` : "";
+    body = renderReasonListsLine(state) + pages + emptyNote + reasonRowsHtml(at, state.report, copy.unratedCoverageFloor(state.methodology)) + pages;
   } else if (state.notRankedError) {
     body = renderReasonListsLine(state) + renderErrorBanner(state.notRankedError);
   } else {
