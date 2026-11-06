@@ -2717,7 +2717,10 @@ test("leaderboard: one visible findings line under the header links to the stati
   // The numbers come from report.json (fillFromReport); the verifier reads them back by their hooks.
   const html = renderShell({ ...defaultState(), report: REPORT_EXAMPLE, leaderboardLoading: true, leaderboard: null });
   assert.ok(html.includes(fillFromReport(copy.FINDINGS_LINE, REPORT_EXAMPLE)), "the line is on the page");
-  assert.match(html, /<a href="\/black-holes\/"[^>]*>Read the findings<\/a>/);
+  assert.ok(html.includes("In most open source projects we measured, one person gives most of the first answers."), "the line is the current report's finding");
+  assert.ok(!/1 in /.test(html.slice(html.indexOf("data-findings-line"), html.indexOf("</p>", html.indexOf("data-findings-line")))), "not the old black-holes share");
+  assert.match(html, /<a href="\/first-pull-requests\/"[^>]*>Read the report<\/a>/);
+  assert.ok(!html.includes('href="/black-holes/"'), "nothing on the home links the old report");
   assert.ok(
     html.indexOf("data-onboarding-banner") < html.indexOf("data-findings-line"),
     "the line sits under the onboarding banner"
@@ -2725,12 +2728,11 @@ test("leaderboard: one visible findings line under the header links to the stati
   assert.ok(html.indexOf("data-findings-line") < html.indexOf("data-primary-tab") || !html.includes("data-primary-tab"));
 });
 
-test("footer: one methodology link, the two reports and the data, real links from the site root", () => {
+test("footer: one methodology link, the report and the data, real links from the site root", () => {
   const footer = renderFooter({ kind: "ok", snapshot: { snapshot_id: "2026-10-17", benchmark_version: "2.0.0", constants_hash: "a".repeat(64), manifest_root: "b".repeat(64) } });
   assert.deepEqual([...footer.matchAll(/<a href="([^"]*)"( data-route-tab="[^"]*")?>([^<]*)<\/a>/g)].map((m) => [m[1], m[3]]), [
     ["/methodology/", "Methodology"],
-    ["/black-holes/", "Report"],
-    ["/first-pull-requests/", "First pull requests"],
+    ["/first-pull-requests/", "Report"],
     ["https://github.com/pctablet505/porchlamp", "Data on GitHub"],
   ]);
   assert.ok(footer.includes('<a href="/methodology/" data-route-tab="methodology">'), "the app opens the methodology in place");
@@ -3251,20 +3253,21 @@ test("routes: every primary nav link is a view's address, opened in place, with 
     const links = [...renderNav(navEntryFor(tab), state).matchAll(/<a class="primary-tab" href="([^"]*)"( data-route-tab="([^"]*)")?( aria-current="page")?>/g)];
     assert.equal(links.length, 7, `${tab}: seven links`);
     assert.deepEqual(links[6].slice(1, 3), ["/lookup/", undefined], `${tab}: the lookup is the last entry, a page of its own the app does not draw`);
-    for (const [, rawHref, , linkTab] of links.slice(0, 6)) {
+    assert.deepEqual(links[5].slice(1, 3), ["/first-pull-requests/", undefined], `${tab}: the report is the current one, a page of its own the app does not draw`);
+    for (const [, rawHref, , linkTab] of links.slice(0, 5)) {
       const href = rawHref.replace(/&amp;/g, "&");
       const { route } = matchRoute(new URL(href, SITE_BASE).pathname);
       assert.ok(route.shell, `${tab}: ${href} is the address of a view the app draws`);
       assert.equal(linkTab, route.view || route.id, `${tab}: ${href} opens its own view in place`);
       assert.equal(href, hrefFor(state, route.view || route.id), `${tab}: ${href} is where a click goes from here`);
     }
-    assert.equal(links[5][1], "/black-holes/", `${tab}: the report follows the app's views`);
+    assert.ok(links.every((link) => link[1] !== "/black-holes/"), `${tab}: no entry opens the old report`);
     const current = links.filter((link) => link[4]).map((link) => link[3]);
-    assert.deepEqual(current, tab === "notfound" ? [] : [tab === "notranked" ? "ranked" : tab], `${tab}: the current entry`);
+    assert.deepEqual(current, tab === "notfound" || tab === "report" ? [] : [tab === "notranked" ? "ranked" : tab], `${tab}: the current entry`);
   }
   assert.match(
-    renderNav("report"),
-    /<a class="primary-tab" href="\/black-holes\/" data-route-tab="report" aria-current="page">Report<\/a><a class="primary-tab" href="\/lookup\/">Your pull requests<\/a><\/div>$/,
+    renderNav(navEntryFor("first-pull-requests")),
+    /<a class="primary-tab" href="\/first-pull-requests\/" aria-current="page">Report<\/a><a class="primary-tab" href="\/lookup\/">Your pull requests<\/a><\/div>$/,
     "the report's page marks it, on a page drawn without the reader's state too"
   );
   // The Leaderboard's Ranked and Not ranked links are addresses too, carrying the reader's lens and filters.
@@ -4336,17 +4339,15 @@ test("home: the ranked page is what the prerender draws, marked for the app", ()
   assert.throws(() => drawPage(frame, { path: "index.html", view: "ranked" }, { snapshot: SNAPSHOT_DOC, report: null, leaderboard: null }), /no leaderboard/);
 });
 
-test("home: the findings line fills every slot from report.json as hooks, and draws only its link without a report", () => {
-  const slots = [...copy.FINDINGS_LINE.matchAll(/\{([a-z_]+)\}/g)].map((m) => m[1]);
-  assert.deepEqual(slots, ["one_in", "deadline_days"]);
+test("home: the findings line is the current report's finding and links it, and draws only its link without a report", () => {
+  assert.deepEqual([...copy.FINDINGS_LINE.matchAll(/\{([a-z_]+)\}/g)], [], "a sentence with no numbers to fill");
   const html = renderFindingsLine(REPORT_EXAMPLE);
-  for (const id of slots) assert.ok(html.includes(`<span data-v="${id}">${REPORT_EXAMPLE.values[id]}</span>`), id);
-  assert.ok(!html.includes("{"), "no slot left unfilled");
-  assert.match(html, /<a href="\/black-holes\/"[^>]*>Read the findings<\/a>/);
-  for (const none of [null, undefined, {}, { values: { one_in: "6" } }]) {
+  assert.ok(html.includes(`<span data-findings-text="true">${copy.FINDINGS_LINE}</span>`));
+  assert.match(html, /<a href="\/first-pull-requests\/"[^>]*>Read the report<\/a>/);
+  for (const none of [null, undefined, {}]) {
     const bare = renderFindingsLine(none);
     assert.ok(!bare.includes("data-findings-text") && !bare.includes("data-v="), JSON.stringify(none));
-    assert.match(bare, /^<p class="onboarding-banner" data-findings-line="true"><a href="\/black-holes\/"[^>]*>Read the findings<\/a><\/p>$/);
+    assert.match(bare, /^<p class="onboarding-banner" data-findings-line="true"><a href="\/first-pull-requests\/"[^>]*>Read the report<\/a><\/p>$/);
   }
   const shell = renderShell({ ...defaultState(), leaderboardLoading: true, leaderboard: null, report: REPORT_EXAMPLE });
   assert.ok(shell.includes(html), "the shell draws the line from state.report");
@@ -4368,7 +4369,7 @@ test("home: a report arriving after the shell is drawn is put into the line in p
   const hooks = { one_in: slot("one_in", REPORT_EXAMPLE.values.one_in), deadline_days: slot("deadline_days", "7") };
   const withText = { querySelector: (s) => (s === "[data-findings-text]" ? { querySelector: (h) => hooks[h.match(/"([a-z_]+)"/)[1]] } : null) };
   syncFindingsLine(rootWith(withText), REPORT_EXAMPLE);
-  assert.deepEqual(writes, [["deadline_days", REPORT_EXAMPLE.values.deadline_days]], "only the value that differs");
+  assert.deepEqual(writes, [], "a line with no values has nothing to rewrite");
 });
 
 test("home: the Finding paragraph is filled from report.json as hooks and left out, kicker and all, without a report", () => {
@@ -4383,20 +4384,19 @@ test("home: the Finding paragraph is filled from report.json as hooks and left o
 });
 
 test("home: no digit is typed into the findings line or the Finding template", () => {
-  // "1 in {one_in}" is the claim's own wording; every other digit would be a number typed by hand.
-  for (const [name, template] of [["FINDINGS_LINE", copy.FINDINGS_LINE], ["WHY_FINDING_TEMPLATE", copy.WHY_FINDING_TEMPLATE]]) {
-    assert.equal((template.match(/\b1 in \{one_in\}/g) || []).length, 1, name);
-    assert.doesNotMatch(template.replace(/\b1 in \{one_in\}/, ""), /\d/, name);
-  }
+  // The findings line states the current report's finding in words; "1 in {one_in}" is the Finding's own wording, and
+  // every other digit would be a number typed by hand.
+  assert.doesNotMatch(copy.FINDINGS_LINE, /\d/, "FINDINGS_LINE");
+  assert.equal((copy.WHY_FINDING_TEMPLATE.match(/\b1 in \{one_in\}/g) || []).length, 1, "WHY_FINDING_TEMPLATE");
+  assert.doesNotMatch(copy.WHY_FINDING_TEMPLATE.replace(/\b1 in \{one_in\}/, ""), /\d/, "WHY_FINDING_TEMPLATE");
   assert.ok(copy.WHY_PARAGRAPHS.includes(copy.WHY_FINDING_TEMPLATE), "the paragraph is the template");
 });
 
 test("home: the Finding template says a project ignores pull requests only when none was replied to, reviewed, merged or closed (RFC-0026)", () => {
   assert.match(copy.WHY_FINDING_TEMPLATE, /without a human reply, review, merge or close within \{deadline_days\} days or since/);
   assert.match(copy.NOT_RANKED_LIST_REASONS.black_hole, /no human reply, review, merge or close on GitHub within \{deadline_days\} days or since/);
-  assert.match(copy.FINDINGS_LINE, /with no human reply, review, merge or close within \{deadline_days\} days or since/);
   assert.match(copy.LIST_INTRO_ECOSYSTEM_REPORT, /with no human reply, review, merge or close within \{deadline_days\} days or since/);
-  assert.doesNotMatch(copy.FINDINGS_LINE + copy.LIST_INTRO_ECOSYSTEM_REPORT, /unanswered for/);
+  assert.doesNotMatch(copy.LIST_INTRO_ECOSYSTEM_REPORT, /unanswered for/);
 });
 
 test("black hole pages: the exclusions say an automated comment under a person's account is not a reply (RFC-0025)", () => {

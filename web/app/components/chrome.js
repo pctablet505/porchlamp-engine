@@ -16,7 +16,8 @@ import { escapeHtml } from "../escape.js";
 import { routeById, routePath } from "../routes.js";
 import { PERSONA_PRESET_WEIGHTS, hrefFor } from "../state.js";
 
-/** The primary nav's entries, in order: each view's own (routes.js ids), the report last. */
+/** The primary nav's entries, in order (routes.js ids): each view's own, then the current report and the lookup, pages
+ *  of their own the app does not draw. */
 export const NAV = Object.freeze(
   [
     { id: "ranked", label: () => copy.PRIMARY_NAV_LEADERBOARD },
@@ -24,7 +25,7 @@ export const NAV = Object.freeze(
     { id: "compare", label: () => copy.PRIMARY_NAV_COMPARE },
     { id: "configure", label: () => copy.PRIMARY_NAV_CONFIGURE },
     { id: "methodology", label: () => copy.PRIMARY_NAV_METHODOLOGY },
-    { id: "report", label: () => copy.FOOTER_REPORT_LABEL },
+    { id: "first-pull-requests", label: () => copy.FOOTER_REPORT_LABEL },
     { id: "lookup", label: () => copy.PRIMARY_NAV_LOOKUP },
   ].map((entry) => Object.freeze(entry))
 );
@@ -176,7 +177,6 @@ export function renderFooter(fields) {
     `<button type="button" class="icon-button" data-footer-retry="true"${hidden(fields.kind === "error")}>${escapeHtml(copy.RETRY_LABEL)}</button>` +
     `<a href="${escapeHtml(routePath("methodology"))}" data-route-tab="methodology">${escapeHtml(copy.FOOTER_METHODOLOGY_LABEL)}</a>` +
     `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}">${escapeHtml(copy.FOOTER_REPORT_LABEL)}</a>` +
-    `<a href="${escapeHtml(copy.LOOKUP_REPORT_HREF)}">${escapeHtml(copy.FOOTER_FIRST_PRS_LABEL)}</a>` +
     `<a href="${escapeHtml(copy.FOOTER_DATA_HREF)}">${escapeHtml(copy.FOOTER_DATA_LABEL)}</a>`
   );
 }

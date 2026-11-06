@@ -2403,11 +2403,15 @@ def verify_home(db: Path, site: Path, *, report: Optional[dict], log=print) -> d
     # read without JavaScript: the findings line and the first page of rows
     view = _home_view(text) or ""
     page = read_page(view)
+    template = rp.copy_js_string("FINDINGS_LINE")
+    slots = [key for key in _FINDING_SLOTS if "{" + key + "}" in template]
     findings = [(ident, value) for ident, value in page.hooks if ident in _FINDING_SLOTS]
-    _compare_hooks(ledger, "home findings line", findings, {key: report["values"][key] for key in _FINDING_SLOTS})
+    _compare_hooks(ledger, "home findings line", findings, {key: report["values"][key] for key in slots})
     line = re.search(r'<span data-findings-text="true">(.*?)</span> <a\b', view, re.S)
-    filled = hp.fill(rp.copy_js_string("FINDINGS_LINE"), {key: report["values"][key] for key in _FINDING_SLOTS})
+    filled = hp.fill(template, {key: report["values"][key] for key in slots})
     ledger.equal("home findings line", _plain(line.group(1)) if line else None, filled)
+    target = re.search(r'<a href="([^"]*)" class="onboarding-link" data-findings-link="true">', view)
+    ledger.equal("home findings line links the current report", target.group(1) if target else None, rp.copy_js_string("REPORT_PAGE_HREF"))
     table = re.search(r'<tbody data-leaderboard-tbody="true"[^>]*>(.*?)</tbody>', view, re.S)
     shown = keyed_items(table.group(1) if table else "", "tr")
     first = [(r["owner"], r["name"]) for r in board["rows"]]

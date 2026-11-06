@@ -1111,8 +1111,8 @@ export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
 // is in routes.js.)
 //: A template: report.json's values fill the slots, each a hook of its own id (views/leaderboard.js `fillFromReport`).
 //: Without a report the line is left out and only the link below it is drawn.
-export const FINDINGS_LINE = "More than 1 in {one_in} active projects leave most strangers' pull requests with no human reply, review, merge or close within {deadline_days} days or since.";
-export const FINDINGS_LINK_LABEL = "Read the findings";
+export const FINDINGS_LINE = "In most open source projects we measured, one person gives most of the first answers.";
+export const FINDINGS_LINK_LABEL = "Read the report";
 /** The home's links to the lists (views/leaderboard.js `renderBrowseLinks`): the nav's name and its lines' labels. */
 export const HOME_BROWSE_LABEL = "Browse";
 /** The one row the home folds those lines under; the links themselves stay in the page, closed until the reader opens them. */
@@ -1195,9 +1195,9 @@ export const NOT_RANKED_LIST_ROW_BLACK_HOLE =
 export const NOT_RANKED_LIST_PAGES_LABEL = "The whole list, {page_size} projects a page:";
 export const NOT_RANKED_LISTS_LABEL = "Lists by reason:";
 export const NOT_RANKED_LISTS_ITEM = "{list} ({count})";
-export const REPORT_PAGE_HREF = "/black-holes/";
+/** The current report: the nav's Report entry, the footer's and the home's findings line all open it. */
+export const REPORT_PAGE_HREF = "/first-pull-requests/";
 export const FOOTER_REPORT_LABEL = "Report";
-export const FOOTER_FIRST_PRS_LABEL = "First pull requests";
 export const FOOTER_METHODOLOGY_LABEL = "Methodology";
 /** The footer's last link: the published data and code. */
 export const FOOTER_DATA_LABEL = "Data on GitHub";

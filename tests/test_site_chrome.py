@@ -205,7 +205,8 @@ def test_every_page_carries_the_header_nav_and_footer_chrome_js_draws(built, tmp
     assert {json.loads(spec)["view"] for spec in lists} == {"ranked", "notranked"}  # the leaderboard's and the not-ranked view's
     assert len({page.chrome for page in pages.values()} - lists) == 10  # eight app views (the report among them), the lookup, every page with no nav entry
     report = expected[json.dumps({"view": "report"})]["nav"]
-    assert report.count('aria-current="page"') == 1 and 'href="/black-holes/" data-route-tab="report" aria-current="page"' in report
+    assert 'aria-current' not in report and 'href="/black-holes/"' not in report, "the old report has no nav entry"
+    assert 'href="/first-pull-requests/">Report</a>' in report
     assert 'aria-current' not in expected[json.dumps({"nav": None})]["nav"]
     assert chrome_problems(site, pages, expected) == []
 
