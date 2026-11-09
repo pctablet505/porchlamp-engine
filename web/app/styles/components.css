@@ -1521,6 +1521,33 @@ p.cell-numeric {
   color: var(--text-secondary);
 }
 
+/* The lists every page links to: their own rows above the snapshot's fields. */
+.footer-browse {
+  flex: 1 0 100%;
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.footer-browse-row {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+}
+
+.footer-browse-label {
+  color: var(--text-primary);
+}
+
+/* A row of short words (Go, Java): each link is a target at least 24 px square (WCAG 2.5.8). */
+.footer-browse-row a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+
 .app-live-region {
   position: absolute;
   width: 1px;

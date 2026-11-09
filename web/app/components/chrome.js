@@ -165,11 +165,35 @@ export function footerFieldsHtml(fields) {
   return { snapshot: escapeHtml(first), version: "", hash: "", manifest: "" };
 }
 
-/** The footer: the snapshot's identity (with a retry when it could not load), then the methodology, the report and
- *  the data. `fields` is state.js footerFieldsFor's answer. */
+//: The languages the footer lists, in the order of the header's ecosystem select (routes.js ids).
+const BROWSE_LANGUAGES = Object.freeze(["javascript", "python", "rust", "go", "java", "c-cpp"]);
+
+/** The lists people search for, as real links on every page: each language's ranking, its list for beginners, and
+ *  the other lists. Crawlers reach a page through links like these, and a reader on any page can move to their language. */
+function renderFooterBrowse() {
+  const link = (id, label) => `<a href="${escapeHtml(routePath(id))}">${escapeHtml(label)}</a>`;
+  const languages = (suffix) => BROWSE_LANGUAGES.map((id) => link(`${id}${suffix}`, copy.ecosystemName(routeById(id).fixed.eco)));
+  const row = (label, links) => `<p class="footer-browse-row"><span class="footer-browse-label">${escapeHtml(label)}</span> ${links.join(" ")}</p>`;
+  return (
+    `<nav class="footer-browse" aria-label="${escapeHtml(copy.FOOTER_BROWSE_LABEL)}">` +
+    row(copy.FOOTER_BROWSE_LANGUAGES, languages("")) +
+    row(copy.FOOTER_BROWSE_BEGINNERS, [link("first-timers", copy.FOOTER_BROWSE_ALL_LANGUAGES), ...languages("-first-timers")]) +
+    row(copy.FOOTER_BROWSE_MORE, [
+      link("fastest-replies", copy.FOOTER_BROWSE_FASTEST),
+      link("career", copy.PERSONA_NAMES.career_capital),
+      link("senior-systems", copy.PERSONA_NAMES.senior_systems),
+      link("ai-assisted", copy.PERSONA_NAMES.ai_assisted),
+    ]) +
+    `</nav>`
+  );
+}
+
+/** The footer: the lists people search for, then the snapshot's identity (with a retry when it could not load), then
+ *  the methodology, the report and the data. `fields` is state.js footerFieldsFor's answer. */
 export function renderFooter(fields) {
   const f = footerFieldsHtml(fields);
   return (
+    renderFooterBrowse() +
     `<span data-footer-snapshot="true">${f.snapshot}</span>` +
     `<span data-footer-version="true">${f.version}</span>` +
     `<span data-footer-hash="true">${f.hash}</span>` +

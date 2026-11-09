@@ -160,6 +160,26 @@ function writeHead(html, title, description, what) {
   return out;
 }
 
+/** The link-preview tags of a list's page, so a shared link shows its own title and the site's card. */
+function linkPreviewTags(title, description, address) {
+  const url = `${copy.SITE_ADDRESS}${address}`;
+  const image = `${copy.SITE_ADDRESS}/og.png`;
+  const tag = (attr, name, value) => `  <meta ${attr}="${name}" content="${escapeHtml(value)}">\n`;
+  const about = description === null ? [] : [["property", "og:description", description], ["name", "twitter:description", description]];
+  return [
+    ["property", "og:type", "website"],
+    ["property", "og:locale", "en_US"],
+    ["property", "og:site_name", copy.BRAND_NAME],
+    ["property", "og:title", title],
+    ["property", "og:url", url],
+    ["property", "og:image", image],
+    ["name", "twitter:card", "summary_large_image"],
+    ["name", "twitter:title", title],
+    ["name", "twitter:image", image],
+    ...about,
+  ].map(([attr, name, value]) => tag(attr, name, value)).join("");
+}
+
 /** A project's page: its view in page mode, from what `loadProject` read for it, with the methodology's coverage floor. */
 function projectView(project, methodology) {
   return renderProject(project.record, {
@@ -215,6 +235,7 @@ export function drawPage(html, page, data) {
   if (page.view === "ranked" && page.address) {
     const state = listState(page, data);
     out = writeHead(out, titleForState(state), descriptionForState(state), page.path);
+    out = replaceOnce(out, "</head>", `${linkPreviewTags(titleForState(state), descriptionForState(state), page.address)}</head>`, page.path);
   }
   if (isNotRankedPage(page)) {
     // the whole list has no description of its own: the page keeps the one the export wrote

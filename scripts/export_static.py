@@ -378,13 +378,16 @@ def app_routes() -> list[dict]:
 
 
 def view_page(route: dict, template: Path = APP_SHELL) -> str:
-    """``404.html`` with one view's title and canonical address: the app's page at that view's path."""
+    """``404.html`` with one view's title and canonical address: the app's page at that view's path. A not-ranked list
+    by reason is there for a reader who follows a link, not for a search: it asks not to be indexed, and its links
+    stay followed."""
     from porchlamp.serve import report_pages
 
+    robots = '\n  <meta name="robots" content="noindex, follow">' if route.get("view") == "notranked" else ""
     try:
         return report_pages.app_page(
             title=route["title"],
-            head=f'\n  <link rel="canonical" href="{html.escape(report_pages.SITE + route["path"])}">',
+            head=f'\n  <link rel="canonical" href="{html.escape(report_pages.SITE + route["path"])}">{robots}',
             template=template,
         )
     except report_pages.ReportError as error:
@@ -445,8 +448,8 @@ def _write_view_pages(out: Path, boards: dict[str, dict], not_ranked: dict[str, 
 
 def listed_addresses(boards: dict[str, dict], not_ranked: dict[str, dict]) -> list[str]:
     """The list views' addresses the sitemap names: every address of every preset route (one with ``fixed``), in the
-    route table's order."""
-    return [address for route in app_routes() if route.get("fixed") and route["shell"]
+    route table's order, but for the not-ranked lists by reason (:func:`view_page` keeps them out of search)."""
+    return [address for route in app_routes() if route.get("fixed") and route["shell"] and route.get("view") != "notranked"
             for address in route_instances(route, boards, not_ranked)]
 
 

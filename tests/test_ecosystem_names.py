@@ -129,7 +129,7 @@ def test_the_generated_home_page_llms_txt_and_feed_name_no_registry(built):
     home = visible_text((site / "index.html").read_text(encoding="utf-8"))
     files = {"index.html": home, **{name: (site / name).read_text(encoding="utf-8") for name in ("llms.txt", "feed.xml")}}
     assert {name: registry_hits(text) for name, text in files.items()} == {name: [] for name in files}
-    assert all(f"[{name} projects that answer outside pull requests]" in files["llms.txt"] for name in report_pages.ECOSYSTEM_NAMES.values())
+    assert all(f"[{name} open source projects to contribute to]" in files["llms.txt"] for name in report_pages.ECOSYSTEM_NAMES.values())
 
 
 def test_the_filter_offers_the_lists_names_and_no_registry():

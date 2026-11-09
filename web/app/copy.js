@@ -1143,11 +1143,15 @@ export const NUMBER_WORDS = Object.freeze(["zero", "one", "two", "three", "four"
 export const LIST_RANKINGS_HEADING = "The Porchlamp ranking, projects {first} to {last}";
 export const LIST_INTRO_RANKINGS =
   "Open-source projects ranked {first} to {last} of {total} by what happens to a stranger's pull request, each with its median first reply.";
-export const LIST_INTRO_ECOSYSTEM = "Porchlamp ranks {total} {ecosystem} projects by what happens to a stranger's pull request.";
+export const LIST_INTRO_ECOSYSTEM = "Porchlamp ranks {total} {ecosystem} open source projects to contribute to, by what happens to a stranger's pull request, not by stars.";
 export const LIST_INTRO_ECOSYSTEM_REPORT =
   "Among the {judged} judged {ecosystem} projects, {eco_share}% left most outside pull requests with no human reply, review, merge or close within {deadline_days} days or since, against {share}% across all {ecosystems_word} ecosystems.";
 export const LIST_INTRO_LENS = "This view ranks {total} projects for {lens}.";
 export const LIST_INTRO_ECOSYSTEM_LENS = "This view ranks {total} {ecosystem} projects for {lens}.";
+/** The first-timer lens's lists: the words people search for, then the lens's gate (porchlamp/core/persona.py). */
+export const LIST_INTRO_FIRST_TIMERS = "Porchlamp ranks {total} open source projects for beginners and {lens}, by what happens to a stranger's pull request, not by stars.";
+export const LIST_INTRO_ECOSYSTEM_FIRST_TIMERS = "Porchlamp ranks {total} {ecosystem} open source projects for beginners and {lens}, by what happens to a stranger's pull request, not by stars.";
+export const LIST_INTRO_FIRST_TIMER_GATE = "To make this list, a project decided at least {min_prs} first-timer pull requests and merged at least {min_rate}% of them, or has at least {min_issues} open, unassigned issues labelled for newcomers.";
 export const LIST_INTRO_WEIGHS = "It weighs {weights}.";
 /** One pillar's weight in "It weighs {weights}.", largest first; the last two joined by LIST_AND. */
 export const LIST_WEIGHT_ITEM = "{pillar} {percent}";
@@ -1201,6 +1205,12 @@ export const NOT_RANKED_LISTS_ITEM = "{list} ({count})";
 /** The current report: the nav's Report entry, the footer's and the home's findings line all open it. */
 export const REPORT_PAGE_HREF = "/first-pull-requests/";
 export const FOOTER_REPORT_LABEL = "Report";
+export const FOOTER_BROWSE_LABEL = "Open source projects to contribute to";
+export const FOOTER_BROWSE_LANGUAGES = "By language";
+export const FOOTER_BROWSE_BEGINNERS = "For beginners";
+export const FOOTER_BROWSE_ALL_LANGUAGES = "All languages";
+export const FOOTER_BROWSE_MORE = "More lists";
+export const FOOTER_BROWSE_FASTEST = "Fastest replies";
 export const FOOTER_METHODOLOGY_LABEL = "Methodology";
 /** The footer's last link: the published data and code. */
 export const FOOTER_DATA_LABEL = "Data on GitHub";

@@ -283,7 +283,7 @@ def llms_txt(f: HomeFacts, *, first_pull_requests: bool = False) -> str:
         "",
         "## Ecosystem and lens pages (readable without JavaScript)",
         f"Each page lists the top {f.preset_rows} projects of its cut, with score and tier, and each name opens that project's page.",
-        *(f"- [{name} projects that answer outside pull requests]({SITE}{path})" for _code, path, name in f.ecosystem_pages),
+        *(f"- [{name} open source projects to contribute to]({SITE}{path})" for _code, path, name in f.ecosystem_pages),
         *(f"- [Open-source projects for {phrase}]({SITE}{path})" for _code, path, phrase in f.lens_pages),
         "",
         f"## {len(f.pillars)} pillars and {_parameter_count(f)} parameters (balanced weights)",

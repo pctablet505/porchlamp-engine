@@ -2730,7 +2730,7 @@ test("leaderboard: one visible findings line under the header links to the stati
 
 test("footer: one methodology link, the report and the data, real links from the site root", () => {
   const footer = renderFooter({ kind: "ok", snapshot: { snapshot_id: "2026-10-17", benchmark_version: "2.0.0", constants_hash: "a".repeat(64), manifest_root: "b".repeat(64) } });
-  assert.deepEqual([...footer.matchAll(/<a href="([^"]*)"( data-route-tab="[^"]*")?>([^<]*)<\/a>/g)].map((m) => [m[1], m[3]]), [
+  assert.deepEqual([...footer.matchAll(/<a href="([^"]*)"( data-route-tab="[^"]*")?>([^<]*)<\/a>/g)].map((m) => [m[1], m[3]]).slice(-3), [
     ["/methodology/", "Methodology"],
     ["/first-pull-requests/", "Report"],
     ["https://github.com/pctablet505/porchlamp", "Data on GitHub"],
@@ -2742,6 +2742,19 @@ test("footer: one methodology link, the report and the data, real links from the
   assert.match(renderFooter({ kind: "loading" }), /<span data-footer-snapshot="true">Loading…<\/span>/);
   const failed = renderFooter({ kind: "error", endpoint: "/v1/porchlamp/snapshot", status: 500 });
   assert.ok(failed.includes('data-footer-retry="true">') && !failed.includes("data-v="), "an error offers the retry and hooks nothing");
+});
+
+test("footer: every list people search for is a real link, each to a page of the route table", () => {
+  const footer = renderFooter({ kind: "loading" });
+  const browse = footer.match(/<nav class="footer-browse" aria-label="([^"]*)">(.*?)<\/nav>/);
+  assert.equal(browse[1], "Open source projects to contribute to");
+  const links = [...browse[2].matchAll(/<a href="([^"]*)">([^<]*)<\/a>/g)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(links, [
+    ["/javascript/", "JavaScript"], ["/python/", "Python"], ["/rust/", "Rust"], ["/go/", "Go"], ["/java/", "Java"], ["/c-cpp/", "C and C++"],
+    ["/first-timers/", "All languages"], ["/javascript/first-timers/", "JavaScript"], ["/python/first-timers/", "Python"], ["/rust/first-timers/", "Rust"],
+    ["/go/first-timers/", "Go"], ["/java/first-timers/", "Java"], ["/c-cpp/first-timers/", "C and C++"],
+    ["/fastest-replies/", "Fastest replies"], ["/career/", "Career capital"], ["/senior-systems/", "Senior systems"], ["/ai-assisted/", "AI-assisted"],
+  ]);
 });
 
 // ------------------------------------------------ E3: project pages (rows link to them; the badge targets them)
@@ -3592,6 +3605,10 @@ test("project page: a project that is not ranked says so in its lede, prints its
   assert.ok(ranked.includes(escapeHtml(copy.PROJECT_LEDE.split("{date}")[0])), "a ranked project keeps its lede");
   assert.ok(!ranked.includes("Not ranked in the Porchlamp snapshot"));
   assert.ok(!projectHtml(notRanked, "panel").includes("Not ranked in the Porchlamp snapshot"), "the panel has no lede");
+  // the page's Compare is a link that works without a script, and no page for a crawler: one address per pair of projects
+  const compareLink = ranked.match(/<a class="btn btn-secondary drawer-compare-btn" href="([^"]*)"([^>]*)>/);
+  assert.ok(compareLink && compareLink[1].startsWith(copy.PROJECT_COMPARE_HREF), "the page's Compare is a link");
+  assert.equal(compareLink[2], ' rel="nofollow"', "the Compare link asks crawlers not to follow it");
 });
 
 const PROJECT_HOOK = /<(span|p)\b[^>]*\bdata-v="([^"]+)"[^>]*>([^<]*)<\/\1>/g;
@@ -3992,7 +4009,7 @@ test("project: the panel through renderDrawer, for a ranked, a gated and a black
   assert.ok(ranked.includes('<h2 id="drawer-title"'), "the dialog is named by the title");
   assert.ok(!ranked.includes("<h1"));
   assert.ok(ranked.includes('data-drawer-page="true"'), "a ranked project links its page");
-  assert.ok(ranked.includes(`<a href="/${keras.recordFile}">`), "the record's file comes from the extras");
+  assert.ok(ranked.includes(`<a href="/${keras.recordFile}" rel="nofollow">`), "the record's file comes from the extras; a raw file is no page to crawl");
   assert.equal(ranked.replace(/^.*?<div class="project-view/, '<div class="project-view').replace(/<\/div><\/div>$/, ""), projectHtml(keras, "panel", { pageHref: "/projects/keras-team/keras/", kind: "rated", persona: "balanced" }).replace(/<div class="project-view is-panel">/, '<div class="project-view is-panel">'), "the drawer's body is the project view, nothing else");
 
   const gated = renderDrawer(stateFor(PROJECT_RECORDS["3b1b__manim"], null));
@@ -4674,17 +4691,17 @@ test("lists: each list's heading and intro, with every number a hook, and its de
       "Open-source projects ranked 101 to 200 of 4,402 by what happens to a stranger's pull request, each with its median first reply.",
       { "list.first": "101", "list.last": "200", "list.total": "4,402" }, null],
     ["/rust/", { total: 474 },
-      "Rust projects that answer outside pull requests",
-      "Porchlamp ranks 474 Rust projects by what happens to a stranger's pull request. Among the 488 judged Rust projects, 16.6% left most outside pull requests with no human reply, review, merge or close within 14 days or since, against 19.9% across all six ecosystems.",
+      "Rust open source projects to contribute to",
+      "Porchlamp ranks 474 Rust open source projects to contribute to, by what happens to a stranger's pull request, not by stars. Among the 488 judged Rust projects, 16.6% left most outside pull requests with no human reply, review, merge or close within 14 days or since, against 19.9% across all six ecosystems.",
       { "list.total": "474", "list.judged": "488", "list.eco_share": "16.6", "list.deadline_days": "14", "list.share": "19.9", "list.ecosystems_word": "six" }, null],
     ["/first-timers/", { total: 1234 },
-      "Open-source projects for first-time contributors",
-      "This view ranks 1,234 projects for first-time contributors. It weighs responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%.",
-      { "list.total": "1,234", "list.weights": "responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%" }, null],
+      "Open source projects for beginners to contribute to",
+      "Porchlamp ranks 1,234 open source projects for beginners and first-time contributors, by what happens to a stranger's pull request, not by stars. To make this list, a project decided at least 5 first-timer pull requests and merged at least 40% of them, or has at least 3 open, unassigned issues labelled for newcomers. It weighs responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%.",
+      { "list.total": "1,234", "list.min_prs": "5", "list.min_rate": "40", "list.min_issues": "3", "list.weights": "responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%" }, null],
     ["/go/first-timers/", { total: 300 },
-      "Go projects for first-time contributors",
-      "This view ranks 300 Go projects for first-time contributors. It weighs responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%.",
-      { "list.total": "300", "list.weights": "responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%" }, null],
+      "Go open source projects for beginners",
+      "Porchlamp ranks 300 Go open source projects for beginners and first-time contributors, by what happens to a stranger's pull request, not by stars. To make this list, a project decided at least 5 first-timer pull requests and merged at least 40% of them, or has at least 3 open, unassigned issues labelled for newcomers. It weighs responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%.",
+      { "list.total": "300", "list.min_prs": "5", "list.min_rate": "40", "list.min_issues": "3", "list.weights": "responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%" }, null],
     ["/fastest-replies/", { total: 4402 },
       "Fastest first reply to pull requests",
       "30 projects, ordered by the median time to a first human reply to outside pull requests, fastest first. A median is listed only when it comes from 10 or more pull requests; the sample is shown.",
@@ -4721,14 +4738,20 @@ test("lists: each list's heading and intro, with every number a hook, and its de
   }
   // an ecosystem's list links its two other lists by their headings
   const rust = renderListHead(atAddress("/rust/", { leaderboard: listBoard(LIST_ROWS), ...data }));
-  assert.ok(rust.includes('<p class="list-sublinks" data-list-sublinks="true"><a href="/rust/first-timers/" class="onboarding-link">Rust projects for first-time contributors</a> · <a href="/rust/fastest-replies/" class="onboarding-link">Fastest first reply to pull requests: Rust projects</a></p>'), rust);
+  assert.ok(rust.includes('<p class="list-sublinks" data-list-sublinks="true"><a href="/rust/first-timers/" class="onboarding-link">Rust open source projects for beginners</a> · <a href="/rust/fastest-replies/" class="onboarding-link">Fastest first reply to pull requests: Rust projects</a></p>'), rust);
   // without the report or the methodology, the sentences that need them are left out; under a search, the counts
   const bare = atAddress("/rust/", { leaderboard: listBoard(LIST_ROWS) });
-  assert.equal(listHead(bare).sentences.map((s) => s.text).join(" "), "Porchlamp ranks 474 Rust projects by what happens to a stranger's pull request.");
+  assert.equal(listHead(bare).sentences.map((s) => s.text).join(" "), "Porchlamp ranks 474 Rust open source projects to contribute to, by what happens to a stranger's pull request, not by stars.");
   assert.deepEqual(listHead(atAddress("/career/", { leaderboard: listBoard(LIST_ROWS) })).sentences.length, 1, "no weights without the methodology");
   assert.equal(listHead(atAddress("/fastest-replies/", { leaderboard: listBoard(LIST_ROWS) })).caveat, null);
   assert.deepEqual(listHead(atAddress("/rust/", { query: "serde", leaderboard: listBoard(LIST_ROWS), ...data })).sentences, [], "a search keeps the heading and drops the counts");
   assert.equal(listHead(atAddress("/", { leaderboard: HOME_LEADERBOARD })), null, "the home has no list head");
+  // the gate sentence states all three of the first-timer gate's numbers, or none: a methodology without one leaves it out
+  const gateless = JSON.parse(JSON.stringify(METHODOLOGY_DOC));
+  delete gateless.personas.gates.find((g) => g.persona === "first_timer").thresholds.min_decided_prs;
+  const partial = listHead(atAddress("/first-timers/", { leaderboard: listBoard(LIST_ROWS), methodology: gateless })).sentences.map((s) => s.text);
+  assert.ok(!partial.some((t) => t.startsWith("To make this list")), partial.join(" | "));
+  assert.ok(!partial.join(" ").includes("undefined"), "no missing number is printed");
   assert.equal(lensWeightsText(METHODOLOGY_DOC, "senior_systems"), "criticality 35%, governance 25%, rigor 20%, responsiveness 15% and accessibility 5%");
   assert.deepEqual(listSpan(atAddress("/rankings/45/", { leaderboard: listBoard([], { total: 4402 }) })), { first: 4401, last: 4402, total: 4402 }, "the last page stops at the total");
 });
@@ -4737,7 +4760,7 @@ test("lists: each list's heading and intro, with every number a hook, and its de
 const LIST_COPY = [
   "HOME_BROWSE_SUMMARY", "HOME_BROWSE_RANKING_LABEL", "HOME_BROWSE_FIRST_TIMERS_LABEL", "HOME_BROWSE_FASTEST_LABEL", "HOME_BROWSE_FASTEST_ALL",
   "LIST_RANKINGS_HEADING", "LIST_INTRO_RANKINGS", "LIST_INTRO_ECOSYSTEM", "LIST_INTRO_ECOSYSTEM_REPORT", "LIST_INTRO_LENS",
-  "LIST_INTRO_ECOSYSTEM_LENS", "LIST_INTRO_WEIGHS", "LIST_WEIGHT_ITEM", "LIST_AND", "LIST_INTRO_FASTEST",
+  "LIST_INTRO_ECOSYSTEM_LENS", "LIST_INTRO_FIRST_TIMERS", "LIST_INTRO_ECOSYSTEM_FIRST_TIMERS", "LIST_INTRO_FIRST_TIMER_GATE", "LIST_INTRO_WEIGHS", "LIST_WEIGHT_ITEM", "LIST_AND", "LIST_INTRO_FASTEST",
   "LIST_INTRO_FASTEST_ECOSYSTEM", "LIST_INTRO_FASTEST_SAMPLE", "LIST_CAVEAT_FASTEST", "COLUMN_FIRST_REPLY", "COLUMN_NO_REPLY",
   "REPLY_SAMPLE_TEXT", "LENS_PHRASES", "NUMBER_WORDS",
   // the not-ranked lists by reason (PR 2)
@@ -4846,8 +4869,8 @@ test("lists: the prerender draws a page of the ranking and a preset from its add
   for (const [address, board, title, description, rowCount] of [
     ["/rankings/3/", { total: 4402, page: 3, page_size: 100 }, "Open-source projects ranked 201 to 300 of 4,402 | Porchlamp",
       "Open-source projects ranked 201 to 300 of 4,402 by what happens to a stranger's pull request, each with its median first reply.", 50],
-    ["/python/", { total: 696 }, "Python projects that answer outside pull requests | Porchlamp",
-      "Porchlamp ranks 696 Python projects by what happens to a stranger's pull request.", 50],
+    ["/python/", { total: 696 }, "Python open source projects to contribute to | Porchlamp",
+      "Porchlamp ranks 696 Python open source projects to contribute to, by what happens to a stranger's pull request, not by stars.", 50],
   ]) {
     const data = { snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, methodology: METHODOLOGY_DOC, leaderboard: listBoard(LIST_ROWS, board) };
     const page = drawPage(frame, { path: `${address.slice(1)}index.html`, view: "ranked", address }, data);
@@ -4861,6 +4884,9 @@ test("lists: the prerender draws a page of the ranking and a preset from its add
     assert.equal((page.match(/<title>([^<]*)<\/title>/g) || []).length, 1);
     assert.equal(decodeAttr(page.match(/<title>([^<]*)<\/title>/)[1]), title, address);
     assert.equal(decodeAttr(page.match(/<meta name="description" content="([^"]*)">/)[1]), description, address);
+    assert.equal(decodeAttr(page.match(/<meta property="og:title" content="([^"]*)">/)[1]), title, `${address}: its link preview`);
+    assert.equal(decodeAttr(page.match(/<meta name="twitter:description" content="([^"]*)">/)[1]), description, `${address}: its link preview`);
+    assert.ok(page.includes(`<meta property="og:url" content="https://porchlamp.org${address}">`), `${address}: its address in the preview`);
     assert.equal((page.match(/<meta name="description"/g) || []).length, 1, `${address}: one description`);
   }
   const home = drawPage(frame, { path: "index.html", view: "ranked" }, { snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, leaderboard: HOME_LEADERBOARD });
