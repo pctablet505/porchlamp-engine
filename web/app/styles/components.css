@@ -649,6 +649,22 @@ input.control::placeholder {
   text-overflow: ellipsis;
 }
 
+/* Every column needs about 1,270px of window (a lens list has one more): narrower than 1,366px, four leave, so the
+ * page itself never scrolls sideways (the table keeps the window as its scroll container from 1024px, for its sticky
+ * header). */
+@media (max-width: 1365px) {
+  .leaderboard-table [data-col="stars"],
+  .leaderboard-table [data-cell="stars"],
+  .leaderboard-table [data-col="suspicion"],
+  .leaderboard-table [data-cell="suspicion"],
+  .leaderboard-table [data-col="no_reply_14d"],
+  .leaderboard-table [data-cell="no_reply_14d"],
+  .leaderboard-table [data-col="quadrant"],
+  .leaderboard-table [data-cell="quadrant"] {
+    display: none;
+  }
+}
+
 @media (max-width: 1023px) {
   .leaderboard-table {
     font-size: var(--text-caption);
@@ -661,17 +677,6 @@ input.control::placeholder {
 
   .pillar-sort-btn {
     padding: 1px 1px;
-  }
-
-  .leaderboard-table [data-col="stars"],
-  .leaderboard-table [data-cell="stars"],
-  .leaderboard-table [data-col="suspicion"],
-  .leaderboard-table [data-cell="suspicion"],
-  .leaderboard-table [data-col="no_reply_14d"],
-  .leaderboard-table [data-cell="no_reply_14d"],
-  .leaderboard-table [data-col="quadrant"],
-  .leaderboard-table [data-cell="quadrant"] {
-    display: none;
   }
 
   .leaderboard-table td[data-cell="repository"] {

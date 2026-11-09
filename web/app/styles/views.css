@@ -3383,6 +3383,11 @@ a.project-eco:hover {
   .fpr-tiles {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+
+  /* Four tiles side by side: a label that wraps to a second line would push its value below the others'. */
+  .fpr-page .fpr-tile-label {
+    min-height: 2lh;
+  }
 }
 
 .fpr-tile {
@@ -3431,7 +3436,8 @@ a.project-eco:hover {
   margin-top: var(--space-sm);
 }
 
-.fpr-next {
+.fpr-next,
+.report-page .fpr-next {
   margin-top: var(--space-sm);
   font-weight: 600;
 }
@@ -3452,6 +3458,8 @@ a.project-eco:hover {
 
 .fpr-slide input {
   width: 100%;
+  height: 32px;
+  margin: 0;
   accent-color: var(--fpr-first);
 }
 
@@ -3707,7 +3715,7 @@ a.project-eco:hover {
   display: grid;
   grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
   align-items: end;
-  gap: 6px;
+  gap: var(--space-2xs);
   margin-top: var(--space-md);
 }
 
@@ -3768,7 +3776,7 @@ a.project-eco:hover {
 .fpr-table td {
   padding: var(--space-xs) var(--space-sm);
   text-align: left;
-  vertical-align: top;
+  vertical-align: baseline;
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -3806,7 +3814,7 @@ a.project-eco:hover {
   top: 0;
   z-index: 50;
   max-width: 17rem;
-  padding: 6px 9px;
+  padding: var(--space-2xs) var(--space-xs);
   font-size: var(--text-body-md);
   line-height: 1.35;
   color: var(--bg-surface);
@@ -3854,7 +3862,7 @@ a.project-eco:hover {
   }
 
   .fpr-cols-hist .fpr-col-label {
-    font-size: 0.625rem;
+    font-size: var(--text-caption);
   }
 
   /* The outer columns' words are wider than their bars: they lean inward and stay on the card. */
@@ -3963,6 +3971,10 @@ a.project-eco:hover {
   scroll-margin-top: var(--space-md);
 }
 
+.lookup-result:empty {
+  display: none;
+}
+
 .lookup-form label {
   display: block;
   margin-bottom: var(--space-xs);
@@ -4030,4 +4042,12 @@ a.project-eco:hover {
 
 .lookup-silent .lookup-status {
   font-weight: 600;
+}
+
+/* A printed chart keeps its bars and dots: browsers drop background colours when printing unless told otherwise. */
+.fpr-col-bar,
+.fpr-dot,
+.fpr-range-dot {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }

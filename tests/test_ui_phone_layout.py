@@ -181,6 +181,7 @@ for (let i = 0; i < ths.length - 1; i++) {
 }
 return {
   innerWidth: win.innerWidth,
+  clientWidth: doc.documentElement.clientWidth,
   scrollWidth: doc.documentElement.scrollWidth,
   visibleHeaderCount: ths.length,
   overlaps,
@@ -348,6 +349,9 @@ def measured(tmp_path_factory):
         {"name": "search-from-methodology", "path": "./methodology/", **DESKTOP, "script": _SEARCH_FROM_METHODOLOGY % first["name"]},
         {"name": "tablet-ranked", "path": "./", **TABLET, "script": _TABLET_RANKED},
         {"name": "tablet-persona", "path": "./?persona=senior_systems", **TABLET, "script": _TABLET_RANKED},
+        {"name": "desktop-1024-ranked", "path": "./", "width": 1024, "height": 800, "script": _TABLET_RANKED},
+        {"name": "desktop-1024-lens", "path": "./?persona=first_timer", "width": 1024, "height": 800, "script": _TABLET_RANKED},
+        {"name": "desktop-1280-lens", "path": "./?persona=first_timer", "width": 1280, "height": 800, "script": _TABLET_RANKED},
         {"name": "tablet-nav", "path": "./", **TABLET, "script": _TABLET_NAV},
         {"name": "mobile-sort", "path": "./", **PHONE, "script": _MOBILE_SORT},
         {"name": "desktop-sticky-nav", "path": "./", **DESKTOP, "script": _DESKTOP_STICKY_NAV},
@@ -449,6 +453,15 @@ def test_tablet_768px_ranked_table_fits_without_overflow_or_header_overlap(measu
         assert got["innerWidth"] == 768, got
         assert got["scrollWidth"] <= got["innerWidth"], got
         assert got["visibleHeaderCount"] >= 6, got
+        assert got["overlaps"] == [], got
+
+
+def test_the_ranked_table_never_scrolls_the_page_sideways_on_a_laptop(measured):
+    """From 1024px the table keeps the window as its scroll container (for its sticky header), so the page itself must
+    hold it: below 1,366px four columns leave, and a lens list has one more column than the rest."""
+    for key in ("desktop-1024-ranked", "desktop-1024-lens", "desktop-1280-lens"):
+        got = measured[key]
+        assert got["scrollWidth"] <= got["clientWidth"], got
         assert got["overlaps"] == [], got
 
 

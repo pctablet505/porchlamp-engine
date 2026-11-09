@@ -411,4 +411,6 @@ test("the result is no live region, a status line is; without a script the form 
   assert.ok(!page.includes("aria-live"));
   assert.ok(page.includes('<p id="lookup-status" class="sr-only" role="status"></p>'));
   assert.ok(page.includes("<noscript><style>.lookup-form { display: none; }</style>"));
+  assert.ok(page.includes("it measures a reply&#39;s length on its markdown rather than the text GitHub shows"),
+    "the lookup reads a comment's markdown (the REST body), the snapshot the text GitHub shows: the page says so");
 });
