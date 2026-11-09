@@ -11,6 +11,8 @@ written.
 """
 from __future__ import annotations
 
+import json
+
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Mapping, Sequence
@@ -113,21 +115,62 @@ def featured_rows(stats: Mapping[str, Any]) -> list[dict[str, Any]]:
     return sorted(out, key=lambda row: row["median_hours"])
 
 
+def _reworded(key: str, claim: str, instead: str) -> str:
+    """``SENTENCES[key]`` with its one ``claim`` replaced by ``instead``."""
+    text = SENTENCES[key]
+    if text.count(claim) != 1:
+        raise ReportError(f"first pull requests: {key!r} no longer holds the words {claim!r} its other wording replaces")
+    return text.replace(claim, instead)
+
+
+def side_claims(stats: Mapping[str, Any]) -> dict[str, bool]:
+    """Whether the numbers back each side sentence's claim: the waiting curves of first and returning pull requests
+    nearly meet after two months; a comment with no ask and no tag shows no difference (its 95% range spans zero, for
+    first pull requests and over all outside ones); asking goes with more merges (the range is above zero)."""
+    curve, others = _by_days(stats["first"]), _by_days(stats["returning"])
+    first_ask, every_ask = stats["asking"]["day14_first"], stats["asking"]["day14_all"]
+    spans_zero = lambda arm: arm["gap_answered_range"][0] < 0 < arm["gap_answered_range"][1]  # noqa: E731
+    return {
+        "lines_meet": abs(curve[60]["merged"] - others[60]["merged"]) <= LINES_MEET_WITHIN,
+        "comment_shows_nothing": spans_zero(first_ask["other"]) and spans_zero(every_ask["other"]),
+        "merges_follow": first_ask["ask_recent"]["gap_merged_range"][0] > 0,
+    }
+
+
+#: Which sentences each side claim words (:func:`side_claims`).
+SIDE_CLAIM_SENTENCES: dict[str, tuple[str, ...]] = {
+    "lines_meet": ("wait_text",), "comment_shows_nothing": ("ask_heading", "ask_text"), "merges_follow": ("merges_text",),
+}
+
+
+def chosen_sentences(stats: Mapping[str, Any]) -> dict[str, Any]:
+    """The page's sentences for these numbers: :data:`SENTENCES`, with each side sentence whose claim the numbers no
+    longer back in its other wording (:data:`ALTERNATE_SENTENCES`)."""
+    chosen = json.loads(json.dumps(SENTENCES))
+    for claim, holds in side_claims(stats).items():
+        if not holds:
+            chosen.update({key: ALTERNATE_SENTENCES[key] for key in SIDE_CLAIM_SENTENCES[claim]})
+    return chosen
+
+
 def check_claims(stats: Mapping[str, Any], projects: Sequence[Mapping[str, Any]]) -> None:
     """Every sentence a number decides, against the numbers."""
     first, returning = stats["first"], stats["returning"]
-    curve, others = _by_days(first), _by_days(returning)
+    curve = _by_days(first)
     answered, answered_others = _by_hours(first), _by_hours(returning)
     asking = stats["asking"]["day14_first"]
-    ask, other = asking["ask_recent"], asking["other"]
-    everyone = stats["asking"]["day14_all"]
+    ask = asking["ask_recent"]
     who = stats["who_answers"]
     weekday = stats["weekday"]
     by_day = weekday["by_day"]
 
     def guard(holds: bool, claim: str) -> None:
         if not holds:
-            raise ReportError(f"first pull requests: the numbers no longer say {claim!r}")
+            raise ReportError(
+                f"first pull requests: the numbers no longer say {claim!r}. Reword that sentence in "
+                "porchlamp/serve/first_pull_requests_page.py (SENTENCES), then export and verify again; "
+                "the stats file stays as it is"
+            )
 
     guard(stats_file.SETTLED_DAYS == 120, "at least four months old")
     guard(stats_file.FOLLOW_DAYS == 30, "in the next 30 days")
@@ -143,12 +186,8 @@ def check_claims(stats: Mapping[str, Any], projects: Sequence[Mapping[str, Any]]
     shares = [curve[day]["merged"] for day in sorted(curve)]
     guard(all(a > b for a, b in zip(shares, shares[1:])), "the longer the silence, the lower the odds of a merge")
     guard(curve[14]["merged"] < curve[0]["merged"] / 2, "the odds of a merge have more than halved")
-    guard(abs(curve[60]["merged"] - others[60]["merged"]) <= LINES_MEET_WITHIN, "the two lines nearly meet")
     guard(ask["gap_answered_range"][0] > 0, "Authors who asked got more answers")
-    guard(other["gap_answered_range"][0] < 0 < other["gap_answered_range"][1], "Other comments got none")
-    guard(everyone["other"]["gap_answered_range"][0] < 0 < everyone["other"]["gap_answered_range"][1], "Other comments got none, over all outside pull requests")
     guard(ask["answered"] - ask["answered_none"] > ask["gap_answered"], "Part of that gap comes from which projects get asked")
-    guard(ask["gap_merged_range"][0] > 0, "Merges follow")
     guard(stats["asking"]["day7_first"]["ask_recent"]["gap_answered"] < ask["gap_answered"], "An ask in the first week shows less")
     guard(all(answered[h] < answered_others[h] for h in answered), "The first pull request waits longest")
     guard(answered_others[_TWO_WEEKS] > answered[_TWO_WEEKS], "After two weeks the gap is still there")
@@ -345,6 +384,17 @@ SENTENCES: dict[str, Any] = {
 }
 
 
+#: A side sentence's other wording, for a cycle whose numbers no longer back its claim (:func:`side_claims`): the same
+#: numbers, no claim, so the cycle still publishes. A title, heading or lede claim the numbers stop backing stops the
+#: build instead (:func:`check_claims`).
+ALTERNATE_SENTENCES: dict[str, str] = {
+    "wait_text": _reworded("wait_text", "By then the two lines nearly meet, at", "By then the two lines stand at"),
+    "ask_heading": _reworded("ask_heading", " A comment with no ask and no tag got none.", ""),
+    "ask_text": _reworded("ask_text", "A comment with no ask and no tag shows nothing.", "A comment with no ask and no tag shows a difference too; the chart gives its range."),
+    "merges_text": _reworded("merges_text", "Merges follow: by the end of the data,", "By the end of the data,"),
+}
+
+
 def _day_label(days: int) -> str:
     return "1 day" if days == 1 else f"{days} days"
 
@@ -375,7 +425,8 @@ def report_json(stats: Mapping[str, Any], *, snapshot_id: str, as_of: str) -> di
         "path": PATH,
         "data_file": f"/data/{snapshot_id}/{DATA_FILE}",
         "values": values,
-        "sentences": SENTENCES,
+        "sentences": chosen_sentences(stats),
+        "claims": side_claims(stats),
         "curve": [
             {
                 "days": day, "label": _day_label(day),
@@ -437,15 +488,24 @@ def lookup_page() -> str:
     )
 
 
-def report_page(record: Mapping[str, Any], *, exported_on: date) -> str:
+def frozen_path(record: Mapping[str, Any]) -> str:
+    """The address of the report's frozen copy for its snapshot, kept for citations after later cycles replace the
+    report at :data:`PATH`."""
+    return f"{PATH}{record['snapshot_id']}/"
+
+
+def report_page(record: Mapping[str, Any], *, exported_on: date, frozen: bool = False) -> str:
     """The report's page, for ``web/prerender.mjs`` to draw the header, nav, footer and the view into: the app's page with
-    this report's head and its one script, loading no app."""
-    title = f"{record['sentences']['title']} | Porchlamp"
+    this report's head and its one script, loading no app. The frozen copy (``frozen=True``, at :func:`frozen_path`)
+    names its snapshot in the title, is its own canonical address, links one stylesheet of its own beside it (the site's
+    stylesheets joined, so a later change to them cannot reach it) and loads no script: the page reads whole without one."""
+    title = f"{record['sentences']['title']}, snapshot {record['snapshot_id']} | Porchlamp" if frozen else f"{record['sentences']['title']} | Porchlamp"
     description = fill_text(record["sentences"]["description"], record["values"])
-    canonical = f"{rp.SITE}{PATH}"
+    canonical = f"{rp.SITE}{frozen_path(record) if frozen else PATH}"
     built = rp.app_page(
         title=title, description=description, head=rp._article_head(title=title, description=description, canonical=canonical),
-        scripts=rp.PAGE_SCRIPTS["first_pull_requests"][1:],
+        stylesheets=(f"{frozen_path(record)}styles.css",) if frozen else None,
+        scripts=() if frozen else rp.PAGE_SCRIPTS["first_pull_requests"][1:],
     )
     return rp._with_ld(built, {
         "@context": "https://schema.org",

@@ -245,6 +245,12 @@ function section(id, kicker, heading, body) {
 }
 
 /** The <article>. */
+/** The asking section's caveat: it says a comment with no ask and no tag shows no gap only while the record's numbers
+ *  back that (`claims.comment_shows_nothing`; a record without claims is read as backing it). */
+function askCaveat(report) {
+  return report.claims && report.claims.comment_shows_nothing === false ? copy.FIRST_PRS_ASK_CAVEAT_UNSURE : copy.FIRST_PRS_ASK_CAVEAT;
+}
+
 export function renderFirstPullRequests(report) {
   const v = report.values;
   const s = report.sentences;
@@ -294,7 +300,7 @@ export function renderFirstPullRequests(report) {
     section(
       "asking", copy.FIRST_PRS_ASK_KICKER, say(s.ask_heading),
       para(s.ask_text) + `<h3 class="fpr-h3">${e(copy.FIRST_PRS_ASK_CHART_HEADING)}</h3>` + askingChart(report.asking) +
-        para(s.ask_note, "report-note") + para(s.merges_text) + `<p class="report-note">${e(copy.FIRST_PRS_ASK_CAVEAT)}</p>`
+        para(s.ask_note, "report-note") + para(s.merges_text) + `<p class="report-note">${e(askCaveat(report))}</p>`
     ) +
     section(
       "first-one", copy.FIRST_PRS_FIRST_KICKER, say(s.first_heading),

@@ -95,6 +95,8 @@ def test_stage_site_preserves_operational_files_frozen_reports_and_one_prior_dat
     for old_id in ("2026-10-25", "2026-10-26"):
         (target / "black-holes" / old_id).mkdir(parents=True)
         (target / "black-holes" / old_id / "index.html").write_text(f"frozen {old_id}", encoding="utf-8")
+        (target / "first-pull-requests" / old_id).mkdir(parents=True)
+        (target / "first-pull-requests" / old_id / "index.html").write_text(f"frozen first PRs {old_id}", encoding="utf-8")
         (target / "data" / old_id).mkdir(parents=True)
         (target / "data" / old_id / "snapshot.json").write_text("{}", encoding="utf-8")
 
@@ -108,10 +110,15 @@ def test_stage_site_preserves_operational_files_frozen_reports_and_one_prior_dat
     (exported / "black-holes" / sid).mkdir(parents=True)
     (exported / "black-holes" / sid / "index.html").write_text(f"frozen {sid}", encoding="utf-8")
     (exported / "black-holes" / "index.html").write_text(f"latest {sid}", encoding="utf-8")
+    (exported / "first-pull-requests" / sid).mkdir(parents=True)
+    (exported / "first-pull-requests" / sid / "index.html").write_text(f"frozen first PRs {sid}", encoding="utf-8")
+    (exported / "first-pull-requests" / "index.html").write_text(f"latest first PRs {sid}", encoding="utf-8")
     (exported / "index.html").write_text("home", encoding="utf-8")
 
     res = pub_mod.stage_site(exported, target, sid)
-    assert res["kept_frozen_reports"] == ["2026-10-25", "2026-10-26"]
+    assert res["kept_frozen_reports"] == [
+        "black-holes/2026-10-25", "black-holes/2026-10-26", "first-pull-requests/2026-10-25", "first-pull-requests/2026-10-26",
+    ]
     assert res["kept_previous_data"] == ["2026-10-26"]
 
     # Operational files untouched.
@@ -128,6 +135,10 @@ def test_stage_site_preserves_operational_files_frozen_reports_and_one_prior_dat
         "2026-10-26",
         "2026-10-28",
     ]
+    # Three cycles of the first pull requests report too: both earlier frozen copies and this one, beside the latest.
+    assert sorted(p.name for p in (target / "first-pull-requests").iterdir() if p.is_dir()) == ["2026-10-25", "2026-10-26", "2026-10-28"]
+    assert (target / "first-pull-requests" / "2026-10-25" / "index.html").read_text(encoding="utf-8") == "frozen first PRs 2026-10-25"
+    assert (target / "first-pull-requests" / "index.html").read_text(encoding="utf-8") == f"latest first PRs {sid}"
     assert sorted(p.name for p in (target / "data").iterdir() if p.is_dir()) == ["2026-10-26", "2026-10-28"]
     assert f"Measured on the {sid} snapshot" in (target / "README.md").read_text(encoding="utf-8")
     assert f'version: "{sid}"' in (target / "CITATION.cff").read_text(encoding="utf-8")
@@ -471,7 +482,7 @@ def test_run_pipeline_executes_real_snapshot_stages_and_full_orchestration(tmp_p
 
     summary = json.loads(status_out.read_text(encoding="utf-8"))
     assert summary["snapshot_id"] == "2026-10-28"
-    assert summary["kept_frozen_reports"] == ["2026-10-27"]
+    assert summary["kept_frozen_reports"] == ["black-holes/2026-10-27"]
     assert summary["kept_previous_data"] == ["2026-10-27"]
     assert (target / "index.html").is_file()
     assert (target / "black-holes" / "2026-10-27" / "index.html").is_file()

@@ -220,3 +220,17 @@ test("the two band charts share one scale and mark only the top band", () => {
   assert.ok(Math.abs(merged[3][2] / RECORD.who_bands[3].merged - scale) < 1e-2, "one scale for both charts");
   assert.ok(answered[3][2] <= 1 && answered[3][2] > 0.5);
 });
+
+test("the asking caveat says a comment shows no gap only while the record's numbers back it", async () => {
+  const copy = await import("../copy.js");
+  const backed = unescape(renderFirstPullRequests(copyOf()));
+  assert.ok(backed.includes(copy.FIRST_PRS_ASK_CAVEAT) && !backed.includes(copy.FIRST_PRS_ASK_CAVEAT_UNSURE));
+  const record = copyOf();
+  record.claims.comment_shows_nothing = false;
+  const unbacked = unescape(renderFirstPullRequests(record));
+  assert.ok(unbacked.includes(copy.FIRST_PRS_ASK_CAVEAT_UNSURE) && !unbacked.includes(copy.FIRST_PRS_ASK_CAVEAT));
+  assert.ok(!copy.FIRST_PRS_ASK_CAVEAT_UNSURE.includes("shows no gap"));
+  const older = copyOf();
+  delete older.claims;
+  assert.ok(unescape(renderFirstPullRequests(older)).includes(copy.FIRST_PRS_ASK_CAVEAT), "a record without claims keeps the caveat");
+});

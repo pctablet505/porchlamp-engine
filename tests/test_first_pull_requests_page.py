@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -310,12 +311,8 @@ def test_the_page_says_merged_not_best_and_no_comment_means_after_the_first_hour
     (_break_half, "More than half"),
     (_break_rising, "lower the odds"),
     (_break_cut, "more than halved"),
-    (_break_meet, "nearly meet"),
     (_break_ask, "asked got more"),
-    (_break_other, "Other comments got none"),
-    (_break_other_all, "over all outside"),
     (_break_pooled, "Part of that gap"),
-    (_break_merges, "Merges follow"),
     (_break_week_one, "first week shows less"),
     (_break_longest, "waits longest"),
     (_break_weekend, "Weekend pull requests"),
@@ -339,6 +336,43 @@ def test_a_sentence_the_numbers_no_longer_support_stops_the_export(breaks, claim
     stats = good_stats()
     breaks(stats)
     with pytest.raises(ReportError, match=claim):
+        record(stats)
+
+
+@pytest.mark.parametrize("breaks, claim", [
+    (_break_meet, "lines_meet"),
+    (_break_other, "comment_shows_nothing"),
+    (_break_other_all, "comment_shows_nothing"),
+    (_break_merges, "merges_follow"),
+])
+def test_a_side_sentence_the_numbers_no_longer_support_takes_its_other_wording_and_the_export_goes_on(breaks, claim: str) -> None:
+    """A range crossing zero, or curves apart, no longer stops a whole data cycle: only that claim's sentences change,
+    each to its other wording, and every other sentence keeps its words."""
+    stats = good_stats()
+    breaks(stats)
+    built = record(stats)
+    sentences = built["sentences"]
+    reworded = {key for key in page.SENTENCES if sentences[key] != page.SENTENCES[key]}
+    assert reworded == set(page.SIDE_CLAIM_SENTENCES[claim])
+    assert all(sentences[key] == page.ALTERNATE_SENTENCES[key] for key in reworded)
+    assert built["claims"] == {name: name != claim for name in page.SIDE_CLAIM_SENTENCES}
+
+
+def test_a_side_sentences_other_wording_keeps_its_numbers_and_drops_its_claim() -> None:
+    """The other wording prints the same numbers in the same order, so the page's values all stay on it, and the words
+    that made the claim are gone."""
+    slots = lambda text: re.findall(r"\{(\w+)\}", text)  # noqa: E731
+    claims = {"wait_text": "nearly meet", "ask_heading": "got none", "ask_text": "shows nothing", "merges_text": "Merges follow"}
+    assert set(page.ALTERNATE_SENTENCES) == set(claims)
+    for key, words in claims.items():
+        assert slots(page.ALTERNATE_SENTENCES[key]) == slots(page.SENTENCES[key]), key
+        assert words in page.SENTENCES[key] and words not in page.ALTERNATE_SENTENCES[key], key
+
+
+def test_a_claim_that_still_stops_the_export_says_where_to_reword_it() -> None:
+    stats = good_stats()
+    _break_most(stats)
+    with pytest.raises(ReportError, match=r"porchlamp/serve/first_pull_requests_page\.py \(SENTENCES\), then export and verify again"):
         record(stats)
 
 

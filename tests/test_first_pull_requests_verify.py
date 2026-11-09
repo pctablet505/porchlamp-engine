@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from porchlamp.serve import first_pull_requests_page as page_module
+from porchlamp.serve import report_pages
 
 ROOT = Path(__file__).resolve().parent.parent
 SID = "2026-11-02"
@@ -39,9 +40,12 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="no node on this machine")
 MAIN = re.compile(r'(<main class="app-main" id="app-main" tabindex="-1">)[\s\S]*?(\n *</main>)')
 
 
-def build(site: Path) -> tuple[Path, str, Path]:
-    """A site holding the report, its data file, the lookup and the named projects' pages. Returns the stats file, the as_of and the page."""
+def build(site: Path, breaks=None) -> tuple[Path, str, Path]:
+    """A site holding the report, its data file, the lookup and the named projects' pages, from the good numbers or from
+    them as ``breaks`` changes them. Returns the stats file, the as_of and the page."""
     stats = stats_tests.good_stats()
+    if breaks is not None:
+        breaks(stats)
     stats_path = site / "stats.json"
     site.mkdir(parents=True, exist_ok=True)
     stats_path.write_text(json.dumps(stats), encoding="utf-8")
@@ -58,6 +62,15 @@ def build(site: Path) -> tuple[Path, str, Path]:
     target = site / "first-pull-requests" / "index.html"
     target.parent.mkdir()
     target.write_text(MAIN.sub(lambda m: m.group(1) + drawn["report"] + m.group(2), report_html), encoding="utf-8")
+    # the frozen copy, as the export writes it, and the app's page and stylesheets its own stylesheet joins
+    frozen = site / "first-pull-requests" / SID
+    frozen.mkdir()
+    frozen_html = page_module.report_page(record, exported_on=date(2026, 11, 2), frozen=True)
+    (frozen / "index.html").write_text(MAIN.sub(lambda m: m.group(1) + drawn["report"] + m.group(2), frozen_html), encoding="utf-8")
+    (frozen / "styles.css").write_text(report_pages.frozen_stylesheet(), encoding="utf-8")
+    (frozen / page_module.DATA_FILE).write_text(json.dumps(record), encoding="utf-8")
+    shutil.copy(ROOT / "web" / "app" / "404.html", site / "404.html")
+    shutil.copytree(ROOT / "web" / "app" / "styles", site / "styles")
     lookup = site / "lookup" / "index.html"
     lookup.parent.mkdir()
     lookup.write_text(MAIN.sub(lambda m: m.group(1) + drawn["lookup"] + m.group(2), page_module.lookup_page()), encoding="utf-8")
@@ -160,8 +173,38 @@ def test_the_chrome_check_expects_the_nav_entry_the_export_draws(tmp_path: Path)
     export_static = verify._export_static()
     record = json.loads((site / "data" / SID / page_module.DATA_FILE).read_text(encoding="utf-8"))
     drawn = {
-        "first-pull-requests/index.html": export_static._write_first_pull_requests_page(tmp_path / "drawn", record, exported_on=date(2026, 11, 2))["nav"],
+        "first-pull-requests/index.html": export_static._write_first_pull_requests_page(tmp_path / "drawn", record, exported_on=date(2026, 11, 2))[0]["nav"],
         "lookup/index.html": export_static._write_lookup_page(tmp_path / "drawn")["nav"],
     }
     kinds = verify._page_kinds(site, SID)
     assert {rel: kinds[rel]["nav"] for rel in drawn} == drawn
+
+
+def test_the_export_writes_the_frozen_copy_beside_the_report(tmp_path: Path) -> None:
+    """The export writes this snapshot's frozen copy with its own stylesheet and the report's data file, and gives the
+    prerender a page with no nav entry, which the app does not take over."""
+    site = tmp_path / "site"
+    build(site)
+    record = json.loads((site / "data" / SID / page_module.DATA_FILE).read_text(encoding="utf-8"))
+    out = tmp_path / "drawn"
+    pages = verify._export_static()._write_first_pull_requests_page(out, record, exported_on=date(2026, 11, 2))
+    assert pages[1] == {"path": f"first-pull-requests/{SID}/index.html", "nav": None, "draw": "first-pull-requests", "frozen": True}
+    frozen = out / "first-pull-requests" / SID
+    assert sorted(p.name for p in frozen.iterdir()) == sorted(["index.html", "styles.css", page_module.DATA_FILE])
+    assert json.loads((frozen / page_module.DATA_FILE).read_text(encoding="utf-8")) == record
+    text = (frozen / "index.html").read_text(encoding="utf-8")
+    assert re.findall(r'<link rel="canonical" href="([^"]*)"', text) == [f"https://porchlamp.org/first-pull-requests/{SID}/"]
+
+
+@pytest.mark.parametrize("breaks, keys", [
+    (stats_tests._break_merges, ("merges_text",)),
+    (stats_tests._break_other, ("ask_heading", "ask_text")),
+    (stats_tests._break_meet, ("wait_text",)),
+])
+def test_a_page_whose_numbers_drop_a_side_claim_passes_with_its_other_wording(tmp_path: Path, breaks, keys) -> None:
+    """The check reads each side claim from the stats file itself and expects the wording those numbers call for."""
+    site = tmp_path / "site"
+    stats_path, as_of, _ = build(site, breaks=breaks)
+    assert errors_of(site, stats_path, as_of) == []
+    sentences = json.loads((site / "data" / SID / page_module.DATA_FILE).read_text(encoding="utf-8"))["sentences"]
+    assert all(sentences[key] == page_module.ALTERNATE_SENTENCES[key] for key in keys)
