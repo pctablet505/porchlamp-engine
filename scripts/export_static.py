@@ -647,9 +647,10 @@ def _add_project_extras(buckets: dict[str, dict[str, dict]], boards: dict[str, d
 
 
 def _write_project_pages(
-    out: Path, facts: Any, methodology: dict, boards: dict[str, dict], buckets: dict[str, dict[str, dict]], snapshot: dict
+    out: Path, facts: Any, methodology: dict, boards: dict[str, dict], buckets: dict[str, dict[str, dict]], published: date
 ) -> list[dict]:
-    """One page per ranked project (``projects/<owner>/<name>/``) with its head, and ``sitemap-projects.xml``.
+    """One page per ranked project (``projects/<owner>/<name>/``) with its head, and ``sitemap-projects.xml`` dated
+    ``published``, the day this export wrote the pages.
     :func:`_prerender` draws the project view into each page from the project's record. Returns the pages for it: none
     of them is a nav entry's."""
     from porchlamp.serve import project_pages as pp
@@ -661,7 +662,6 @@ def _write_project_pages(
         if missing:
             raise report_pages.ReportError(f"copy.js has no one-line meaning for the parameters {missing}")
         min_n = {p["input_id"]: p["min_n"] for p in methodology["parameters"]}
-        as_of = date.fromisoformat(snapshot["as_of"][:10])
         pages = []
         for owner, name in index.keys:
             record = buckets[bucket_of(owner, name)][f"{owner}/{name}"]
@@ -671,7 +671,7 @@ def _write_project_pages(
             target.mkdir(parents=True, exist_ok=True)
             (target / "index.html").write_text(pp.project_page(owner, name, description), encoding="utf-8")
             pages.append({"path": f"{pp.project_path(owner, name)}index.html", "nav": None, "project": f"{owner}/{name}"})
-        (out / "sitemap-projects.xml").write_text(pp.sitemap_projects(index, as_of), encoding="utf-8")
+        (out / "sitemap-projects.xml").write_text(pp.sitemap_projects(index, published), encoding="utf-8")
     except report_pages.ReportError as error:
         raise SystemExit(f"export: {error}") from error
     return pages
@@ -766,16 +766,17 @@ def _write_home(out: Path, data: Path) -> None:
         raise SystemExit(f"export: {error}") from error
 
 
-def _sitemap_pages(out: Path, snapshot_id: str, as_of: str, listed: list[str]) -> str:
+def _sitemap_pages(out: Path, snapshot_id: str, published: str, listed: list[str]) -> str:
     """``sitemap-pages.xml``: the site's own pages that this export wrote (the root, the report and its frozen copy,
-    the methodology, then the list views at ``listed``, :func:`listed_addresses`), in that order, each dated with the
-    snapshot. A page the export did not write is not listed, nor the ``/check/`` stub."""
+    the methodology, then the list views at ``listed``, :func:`listed_addresses`), in that order, each dated
+    ``published`` (an ISO day): the day the export wrote them, not the day their data was measured, which can lie weeks
+    before a later export of the same snapshot. A page the export did not write is not listed, nor the ``/check/``
+    stub."""
     from porchlamp.serve import report_pages
 
     paths = ["", "black-holes/", f"black-holes/{snapshot_id}/", "first-pull-requests/", "lookup/", "methodology/", *(a.lstrip("/") for a in listed)]
-    stamp = as_of[:10]
     urls = "".join(
-        f"  <url>\n    <loc>{report_pages.SITE}/{p}</loc>\n    <lastmod>{stamp}</lastmod>\n  </url>\n"
+        f"  <url>\n    <loc>{report_pages.SITE}/{p}</loc>\n    <lastmod>{published}</lastmod>\n  </url>\n"
         for p in paths if (out / p / "index.html").is_file()
     )
     return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + "</urlset>\n"
@@ -885,11 +886,12 @@ def export(
         "bytes": sizes,
     }
     _dump(data / "manifest.json", manifest)
+    published = date.fromisoformat(manifest["exported_at"][:10])
     _copy_web(out)
     pages = [{"path": "index.html", "view": "ranked"}, {"path": "404.html", "view": "notfound"}]
     if facts is not None:
         pages += _write_report_pages(out, facts, boards, manifest)
-        pages += _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
+        pages += _write_project_pages(out, facts, methodology, boards, buckets, published)
         if previous_site is not None:
             stubs, gone = _write_delisted_pages(out, snapshot, boards, buckets, previous_site)
             pages += stubs
@@ -902,12 +904,12 @@ def export(
         (out / "check" / "index.html").write_text(check_stub(), encoding="utf-8")
         _write_home(out, out / "data" / snapshot_id)
     if first_prs_record is not None:
-        pages += _write_first_pull_requests_page(out, first_prs_record, exported_on=date.fromisoformat(manifest["exported_at"][:10]))
+        pages += _write_first_pull_requests_page(out, first_prs_record, exported_on=published)
     pages.append(_write_lookup_page(out))
     pages += _write_view_pages(out, boards, not_ranked)
     (out / "data-version.js").write_text(data_version_js(snapshot_id), encoding="utf-8")
     _prerender(out, pages)
-    (out / "sitemap-pages.xml").write_text(_sitemap_pages(out, snapshot_id, snapshot["as_of"], listed_addresses(boards, not_ranked)), encoding="utf-8")
+    (out / "sitemap-pages.xml").write_text(_sitemap_pages(out, snapshot_id, published.isoformat(), listed_addresses(boards, not_ranked)), encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
     _scan_for_forbidden(out)
     return manifest

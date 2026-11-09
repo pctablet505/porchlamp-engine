@@ -375,7 +375,7 @@ version.
 
 **D-VER-3.** A snapshot is `(as_of, manifest_root, benchmark_version,
 constants_hash, code_commit)`. Scoring reads `as_of` from the snapshot; no
-`datetime.now()` in scoring code (test-enforced). `porchlamp reproduce <snapshot>`
+`datetime.now()` in scoring code (test-enforced). `python -m porchlamp.snapshot reproduce <snapshot-id>`
 must yield a byte-identical database.
 
 **D-VER-4 Anchors.** Relational, computed from real data at every version:

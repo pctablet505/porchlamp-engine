@@ -477,11 +477,12 @@ def project_page(owner: str, name: str, description: str, title: str | None = No
 # --------------------------------------------------------------------------- #
 # The sitemap
 # --------------------------------------------------------------------------- #
-def sitemap_projects(index: ProjectIndex, as_of: date) -> str:
-    """``sitemap-projects.xml``: every ranked project's page in balanced-rank order, each with the snapshot's ``as_of`` date.
+def sitemap_projects(index: ProjectIndex, published: date) -> str:
+    """``sitemap-projects.xml``: every ranked project's page in balanced-rank order, each dated ``published``, the day the
+    export wrote the pages (not the snapshot's ``as_of``: an export can come weeks after its data was measured).
 
     One file holds them all: a sitemap may list 50,000 addresses."""
-    stamp = as_of.isoformat()
+    stamp = published.isoformat()
     urls = "".join(
         f"  <url>\n    <loc>{escape(project_url(owner, name), quote=False)}</loc>\n    <lastmod>{stamp}</lastmod>\n  </url>\n"
         for owner, name in index.keys

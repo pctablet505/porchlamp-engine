@@ -2115,7 +2115,7 @@ def verify_projects(db: Path, site: Path, *, evidence_files: Any = None, previou
                 stub_records[(owner, name)] = (api(path), api(path + "/evidence"))
 
     sid, ranked = snapshot["snapshot_id"], boards["balanced"][0]
-    as_of = snapshot["as_of"][:10]
+    exported = json.loads((site / "data" / sid / "manifest.json").read_text(encoding="utf-8"))["exported_at"][:10]
     gate_copy = rp.copy_js_map("PERSONA_GATE_COPY")
     insufficient = rp.copy_js_string("PERSONA_INSUFFICIENT_EVIDENCE_TEXT")
     words, labels = _project_copy()
@@ -2260,7 +2260,7 @@ def verify_projects(db: Path, site: Path, *, evidence_files: Any = None, previou
         ledger.equal("sitemap-projects.xml lists every ranked project by balanced rank", locs, [
             f"{SITE_ORIGIN}/projects/{r['owner'].lower()}/{r['name'].lower()}/" for r in ranked])
         lastmods = set(re.findall(r"<lastmod>([^<]+)</lastmod>", projects_sitemap.read_text(encoding="utf-8")))
-        ledger.equal("sitemap-projects.xml lastmod is the snapshot's as_of date", lastmods, {as_of})
+        ledger.equal("sitemap-projects.xml lastmod is the day the export wrote the pages", lastmods, {exported})
     else:
         ledger.errors.append("sitemap-projects.xml is missing")
     for problem in check_sitemap_files(site):
@@ -2278,6 +2278,8 @@ def verify_projects(db: Path, site: Path, *, evidence_files: Any = None, previou
     sitemap_pages = site / "sitemap-pages.xml"
     listed = sitemap_pages.read_text(encoding="utf-8") if sitemap_pages.is_file() else ""
     ledger.equal("check stub is out of sitemap-pages.xml", f"<loc>{SITE_ORIGIN}/check/</loc>" in listed, False)
+    ledger.equal("sitemap-pages.xml lastmod is the day the export wrote the pages",
+                 set(re.findall(r"<lastmod>([^<]+)</lastmod>", listed)), {exported})
     ledger.equal("check search files are gone", [rel for rel in ("check/projects.json", "check.js") if (site / rel).exists()], [])
 
     log(f"verify: project pages: checked {hooks_checked} printed values (data-v hooks) and {ledger.checked - hooks_checked} other "

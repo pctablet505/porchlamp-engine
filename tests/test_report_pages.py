@@ -1273,15 +1273,32 @@ def test_neither_the_app_nor_the_export_gives_a_page_to_a_name_github_cannot_hol
     assert routed == ["notfound"] * len(NAMES_GITHUB_CANNOT_HOLD)
 
 
-def test_the_project_sitemap_lists_every_ranked_project_by_rank_with_the_data_date(built, project_index):
+def _export_days(site: Path) -> tuple[str, str]:
+    """``(the day the export wrote the site, the day its data was measured)``, from the shipped manifest."""
+    manifest = json.loads((site / "data" / SNAPSHOT / "manifest.json").read_text(encoding="utf-8"))
+    return manifest["exported_at"][:10], manifest["as_of"][:10]
+
+
+def test_the_project_sitemap_lists_every_ranked_project_by_rank_dated_the_day_it_was_exported(built, project_index):
     site, db, _stats_path, _stats, _holes = built
     text = _page(site, "sitemap-projects.xml")
     locs = re.findall(r"<loc>([^<]+)</loc>", text)
     assert len(locs) == len(_ranked(db))
     assert locs == [project_pages.project_url(o, n) for o, n in project_index.keys]
-    assert len(set(re.findall(r"<lastmod>([^<]+)</lastmod>", text))) == 1
+    exported, measured = _export_days(site)
+    assert exported != measured, "the fixture must tell the two days apart"
+    assert set(re.findall(r"<lastmod>([^<]+)</lastmod>", text)) == {exported}
     owner, name = project_index.keys[0]
     assert locs[0] == f"https://porchlamp.org/projects/{owner.lower()}/{name.lower()}/"
+
+
+def test_the_pages_sitemap_is_dated_the_day_the_export_wrote_it_not_the_day_its_data_was_measured(built):
+    """A page's date in a sitemap says when it last changed: a later export of the same snapshot changes the pages, so the
+    measured day (the snapshot's ``as_of``) would tell a search engine nothing changed since."""
+    site = built[0]
+    exported, _measured = _export_days(site)
+    lastmods = re.findall(r"<lastmod>([^<]+)</lastmod>", _page(site, "sitemap-pages.xml"))
+    assert lastmods and set(lastmods) == {exported}
 
 
 def test_the_project_sitemap_has_no_cap_beyond_a_thousand_projects():
@@ -1832,6 +1849,20 @@ def test_a_planted_wrong_number_on_a_stub_fails_verification_naming_page_and_hoo
     assert any("projects/bh-org/hole-pypi-0" in e and "bh.unanswered" in e for e in errors), errors[:3]
     path.write_text(text, encoding="utf-8")
     assert _verify_stubs(built, copy_dir, previous)["errors"] == []
+
+
+@pytest.mark.parametrize("sitemap", ["sitemap-projects.xml", "sitemap-pages.xml"])
+def test_a_sitemap_dated_with_the_day_the_data_was_measured_fails_verification(built, delisted, tmp_path, sitemap):
+    site, previous, _ranked = delisted
+    copy_dir = _plant(site, tmp_path)
+    exported, measured = _export_days(copy_dir)
+    path = copy_dir / sitemap
+    text = path.read_text(encoding="utf-8")
+    planted = text.replace(f"<lastmod>{exported}</lastmod>", f"<lastmod>{measured}</lastmod>", 1)
+    assert planted != text
+    path.write_text(planted, encoding="utf-8")
+    errors = _verify_stubs(built, copy_dir, previous)["errors"]
+    assert any(e.startswith(f"{sitemap} lastmod") for e in errors), errors[:3]
 
 
 def test_a_stub_in_the_project_sitemap_fails_verification(built, delisted, tmp_path):
