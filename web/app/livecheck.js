@@ -113,7 +113,7 @@ export const KNOWN_BOT_LOGINS = Object.freeze([
   "copilot", "cosmistack-bot", "crate-jenkins", "cypress-app-bot", "dapr-bot",
   "dependabot", "docs-bot", "drahtbot", "easycla", "elasticsearchmachine",
   "element-bot", "eth-bot", "expo-bot", "flinkbot", "frappe-pr-bot", "geky-bot",
-  "geoserver-bot", "giteabot", "github-actions", "google-cla", "gopherbot",
+  "geoserver-bot", "ghhamcp", "giteabot", "github-actions", "google-cla", "gopherbot",
   "gradio-pr-bot", "greenkeeper", "haystackbot", "highsoft-bot", "hlsjs-ci",
   "hudi-bot", "hurl-bot", "imgbot", "is-a-dev-bot", "istio-testing", "jenkins-x-bot",
   "juce-push-bot", "k8s-ci-robot", "kangal-bot", "karmada-bot", "kruise-bot",

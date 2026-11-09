@@ -50,13 +50,16 @@ def test_a_service_account_github_types_as_a_user_never_answers_a_pr() -> None:
 CODEX_REVIEW_COMMAND = "@codex review \u2014 apply the review criteria in .gemini/styleguide.md in addition to AGENTS.md guidance"
 
 
-def test_an_account_that_only_posts_review_commands_to_another_bot_never_answers_a_pr() -> None:
-    """RFC-0029: ghhamcp, a MEMBER, asks an AI reviewer for a review 30 seconds after each PR opens; it is in
-    BOT_LOGINS, so a maintainer's review two hours later is the first response."""
-    pr = _pr(1, comments=(_node("ghhamcp", CODEX_REVIEW_COMMAND, "2026-08-01T00:00:30Z", association="MEMBER"),),
-             reviews=({**_node("maintainer", "", "2026-08-01T02:00:00Z", association="MEMBER"), "state": "COMMENTED",
-                       "body": "", "comments": {"totalCount": 1}},))
-    row = github_graphql.derive_pr_window([pr])[0]
+def test_an_account_that_posts_review_commands_to_another_bot_never_answers_a_pr() -> None:
+    """RFC-0029: ghhamcp comments as a CONTRIBUTOR and merged a PR, which would make it one of the project's own
+    people; it asks an AI reviewer for a review 30 seconds after a PR opens. It is in BOT_LOGINS, so it is no
+    maintainer, and a maintainer's review two hours later is the first response."""
+    command = _node("ghhamcp", CODEX_REVIEW_COMMAND, "2026-08-01T00:00:30Z", association="CONTRIBUTOR")
+    review = {**_node("maintainer", "", "2026-08-01T02:00:00Z", association="MEMBER"), "state": "COMMENTED",
+              "body": "", "comments": {"totalCount": 1}}
+    prs = [_pr(1, merged_by="ghhamcp"), _pr(2, comments=(command,), reviews=(review,))]
+    assert "ghhamcp" not in gates.maintainer_logins(prs)
+    row = github_graphql.derive_pr_window(prs)[1]
     assert (row["first_substantive_response_at"], row["first_substantive_response_kind"]) == (
         "2026-08-01T02:00:00Z", "review")
 

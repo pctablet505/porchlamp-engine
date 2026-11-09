@@ -208,7 +208,7 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     # RFC-0011: D-IN-2 comment minimum, Chinese, Japanese and Korean letters counted three times.
     ("SUBSTANTIVE_COMMENT_MIN_CHARS", constants.SUBSTANTIVE_COMMENT_MIN_CHARS, 40),
     ("SUBSTANTIVE_COMMENT_CJK_WEIGHT", constants.SUBSTANTIVE_COMMENT_CJK_WEIGHT, 3),
-    # RFC-0012 / RFC-0014: D-IN-1's exact login list, 20 generic bot accounts and 89 service accounts.
+    # RFC-0012 / RFC-0014 / RFC-0029: D-IN-1's exact login list, 20 generic bot accounts and 90 service accounts.
     ("BOT_LOGINS", len(constants.BOT_LOGINS), 110),
     # RFC-0013: D-IN-4's whole PR window: every field up to 2,000 PRs, above that replies on a sample of 1,000.
     ("PR_CAP", constants.PR_CAP, 2000),

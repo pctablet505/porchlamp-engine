@@ -87,8 +87,10 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: moving ScoreRecord.constants_hash); no other field of any record moved.
 #: Regenerated 2026-11-02 (was 6fa702d8...) for RFC-0028 (1.2's sample and the newcomer reserve,
 #: moving ScoreRecord.constants_hash); no other field of any record moved.
+#: Regenerated 2026-11-10 (was 7b91eceb...) for RFC-0029 (ghhamcp added to BOT_LOGINS,
+#: moving ScoreRecord.constants_hash); no other field of any record moved.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "7b91ecebc829c25b641fee08366b82934a265f025196611286027278b69143ee"
+    "dca7edd97e1a7f76e3ec0a4434bbd06a284591ee2a75338429e32d5a90dcefe0"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #
