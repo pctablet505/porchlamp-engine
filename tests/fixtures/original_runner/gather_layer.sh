@@ -1,6 +1,6 @@
 #!/bin/bash
 # Budget-guarded gather of ONE layer into the REFRESH data root (adapted from
-# /home/pctablet505/Projects/cvi-scratch/bfs-run/gather_layer.sh).
+# $HOME/Projects/cvi-scratch/bfs-run/gather_layer.sh).
 #
 # Usage: gather_layer.sh LAYER_NAME COLLECTOR_LIST [MAX_RUNS]
 #   env KEYLESS=1  -> no GitHub budget guard or sampling (deps.dev / scorecard / registries only)
@@ -22,11 +22,11 @@
 #  * --graphql-bulk always on. Floors 500 GraphQL points / 500 REST calls (the D-COL-10 reserve).
 #  * Completion marker state/refresh/<LAYER>.complete -> a restart skips finished layers.
 set -uo pipefail
-WT=/home/pctablet505/Projects/porchlamp-wt-collect
-DATAROOT="${DATAROOT:-/home/pctablet505/Projects/porchlamp-data/refresh-2026-10}"
-RUN=/home/pctablet505/Projects/porchlamp-work/refresh-run
+WT=$HOME/Projects/porchlamp-wt-collect
+DATAROOT="${DATAROOT:-$HOME/Projects/porchlamp-data/refresh-2026-10}"
+RUN=$HOME/Projects/porchlamp-work/refresh-run
 LOGDIR="${LOGDIR:-$RUN/logs}"
-PY=/home/pctablet505/Projects/contributor-value-index/.venv/bin/python
+PY=$HOME/Projects/contributor-value-index/.venv/bin/python
 export PYTHONPATH="$WT" PORCHLAMP_DATA_ROOT="$DATAROOT" TMPDIR=/tmp/porchlamp-refresh PYTHONDONTWRITEBYTECODE=1
 mkdir -p "$TMPDIR" "$LOGDIR" "$DATAROOT/state/refresh" "$DATAROOT/raw-stale-2026-09-23"
 LX="$1"
@@ -94,7 +94,7 @@ warn_storm() {  # warn_storm LOGFILE: >=8 recent WARN lines that mention 403/429
 }
 
 disk_ok() {  # stop rule: free disk under 30 GB
-  local free_kb; free_kb=$(df --output=avail -k /home/pctablet505/Projects | tail -1)
+  local free_kb; free_kb=$(df --output=avail -k $HOME/Projects | tail -1)
   [ "${free_kb:-0}" -ge $((30*1024*1024)) ]
 }
 

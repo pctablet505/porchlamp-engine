@@ -1,6 +1,6 @@
 #!/bin/bash
 # Budget-guarded gather of ONE layer into the REFRESH data root (adapted from
-# /home/pctablet505/Projects/cvi-scratch/bfs-run/gather_layer.sh).
+# $HOME/Projects/cvi-scratch/bfs-run/gather_layer.sh).
 #
 # Usage: gather_layer.sh LAYER_NAME COLLECTOR_LIST [MAX_RUNS]
 #   env KEYLESS=1  -> no GitHub budget guard or sampling (deps.dev / scorecard / registries only)

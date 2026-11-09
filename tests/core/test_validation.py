@@ -173,7 +173,7 @@ def test_rejects_measured_with_bad_source_hash() -> None:
 @pytest.mark.parametrize(
     "bad_source",
     [
-        "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/torvalds__linux.json",
+        "/home/user/Projects/cvi-scratch/sample-200/raw/gfi/torvalds__linux.json",
         "/raw/gfi/torvalds__linux.json",
         "C:\\data\\raw\\gfi\\torvalds__linux.json",
         "raw/gfi/../../etc/passwd",

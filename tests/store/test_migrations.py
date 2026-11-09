@@ -14,7 +14,7 @@ from porchlamp.snapshot.reproduce import canonical_dump
 from porchlamp.store import schema
 from porchlamp.store.migrations import MIGRATIONS_DIR, apply_migrations, discover_migrations
 
-V1_BASELINE = Path("/home/pctablet505/Projects/cvi-scratch/v1-baseline/cvi.db")
+V1_BASELINE = Path.home() / "Projects" / "cvi-scratch" / "v1-baseline" / "cvi.db"
 
 
 def _build_minimal_v1_db(path: Path) -> None:

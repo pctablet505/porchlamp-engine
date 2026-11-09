@@ -1354,7 +1354,7 @@ def test_evidence_sources_are_relative_on_the_real_fixture(tmp_path):
     of this machine (docs/v2/00-README.md non-negotiables). Fail-before:
     before the fix, every one of these 50 real fixture repos served at
     least one `source` like
-    `/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/....json`.
+    `~/Projects/cvi-scratch/sample-200/raw/gfi/....json`.
 
     `EvidenceRow`'s own pydantic validator (`porchlamp/serve/contract.py`)
     already refuses an absolute `source` -- a bad row would make FastAPI's

@@ -9,7 +9,7 @@
 #   KEYLESS (1 gather process; deps.dev, scorecard, registries: no GitHub budget, pypistats alone is 15 s per pypi repo)
 # MAIN stops at the first layer it cannot confirm.
 set -uo pipefail
-RUN=/home/pctablet505/Projects/porchlamp-work/refresh-run
+RUN=$HOME/Projects/porchlamp-work/refresh-run
 say() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] refresh: $*"; }
 mkdir -p "$RUN/logs" /tmp/porchlamp-refresh
 
@@ -25,14 +25,14 @@ main_chain() {
     LX=${spec%% *}; COLS=${spec#* }
     say "MAIN layer $LX start ($COLS)"
     # at most 3 gather processes in all: 2 MAIN shards while the keyless stream runs, 3 once it has finished
-    n=${MAIN_SHARDS:-2}; [ -f /home/pctablet505/Projects/porchlamp-data/refresh-2026-10/state/refresh/LK.complete ] && n=3
+    n=${MAIN_SHARDS:-2}; [ -f $HOME/Projects/porchlamp-data/refresh-2026-10/state/refresh/LK.complete ] && n=3
     NSHARDS=$n bash "$RUN/gather_layer.sh" "$LX" "$COLS" >> "$RUN/logs/runner-$LX.log" 2>&1
     rc=$?
     say "MAIN layer $LX rc=$rc (0 = two runs agreed on the failure count)"
     [ "$rc" -eq 0 ] || { say "MAIN BLOCKED at $LX"; return 1; }
   done
   say "MAIN all layers gathered"
-  date -u '+%Y-%m-%dT%H:%M:%SZ' > /home/pctablet505/Projects/porchlamp-data/refresh-2026-10/state/refresh/MAIN.done
+  date -u '+%Y-%m-%dT%H:%M:%SZ' > $HOME/Projects/porchlamp-data/refresh-2026-10/state/refresh/MAIN.done
 }
 
 say "start (scope $(cat /proc/self/cgroup | tail -1))"
