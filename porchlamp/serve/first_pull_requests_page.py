@@ -189,8 +189,8 @@ def check_claims(stats: Mapping[str, Any], projects: Sequence[Mapping[str, Any]]
     guard(ask["gap_answered_range"][0] > 0, "Authors who asked got more answers")
     guard(ask["answered"] - ask["answered_none"] > ask["gap_answered"], "Part of that gap comes from which projects get asked")
     guard(stats["asking"]["day7_first"]["ask_recent"]["gap_answered"] < ask["gap_answered"], "An ask in the first week shows less")
-    guard(all(answered[h] < answered_others[h] for h in answered), "The first pull request waits longest")
-    guard(answered_others[_TWO_WEEKS] > answered[_TWO_WEEKS], "After two weeks the gap is still there")
+    guard(all(answered[h] < answered_others[h] for h in answered),
+          "The first pull request waits longest, and after two weeks the gap is still there")
     weekend = max(by_day["Sat"]["answered_in_a_day"], by_day["Sun"]["answered_in_a_day"])
     guard(all(by_day[day]["answered_in_a_day"] > weekend for day in ("Mon", "Tue", "Wed", "Thu", "Fri")), "Weekend pull requests wait longer")
     guard(weekday["within_project"]["weekday_better"] > 0.5, "weekday pull requests beat weekend ones")
@@ -403,10 +403,22 @@ def _hour_label(hours: int) -> str:
     return {1: "1 h", 6: "6 h", 24: "1 day", 72: "3 days", 168: "1 wk", 336: "2 wk", 720: "1 mo", 1440: "2 mo", 2160: "3 mo"}[hours]
 
 
+#: The asking readings and the arms of each that the page reads (its claims, values and rows).
+ASKING_ARMS_READ: dict[str, tuple[str, ...]] = {
+    "day14_first": ("ask_recent", "mention", "other"), "day14_all": ("ask_recent", "other"), "day7_first": ("ask_recent",),
+}
+
+
 def report_json(stats: Mapping[str, Any], *, snapshot_id: str, as_of: str) -> dict[str, Any]:
-    """``first-pull-requests.json``: the values, the sentences, and the rows of the page's charts and tables."""
+    """``first-pull-requests.json``: the values, the sentences, and the rows of the page's charts and tables. An asking arm
+    the page reads that no project holds both ways (``_compare``'s empty record, no gap) stops it by name."""
     if stats.get("as_of") != as_of:
         raise ReportError(f"first pull requests: the stats file is for {stats.get('as_of')!r}, the snapshot's as_of is {as_of!r}")
+    for reading, arms in ASKING_ARMS_READ.items():
+        for arm in arms:
+            if not stats["asking"][reading][arm]["n"]:
+                raise ReportError(f"first pull requests: no project holds pull requests both with {arm!r} and with no comment "
+                                  f"in the {reading!r} reading, so the page has no gap to print there; needs a ruling")
     projects = featured_rows(stats)
     check_claims(stats, projects)
     window_start = date.fromisoformat(stats["window_start"][:10])

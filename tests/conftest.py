@@ -20,6 +20,7 @@ independent of whatever the test body asserted. Mark an individual test with
 """
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 from typing import Any
@@ -189,6 +190,20 @@ def _guarded_popen_init(self: subprocess.Popen, args: Any, *pargs: Any, **kwargs
 #: survives being read after the guarded call was itself caught and
 #: swallowed by the code under test's own ``except Exception``).
 _ATTEMPTS: list[str] = []
+
+
+#: A timing test runs only while the one-minute load stays under this share of the CPUs: past it, hyperthread siblings
+#: and the other jobs slow the work itself, so a budget measures the machine (on the 32-CPU box at load 30, the same
+#: 10,000-row query read 120 ms of CPU time against 100).
+QUIET_LOAD_SHARE = 0.5
+
+
+@pytest.fixture()
+def quiet_box() -> None:
+    """Skip a timing-budget test, saying why, on a machine too busy for a timing to mean anything."""
+    load, cpus = os.getloadavg()[0], os.cpu_count() or 1
+    if load >= cpus * QUIET_LOAD_SHARE:
+        pytest.skip(f"the machine is busy (one-minute load {load:.0f} on {cpus} CPUs): a timing budget would measure the other jobs")
 
 
 @pytest.fixture()

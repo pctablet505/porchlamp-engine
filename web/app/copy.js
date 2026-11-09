@@ -1147,7 +1147,6 @@ export const LIST_INTRO_ECOSYSTEM = "Porchlamp ranks {total} {ecosystem} open so
 export const LIST_INTRO_ECOSYSTEM_REPORT =
   "Among the {judged} judged {ecosystem} projects, {eco_share}% left most outside pull requests with no human reply, review, merge or close within {deadline_days} days or since, against {share}% across all {ecosystems_word} ecosystems.";
 export const LIST_INTRO_LENS = "This view ranks {total} projects for {lens}.";
-export const LIST_INTRO_ECOSYSTEM_LENS = "This view ranks {total} {ecosystem} projects for {lens}.";
 /** The first-timer lens's lists: the words people search for, then the lens's gate (porchlamp/core/persona.py). */
 export const LIST_INTRO_FIRST_TIMERS = "Porchlamp ranks {total} open source projects for beginners and {lens}, by what happens to a stranger's pull request, not by stars.";
 export const LIST_INTRO_ECOSYSTEM_FIRST_TIMERS = "Porchlamp ranks {total} {ecosystem} open source projects for beginners and {lens}, by what happens to a stranger's pull request, not by stars.";
@@ -1387,9 +1386,10 @@ export const PARAM_MEANINGS = Object.freeze({
   dx: "Developer experience, 0 to 100: half CI run time, half setup signals.",
 });
 
-/** The page's lede; {date} is the snapshot date. */
+/** The number block of a ranked project's page: its label, and the line under the number; {count} is how many were measured. */
 export const PROJECT_NUMBER_LABEL = "First human reply";
 export const PROJECT_NUMBER_TEXT = "typical wait for an outside pull request, from {count} measured.";
+/** The page's lede; {date} is the snapshot date. */
 export const PROJECT_LEDE = "What happens to a stranger's pull request here, in the Porchlamp snapshot of {date}.";
 /** The lede of a project the snapshot does not rank (its page stays at its address); {date} is the snapshot date. */
 export const PROJECT_LEDE_NOT_RANKED = "Not ranked in the Porchlamp snapshot of {date}.";

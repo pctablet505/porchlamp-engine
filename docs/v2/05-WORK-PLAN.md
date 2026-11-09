@@ -137,9 +137,9 @@ sample twice with the same `as_of` gives identical `porchlamp.db` dump hashes.
 
 ### W0-3 Envelope hashes and snapshot manifest
 **Goal.** Every envelope carries `sha256`, `http_status`, `collector_version`;
-`porchlamp snapshot freeze --as-of` writes `manifest.json` (envelope hashes, Merkle
-root, code commit); `porchlamp reproduce` rebuilds from raw and compares a canonical
-dump hash.
+`python -m porchlamp.snapshot freeze --as-of` writes `manifest.json` (envelope hashes, Merkle
+root, code commit); `python -m porchlamp.snapshot reproduce` rebuilds from raw and compares a
+canonical dump hash.
 **Why.** `03` §5; F10. **Cites.** `03` §5, `04` §2 (`snapshot/`), D-VER-3.
 **Owns.** `porchlamp/collect/envelope.py` (new), `porchlamp/snapshot/*` (new),
 `scripts/gather.py` (write path only), `tests/snapshot/*`.
@@ -608,7 +608,8 @@ promoted; sample run live on 10 repos with counts.
 **Depends.** W0-3. **Size.** M.
 
 ### W3-4 Reproduce in CI
-**Goal.** CI job: `porchlamp reproduce tests/fixtures/snapshot_50` → identical hash.
+**Goal.** CI job: reproduce `tests/fixtures/snapshot_50` → identical hash
+(`tests/snapshot/test_reproduce_fixture.py`).
 **Cites.** `03` §5, `04` §9. **Owns.** `.github/workflows/ci.yml`,
 `porchlamp/snapshot/reproduce.py` (if changes needed), fixture.
 **Acceptance.** Job green; a deliberately changed constant in a branch makes

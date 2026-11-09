@@ -111,3 +111,24 @@ def test_main_writes_the_file(tmp_path: Path) -> None:
 
 def test_cell_escapes_pipes_and_newlines() -> None:
     assert render_methodology._cell("a | b\nc") == "a \\| b c"
+
+
+def test_the_design_docs_name_the_snapshot_commands_as_they_run() -> None:
+    """`docs/v2` names the snapshot commands the way they run, `python -m porchlamp.snapshot <command>`, each one a
+    subcommand the snapshot CLI's parser has; never a bare `porchlamp reproduce` or `porchlamp snapshot ...`, which no
+    console script provides."""
+    import argparse
+    import re
+
+    from porchlamp.snapshot import cli
+
+    parser = cli._parser()
+    subcommands = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction)).choices
+    named = []
+    for doc in sorted((ROOT / "docs" / "v2").glob("*.md")):
+        text = doc.read_text(encoding="utf-8")
+        assert not re.search(r"`porchlamp (reproduce|snapshot)\b", text), doc.name
+        for command in re.findall(r"`python -m porchlamp\.snapshot ([a-z][a-z-]*)", text):
+            named.append(command)
+            assert command in subcommands, (doc.name, command)
+    assert {"freeze", "reproduce"} <= set(named)

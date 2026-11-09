@@ -172,13 +172,17 @@ export function fetchProjectExtras() {
 }
 
 /**
- * The report (web/static/api.js answers it on the published site from the export's report.json, which needs the
- * stats file). The API serves no report: an error, without a request, which the report view shows.
+ * The first pull requests report (web/static/api.js answers it on the published site from the export's
+ * first-pull-requests.json). The API serves none: an error, without a request, which the report view shows.
  */
 export function fetchFirstPullRequests() {
   return Promise.resolve({ ok: false, error: new ApiError("first-pull-requests.json", 404, "the API serves no such report; the static export writes it") });
 }
 
+/**
+ * The report (web/static/api.js answers it on the published site from the export's report.json, which needs the
+ * stats file). The API serves no report: an error, without a request, which the report view shows.
+ */
 export function fetchReport() {
   return Promise.resolve({ ok: false, error: new ApiError("report.json", 404, "the API serves no report; the static export writes it") });
 }
