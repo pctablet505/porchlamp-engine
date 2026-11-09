@@ -214,3 +214,15 @@ def test_the_gate_counts_the_automated_comment_as_no_answer():
     from porchlamp.derive import gate_evidence
     records = gate_evidence._ghost_rate_prs_from_nodes(prs)
     assert all(r.first_substantive_response_at is None for r in records)
+
+
+def test_the_first_response_since_a_later_clock_skips_the_earlier_ones() -> None:
+    """``since`` reads a clock that starts after the PR opened (a draft marked ready): the earliest substantive response at
+    or after it, the same rules otherwise; without it nothing changes."""
+    early, late = _at(hours=1), _at(hours=30)
+    pr = _pr(1, created=_at(), comments=(_comment("maya", REAL_REVIEW, early), _comment("maya", REAL_REVIEW, late)))
+    people = frozenset({"maya"})
+    assert gates.first_substantive_response(pr, people) == (early, "comment")
+    assert gates.first_substantive_response(pr, people, since=BASE + timedelta(hours=2)) == (late, "comment")
+    assert gates.first_substantive_response(pr, people, since=BASE + timedelta(hours=30)) == (late, "comment"), "at the clock counts"
+    assert gates.first_substantive_response(pr, people, since=BASE + timedelta(hours=31)) is None

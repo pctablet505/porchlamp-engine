@@ -299,6 +299,11 @@ def read_project(job: tuple[Path, str, float, float, Optional[int]]) -> Optional
         clock = max(created, ready) if ready is not None else created
         observed = (anchor - clock) / 3600
         reply = _epoch(facts.get("first_substantive_response_at"))
+        if reply is not None and reply < clock:
+            # The first reply came before the clock (a draft answered before it was ready): the answer is the first one
+            # at or after the clock, if any, not none at all.
+            later = gates.first_substantive_response(pr, maintainers, since=datetime.fromtimestamp(clock, tz=UTC))
+            reply = _epoch(later[0]) if later is not None else None
         merged_at = _epoch(pr.get("mergedAt"))
         closed_at = _epoch(pr.get("closedAt"))
         closed_by_project = _epoch(facts.get("closed_by_maintainer_at"))
