@@ -2755,6 +2755,8 @@ test("footer: every list people search for is a real link, each to a page of the
     ["/go/first-timers/", "Go"], ["/java/first-timers/", "Java"], ["/c-cpp/first-timers/", "C and C++"],
     ["/fastest-replies/", "Fastest replies"], ["/career/", "Career capital"], ["/senior-systems/", "Senior systems"], ["/ai-assisted/", "AI-assisted"],
   ]);
+  const languages = copy.ECOSYSTEMS.map(([eco, name]) => [`/${copy.ECOSYSTEM_SLUGS[eco]}/`, name]);
+  assert.deepEqual(links.slice(0, languages.length), languages, "the languages run in copy.ECOSYSTEMS's order, the header select's");
 });
 
 // ------------------------------------------------ E3: project pages (rows link to them; the badge targets them)

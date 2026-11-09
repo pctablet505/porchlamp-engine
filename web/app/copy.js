@@ -1602,7 +1602,7 @@ export const LOOKUP_NO_SCRIPT = "The lookup runs in your browser, so it needs Ja
 export const LOOKUP_READS_HEADING = "What this can and can't see";
 export const LOOKUP_READS = Object.freeze([
   "Public pull requests to projects the account isn't a member of, newest first. Replies from members, owners and collaborators count as answers, as do merges and closes by someone else.",
-  "A single look can't see everything the snapshot does. It misses people who hold access without GitHub saying so, it can't filter automated replies, and it tells a first pull request from GitHub's label and these recent results, so a project's page can differ.",
+  "A single look can't see everything the snapshot does. It misses people who hold access without GitHub saying so, it can't filter automated replies, it measures a reply's length on its markdown rather than the text GitHub shows, and it tells a first pull request from GitHub's label and these recent results, so a project's page can differ.",
   "The percentages come from the waiting curve in the report. They describe what happened to other pull requests, not what will happen to yours.",
 ]);
 export const LOOKUP_REPORT_HREF = "/first-pull-requests/";
@@ -1645,4 +1645,4 @@ export const LOOKUP_ASKING_NOTE = "At two weeks of silence, authors who had aske
 export const LOOKUP_NOT_ASKED_LINK = "more answers";
 export const LOOKUP_ASKING_HREF = "/first-pull-requests/#asking";
 export const LOOKUP_PROJECT_TYPICAL = "This project's typical first reply: {time}. {link}";
-export const LOOKUP_PROJECT_LINK = "Its page";
+export const LOOKUP_PROJECT_LINK = "{repo} on Porchlamp";

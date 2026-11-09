@@ -165,8 +165,8 @@ export function footerFieldsHtml(fields) {
   return { snapshot: escapeHtml(first), version: "", hash: "", manifest: "" };
 }
 
-//: The languages the footer lists, in the order of the header's ecosystem select (routes.js ids).
-const BROWSE_LANGUAGES = Object.freeze(["javascript", "python", "rust", "go", "java", "c-cpp"]);
+//: The languages the footer lists: copy.ECOSYSTEMS, the header's ecosystem select, in its order (as routes.js ids).
+const BROWSE_LANGUAGES = Object.freeze(copy.ECOSYSTEMS.map(([eco]) => copy.ECOSYSTEM_SLUGS[eco]));
 
 /** The lists people search for, as real links on every page: each language's ranking, its list for beginners, and
  *  the other lists. Crawlers reach a page through links like these, and a reader on any page can move to their language. */

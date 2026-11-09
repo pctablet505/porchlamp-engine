@@ -181,7 +181,7 @@ function askingChart(rows) {
       );
     })
     .join("");
-  return `<div class="fpr-range">${grid}${body}</div><div class="fpr-range-axis" aria-hidden="true"></div>`;
+  return `<div class="fpr-range">${grid}${body}</div>`;
 }
 
 /** Columns in one row: each its value, its bar, its label. `rows` is `[{value, height (0 to 1), off, label, tip, wideValue, wideLabel}]`. */

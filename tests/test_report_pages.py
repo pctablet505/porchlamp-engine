@@ -1301,6 +1301,15 @@ def test_the_pages_sitemap_is_dated_the_day_the_export_wrote_it_not_the_day_its_
     assert lastmods and set(lastmods) == {exported}
 
 
+def test_the_report_route_carries_the_title_its_page_prints():
+    """``web/app/routes.js`` names the report's address with a title; it is the one the page prints, so the public route
+    table does not keep an older story's name (the page loads no app, so nothing else would show the difference)."""
+    from porchlamp.serve import first_pull_requests_page as fpr
+
+    route = next(r for r in export_static.app_routes() if r["id"] == "first-pull-requests")
+    assert route["title"] == f"{fpr.SENTENCES['title']} | Porchlamp"
+
+
 def test_the_project_sitemap_has_no_cap_beyond_a_thousand_projects():
     """Search engines find a project page through the sitemap, so every ranked project is listed, in rank order."""
     count = 1_200

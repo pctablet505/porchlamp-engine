@@ -6,7 +6,8 @@ import { test } from "node:test";
 
 import { LIVE_API_BASE } from "../livecheck.js";
 import { LOOKUP_PR_LIMIT, commentKind, commentLength, oddsAt, parseLogin, readPullRequest, runLookup, summarize } from "../lookup.js";
-import { renderLookupPage, renderLookupResult } from "../views/lookup.js";
+import * as copy from "../copy.js";
+import { lookupStatus, renderLookupPage, renderLookupResult } from "../views/lookup.js";
 
 const cases = (name) => JSON.parse(readFileSync(new URL(`./cases/${name}.json`, import.meta.url), "utf8"));
 const NOW = Date.parse("2026-11-05T12:00:00Z");
@@ -381,4 +382,35 @@ test("errors read in words, with the reset time when GitHub gave one", () => {
   assert.ok(renderLookupResult({ ok: false, error: { kind: "rate_limited", resetAt: null } }).includes("within the hour"));
   assert.ok(renderLookupResult({ ok: false, error: { kind: "rate_limited", resetAt: 1790000000 } }).includes("resets at"));
   assert.ok(renderLookupResult({ ok: false, error: { kind: "unavailable" } }).includes("couldn't answer"));
+});
+
+test("each project link names the project it opens; the status line reads the summary and never a row", () => {
+  const row = (repo, number, title) => ({
+    repo, number, title, url: `https://github.com/${repo}/pull/${number}`, status: "silent", group: "first", answerHours: null,
+    silentDays: 3.2, asked: false, odds: { share: 0.3, past: false }, typicalHours: 0.5,
+  });
+  const outcome = {
+    ok: true,
+    result: { login: "ann", read: 2, found: 2, silent: 2, typicalHours: null, partial: false, rows: [row("acme/widget", 7, "Zebra title"), row("acme/gadget", 9, "Yak title")] },
+  };
+  const html = renderLookupResult(outcome);
+  assert.ok(html.includes(">acme/widget on Porchlamp</a>") && html.includes(">acme/gadget on Porchlamp</a>"));
+  assert.ok(!html.includes(">Its page</a>"));
+  const heading = html.match(/<h2 class="report-h2" id="lookup-summary">(.*?)<\/h2>/)[1].replace(/<[^>]*>/g, "");
+  assert.equal(lookupStatus(outcome), heading);
+  assert.equal(lookupStatus(outcome), "ann: 2 recent pull requests. 2 still silent.");
+  assert.ok(!lookupStatus(outcome).includes("Zebra") && !lookupStatus(outcome).includes("Yak"));
+  const nothing = { ok: true, result: { login: "ann", read: 0, found: 0, silent: 0, typicalHours: null, partial: false, rows: [] } };
+  assert.equal(lookupStatus(nothing), copy.LOOKUP_NOTHING.replace("{login}", "ann"));
+  assert.equal(lookupStatus({ ok: false, error: { kind: "http" } }), "", "an error's banner is an alert and reads itself out");
+});
+
+test("the result is no live region, a status line is; without a script the form is hidden", () => {
+  const page = renderLookupPage();
+  assert.ok(page.includes('<div id="lookup-result" class="lookup-result"></div>'));
+  assert.ok(!page.includes("aria-live"));
+  assert.ok(page.includes('<p id="lookup-status" class="sr-only" role="status"></p>'));
+  assert.ok(page.includes("<noscript><style>.lookup-form { display: none; }</style>"));
+  assert.ok(page.includes("it measures a reply&#39;s length on its markdown rather than the text GitHub shows"),
+    "the lookup reads a comment's markdown (the REST body), the snapshot the text GitHub shows: the page says so");
 });
