@@ -171,6 +171,22 @@ def test_answered_later_is_conditional_on_silence_at_the_first_day(tmp_path: Pat
     assert later[(14, 90)] == pytest.approx(2 / 3, abs=1e-4)
 
 
+def test_a_reply_before_the_clock_leaves_the_first_reply_after_it_as_the_answer(tmp_path: Path) -> None:
+    """Two drafts marked ready on day 10, each with a member's reply on day 2. One gets another reply 3 hours after it was
+    ready: that is its answer, not none. The other gets nothing more: it is silent from its clock."""
+    ready = OLD + timedelta(days=10)
+    early = comment("maya", after(OLD, days=2))
+    prs = [
+        pull(1, author="ann", ready=iso(ready), comments=(early, comment("maya", after(ready, hours=3)))),
+        pull(2, author="bob", ready=iso(ready), comments=(early,)),
+    ]
+    stats = fpr.compute_first_pull_requests(tmp_path_with(tmp_path, prs), as_of=AS_OF)
+    assert stats["population"]["first"] == 2
+    answered = {row["hours"]: row["share"] for row in stats["first"]["answered_by"]}
+    assert answered[1] == 0.0
+    assert answered[6] == pytest.approx(0.5)
+
+
 def tmp_path_with(root: Path, prs: list[dict]) -> Path:
     write_project(root, "o__n", prs)
     return root

@@ -700,12 +700,16 @@ def is_maintainer_response(node: object, pr_author: str, maintainers: frozenset[
     return association in MAINTAINER_ASSOCIATIONS or (bool(login) and login in maintainers)
 
 
-def first_substantive_response(pr: Mapping[str, Any], maintainers: frozenset[str]) -> tuple[str, str] | None:
+def first_substantive_response(
+    pr: Mapping[str, Any], maintainers: frozenset[str], *, since: datetime | None = None
+) -> tuple[str, str] | None:
     """D-IN-2: ``(createdAt, kind)`` of the earliest substantive response
     recorded on one PR node: a review in any state, or a comment whose text
     is substantive (:func:`is_substantive_comment`), by the repository's own
     people (:func:`is_maintainer_response`). ``kind`` is ``"review"`` or
-    ``"comment"``; a review wins a tie. ``None`` when there is none."""
+    ``"comment"``; a review wins a tie. ``None`` when there is none. With
+    ``since``, the earliest at or after it (a reader's clock that starts
+    later than the PR, as a draft's does when it is marked ready)."""
     pr_author = _node_login(pr.get("author"))
     best: tuple[datetime, str, str] | None = None
     for kind, source in (("review", "reviews"), ("comment", "comments")):
@@ -722,6 +726,8 @@ def first_substantive_response(pr: Mapping[str, Any], maintainers: frozenset[str
             try:
                 when = _parse_iso(stamp)
             except ValueError:
+                continue
+            if since is not None and when < since:
                 continue
             if best is None or when < best[0]:
                 best = (when, stamp, kind)
