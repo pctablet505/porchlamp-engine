@@ -434,8 +434,10 @@ def methodology_problems(text: str, record: tuple[dict, dict, dict]) -> list[str
 
     anchors = [(node.attrs["href"], node.text()) for node in nodes if node.tag == "a" and "href" in node.attrs]
     names = report_pages.copy_js_map("PERSONA_NAMES")
+    main = next(node for node in nodes if node.tag == "main")  # the view's own links: the footer lists the lens pages too
+    view_anchors = [(node.attrs["href"], node.text()) for node in main.walk() if node.tag == "a" and "href" in node.attrs]
     for lens, slug in report_pages.LENS_SLUGS.items():
-        if (f"/{slug}/", names[lens]) not in anchors:
+        if (f"/{slug}/", names[lens]) not in view_anchors:
             problems.append(f"no link {names[lens]!r} to /{slug}/")
     if any(href == "/check/" for href, _ in anchors):
         problems.append("a link to /check/, a stub")
@@ -475,7 +477,9 @@ def test_the_methodology_page_holds_its_headings_hooks_and_links_without_javascr
     _rewrite(planted, "methodology/index.html", 'data-v="pillar.responsiveness.weight">25%', 'data-v="pillar.responsiveness.weight">26%')
     _rewrite(planted, "methodology/index.html", ">Detectors</h2>", ">Sensors</h2>")
     _rewrite(planted, "methodology/index.html", limits[1], limits[1] + " (changed)")
-    _rewrite(planted, "methodology/index.html", '<a href="/career/">', '<a href="/careers/">')
+    # the view's link, the first of the page's two (the footer lists it too)
+    page = _read(planted, "methodology/index.html")
+    (planted / "methodology/index.html").write_text(page.replace('<a href="/career/">', '<a href="/careers/">', 1), encoding="utf-8")
     problems = methodology_problems(_read(planted, "methodology/index.html"), record)
     for wanted in ("pillar.responsiveness.weight", "no h2 'Detectors'", "the Limits items", "/career/"):
         assert any(wanted in problem for problem in problems), (wanted, problems)
@@ -782,6 +786,9 @@ def test_ui_ux_audit_css_and_project_parity_invariants():
     table_js = (ROOT / "web" / "app" / "components" / "table.js").read_text(encoding="utf-8")
     pitch = int(re.search(r"export const CARD_HEIGHT_PX = (\d+);", table_js).group(1))
     assert height + margin == pitch, (height, margin, pitch)
+    # WCAG 2.5.8: the footer's links to the lists are a row of short words, so each is a target at least 24 px square.
+    browse = re.search(r"\n\.footer-browse-row a \{(.*?)\n\}", components_css, re.DOTALL).group(1)
+    assert "min-width: 24px;" in browse and "min-height: 24px;" in browse, browse
     # DEF-13: compare better mark uses --text-success; matrix scale tick has stroke halo
     assert "color: var(--text-success)" in views_css
     assert "paint-order: stroke;" in views_css

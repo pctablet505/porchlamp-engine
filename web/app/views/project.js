@@ -240,7 +240,7 @@ function headBlock(rec, mode, opts, ranked) {
   // The page's Compare is a link that works before any script runs; the panel's is the app's button.
   const compare =
     mode === "page"
-      ? `<a class="btn btn-secondary drawer-compare-btn" href="${e(copy.PROJECT_COMPARE_HREF + encodeURIComponent(key))}">${e(copy.DRAWER_COMPARE_LABEL)}</a>`
+      ? `<a class="btn btn-secondary drawer-compare-btn" href="${e(copy.PROJECT_COMPARE_HREF + encodeURIComponent(key))}" rel="nofollow">${e(copy.DRAWER_COMPARE_LABEL)}</a>`
       : `<button type="button" class="btn btn-secondary drawer-compare-btn" data-drawer-compare="${e(key)}">${e(copy.DRAWER_COMPARE_LABEL)}</button>`;
   const close = mode === "panel" ? `<button type="button" class="icon-button" data-drawer-close="true">${e(copy.DRAWER_CLOSE_LABEL)}</button>` : "";
   const pageLink =
@@ -609,7 +609,7 @@ function integrityBlock(rec, mode, opts, ranked) {
     `</dl>` +
     `<p>${flags}</p>` +
     (opts.recordFile
-      ? `<p>${e(copy.RECORD_FILE_LEAD)} <a href="/${e(opts.recordFile)}">${e(opts.recordFile)}</a>${e(copy.RECORD_FILE_KEY)} <code class="project-mono">${e(key)}</code>.</p>`
+      ? `<p>${e(copy.RECORD_FILE_LEAD)} <a href="/${e(opts.recordFile)}" rel="nofollow">${e(opts.recordFile)}</a>${e(copy.RECORD_FILE_KEY)} <code class="project-mono">${e(key)}</code>.</p>`
       : "") +
     `<p>${e(copy.METHOD_LINK_LEAD)} <a href="/methodology/">${e(copy.METHOD_LINK_LABEL)}</a>.</p>` +
     `<p id="correction"><a href="${e(issue)}">${e(copy.ISSUE_LINK_LABEL)}</a>${e(copy.ISSUE_LINK_TAIL)}</p>` +

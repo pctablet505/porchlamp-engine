@@ -85,7 +85,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PARITY_JS = REPO_ROOT / "scripts" / "static_parity.mjs"
 
 #: (name, text in api.js, replacement). Each breaks one behaviour the grid
-#: is meant to pin; each must be caught.
+#: is meant to pin; each must be caught. Coverage is rounded to RATIO_DECIMALS before the clamp to 1, as the API rounds it,
+#: so a missing clamp, or a weight total summed left to right instead of CPython's compensated sum (a few units in the
+#: last place apart), leaves every answer of a real snapshot unchanged; those two mutants showed nothing and are not here.
 MUTANTS: tuple[tuple[str, str, str], ...] = (
     ("search ignores case",
      "sqlLower(row.owner).includes(needle) || sqlLower(row.name).includes(needle) || sqlLower(`${row.owner}/${row.name}`).includes(needle)",
@@ -104,9 +106,6 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
     ("custom coverage divided by the measured weight",
      "const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));",
      "const coverage = Math.min(1, sqlRound(cov / (den || totalWeight), base.ratio_decimals));"),
-    ("custom coverage not clamped to 1",
-     "const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));",
-     "const coverage = sqlRound(cov / totalWeight, base.ratio_decimals);"),
     ("custom coverage not rounded as the API rounds it",
      "const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));",
      "const coverage = Math.min(1, cov / totalWeight);"),
@@ -117,8 +116,6 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
      "return x === null ? null : Math.trunc(x * 10 ** n) / 10 ** n;"),
     ("custom ties broken by coverage ascending",
      "descNullsLast(a.coverage, b.coverage)", "ascNullsLast(a.coverage, b.coverage)"),
-    ("custom weight total summed left to right (not CPython's compensated sum)",
-     "const totalWeight = pySum(w);", "const totalWeight = w.reduce((a, b) => a + b, 0);"),
     ("custom tie groups keep singletons",
      "members.get(v.porchlampDisplay) === 1 ? null : denseRank.get(v.porchlampDisplay)", "denseRank.get(v.porchlampDisplay)"),
 )
@@ -1569,7 +1566,8 @@ def verify_methodology(db: Path, site: Path, *, report: Optional[dict] = None, l
     ledger.equal("methodology h1", [t for tag, t in page.headings if tag == "h1"], [rp.copy_js_string("METHODOLOGY_HEADING")])
     ledger.equal("methodology h2", [t for tag, t in page.headings if tag == "h2"], [rp.copy_js_string("WHY_HEADING"), *labels])
     lens_links = [f"/{rp.LENS_SLUGS[lens]}/" for lens in methodology["personas"]["presets"] if lens in rp.LENS_SLUGS]
-    ledger.equal("methodology links the lens pages", [link for link in page.links if link in lens_links], lens_links)
+    drawn_links = read_page(_home_view(text) or "").links  # the view's own: the footer links the lists on every page
+    ledger.equal("methodology links the lens pages", [link for link in drawn_links if link in lens_links], lens_links)
     ledger.contains("methodology says how to check a project", _plain(text), rp.copy_js_string("METHODOLOGY_CHECK_LINE"))
     ledger.equal("methodology links no /check/", "/check/" in page.links, False)
     gate_ids = [gate["id"].lower() for gate in methodology["gates"]]
@@ -2513,6 +2511,11 @@ def _expected_list_hooks(route: dict, request: dict, total: int, shown: list[dic
         hooks["list.total"] = rp.fmt_int(total)
         if "persona" in fixed:
             hooks["list.weights"] = hp.lens_weights_text(methodology, fixed["persona"])
+            if fixed["persona"] == "first_timer":
+                gate = next(g["thresholds"] for g in methodology["personas"]["gates"] if g["persona"] == "first_timer")
+                hooks.update({"list.min_prs": _js_number(gate["min_decided_prs"]),
+                              "list.min_rate": _js_number(round(gate["min_mr_first"] * 100)),
+                              "list.min_issues": _js_number(gate["min_newcomer_issues"])})
         elif record is not None:
             eco = next(e for e in record["ecosystems"] if e["key"] == fixed["eco"])
             hooks.update({"list.judged": eco["judged_text"], "list.eco_share": eco["share_text"],
@@ -2649,6 +2652,7 @@ def verify_lists(db: Path, site: Path, *, report: Optional[dict], log=print) -> 
             ledger.equal(f"{address} title fits ({TITLE_MAX})", len(title) <= TITLE_MAX, True)
             ledger.equal(f"{address} description fits ({DESCRIPTION_MAX})", len(description) <= DESCRIPTION_MAX, True)
             ledger.equal(f"{address} title is its own", titles.setdefault(title, address), address)
+            ledger.equal(f"{address} has its link preview", f'<meta property="og:url" content="{SITE_ORIGIN}{address}">' in text, True)
             if "{page}" in route["path"]:
                 links = set(read_page(view).links)
                 ledger.equal(f"{address} links every page of the ranking", [a for a in addresses if a not in links], [])
@@ -2790,10 +2794,11 @@ def verify_not_ranked_lists(db: Path, site: Path, *, report: Optional[dict], num
         for number, address in enumerate(addresses, start=1):
             path = site / address.strip("/") / "index.html"
             ledger.equal(f"{address} is a page of the export", path.is_file(), True)
-            ledger.equal(f"{address} is in sitemap-pages.xml", address in listed, True)
+            ledger.equal(f"{address} is out of sitemap-pages.xml", address in listed, False)
             if not path.is_file():
                 continue
             text = path.read_text(encoding="utf-8")
+            ledger.equal(f"{address} asks not to be indexed", '<meta name="robots" content="noindex, follow">' in text, True)
             pages[address] = text
             jobs.append({"path": path.relative_to(site).as_posix(), "view": route["view"], "address": address, "route": route})
             view = _home_view(text) or ""
