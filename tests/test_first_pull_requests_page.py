@@ -350,10 +350,12 @@ def test_a_side_sentence_the_numbers_no_longer_support_takes_its_other_wording_a
     each to its other wording, and every other sentence keeps its words."""
     stats = good_stats()
     breaks(stats)
-    sentences = record(stats)["sentences"]
+    built = record(stats)
+    sentences = built["sentences"]
     reworded = {key for key in page.SENTENCES if sentences[key] != page.SENTENCES[key]}
     assert reworded == set(page.SIDE_CLAIM_SENTENCES[claim])
     assert all(sentences[key] == page.ALTERNATE_SENTENCES[key] for key in reworded)
+    assert built["claims"] == {name: name != claim for name in page.SIDE_CLAIM_SENTENCES}
 
 
 def test_a_side_sentences_other_wording_keeps_its_numbers_and_drops_its_claim() -> None:

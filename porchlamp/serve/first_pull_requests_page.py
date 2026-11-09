@@ -426,6 +426,7 @@ def report_json(stats: Mapping[str, Any], *, snapshot_id: str, as_of: str) -> di
         "data_file": f"/data/{snapshot_id}/{DATA_FILE}",
         "values": values,
         "sentences": chosen_sentences(stats),
+        "claims": side_claims(stats),
         "curve": [
             {
                 "days": day, "label": _day_label(day),

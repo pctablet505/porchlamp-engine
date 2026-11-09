@@ -1568,6 +1568,8 @@ export const FIRST_PRS_CURVE_TICKS = Object.freeze([[0, "0", false], [7, "1 week
 export const FIRST_PRS_ANSWERED_NARROW_TICKS = Object.freeze([1, 24, 168, 2160]);
 export const FIRST_PRS_ASK_CHART_HEADING = "Gap in answers over the next 30 days, against no comment, inside one project";
 export const FIRST_PRS_ASK_CAVEAT = "Authors who ask may also care more, or have a better pull request. A comment with no ask and no tag shows no gap, which argues against plain engagement as the whole explanation. This still compares what happened and doesn't prove that asking causes the answer.";
+/** The caveat when a comment with no ask and no tag shows a difference after all (the record's claims): no claim about it. */
+export const FIRST_PRS_ASK_CAVEAT_UNSURE = "Authors who ask may also care more, or have a better pull request. This compares what happened and doesn't prove that asking causes the answer.";
 export const FIRST_PRS_WEEK_CHART_HEADING = "Answered within 24 hours, by the day it opened";
 export const FIRST_PRS_HIST_AXIS = "The busiest person's share of first answers";
 export const FIRST_PRS_POINTS = "points";

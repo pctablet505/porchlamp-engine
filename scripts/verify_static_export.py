@@ -3152,8 +3152,10 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     # the record's words with this file's numbers: a sentence on the page that is not its template, filled, is a mismatch
     fill = lambda template: template.format(**hooks)  # noqa: E731
     sentences = record["sentences"]
+    side = _first_pull_requests_side_claims(stats)
+    ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} claims are the ones read here", record.get("claims"), side)
     expected_sentences = json.loads(json.dumps(fpr_page.SENTENCES))
-    for claim, holds in _first_pull_requests_side_claims(stats).items():
+    for claim, holds in side.items():
         if not holds:
             expected_sentences.update({key: fpr_page.ALTERNATE_SENTENCES[key] for key in fpr_page.SIDE_CLAIM_SENTENCES[claim]})
     ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} sentences are the page module's, each side sentence worded for these numbers", sentences, expected_sentences)
@@ -3172,8 +3174,12 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
         ledger.equal(f"{rel} has the tile {tile['label']}", tile["label"] in paragraphs and fill(tile["text"]) in paragraphs, True)
     for line in [*sentences["method"], *sentences["not_covered"]]:
         ledger.equal(f"{rel} has the list item {line[:40]}", fill(line) in paragraphs, True)
-    for name in ("FIRST_PRS_WHO_KICKER", "FIRST_PRS_BEST_KICKER", "FIRST_PRS_WAIT_KICKER", "FIRST_PRS_ASK_KICKER", "FIRST_PRS_FIRST_KICKER", "FIRST_PRS_WEEK_KICKER", "FIRST_PRS_FAST_KICKER", "FIRST_PRS_BEST_CAVEAT", "FIRST_PRS_ASK_CAVEAT"):
+    for name in ("FIRST_PRS_WHO_KICKER", "FIRST_PRS_BEST_KICKER", "FIRST_PRS_WAIT_KICKER", "FIRST_PRS_ASK_KICKER", "FIRST_PRS_FIRST_KICKER", "FIRST_PRS_WEEK_KICKER", "FIRST_PRS_FAST_KICKER", "FIRST_PRS_BEST_CAVEAT"):
         ledger.equal(f"{rel} has copy.js's {name}", rp.copy_js_string(name) in paragraphs, True)
+    # the asking caveat says a comment with no ask and no tag shows no gap only while these numbers back it
+    caveats = ("FIRST_PRS_ASK_CAVEAT", "FIRST_PRS_ASK_CAVEAT_UNSURE") if side["comment_shows_nothing"] else ("FIRST_PRS_ASK_CAVEAT_UNSURE", "FIRST_PRS_ASK_CAVEAT")
+    ledger.equal(f"{rel} has copy.js's {caveats[0]}", rp.copy_js_string(caveats[0]) in paragraphs, True)
+    ledger.equal(f"{rel} has not copy.js's {caveats[1]}", rp.copy_js_string(caveats[1]) in paragraphs, False)
     ledger.equal(f"{rel} title", [html.unescape(t) for t in re.findall(r"<title>([^<]*)</title>", text)], [f"{sentences['title']} | Porchlamp"])
     ledger.equal(f"{rel} description", [html.unescape(t) for t in re.findall(r'<meta name="description" content="([^"]*)"', text)], [fill(sentences["description"])])
     # the slider's lists and the bars, from the numbers
