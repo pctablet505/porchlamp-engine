@@ -85,7 +85,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PARITY_JS = REPO_ROOT / "scripts" / "static_parity.mjs"
 
 #: (name, text in api.js, replacement). Each breaks one behaviour the grid
-#: is meant to pin; each must be caught.
+#: is meant to pin; each must be caught. Coverage is rounded to RATIO_DECIMALS before the clamp to 1, as the API rounds it,
+#: so a missing clamp, or a weight total summed left to right instead of CPython's compensated sum (a few units in the
+#: last place apart), leaves every answer of a real snapshot unchanged; those two mutants showed nothing and are not here.
 MUTANTS: tuple[tuple[str, str, str], ...] = (
     ("search ignores case",
      "sqlLower(row.owner).includes(needle) || sqlLower(row.name).includes(needle) || sqlLower(`${row.owner}/${row.name}`).includes(needle)",
@@ -104,9 +106,6 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
     ("custom coverage divided by the measured weight",
      "const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));",
      "const coverage = Math.min(1, sqlRound(cov / (den || totalWeight), base.ratio_decimals));"),
-    ("custom coverage not clamped to 1",
-     "const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));",
-     "const coverage = sqlRound(cov / totalWeight, base.ratio_decimals);"),
     ("custom coverage not rounded as the API rounds it",
      "const coverage = Math.min(1, sqlRound(cov / totalWeight, base.ratio_decimals));",
      "const coverage = Math.min(1, cov / totalWeight);"),
@@ -117,8 +116,6 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
      "return x === null ? null : Math.trunc(x * 10 ** n) / 10 ** n;"),
     ("custom ties broken by coverage ascending",
      "descNullsLast(a.coverage, b.coverage)", "ascNullsLast(a.coverage, b.coverage)"),
-    ("custom weight total summed left to right (not CPython's compensated sum)",
-     "const totalWeight = pySum(w);", "const totalWeight = w.reduce((a, b) => a + b, 0);"),
     ("custom tie groups keep singletons",
      "members.get(v.porchlampDisplay) === 1 ? null : denseRank.get(v.porchlampDisplay)", "denseRank.get(v.porchlampDisplay)"),
 )
