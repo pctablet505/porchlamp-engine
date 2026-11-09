@@ -84,9 +84,13 @@ RFC-0012 and RFC-0014).
 
   So ha-mcp leaves the top of the fastest-replies list. Its landing and newcomer-cohort fields do
   not change, and no other project's record changes. The published 2026-11-05 snapshot keeps its
-  stored values; the change applies from the next derive.
+  values; the next collection cycle, derived with this change, carries them.
 - **Test**: `tests/core/test_bot_identity.py::test_an_account_that_posts_review_commands_to_another_bot_never_answers_a_pr`.
 
 ## Reviewer
 
-Not yet reviewed.
+Reviewed 2026-11-10 by rv-rfc29 (opus-high), not the author. Round 1 at 8e5707f asked for changes:
+the live check's copy of the bot list, the fixture snapshot's hashes, and the account's full record
+in this text. At 3aaf95f: hash 44b11850 and 110 logins confirmed, the before/after figures
+reproduced from the 2026-11-05 ha-mcp record, and a mutant that removes `ghhamcp` from
+`BOT_LOGINS` turns only this RFC's test red. ACCEPT.
