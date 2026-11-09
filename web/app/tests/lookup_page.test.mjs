@@ -13,9 +13,10 @@ async function open(search, answer = async () => new Response("{}", { status: 40
   const input = { value: "", blurred: 0, blur() { this.blurred += 1; } };
   const form = { elements: { login: input }, addEventListener: (kind, fn) => { listeners[kind] = fn; } };
   const result = { innerHTML: "", top, scrolled: [], getBoundingClientRect() { return { top: this.top }; }, scrollIntoView(options) { this.scrolled.push(options); } };
+  const status = { textContent: "before" };
   const calls = [];
   const replaced = [];
-  globalThis.document = { querySelector: (selector) => (selector === "[data-lookup-form]" ? form : null), getElementById: (id) => (id === "lookup-result" ? result : null) };
+  globalThis.document = { querySelector: (selector) => (selector === "[data-lookup-form]" ? form : null), getElementById: (id) => ({ "lookup-result": result, "lookup-status": status })[id] || null };
   globalThis.location = { search, pathname: "/lookup/" };
   globalThis.innerHeight = 430;
   globalThis.history = { replaceState: (_state, _title, url) => replaced.push(url) };
@@ -26,7 +27,7 @@ async function open(search, answer = async () => new Response("{}", { status: 40
   loads += 1;
   await import(`../lookup-page.js?load=${loads}`);
   return {
-    input, result, calls, replaced,
+    input, result, status, calls, replaced,
     press: () => listeners.submit({ preventDefault() {} }),
   };
 }
@@ -53,6 +54,7 @@ test("a bad name pressed through the button reaches no GitHub address and says s
   await page.press();
   assert.equal(page.calls.filter(github).length, 0);
   assert.ok(page.result.innerHTML.includes("error-banner"));
+  assert.equal(page.status.textContent, "", "an error's alert reads itself out; the status line is cleared");
   assert.deepEqual(page.replaced, []);
 });
 
@@ -86,4 +88,5 @@ test("what GitHub says goes through the view, escaped, and the address remembers
   assert.ok(!page.result.innerHTML.includes("<img"));
   assert.ok(page.calls.some((url) => url.includes("/search/issues")));
   assert.deepEqual(page.replaced, ["/lookup/?user=ann"]);
+  assert.equal(page.status.textContent, "ann: 1 recent pull request. 1 still silent.", "the status line reads the summary, not the rows");
 });

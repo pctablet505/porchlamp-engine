@@ -30,9 +30,9 @@ export function renderLookupPage() {
     `<button class="lookup-button" type="submit">${e(copy.LOOKUP_BUTTON)}</button></div>` +
     `</form>` +
     `<p class="report-note lookup-cost">${text(copy.LOOKUP_COST, { limit: LOOKUP_PR_LIMIT })}</p>` +
-    `<noscript><p class="report-note">${e(copy.LOOKUP_NO_SCRIPT)}</p></noscript>` +
+    `<noscript><style>.lookup-form { display: none; }</style><p class="report-note">${e(copy.LOOKUP_NO_SCRIPT)}</p></noscript>` +
     `</section>` +
-    `<div id="lookup-result" class="lookup-result" aria-live="polite"></div>` +
+    `<div id="lookup-result" class="lookup-result"></div><p id="lookup-status" class="sr-only" role="status"></p>` +
     `<section class="report-section" aria-labelledby="lookup-reads"><h2 class="report-h2" id="lookup-reads">${e(copy.LOOKUP_READS_HEADING)}</h2>` +
     `<ul class="report-list">${copy.LOOKUP_READS.map((line) => `<li>${e(line)}</li>`).join("")}</ul>` +
     `<p class="fpr-next"><a href="${e(copy.LOOKUP_REPORT_HREF)}">${e(copy.LOOKUP_REPORT_LINK)}</a></p></section>` +
@@ -81,7 +81,7 @@ function rowHtml(row) {
     if (row.asked) extra.push(e(copy.LOOKUP_ASKED));
     else if (row.silentDays >= ASKING_FROM_DAYS) extra.push(e(copy.LOOKUP_NOT_ASKED));
     if (row.typicalHours !== null && row.typicalHours !== undefined) {
-      extra.push(fill(copy.LOOKUP_PROJECT_TYPICAL, { time: e(replyTimeShort(row.typicalHours)), link: `<a href="${e(projectHref(row.repo))}">${e(copy.LOOKUP_PROJECT_LINK)}</a>` }));
+      extra.push(fill(copy.LOOKUP_PROJECT_TYPICAL, { time: e(replyTimeShort(row.typicalHours)), link: `<a href="${e(projectHref(row.repo))}">${text(copy.LOOKUP_PROJECT_LINK, { repo: row.repo })}</a>` }));
     }
   }
   return (
@@ -94,17 +94,32 @@ function rowHtml(row) {
   );
 }
 
+/** A result's summary, worded by `say` (`text` for the page's markup, `plain` for the status line). */
+function summary(r, say) {
+  const read = say(r.read === 1 ? copy.LOOKUP_SUMMARY_ONE : copy.LOOKUP_SUMMARY, { login: r.login, count: r.read });
+  return `${read} ${r.silent ? say(copy.LOOKUP_SUMMARY_SILENT, { count: r.silent }) : say(copy.LOOKUP_SUMMARY_NONE_SILENT, {})}`;
+}
+
+/** A copy template with its slots filled as plain text, for words a screen reader reads, never for markup. */
+const plain = (template, values) => String(template).replace(/\{([a-z][a-z0-9_]*)\}/g, (_slot, key) => String(values[key]));
+
+/** What the page's status line says after a lookup: the result's summary, or its one sentence when it found nothing. An
+ *  error says nothing there: its banner is an alert and is read out by itself. The rows are never read out. */
+export function lookupStatus(outcome) {
+  if (!outcome.ok) return "";
+  const r = outcome.result;
+  return r.rows.length ? summary(r, plain) : plain(copy.LOOKUP_NOTHING, { login: r.login });
+}
+
 /** The result of a lookup: `outcome` is what lookup.js `runLookup` returned. */
 export function renderLookupResult(outcome) {
   if (!outcome.ok) return `<div class="error-banner" role="alert">${errorText(outcome.error)}</div>`;
   const r = outcome.result;
   if (!r.rows.length) return `<section class="report-section"><p>${text(copy.LOOKUP_NOTHING, { login: r.login })}</p></section>`;
-  const parts = [text(r.read === 1 ? copy.LOOKUP_SUMMARY_ONE : copy.LOOKUP_SUMMARY, { login: r.login, count: r.read })];
-  parts.push(r.silent ? text(copy.LOOKUP_SUMMARY_SILENT, { count: r.silent }) : e(copy.LOOKUP_SUMMARY_NONE_SILENT));
   const unasked = r.rows.some((row) => row.status === "silent" && !row.asked && row.silentDays >= ASKING_FROM_DAYS);
   return (
     `<section class="report-section" aria-labelledby="lookup-summary">` +
-    `<h2 class="report-h2" id="lookup-summary">${parts.join(" ")}</h2>` +
+    `<h2 class="report-h2" id="lookup-summary">${summary(r, text)}</h2>` +
     (r.typicalHours === null ? "" : `<div class="project-number"><p class="project-number-label">${e(copy.LOOKUP_TYPICAL_LABEL)}</p><p class="project-number-value">${e(replyTimeShort(r.typicalHours))}</p></div>`) +
     (r.partial ? `<p class="report-note">${text(copy.LOOKUP_PARTIAL, { read: r.read, found: Math.min(r.found, LOOKUP_PR_LIMIT) })}</p>` : "") +
     (unasked ? `<p class="report-note">${fill(copy.LOOKUP_ASKING_NOTE, { link: `<a href="${e(copy.LOOKUP_ASKING_HREF)}">${e(copy.LOOKUP_NOT_ASKED_LINK)}</a>` })}</p>` : "") +

@@ -1645,4 +1645,4 @@ export const LOOKUP_ASKING_NOTE = "At two weeks of silence, authors who had aske
 export const LOOKUP_NOT_ASKED_LINK = "more answers";
 export const LOOKUP_ASKING_HREF = "/first-pull-requests/#asking";
 export const LOOKUP_PROJECT_TYPICAL = "This project's typical first reply: {time}. {link}";
-export const LOOKUP_PROJECT_LINK = "Its page";
+export const LOOKUP_PROJECT_LINK = "{repo} on Porchlamp";
