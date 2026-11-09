@@ -536,6 +536,8 @@ BOT_LOGINS: frozenset[str] = frozenset({
     "elasticsearchmachine", "hlsjs-ci", "istio-testing", "mattermost-build", "servo-bot",
     "sqla-tester", "tencent-adm", "ultralyticsassistant", "webkit-early-warning-system",
     "yoshi-approver",
+    # an account whose every comment and review is automation, GitHub types it as a user (RFC-0029; #57)
+    "ghhamcp",
 })
 
 #: D-IN-3: for rate parameters (merge, decision, conversion, return) a PR
