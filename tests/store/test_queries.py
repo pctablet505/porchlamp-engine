@@ -1512,7 +1512,7 @@ def _assert_under_budget_with_retry(measure, label: str, budget_ms: float = 100.
     )
 
 
-def test_performance_list_ranked_and_reproject_p95_under_100ms_for_10k_rows(tmp_path) -> None:
+def test_performance_list_ranked_and_reproject_p95_under_100ms_for_10k_rows(tmp_path, quiet_box) -> None:
     """`06` U-13 (owner addendum 2026-09-13): the page-size menu goes up to
     1000, so this budget is measured at BOTH the default page size
     (``DEFAULT_LIMIT``, 20) and the largest allowed one (``MAX_LIMIT``,
@@ -1533,7 +1533,7 @@ def test_performance_list_ranked_and_reproject_p95_under_100ms_for_10k_rows(tmp_
         )
 
 
-def test_performance_list_ranked_persona_p95_under_100ms_for_10k_rows(tmp_path) -> None:
+def test_performance_list_ranked_persona_p95_under_100ms_for_10k_rows(tmp_path, quiet_box) -> None:
     """The persona branch is the one that cannot use an index for its own
     JSON-path predicates (documented in ``0002_indexes.sql``) -- measured
     separately from the balanced path above since it is the slower one.

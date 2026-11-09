@@ -163,6 +163,15 @@ def test_a_stats_file_for_another_day_is_refused() -> None:
         page.report_json(good_stats(), snapshot_id="x", as_of="2026-10-25T00:00:00+00:00")
 
 
+
+@pytest.mark.parametrize("reading,arm", [(r, a) for r, arms in page.ASKING_ARMS_READ.items() for a in arms])
+def test_an_asking_arm_no_project_holds_stops_the_report_by_name(reading, arm):
+    """``_compare`` writes ``{"projects": 0, "n": 0, "n_none": 0}`` for an arm no project holds both ways: no gap, no range."""
+    stats = good_stats()
+    stats["asking"][reading][arm] = {"projects": 0, "n": 0, "n_none": 0}
+    with pytest.raises(ReportError, match=f"{arm}.*{reading}"):
+        page.report_json(stats, snapshot_id="2026-11-02", as_of=AS_OF)
+
 def test_the_who_bands_rows_run_lowest_first_with_the_top_one_marked() -> None:
     bands = record()["who_bands"]
     assert [b["label"] for b in bands] == ["up to 50%", "50–70%", "70–90%", "90–100%"]

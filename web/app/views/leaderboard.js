@@ -635,7 +635,7 @@ export function listHead(state) {
         add(kind === "lens" ? copy.LIST_INTRO_FIRST_TIMERS : copy.LIST_INTRO_ECOSYSTEM_FIRST_TIMERS);
         add(copy.LIST_INTRO_FIRST_TIMER_GATE, firstTimerGateNumbers(methodology));
       } else {
-        add(kind === "lens" ? copy.LIST_INTRO_LENS : copy.LIST_INTRO_ECOSYSTEM_LENS);
+        add(copy.LIST_INTRO_LENS);
       }
       add(copy.LIST_INTRO_WEIGHS, { weights: lensWeightsText(methodology, fixed.persona) });
     } else {

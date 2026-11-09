@@ -863,7 +863,7 @@ def _assert_under_budget_with_retry(measure, label: str, budget_ms: float = 150.
     )
 
 
-def test_performance_leaderboard_and_reproject_p95_under_150ms_for_10k_rows(tmp_path):
+def test_performance_leaderboard_and_reproject_p95_under_150ms_for_10k_rows(tmp_path, quiet_box):
     db_path = tmp_path / "db.sqlite"
     conn = fresh_db(db_path)
     build_snapshot(conn, db_path, n_rated=10_000, seed=7)

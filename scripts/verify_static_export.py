@@ -1658,8 +1658,6 @@ def _reply_time(hours: float) -> str:
         return f"{minutes} {'minute' if minutes == 1 else 'minutes'}"
     if hours < 48:
         shown = _trimmed(_round_half_up(_printed(hours), 1))
-        if shown == "0":
-            return "under 0.1 hours"
         return f"{shown} {'hour' if shown == '1' else 'hours'}"
     return f"{_days(hours)} days"
 
