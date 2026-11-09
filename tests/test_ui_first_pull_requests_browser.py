@@ -226,7 +226,7 @@ def measured(tmp_path_factory):
     export_static.export(db, site)
     record = json.loads(RECORD.read_text(encoding="utf-8"))
     (site / "data" / SNAPSHOT_ID / page_module.DATA_FILE).write_text(json.dumps(record), encoding="utf-8")
-    export_static._prerender(site, [export_static._write_first_pull_requests_page(site, record, exported_on=date(2026, 11, 5))])
+    export_static._prerender(site, export_static._write_first_pull_requests_page(site, record, exported_on=date(2026, 11, 5)))
     cases = [
         *({"name": f"ticks-{w}", "path": REPORT, "width": w, "height": 800, "script": _TICKS} for w in TICK_WIDTHS),
         *({"name": f"tables-{w}", "path": REPORT, "width": w, "height": 800, "script": _TABLES} for w in PHONE_WIDTHS),
