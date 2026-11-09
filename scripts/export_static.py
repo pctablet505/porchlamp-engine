@@ -594,14 +594,24 @@ def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest
     ]
 
 
-def _write_first_pull_requests_page(out: Path, record: dict, *, exported_on: date) -> dict:
-    """``first-pull-requests/index.html``, for the prerender to draw its view into. Returns the page for :func:`_prerender`."""
+def _write_first_pull_requests_page(out: Path, record: dict, *, exported_on: date) -> list[dict]:
+    """``first-pull-requests/index.html`` and the frozen copy for this snapshot, ``first-pull-requests/<snapshot_id>/``,
+    with its own ``styles.css`` and the report's JSON beside it, for the prerender to draw the view into. A publish keeps
+    every earlier frozen copy (``publish_snapshot.stage_site``). Returns the pages for :func:`_prerender`."""
     from porchlamp.serve import first_pull_requests_page as fpr_page
+    from porchlamp.serve import report_pages
 
     target = out / fpr_page.PATH.strip("/")
-    target.mkdir(parents=True, exist_ok=True)
+    frozen = out / fpr_page.frozen_path(record).strip("/")
+    frozen.mkdir(parents=True, exist_ok=True)
     (target / "index.html").write_text(fpr_page.report_page(record, exported_on=exported_on), encoding="utf-8")
-    return {"path": f"{fpr_page.PATH.strip('/')}/index.html", "nav": "first-pull-requests", "draw": "first-pull-requests"}
+    (frozen / "index.html").write_text(fpr_page.report_page(record, exported_on=exported_on, frozen=True), encoding="utf-8")
+    (frozen / "styles.css").write_text(report_pages.frozen_stylesheet(), encoding="utf-8")
+    _dump(frozen / fpr_page.DATA_FILE, record)
+    return [
+        {"path": f"{fpr_page.PATH.strip('/')}/index.html", "nav": "first-pull-requests", "draw": "first-pull-requests"},
+        {"path": f"{fpr_page.frozen_path(record).strip('/')}/index.html", "nav": None, "draw": "first-pull-requests", "frozen": True},
+    ]
 
 
 def _write_lookup_page(out: Path) -> dict:
@@ -889,7 +899,7 @@ def export(
         (out / "check" / "index.html").write_text(check_stub(), encoding="utf-8")
         _write_home(out, out / "data" / snapshot_id)
     if first_prs_record is not None:
-        pages.append(_write_first_pull_requests_page(out, first_prs_record, exported_on=date.fromisoformat(manifest["exported_at"][:10])))
+        pages += _write_first_pull_requests_page(out, first_prs_record, exported_on=date.fromisoformat(manifest["exported_at"][:10]))
     pages.append(_write_lookup_page(out))
     pages += _write_view_pages(out, boards, not_ranked)
     (out / "data-version.js").write_text(data_version_js(snapshot_id), encoding="utf-8")

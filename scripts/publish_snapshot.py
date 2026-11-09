@@ -19,7 +19,8 @@ Runs every offline stage in order and stops before staging if any check fails:
 5. ``scripts/export_static.py ...`` (passing ``--previous-site`` when available)
 6. ``scripts/verify_static_export.py ...`` (full API parity, mutants, reports, chrome, projects, home, crawl)
 7. Stages into ``--target-site`` preserving ``.git``, ``CNAME``, ``LICENSE``, root verification files, all historical
-   ``black-holes/<id>/`` reports, and at most one immediately prior ``data/<prev_id>/`` directory, then renders
+   ``black-holes/<id>/`` and ``first-pull-requests/<id>/`` reports, and at most one immediately prior ``data/<prev_id>/``
+   directory, then renders
    ``README.md`` and ``CITATION.cff`` deterministically from ``snapshot.json`` and ``report.json``.
 """
 
@@ -322,6 +323,11 @@ def audit_staged_site(target_site: Path) -> None:
                 raise PublishError(f"staged site audit failed: hidden file refused ({fpath.relative_to(target_site)})")
 
 
+#: The reports whose dated folders (``<report>/<snapshot_id>/``) are frozen copies for citations: a publish keeps
+#: every earlier one, since the export writes only the current snapshot's.
+FROZEN_REPORT_DIRS = ("black-holes", "first-pull-requests")
+
+
 def stage_site(
     exported_site: Path,
     target_site: Path,
@@ -356,14 +362,16 @@ def stage_site(
     kept_frozen: list[str] = []
     kept_data: list[str] = []
     try:
-        # 1. Preserve historical black-holes/<old_id>/ directories (never overwrite the new snapshot_id).
-        old_bh = target_site / "black-holes"
-        if old_bh.is_dir() and not old_bh.is_symlink():
-            (hold_dir / "black-holes").mkdir(parents=True, exist_ok=True)
-            for child in sorted(old_bh.iterdir(), key=lambda p: p.name):
+        # 1. Preserve each report's historical <report>/<old_id>/ frozen copies (never overwrite the new snapshot_id).
+        for folder in FROZEN_REPORT_DIRS:
+            old_reports = target_site / folder
+            if not old_reports.is_dir() or old_reports.is_symlink():
+                continue
+            (hold_dir / folder).mkdir(parents=True, exist_ok=True)
+            for child in sorted(old_reports.iterdir(), key=lambda p: p.name):
                 if child.is_dir() and not child.is_symlink() and child.name != snapshot_id and not child.name.startswith("."):
-                    shutil.move(str(child), str(hold_dir / "black-holes" / child.name))
-                    kept_frozen.append(child.name)
+                    shutil.move(str(child), str(hold_dir / folder / child.name))
+                    kept_frozen.append(f"{folder}/{child.name}")
 
         # 2. Preserve at most `keep_previous_data` newest prior data/<prev_id>/ directories.
         old_data = target_site / "data"
@@ -402,11 +410,13 @@ def stage_site(
             else:
                 shutil.copy2(src, dst, follow_symlinks=False)
 
-        # 5. Restore preserved historical black-holes/<old_id>/ and prior data/<prev_id>/.
-        if (hold_dir / "black-holes").is_dir():
-            (target_site / "black-holes").mkdir(parents=True, exist_ok=True)
-            for child in sorted((hold_dir / "black-holes").iterdir(), key=lambda p: p.name):
-                dst = target_site / "black-holes" / child.name
+        # 5. Restore the preserved frozen report copies and prior data/<prev_id>/.
+        for folder in FROZEN_REPORT_DIRS:
+            if not (hold_dir / folder).is_dir():
+                continue
+            (target_site / folder).mkdir(parents=True, exist_ok=True)
+            for child in sorted((hold_dir / folder).iterdir(), key=lambda p: p.name):
+                dst = target_site / folder / child.name
                 if not dst.exists():
                     shutil.move(str(child), str(dst))
 

@@ -3099,6 +3099,20 @@ def first_pull_requests_hooks(stats: dict, sid: str) -> dict[str, str]:
     return hooks
 
 
+def _first_pull_requests_side_claims(stats: dict) -> dict[str, bool]:
+    """The report's side claims, read here from the stats file and not by the page module: the first and returning
+    waiting curves within two points after two months of silence; a comment with no ask and no tag spanning zero, for
+    first pull requests and over all outside ones; asking's merge gap above zero. Keys: the page module's."""
+    curve = {row["days"]: row["merged"] for row in stats["first"]["merged_if_silent"]}
+    other_curve = {row["days"]: row["merged"] for row in stats["returning"]["merged_if_silent"]}
+    spans_zero = lambda arm: arm["gap_answered_range"][0] < 0 < arm["gap_answered_range"][1]  # noqa: E731
+    return {
+        "lines_meet": abs(curve[60] - other_curve[60]) <= 0.02,
+        "comment_shows_nothing": spans_zero(stats["asking"]["day14_first"]["other"]) and spans_zero(stats["asking"]["day14_all"]["other"]),
+        "merges_follow": stats["asking"]["day14_first"]["ask_recent"]["gap_merged_range"][0] > 0,
+    }
+
+
 def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of: str, data_dir: Optional[Path], log=print) -> dict:
     """``/first-pull-requests/`` and its data file against the stats file: every ``data-v`` hook equals its value worked out
     here, every hook is there and no other is; the data file's sentences are the page module's, and each is on the page,
@@ -3133,7 +3147,11 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     # the record's words with this file's numbers: a sentence on the page that is not its template, filled, is a mismatch
     fill = lambda template: template.format(**hooks)  # noqa: E731
     sentences = record["sentences"]
-    ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} sentences are the page module's", sentences, json.loads(json.dumps(fpr_page.SENTENCES)))
+    expected_sentences = json.loads(json.dumps(fpr_page.SENTENCES))
+    for claim, holds in _first_pull_requests_side_claims(stats).items():
+        if not holds:
+            expected_sentences.update({key: fpr_page.ALTERNATE_SENTENCES[key] for key in fpr_page.SIDE_CLAIM_SENTENCES[claim]})
+    ledger.equal(f"data/{sid}/{fpr_page.DATA_FILE} sentences are the page module's, each side sentence worded for these numbers", sentences, expected_sentences)
     ledger.equal(f"{rel} h1", [t for tag, t in page.headings if tag == "h1"], [fill(sentences["h1"])])
     ledger.equal(f"{rel} lede", page.text(cls="report-lede"), fill(sentences["lede"]))
     h2 = [t for tag, t in page.headings if tag == "h2"]
@@ -3185,15 +3203,12 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     # the claims that hold only for some numbers, read here from the stats file
     first, returning = stats["first"], stats["returning"]
     curve = {row["days"]: row["merged"] for row in first["merged_if_silent"]}
-    other_curve = {row["days"]: row["merged"] for row in returning["merged_if_silent"]}
     answered = {row["hours"]: row["share"] for row in first["answered_by"]}
     answered_other = {row["hours"]: row["share"] for row in returning["answered_by"]}
-    ask, none_ask = stats["asking"]["day14_first"]["ask_recent"], stats["asking"]["day14_first"]["other"]
+    ask = stats["asking"]["day14_first"]["ask_recent"]
     ledger.equal("'More than half hear nothing for two weeks' holds", answered[336] < 0.5, True)
     ledger.equal("'the odds of a merge have more than halved' holds", curve[14] * 2 < curve[0], True)
-    ledger.equal("'the two lines nearly meet' holds", abs(curve[60] - other_curve[60]) <= 0.02, True)
     ledger.equal("'Authors who asked got more answers' holds (the range is above zero)", ask["gap_answered_range"][0] > 0, True)
-    ledger.equal("'Other comments got none' holds (the range spans zero)", none_ask["gap_answered_range"][0] < 0 < none_ask["gap_answered_range"][1], True)
     ledger.equal("'The first pull request waits longest' holds", all(answered[h] < answered_other[h] for h in answered), True)
     ledger.equal("'In most open source projects, one person answers the newcomers' holds", stats["who_answers"]["over_half"] > 0.5, True)
     ledger.equal("'Even at 50,000 stars, one person usually gives most first answers' holds", stats["who_answers"]["large"]["over_half"] > 0.5, True)
@@ -3216,6 +3231,21 @@ def verify_first_pull_requests(site: Path, stats_path: Path, *, sid: str, as_of:
     ledger.equal(f"{rel} links the lookup", "/lookup/" in page.links, True)
     ledger.equal(f"{rel} links its data file", f"/data/{sid}/{fpr_page.DATA_FILE}" in page.links, True)
     ledger.equal(f"{rel} canonical address", re.findall(r'<link rel="canonical" href="([^"]*)"', text), [f"{SITE_ORIGIN}/first-pull-requests/"])
+    # the frozen copy for this snapshot, kept for citations: the same report under its own title and address, one
+    # stylesheet of its own (the site's joined), no script, and the report's data file beside it
+    frozen_rel = f"first-pull-requests/{sid}/index.html"
+    frozen = (site / frozen_rel).read_text(encoding="utf-8") if (site / frozen_rel).is_file() else None
+    ledger.equal(f"{frozen_rel} is a page of the export", frozen is not None, True)
+    if frozen is not None:
+        ledger.equal(f"{frozen_rel} draws the same report", _report_main(frozen), _report_main(text))
+        ledger.equal(f"{frozen_rel} title", [html.unescape(t) for t in re.findall(r"<title>([^<]*)</title>", frozen)], [f"{sentences['title']}, snapshot {sid} | Porchlamp"])
+        ledger.equal(f"{frozen_rel} canonical address", re.findall(r'<link rel="canonical" href="([^"]*)"', frozen), [f"{SITE_ORIGIN}/first-pull-requests/{sid}/"])
+        ledger.equal(f"{frozen_rel} stylesheets", re.findall(r'<link rel="stylesheet" href="([^"]*)">', frozen), [f"/first-pull-requests/{sid}/styles.css"])
+        ledger.equal(f"{frozen_rel} loads no script of the report's", [s for s in re.findall(r'<script[^>]* src="([^"]*)"', frozen) if s != "/theme-init.js"], [])
+        styles = site / "first-pull-requests" / sid / "styles.css"
+        ledger.equal(f"first-pull-requests/{sid}/styles.css is the site's stylesheets, joined", styles.read_text(encoding="utf-8") if styles.is_file() else None, _shipped_stylesheet(site))
+        beside = site / "first-pull-requests" / sid / fpr_page.DATA_FILE
+        ledger.equal(f"first-pull-requests/{sid}/{fpr_page.DATA_FILE} is the report's data file", json.loads(beside.read_text(encoding="utf-8")) if beside.is_file() else None, record)
     # the lookup: a form and nothing that runs before the button
     lookup_rel = "lookup/index.html"
     lookup = (site / lookup_rel).read_text(encoding="utf-8") if (site / lookup_rel).is_file() else ""
