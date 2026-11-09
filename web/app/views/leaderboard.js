@@ -547,6 +547,17 @@ function listSentence(template, numbers, words = {}) {
   return { html: fill(template, slots), text: String(template).replace(SLOT, (_m, id) => plain[id]) };
 }
 
+/** The numbers of the first-timer lens's gate, from the methodology's persona gates. A number the methodology lacks,
+ *  or all of them before it has loaded, is null, and the gate's sentence is left out. */
+function firstTimerGateNumbers(methodology) {
+  const gates = methodology && methodology.personas ? methodology.personas.gates : null;
+  const gate = Array.isArray(gates) ? gates.find((g) => g.persona === "first_timer") : null;
+  if (!gate || !gate.thresholds) return {};
+  const t = gate.thresholds;
+  const text = (value, scale = 1) => (typeof value === "number" && Number.isFinite(value) ? String(Math.round(value * scale)) : null);
+  return { min_prs: text(t.min_decided_prs), min_rate: text(t.min_mr_first, 100), min_issues: text(t.min_newcomer_issues) };
+}
+
 /** What kind of list a route is: "rankings", "fastest", "ecosystem-lens", "lens" or "ecosystem". */
 function listKind(route) {
   const fixed = route.fixed || {};
@@ -620,7 +631,12 @@ export function listHead(state) {
         .join(" · ");
       links = `<p class="list-sublinks" data-list-sublinks="true">${links}</p>`;
     } else if (kind === "lens" || kind === "ecosystem-lens") {
-      add(kind === "lens" ? copy.LIST_INTRO_LENS : copy.LIST_INTRO_ECOSYSTEM_LENS);
+      if (fixed.persona === "first_timer") {
+        add(kind === "lens" ? copy.LIST_INTRO_FIRST_TIMERS : copy.LIST_INTRO_ECOSYSTEM_FIRST_TIMERS);
+        add(copy.LIST_INTRO_FIRST_TIMER_GATE, firstTimerGateNumbers(methodology));
+      } else {
+        add(kind === "lens" ? copy.LIST_INTRO_LENS : copy.LIST_INTRO_ECOSYSTEM_LENS);
+      }
       add(copy.LIST_INTRO_WEIGHS, { weights: lensWeightsText(methodology, fixed.persona) });
     } else {
       // A fastest list counts what it lists: the rows before its cut (at most a page), not the projects in scope.
