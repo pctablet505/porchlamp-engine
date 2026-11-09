@@ -17,7 +17,7 @@ that scores a repository, because it is rendered from the same values.
 ## Reproducing a snapshot
 
 ```
-porchlamp reproduce <snapshot dir>
+python -m porchlamp.snapshot reproduce <snapshot-id>
 ```
 
 Every score this document describes is reproducible byte-for-byte from its
