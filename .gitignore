@@ -35,3 +35,6 @@ data/
 
 # local Claude Code launch/config (per-machine)
 .claude/
+
+# Agent working notes stay out of the repository (moved to a private folder before the repository went public).
+.agents/
