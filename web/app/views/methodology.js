@@ -498,7 +498,8 @@ function limitsBody() {
 }
 
 function contributeBody() {
-  const part = (p) => (Array.isArray(p) ? `<a href="${escapeHtml(p[1])}">${escapeHtml(p[0])}</a>` : escapeHtml(p));
+  const link = ([label, href]) => `<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`;
+  const part = (p) => (Array.isArray(p) ? link(p) : escapeHtml(p));
   return `<ul class="spec-rules">${copy.METHODOLOGY_CONTRIBUTE_ITEMS.map((item) => `<li>${item.map(part).join("")}</li>`).join("")}</ul>`;
 }
 

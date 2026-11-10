@@ -1453,11 +1453,11 @@ export const ISSUE_LINK_TAIL = " and say what looks wrong.";
 export const ISSUE_TITLE_PREFIX = "Porchlamp record: ";
 /** The engine's issue forms (.github/ISSUE_TEMPLATE/). A project page opens the record form with its title filled in:
  *  ISSUE_BASE is RECORD_FORM_HREF plus the title parameter. tests/test_site_chrome.py holds all three to the forms. */
-export const RECORD_FORM_HREF = "https://github.com/pctablet505/porchlamp-engine/issues/new?template=wrong-record.yml";
-export const IDEA_FORM_HREF = "https://github.com/pctablet505/porchlamp-engine/issues/new?template=idea.yml";
+const RECORD_FORM_HREF = "https://github.com/pctablet505/porchlamp-engine/issues/new?template=wrong-record.yml";
+const IDEA_FORM_HREF = "https://github.com/pctablet505/porchlamp-engine/issues/new?template=idea.yml";
 export const ISSUE_BASE = "https://github.com/pctablet505/porchlamp-engine/issues/new?template=wrong-record.yml&title=";
 /** How a change to a scored constant is proposed and reviewed. */
-export const RFC_PROCEDURE_HREF = "https://github.com/pctablet505/porchlamp-engine/blob/main/docs/v2/rfcs/README.md";
+const RFC_PROCEDURE_HREF = "https://github.com/pctablet505/porchlamp-engine/blob/main/docs/v2/rfcs/README.md";
 /**
  * The methodology's last section, METHODOLOGY_SECTION_CONTRIBUTE: one list item per array, each part either words or
  * a link as [label, href].
