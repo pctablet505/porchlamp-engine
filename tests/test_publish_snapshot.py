@@ -83,6 +83,13 @@ def test_render_readme_and_citation_cff_are_deterministic_and_exact():
         "The engine that collects the data is open source under the Apache License 2.0: "
         "https://github.com/pctablet505/porchlamp-engine ." in readme
     )
+    help_at, license_at = readme.find("\n## Help improve it\n"), readme.find("\n## License and citation\n")
+    assert -1 < help_at < license_at, "the way to help sits before the licence"
+    words = " ".join(readme[help_at:license_at].split())
+    assert "every issue and pull request gets a reply from a person within 14 days" in words
+    assert "Each project page ends with a link that opens a report with the project filled in." in words
+    assert "https://github.com/pctablet505/porchlamp-engine/blob/main/CONTRIBUTING.md" in words
+    assert "rebuilt at every publish, so a change made here would be overwritten" in words
 
     cff = pub_mod.render_citation_cff(SAMPLE_SNAPSHOT, SAMPLE_REPORT)
     assert 'version: "2026-10-27"' in cff

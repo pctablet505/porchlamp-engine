@@ -1536,7 +1536,7 @@ METHODOLOGY_FORMER_IDS = ("gates", "pillars", "parameters", "missing-data", "len
 #: The view's sections, in page order, by their copy.js label names.
 METHODOLOGY_SECTIONS = (
     "SNAPSHOT", "GATES", "PILLARS", "PARAMETERS", "MISSINGNESS", "PERSONAS", "TIE_BREAK", "DETECTORS", "LIMITS",
-    "PROCESS_CONSTANTS", "RFC_LOG",
+    "PROCESS_CONSTANTS", "RFC_LOG", "CONTRIBUTE",
 )
 
 

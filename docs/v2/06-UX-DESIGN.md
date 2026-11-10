@@ -36,7 +36,8 @@ Header: brand · snapshot chip (id, version) · persona switcher · ecosystem sc
 Primary tabs: Leaderboard (A) · Matrix (B) · Compare (E) · Configure weights (D) · Methodology (F)
 Leaderboard has two sub-tabs: Ranked (default) · Not ranked (gated + unrated)
 Drawer (C): repository detail, opened from A, B, E; URL-addressable
-Footer: snapshot id · benchmark version · constants hash · manifest root · "verify" link to F
+Footer: lists by language and lens · snapshot id · benchmark version · constants hash · manifest root ·
+        Methodology (F) · Report · Data on GitHub · Code on GitHub · Contribute to Porchlamp (CONTRIBUTING.md)
 ```
 
 URL state (U-9): each view has its own path (`web/app/routes.js`: `/`, `/not-ranked/`, `/matrix/`, `/compare/`,

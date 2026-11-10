@@ -391,7 +391,7 @@ def _percent(weight: float) -> str:
 
 
 SECTION_LABELS = ("Snapshot", "Gates", "Pillars", "Parameters", "Missingness", "Personas", "Tie-breakers", "Detectors",
-                  "Limits", "Process constants", "Change log")
+                  "Limits", "Process constants", "Change log", "Propose a change")
 OLD_ANCHORS = ("gates", "pillars", "parameters", "missing-data", "lenses", "tie-break", "limits", "reproduce", "hashes",
                *(f"d-gate-{n}" for n in range(1, 7)), "d-evid-1")
 
@@ -737,6 +737,30 @@ def test_the_toggle_shows_one_icon_the_theme_in_force_on_a_static_and_an_app_pag
 def test_the_lens_addresses_and_the_data_link_agree_with_the_python_pages():
     assert report_pages.copy_js_map("LENS_PAGE_HREFS") == {lens: f"/{slug}/" for lens, slug in report_pages.LENS_SLUGS.items()}
     assert report_pages.copy_js_string("FOOTER_DATA_HREF") == report_pages.GITHUB_REPO
+
+
+def test_the_code_guide_and_issue_links_open_files_and_forms_this_repository_holds():
+    """The footer's code and contributor-guide links, the methodology's forms and every project page's "Open an issue
+    about this record" point into the engine's repository, at files it holds. The record form's default title is the
+    prefix a project page fills in, so a report opened from a page names its project, and one opened on GitHub starts
+    with the same words."""
+    import yaml
+
+    engine = "https://github.com/pctablet505/porchlamp-engine"
+    assert report_pages.copy_js_string("FOOTER_CODE_HREF") == engine
+    for name in ("FOOTER_CONTRIBUTE_HREF", "RFC_PROCEDURE_HREF"):
+        href = report_pages.copy_js_string(name)
+        assert href.startswith(f"{engine}/blob/main/"), (name, href)
+        assert (ROOT / href.removeprefix(f"{engine}/blob/main/")).is_file(), (name, href)
+    forms = {}
+    for name in ("RECORD_FORM_HREF", "IDEA_FORM_HREF"):
+        href = report_pages.copy_js_string(name)
+        found = re.fullmatch(rf"{re.escape(engine)}/issues/new\?template=([\w-]+\.yml)", href)
+        assert found, (name, href)
+        forms[name] = yaml.safe_load((ROOT / ".github" / "ISSUE_TEMPLATE" / found.group(1)).read_text(encoding="utf-8"))
+        assert forms[name]["body"], name
+    assert report_pages.copy_js_string("ISSUE_BASE") == report_pages.copy_js_string("RECORD_FORM_HREF") + "&title="
+    assert forms["RECORD_FORM_HREF"]["title"] == report_pages.copy_js_string("ISSUE_TITLE_PREFIX")
 
 
 # --------------------------------------------------------------------------- #

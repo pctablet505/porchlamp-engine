@@ -84,18 +84,16 @@ Design documents: [docs/README.md](docs/README.md), [docs/METHODOLOGY-v2.md](doc
 ## Quickstart
 
 ```bash
+git clone https://github.com/pctablet505/porchlamp-engine.git
 cd porchlamp-engine
-
-# venv: .venv — Python 3.12 with pytest + pytest-xdist, fastapi + httpx and
-# uvicorn installed (pyproject extras: `dev` = test deps, `server` = uvicorn).
-# Gotcha: some shells export PYTEST_ADDOPTS (here observed `-n 6`, previously
-# `-n 6 -n 6`), which pollutes the explicit `-n auto` — always run pytest with
-# it unset:
-env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n auto -p no:cacheprovider
+python3.12 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/python -m pytest tests/ -n auto
 ```
 
-On 2026-09-23 the suite ran 2,774 passed, 1 skipped (a manual procedure) and
-1 xfailed (a documented reproject limitation). CI runs on Python 3.12.
+CI runs this suite on Python 3.12, with lint and the UI's Node tests.
+[CONTRIBUTING.md](CONTRIBUTING.md) lists every check, and how to see the app
+with sample data.
 
 ## Architecture
 
@@ -156,6 +154,13 @@ Base path `/v1/porchlamp`; every response names its snapshot.
   `scripts/verify_static_export.py`, including planted mutants of `web/static/api.js`.
 - **CI** (`.github/workflows/ci.yml`) runs lint, the Node UI suite, the full
   pytest suite and an sdist install check on Python 3.12.
+
+## Contributing
+
+Porchlamp welcomes help, and every issue and pull request gets a reply from a
+person within 14 days. Report a record that looks wrong, fix a bug, or propose
+a better way to measure: start with [CONTRIBUTING.md](CONTRIBUTING.md).
+Security problems go to [SECURITY.md](SECURITY.md), not a public issue.
 
 ## License
 

@@ -1,0 +1,20 @@
+name: Idea
+description: Propose a change to the method, the site or the engine.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What a contributor or a maintainer cannot do, or gets wrong, today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Your proposal
+      description: >-
+        What would change, and how we could tell it works. A change to a scored constant (a weight, a threshold, a
+        curve) becomes an RFC: https://github.com/pctablet505/porchlamp-engine/blob/main/docs/v2/rfcs/README.md
+    validations:
+      required: true
