@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+import math
 import random
 import sqlite3
 import sys
@@ -1014,6 +1015,38 @@ def test_reproject_porchlamp_rounds_the_same_way_sql_orders_and_groups_at_a_2dp_
     by_name = {row["name"]: row for row in rows}
     assert by_name["half-a"]["porchlamp"] == by_name["half-b"]["porchlamp"] == sql_rounded == 82.13
     assert by_name["half-a"]["tie_group"] == by_name["half-b"]["tie_group"] is not None
+
+
+def test_reproject_does_not_depend_on_how_the_sqlite_library_reads_round_back(tmp_path) -> None:
+    """SQLite's ``ROUND(x, n)`` prints ``x`` and reads the text back, and
+    the read depends on the library: 3.46.1 reads ``0.803875589921`` as
+    ``0.8038755899209999``, where 3.53.1 reads it exactly. That gave
+    GitHub's runner a custom coverage one unit in the last place off the
+    browser's. Here ``ROUND`` is replaced on the connection by the worst
+    such library, one that picks its own decimal but always reads it back
+    one double low; every custom row must come out exactly as before."""
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    items = []
+    for i, (score, coverage) in enumerate([(81.37, 1.0), (64.123, 0.85), (90.0, 0.7), (55.5, 0.95), (72.25, 0.6)]):
+        pillars = {p: PillarScore(score=score + j, coverage=coverage) for j, p in enumerate(PILLARS)}
+        record = dc_replace(make_rated_record("snap-1", owner="a", name=f"r{i}"), pillars=pillars)
+        items.append(make_repo_write(record))
+    write_records(conn, "snap-1", items)
+    weights = {"responsiveness": 0.3, "criticality": 0.2, "governance": 0.25, "rigor": 0.15, "accessibility": 0.1}
+    library = sqlite3.connect(":memory:")
+
+    def round_read_back_one_double_low(value, digits):
+        if value is None:
+            return None
+        printed = library.execute("SELECT ROUND(?, ?)", (value, digits)).fetchone()[0]
+        return math.nextafter(printed, -math.inf)
+
+    exact_rows, exact_total = queries.reproject(conn, "snap-1", weights, limit=queries.MAX_LIMIT)
+    conn.create_function("ROUND", 2, round_read_back_one_double_low, deterministic=True)
+    low_rows, low_total = queries.reproject(conn, "snap-1", weights, limit=queries.MAX_LIMIT)
+    library.close()
+    assert exact_total == 5
+    assert (low_total, low_rows) == (exact_total, exact_rows)
 
 
 def test_reproject_tier_cutoff_uses_the_unrounded_composite_not_the_displayed_porchlamp(tmp_path) -> None:
