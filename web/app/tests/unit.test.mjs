@@ -1150,10 +1150,26 @@ test("methodology: the index and the body come from one list (same ids, same ord
   const index = sectionIndex(METHODOLOGY_DOC, SNAPSHOT_DOC);
   const sectionIds = [...html.matchAll(/<section class="doc-section" id="([^"]+)"/g)].map((m) => m[1]);
   const jumpIds = [...html.matchAll(/class="doc-index-link" href="#[^"]+" data-doc-jump="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(index.length, 11, "snapshot + the ten methodology sections (Limits among them)");
+  assert.equal(index.length, 12, "snapshot + the eleven methodology sections (Limits and Propose a change among them)");
   assert.deepEqual(sectionIds, index.map((e) => e.id));
   assert.deepEqual(jumpIds, index.map((e) => e.id));
   assert.equal(new Set(sectionIds).size, sectionIds.length, "section ids are unique");
+});
+
+test("methodology: the last section says how to propose a change, with the forms and the code as real links", () => {
+  const html = methodologyShell(SNAPSHOT_DOC);
+  const sectionIds = [...html.matchAll(/<section class="doc-section" id="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(sectionIds.at(-1), "methodology-contribute", "after the change log");
+  const start = html.indexOf('<section class="doc-section" id="methodology-contribute"');
+  const section = html.slice(start, html.indexOf("</section>", start));
+  assert.ok(section.includes('<h2 class="doc-section-title" id="methodology-contribute-title" tabindex="-1">Propose a change</h2>'));
+  assert.ok(section.includes("every issue and pull request gets a reply from a person within 14 days"), "the reply promise");
+  assert.deepEqual([...section.matchAll(/<a href="([^"]+)">([^<]+)<\/a>/g)].map((m) => [m[1], m[2]]), [
+    ["https://github.com/pctablet505/porchlamp-engine/issues/new?template=wrong-record.yml", "report a wrong record"],
+    ["https://github.com/pctablet505/porchlamp-engine/issues/new?template=idea.yml", "Open an idea"],
+    ["https://github.com/pctablet505/porchlamp-engine/blob/main/docs/v2/rfcs/README.md", "public RFC"],
+    ["https://github.com/pctablet505/porchlamp-engine", "GitHub"],
+  ]);
 });
 
 test("methodology: the database digest row shows fetchManifest's digest; the API's server has none, so no row", async () => {
@@ -2728,12 +2744,14 @@ test("leaderboard: one visible findings line under the header links to the stati
   assert.ok(html.indexOf("data-findings-line") < html.indexOf("data-primary-tab") || !html.includes("data-primary-tab"));
 });
 
-test("footer: one methodology link, the report and the data, real links from the site root", () => {
+test("footer: one methodology link, the report, the data, the code and the guide for contributors, real links", () => {
   const footer = renderFooter({ kind: "ok", snapshot: { snapshot_id: "2026-10-17", benchmark_version: "2.0.0", constants_hash: "a".repeat(64), manifest_root: "b".repeat(64) } });
-  assert.deepEqual([...footer.matchAll(/<a href="([^"]*)"( data-route-tab="[^"]*")?>([^<]*)<\/a>/g)].map((m) => [m[1], m[3]]).slice(-3), [
+  assert.deepEqual([...footer.matchAll(/<a href="([^"]*)"( data-route-tab="[^"]*")?>([^<]*)<\/a>/g)].map((m) => [m[1], m[3]]).slice(-5), [
     ["/methodology/", "Methodology"],
     ["/first-pull-requests/", "Report"],
     ["https://github.com/pctablet505/porchlamp", "Data on GitHub"],
+    ["https://github.com/pctablet505/porchlamp-engine", "Code on GitHub"],
+    ["https://github.com/pctablet505/porchlamp-engine/blob/main/CONTRIBUTING.md", "Contribute to Porchlamp"],
   ]);
   assert.ok(footer.includes('<a href="/methodology/" data-route-tab="methodology">'), "the app opens the methodology in place");
   for (const [id, value] of [["footer.snapshot_id", "2026-10-17"], ["footer.benchmark_version", "2.0.0"], ["footer.constants_hash", "a".repeat(12)], ["footer.manifest_root", "b".repeat(12)]]) {
@@ -3869,6 +3887,18 @@ test("project: the anchors the old page and panel had are present, and so are th
   // The panel sits on the list's page: no other view may use one of these ids.
   const others = ["leaderboard", "notranked", "matrix", "compare", "configure", "methodology", "report"].map((v) => readFileSync(path.join(WEB_ROOT, "views", `${v}.js`), "utf8")).join("\n");
   assert.doesNotMatch(others, / id="(answer|rating|pillars|lenses|similar|evidence|correction|parameters|black-hole|key-facts)"/);
+});
+
+test("project: the correction link opens the engine's wrong-record form with the project in its title", () => {
+  for (const mode of ["page", "panel"]) {
+    const link = projectHtml(PROJECT_RECORDS["vllm-project__vllm"], mode).match(/<p id="correction"><a href="([^"]+)">Open an issue about this record<\/a>/);
+    assert.ok(link, `${mode}: the correction line links its form`);
+    assert.equal(
+      link[1].replaceAll("&amp;", "&"),
+      "https://github.com/pctablet505/porchlamp-engine/issues/new?template=wrong-record.yml&title=Porchlamp%20record%3A%20vllm-project%2Fvllm",
+      mode
+    );
+  }
 });
 
 test("project: the radar is aria-hidden, its labels are 13 px or more where a phone's column is no wider than the viewBox, and a table says the same in text", () => {

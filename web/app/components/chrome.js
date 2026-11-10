@@ -189,7 +189,8 @@ function renderFooterBrowse() {
 }
 
 /** The footer: the lists people search for, then the snapshot's identity (with a retry when it could not load), then
- *  the methodology, the report and the data. `fields` is state.js footerFieldsFor's answer. */
+ *  the methodology, the report, the data, the code and the guide for contributors. `fields` is state.js
+ *  footerFieldsFor's answer. */
 export function renderFooter(fields) {
   const f = footerFieldsHtml(fields);
   return (
@@ -201,7 +202,9 @@ export function renderFooter(fields) {
     `<button type="button" class="icon-button" data-footer-retry="true"${hidden(fields.kind === "error")}>${escapeHtml(copy.RETRY_LABEL)}</button>` +
     `<a href="${escapeHtml(routePath("methodology"))}" data-route-tab="methodology">${escapeHtml(copy.FOOTER_METHODOLOGY_LABEL)}</a>` +
     `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}">${escapeHtml(copy.FOOTER_REPORT_LABEL)}</a>` +
-    `<a href="${escapeHtml(copy.FOOTER_DATA_HREF)}">${escapeHtml(copy.FOOTER_DATA_LABEL)}</a>`
+    `<a href="${escapeHtml(copy.FOOTER_DATA_HREF)}">${escapeHtml(copy.FOOTER_DATA_LABEL)}</a>` +
+    `<a href="${escapeHtml(copy.FOOTER_CODE_HREF)}">${escapeHtml(copy.FOOTER_CODE_LABEL)}</a>` +
+    `<a href="${escapeHtml(copy.FOOTER_CONTRIBUTE_HREF)}">${escapeHtml(copy.FOOTER_CONTRIBUTE_LABEL)}</a>`
   );
 }
 

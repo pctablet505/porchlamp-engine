@@ -1,0 +1,31 @@
+name: Wrong record
+description: A project on porchlamp.org shows a number, a gate or a reason that looks wrong.
+title: "Porchlamp record: "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Put the project's owner/name after "Porchlamp record:" in the title (a project page fills it in for you).
+        How every number is measured: https://porchlamp.org/methodology/
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What looks wrong
+      options:
+        - A bot is counted as a person
+        - It reviews patches outside GitHub (mailing list, Gerrit, Phabricator)
+        - It is not software
+        - The reason it is not ranked is wrong
+        - A number on its page is wrong
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: >-
+        What you see, and what you expected. Links to the pull requests, accounts or documents that show it are
+        the fastest way to a fix.
+    validations:
+      required: true

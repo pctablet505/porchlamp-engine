@@ -990,6 +990,7 @@ export const METHODOLOGY_SECTION_PROCESS_CONSTANTS = "Process constants";
 export const METHODOLOGY_SECTION_RFC_LOG = "Change log";
 export const METHODOLOGY_SECTION_SNAPSHOT = "Snapshot";
 export const METHODOLOGY_SECTION_LIMITS = "Limits";
+export const METHODOLOGY_SECTION_CONTRIBUTE = "Propose a change";
 export const METHODOLOGY_COL_WEIGHT = "Weight";
 export const METHODOLOGY_COL_MIN_N = "Min n";
 export const METHODOLOGY_COL_WINDOW = "Window";
@@ -1052,6 +1053,8 @@ export const METHODOLOGY_SECTION_LEDES = Object.freeze({
   detectors: "Integrity checks run against the previous snapshot. They flag a row for review; they never change a score or a rank.",
   process_constants: "Constants of the release process, not of any score, so they sit outside the constants hash.",
   rfc_log: "The history of the scored constants, newest first, with the constants hash each change produced.",
+  contribute:
+    "The method and the code that runs it are open source. Anyone can propose a change, and every issue and pull request gets a reply from a person within 14 days.",
 });
 export const METHODOLOGY_DETECTOR_SUMMARY_LABEL = "Detector flags in this snapshot";
 export const METHODOLOGY_DETECTOR_SUMMARY_NONE = "No detector flagged a row in this snapshot.";
@@ -1211,9 +1214,13 @@ export const FOOTER_BROWSE_ALL_LANGUAGES = "All languages";
 export const FOOTER_BROWSE_MORE = "More lists";
 export const FOOTER_BROWSE_FASTEST = "Fastest replies";
 export const FOOTER_METHODOLOGY_LABEL = "Methodology";
-/** The footer's last link: the published data and code. */
+/** The footer's last links: the published data, the engine's code, and its guide for contributors. */
 export const FOOTER_DATA_LABEL = "Data on GitHub";
 export const FOOTER_DATA_HREF = "https://github.com/pctablet505/porchlamp";
+export const FOOTER_CODE_LABEL = "Code on GitHub";
+export const FOOTER_CODE_HREF = "https://github.com/pctablet505/porchlamp-engine";
+export const FOOTER_CONTRIBUTE_LABEL = "Contribute to Porchlamp";
+export const FOOTER_CONTRIBUTE_HREF = "https://github.com/pctablet505/porchlamp-engine/blob/main/CONTRIBUTING.md";
 
 // --- Pages the app does not draw (scripts/export_static.py --stats writes them), linked from its views ----------
 /** Each lens's own page; the balanced lens is the rankings themselves. porchlamp/serve/report_pages.py LENS_SLUGS
@@ -1444,7 +1451,28 @@ export const METHOD_LINK_LABEL = "Porchlamp methodology";
 export const ISSUE_LINK_LABEL = "Open an issue about this record";
 export const ISSUE_LINK_TAIL = " and say what looks wrong.";
 export const ISSUE_TITLE_PREFIX = "Porchlamp record: ";
-export const ISSUE_BASE = "https://github.com/pctablet505/porchlamp/issues/new?title=";
+/** The engine's issue forms (.github/ISSUE_TEMPLATE/). A project page opens the record form with its title filled in:
+ *  ISSUE_BASE is RECORD_FORM_HREF plus the title parameter. tests/test_site_chrome.py holds all three to the forms. */
+const RECORD_FORM_HREF = "https://github.com/pctablet505/porchlamp-engine/issues/new?template=wrong-record.yml";
+const IDEA_FORM_HREF = "https://github.com/pctablet505/porchlamp-engine/issues/new?template=idea.yml";
+export const ISSUE_BASE = "https://github.com/pctablet505/porchlamp-engine/issues/new?template=wrong-record.yml&title=";
+/** How a change to a scored constant is proposed and reviewed. */
+const RFC_PROCEDURE_HREF = "https://github.com/pctablet505/porchlamp-engine/blob/main/docs/v2/rfcs/README.md";
+/**
+ * The methodology's last section, METHODOLOGY_SECTION_CONTRIBUTE: one list item per array, each part either words or
+ * a link as [label, href].
+ */
+export const METHODOLOGY_CONTRIBUTE_ITEMS = Object.freeze([
+  Object.freeze(["A record looks wrong? Use the link at the end of its project page, or ", Object.freeze(["report a wrong record", RECORD_FORM_HREF]), "."]),
+  Object.freeze([
+    "A better way to measure something? ",
+    Object.freeze(["Open an idea", IDEA_FORM_HREF]),
+    ". A change to a scored constant goes through a ",
+    Object.freeze(["public RFC", RFC_PROCEDURE_HREF]),
+    " and joins the change log above.",
+  ]),
+  Object.freeze(["The code, the tests and the words on this site are on ", Object.freeze(["GitHub", FOOTER_CODE_HREF]), ", with a guide for contributors."]),
+]);
 
 /** One cite line at the end of Integrity. */
 export const SITE_ADDRESS = "https://porchlamp.org";

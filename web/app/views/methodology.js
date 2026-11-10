@@ -497,6 +497,12 @@ function limitsBody() {
   return `<ul class="spec-rules">${copy.LIMITS.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
+function contributeBody() {
+  const link = ([label, href]) => `<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`;
+  const part = (p) => (Array.isArray(p) ? link(p) : escapeHtml(p));
+  return `<ul class="spec-rules">${copy.METHODOLOGY_CONTRIBUTE_ITEMS.map((item) => `<li>${item.map(part).join("")}</li>`).join("")}</ul>`;
+}
+
 // ------------------------------------------------------------ Document
 
 //: The anchors of the static methodology page this view replaced, on the matching section heads.
@@ -513,8 +519,8 @@ const FORMER_SECTION_IDS = Object.freeze({
 /**
  * Every section in reading order: pipeline order (who is eligible, how they
  * are scored, what missing data does, the persona lenses, how ties break,
- * integrity flags, release constants, history). The ONE list both the index
- * and the body are built from.
+ * integrity flags, release constants, history), then how to propose a change.
+ * The ONE list both the index and the body are built from.
  */
 function sectionList(doc, snapshot, sourceDbSha256 = null) {
   const list = [];
@@ -531,7 +537,8 @@ function sectionList(doc, snapshot, sourceDbSha256 = null) {
     { key: "detectors", label: copy.METHODOLOGY_SECTION_DETECTORS, count: doc.detectors.length, body: () => detectorsBody(doc.detectors) },
     { key: "limits", label: copy.METHODOLOGY_SECTION_LIMITS, count: null, body: limitsBody },
     { key: "process_constants", label: copy.METHODOLOGY_SECTION_PROCESS_CONSTANTS, count: doc.not_hashed_process_constants.length, body: () => processConstantsBody(doc.not_hashed_process_constants) },
-    { key: "rfc_log", label: copy.METHODOLOGY_SECTION_RFC_LOG, count: doc.rfc_log.length, body: () => rfcLogBody(doc.rfc_log, doc.constants_hash) }
+    { key: "rfc_log", label: copy.METHODOLOGY_SECTION_RFC_LOG, count: doc.rfc_log.length, body: () => rfcLogBody(doc.rfc_log, doc.constants_hash) },
+    { key: "contribute", label: copy.METHODOLOGY_SECTION_CONTRIBUTE, count: null, body: contributeBody }
   );
   return list;
 }
