@@ -144,7 +144,7 @@ def render_readme(snapshot: dict[str, Any], report: dict[str, Any]) -> str:
         f"  of projects with 1k\u201310k stars, {vals['band2_share']}% at 10k\u201350k, and {vals['band3_share']}% at 50k or more.\n"
         f"- **Stars barely predict the ranking.** Across the {vals['ranked']} ranked projects the\n"
         f"  rank correlation between stars and the Porchlamp score is {vals['rho']}, and {vals['top100_overlap']} of the\n"
-        "  100 most-starred projects makes the top 100.\n"
+        f"  100 most-starred projects {'makes' if vals['top100_overlap'] == '1' else 'make'} the top 100.\n"
         "\n"
         "## Where the numbers come from\n"
         "\n"
@@ -181,7 +181,8 @@ def render_readme(snapshot: dict[str, Any], report: dict[str, Any]) -> str:
         'with credit to "Porchlamp rankings" and a link to https://porchlamp.org/. To cite the dataset, use GitHub\'s '
         '"Cite this repository" button, which reads `CITATION.cff`. To cite a finding, link the report frozen for this '
         f"snapshot: https://porchlamp.org/black-holes/{sid}/ . The code in this repository is not covered by this "
-        "license, and the engine that collects the data is private.\n"
+        "license. The engine that collects the data is open source under the Apache License 2.0: "
+        "https://github.com/pctablet505/porchlamp-engine .\n"
     )
 
 

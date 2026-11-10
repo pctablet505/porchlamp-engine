@@ -75,6 +75,15 @@ def test_render_readme_and_citation_cff_are_deterministic_and_exact():
     assert "- **Snapshot ID:** `2026-10-27` (measured as of `2026-10-22T22:47:00+00:00`, benchmark `2.0.0-rc1`)" in readme
     assert "`constants_hash: 093cefd6c2f4\u2026`" in readme
 
+    assert "and 1 of the\n  100 most-starred projects makes the top 100." in readme
+    ten = {**SAMPLE_REPORT, "values": {**SAMPLE_REPORT["values"], "top100_overlap": "10"}}
+    assert "and 10 of the\n  100 most-starred projects make the top 100." in pub_mod.render_readme(SAMPLE_SNAPSHOT, ten)
+    assert "private" not in readme
+    assert (
+        "The engine that collects the data is open source under the Apache License 2.0: "
+        "https://github.com/pctablet505/porchlamp-engine ." in readme
+    )
+
     cff = pub_mod.render_citation_cff(SAMPLE_SNAPSHOT, SAMPLE_REPORT)
     assert 'version: "2026-10-27"' in cff
     assert "date-released: 2026-10-27" in cff
