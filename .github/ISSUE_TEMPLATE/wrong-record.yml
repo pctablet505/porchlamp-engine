@@ -18,8 +18,6 @@ body:
         - The reason it is not ranked is wrong
         - A number on its page is wrong
         - Something else
-    validations:
-      required: true
   - type: textarea
     id: details
     attributes:
