@@ -1,0 +1,443 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 913,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cadence-workflow/cadence/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T02:46:09.036900+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/cadence-workflow__cadence.json",
+      "source_hash": "586b926ff0cd0d5fb69ae3f188acbe9001d9c0e8d167c6847d75487e6fbb825b",
+      "value": 11,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T02:46:09.834728+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/cadence-workflow__cadence.json",
+      "source_hash": "16c334a2bdaba05f5c1867522b7e3abaa101f014fd0e3d176170a49c209a89ee",
+      "value": 2,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cadence-workflow/cadence/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T02:46:16.256350+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "raw/commits_180d/cadence-workflow__cadence.json",
+    "source_hash": "b5e9b657867341da86dbfabe1b85899d89d90c3eb6db0ccd6adbcbbe302944dc",
+    "value": "2026-09-11T23:03:31Z"
+  },
+  "pr_window": {
+    "end": "2026-09-11T23:03:32+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "c-warren",
+        "closed_at": null,
+        "created_at": "2026-09-11T21:04:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8542
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "c-warren",
+        "closed_at": null,
+        "created_at": "2026-09-11T21:04:32+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8541
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "c-warren",
+        "closed_at": null,
+        "created_at": "2026-09-11T21:04:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8540
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "c-warren",
+        "closed_at": "2026-09-11T23:03:32+00:00",
+        "created_at": "2026-09-11T21:03:58+00:00",
+        "first_human_review_at": "2026-09-11T21:06:05+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T23:03:32+00:00",
+        "pr_number": 8539
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "bowenxia",
+        "closed_at": null,
+        "created_at": "2026-09-11T20:52:42+00:00",
+        "first_human_review_at": "2026-09-11T20:56:16+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 8538
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "YaweiZhang-930",
+        "closed_at": null,
+        "created_at": "2026-09-11T20:19:30+00:00",
+        "first_human_review_at": "2026-09-11T20:21:39+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8537
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vladimir-gavrilenko",
+        "closed_at": "2026-09-11T13:54:44+00:00",
+        "created_at": "2026-09-11T12:42:18+00:00",
+        "first_human_review_at": "2026-09-11T13:53:26+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T13:54:44+00:00",
+        "pr_number": 8536
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vladimir-gavrilenko",
+        "closed_at": "2026-09-11T14:32:43+00:00",
+        "created_at": "2026-09-11T11:43:46+00:00",
+        "first_human_review_at": "2026-09-11T13:52:12+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T14:32:43+00:00",
+        "pr_number": 8535
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "c-warren",
+        "closed_at": "2026-09-11T21:05:19+00:00",
+        "created_at": "2026-09-11T00:13:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8534
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-09-10T03:48:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8532
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-09-10T03:48:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8531
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-09-10T01:35:30+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8530
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "c-warren",
+        "closed_at": "2026-09-10T03:40:14+00:00",
+        "created_at": "2026-09-08T22:13:56+00:00",
+        "first_human_review_at": "2026-09-09T07:02:25+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-10T03:40:14+00:00",
+        "pr_number": 8529
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "abhishekj720",
+        "closed_at": "2026-09-08T21:09:03+00:00",
+        "created_at": "2026-09-08T18:07:29+00:00",
+        "first_human_review_at": "2026-09-08T20:20:56+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-08T21:09:03+00:00",
+        "pr_number": 8528
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "adhityamamallan",
+        "closed_at": "2026-09-09T11:09:37+00:00",
+        "created_at": "2026-09-08T12:49:31+00:00",
+        "first_human_review_at": "2026-09-09T10:53:11+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-09T11:09:37+00:00",
+        "pr_number": 8527
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vladimir-gavrilenko",
+        "closed_at": "2026-09-08T13:56:29+00:00",
+        "created_at": "2026-09-08T12:03:54+00:00",
+        "first_human_review_at": "2026-09-08T12:17:08+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-08T13:56:29+00:00",
+        "pr_number": 8526
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "veerjain-1",
+        "closed_at": null,
+        "created_at": "2026-09-07T15:53:17+00:00",
+        "first_human_review_at": "2026-09-07T15:58:20+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8525
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "fimanishi",
+        "closed_at": "2026-09-04T20:47:04+00:00",
+        "created_at": "2026-09-04T18:08:23+00:00",
+        "first_human_review_at": "2026-09-04T19:40:15+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-04T20:47:04+00:00",
+        "pr_number": 8523
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "fimanishi",
+        "closed_at": null,
+        "created_at": "2026-09-04T06:13:12+00:00",
+        "first_human_review_at": "2026-09-04T06:17:34+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 8522
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "YaweiZhang-930",
+        "closed_at": "2026-09-08T21:30:43+00:00",
+        "created_at": "2026-09-03T23:07:13+00:00",
+        "first_human_review_at": "2026-09-03T23:35:23+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8521
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "fimanishi",
+        "closed_at": "2026-09-09T22:30:55+00:00",
+        "created_at": "2026-09-03T22:06:24+00:00",
+        "first_human_review_at": "2026-09-09T22:02:42+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-09T22:30:55+00:00",
+        "pr_number": 8520
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "adhityamamallan",
+        "closed_at": "2026-09-07T12:02:26+00:00",
+        "created_at": "2026-09-03T14:40:40+00:00",
+        "first_human_review_at": "2026-09-03T14:42:40+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-07T12:02:26+00:00",
+        "pr_number": 8518
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-09-03T14:15:48+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8517
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-09-10T03:48:55+00:00",
+        "created_at": "2026-09-03T14:15:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8516
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vladimir-gavrilenko",
+        "closed_at": "2026-09-03T10:39:22+00:00",
+        "created_at": "2026-09-03T08:53:32+00:00",
+        "first_human_review_at": "2026-09-03T09:26:08+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-03T10:39:22+00:00",
+        "pr_number": 8515
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vladimir-gavrilenko",
+        "closed_at": "2026-09-03T13:52:36+00:00",
+        "created_at": "2026-09-03T08:46:44+00:00",
+        "first_human_review_at": "2026-09-03T13:50:10+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-03T13:52:36+00:00",
+        "pr_number": 8514
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "pujitha24",
+        "closed_at": null,
+        "created_at": "2026-09-02T16:03:47+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8512
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "pujitha24",
+        "closed_at": null,
+        "created_at": "2026-09-02T15:52:38+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8511
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "AndreasHolt",
+        "closed_at": "2026-09-02T14:33:48+00:00",
+        "created_at": "2026-09-02T11:34:33+00:00",
+        "first_human_review_at": "2026-09-02T14:32:11+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-02T14:33:48+00:00",
+        "pr_number": 8510
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vladimir-gavrilenko",
+        "closed_at": "2026-09-02T11:07:23+00:00",
+        "created_at": "2026-09-02T07:15:01+00:00",
+        "first_human_review_at": "2026-09-02T11:05:22+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-02T11:07:23+00:00",
+        "pr_number": 8509
+      }
+    ],
+    "start": "2026-09-02T07:15:01+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "e66afe4a468383e4a46b23731617fc9d095d600ab5c2183bd88b7a2609ade5e8",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "go",
+    "fork": false,
+    "license_spdx": "Apache-2.0",
+    "mirror_url": null,
+    "name": "cadence",
+    "owner": "cadence-workflow"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "297 non-bot commits but none carry an author_email porchlamp.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
+}

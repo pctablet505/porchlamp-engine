@@ -1,0 +1,443 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 3753,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/duckdb/duckdb/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "D-MISS-5: ecosystem == systems has no package registry (2.1 is undefined)",
+      "kind": "unmeasured",
+      "reason": "not_applicable"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T21:00:55.282254+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/duckdb__duckdb.json",
+      "source_hash": "45edd1ec227ecd459f4e180e7185edcc9f6eebe61bbd1675d03f6a801d87abd9",
+      "value": 4,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T21:00:55.896583+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/duckdb__duckdb.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/duckdb/duckdb/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T21:01:02.942815+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "raw/commits_180d/duckdb__duckdb.json",
+    "source_hash": "9ed56ec17e8a0861383b75812195c85b9278a5fb1c381bd1b441cf123c53a360",
+    "value": "2026-09-11T19:14:29Z"
+  },
+  "pr_window": {
+    "end": "2026-09-11T19:58:43+00:00",
+    "events": [
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": null,
+        "created_at": "2026-09-11T19:58:43+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25628
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": null,
+        "created_at": "2026-09-11T19:45:42+00:00",
+        "first_human_review_at": "2026-09-11T19:48:42+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25627
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "artjomPlaunov",
+        "closed_at": null,
+        "created_at": "2026-09-11T18:59:18+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25626
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "carlopi",
+        "closed_at": null,
+        "created_at": "2026-09-11T18:22:35+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25625
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "JaySon-Huang",
+        "closed_at": null,
+        "created_at": "2026-09-11T16:29:15+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 25621
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "huoguocheng",
+        "closed_at": null,
+        "created_at": "2026-09-11T15:47:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 25620
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Kunal8954",
+        "closed_at": null,
+        "created_at": "2026-09-11T15:27:24+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 25619
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Dtenwolde",
+        "closed_at": null,
+        "created_at": "2026-09-11T14:34:16+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25617
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "artjomPlaunov",
+        "closed_at": null,
+        "created_at": "2026-09-11T14:16:27+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25615
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "carlopi",
+        "closed_at": null,
+        "created_at": "2026-09-11T13:55:44+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25614
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "sebastiaan-dev",
+        "closed_at": null,
+        "created_at": "2026-09-11T13:34:13+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25613
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "evertlammerts",
+        "closed_at": null,
+        "created_at": "2026-09-11T13:31:22+00:00",
+        "first_human_review_at": "2026-09-11T13:36:14+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25612
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "maiadegraaf",
+        "closed_at": null,
+        "created_at": "2026-09-11T12:12:52+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25610
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "evertlammerts",
+        "closed_at": null,
+        "created_at": "2026-09-11T11:09:11+00:00",
+        "first_human_review_at": "2026-09-11T11:32:35+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25609
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": null,
+        "created_at": "2026-09-11T10:52:14+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25608
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": null,
+        "created_at": "2026-09-11T10:23:57+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25607
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": null,
+        "created_at": "2026-09-11T09:56:31+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25605
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "kryonix",
+        "closed_at": null,
+        "created_at": "2026-09-11T07:10:06+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25602
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "smvv",
+        "closed_at": "2026-09-11T08:48:59+00:00",
+        "created_at": "2026-09-11T06:04:03+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-09-11T08:48:59+00:00",
+        "pr_number": 25600
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "RK905",
+        "closed_at": null,
+        "created_at": "2026-09-11T05:14:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 25599
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "RK905",
+        "closed_at": "2026-09-11T08:19:35+00:00",
+        "created_at": "2026-09-11T04:45:31+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-11T08:19:35+00:00",
+        "pr_number": 25598
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "linsen458-spec",
+        "closed_at": "2026-09-11T07:56:26+00:00",
+        "created_at": "2026-09-11T04:39:23+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 25597
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "asxvi",
+        "closed_at": null,
+        "created_at": "2026-09-11T04:11:13+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 25596
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "darion-yaphet",
+        "closed_at": null,
+        "created_at": "2026-09-11T03:39:07+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 25595
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": "2026-09-11T09:34:37+00:00",
+        "created_at": "2026-09-11T03:35:11+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-09-11T09:34:37+00:00",
+        "pr_number": 25594
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "asxvi",
+        "closed_at": null,
+        "created_at": "2026-09-11T03:26:22+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 25592
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": "2026-09-11T09:48:26+00:00",
+        "created_at": "2026-09-11T03:17:06+00:00",
+        "first_human_review_at": "2026-09-11T06:16:24+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-11T09:48:26+00:00",
+        "pr_number": 25591
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": null,
+        "created_at": "2026-09-11T02:11:12+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25590
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": null,
+        "created_at": "2026-09-11T00:02:41+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25589
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "dentiny",
+        "closed_at": null,
+        "created_at": "2026-09-10T22:19:50+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 25587
+      }
+    ],
+    "start": "2026-09-10T22:19:50+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "c2f4f801d183cafb311abc215dab5a34adc6c0f4833408bd9edbb46bac9342bc",
+  "repo": {
+    "archived": false,
+    "default_branch": "v2.0-cyanoptera",
+    "ecosystem": "systems",
+    "fork": false,
+    "license_spdx": "MIT",
+    "mirror_url": null,
+    "name": "duckdb",
+    "owner": "duckdb"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "300 non-bot commits but none carry an author_email porchlamp.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
+}

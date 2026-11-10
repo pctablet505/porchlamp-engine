@@ -1,0 +1,4053 @@
+/* View-level layout: leaderboard toolbar/paging, not-ranked groups. */
+
+.view-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.view-toolbar .spacer {
+  flex: 1;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.pager button {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  padding: 4px var(--space-sm);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.pager button:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+}
+
+.pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pager [data-pager-status],
+.pager [data-notranked-pager-status] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.view-heading {
+  font-size: var(--text-h1);
+  margin: 0 0 var(--space-sm);
+}
+
+/* ---- An address no view answers (views/notfound.js) ---- */
+.not-found {
+  max-width: 640px;
+}
+
+.not-found-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: var(--space-md) 0;
+}
+
+.not-found-search .field-label {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.not-found-search input.control {
+  flex: 1 1 16ch;
+  min-width: 0;
+}
+
+/* ---- Screen B: Matrix (06 §3 B) ---- */
+.matrix-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-md);
+}
+
+.matrix-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.matrix-plotted-pill {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.matrix-legend {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.matrix-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 4px var(--space-sm);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-caption);
+}
+
+.matrix-legend-count {
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.matrix-legend-chip[aria-pressed="false"] {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.matrix-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@media (min-width: 1120px) {
+  .matrix-layout {
+    grid-template-columns: minmax(420px, 600px) minmax(0, 1fr);
+  }
+}
+
+.matrix-plot-col {
+  min-width: 0;
+}
+
+.matrix-axis-labels {
+  max-width: 720px; /* the plot's own width: the labels sit over the plot, not at the page edges */
+  margin-inline: auto;
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  margin-bottom: var(--space-2xs);
+}
+
+.matrix-stage {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  padding: 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.matrix-stage:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.matrix-svg,
+.matrix-canvas-wrap {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.matrix-canvas-wrap {
+  position: relative;
+}
+
+.matrix-svg {
+  overflow: hidden;
+}
+
+.matrix-backdrop-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.matrix-canvas {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.matrix-focus-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.matrix-corner-label {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.matrix-corner-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.matrix-corner-desc {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 600px) {
+  .matrix-corner-desc {
+    display: none;
+  }
+}
+
+.matrix-corner-top-left,
+.matrix-corner-label--tl {
+  top: 10px;
+  left: 10px;
+}
+
+.matrix-corner-top-right,
+.matrix-corner-label--tr {
+  top: 10px;
+  right: 10px;
+}
+
+.matrix-corner-bottom-left,
+.matrix-corner-label--bl {
+  bottom: 10px;
+  left: 10px;
+}
+
+.matrix-corner-bottom-right,
+.matrix-corner-label--br {
+  bottom: 10px;
+  right: 10px;
+}
+
+.matrix-wash-quad-sweet-spot { fill: var(--quad-sweet-spot-wash); }
+.matrix-wash-quad-crucible { fill: var(--quad-crucible-wash); }
+.matrix-wash-quad-nursery { fill: var(--quad-nursery-wash); }
+.matrix-wash-quad-graveyard { fill: var(--quad-graveyard-wash); }
+
+.matrix-axis-line {
+  stroke: var(--border-strong);
+  stroke-width: 0.3;
+  stroke-dasharray: 1.5 1.5;
+}
+
+.matrix-marker {
+  cursor: pointer;
+}
+
+.matrix-marker.quad-sweet-spot { fill: var(--quad-sweet-spot); color: var(--quad-sweet-spot); }
+.matrix-marker.quad-crucible { fill: var(--quad-crucible); color: var(--quad-crucible); }
+.matrix-marker.quad-nursery { fill: var(--quad-nursery); color: var(--quad-nursery); }
+.matrix-marker.quad-graveyard { fill: var(--quad-graveyard); stroke: var(--quad-graveyard); color: var(--quad-graveyard); }
+
+.matrix-marker:focus,
+.matrix-marker:focus-visible {
+  outline: none;
+}
+
+.matrix-marker.marker-focused,
+.matrix-marker:focus-visible {
+  stroke: var(--border-focus);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.matrix-marker.marker-focused > :not(line),
+.matrix-marker:focus-visible > :not(line) {
+  vector-effect: non-scaling-stroke;
+}
+
+.matrix-marker.quad-graveyard.marker-focused,
+.matrix-marker.quad-graveyard:focus-visible {
+  filter: drop-shadow(0 0 2px var(--border-focus));
+}
+
+.matrix-hover-card {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  pointer-events: none;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm);
+  box-shadow: var(--shadow-popover);
+  max-width: 220px;
+  font-size: var(--text-body-md);
+  z-index: 10;
+}
+
+.matrix-hover-card p {
+  margin: 0 0 2px;
+}
+
+.matrix-hover-card p:last-child {
+  margin-bottom: 0;
+}
+
+.matrix-hover-card .repo-name {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .matrix-hover-card {
+    max-width: min(170px, 45%);
+    padding: var(--space-xs);
+    font-size: var(--text-caption);
+  }
+}
+
+.matrix-hover-card--top-left {
+  right: auto;
+  left: var(--space-sm);
+}
+
+.matrix-grid-line {
+  stroke: var(--border-subtle);
+  stroke-dasharray: 1, 1;
+  stroke-width: 0.35;
+  opacity: 0.7;
+}
+
+.matrix-scale-tick {
+  font-size: 2.8px;
+  font-family: var(--font-mono);
+  fill: var(--text-secondary);
+  opacity: 1;
+  paint-order: stroke;
+  stroke: var(--bg-surface);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+}
+
+.matrix-hover-card .hint {
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  margin: var(--space-2xs) 0 0;
+}
+
+.matrix-captions {
+  margin-top: var(--space-xs);
+}
+
+.matrix-caption {
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  margin: var(--space-2xs) 0;
+}
+
+.matrix-caption-muted {
+  color: var(--text-muted);
+}
+
+.matrix-spotlight {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.matrix-spotlight-title {
+  margin: 0 0 4px;
+  font-size: var(--text-h2);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.matrix-spotlight-sub {
+  margin: 0;
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.matrix-quad-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+@media (max-width: 639px) {
+  .matrix-quad-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.matrix-quad-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.matrix-quad-card.is-quad-hidden {
+  opacity: 0.5;
+}
+
+.matrix-quad-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.matrix-quad-card-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.matrix-quad-card-toggle:hover {
+  text-decoration: underline;
+}
+
+.matrix-quad-card-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.matrix-quad-bar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  overflow: hidden;
+}
+
+.matrix-quad-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent-cyan);
+}
+
+.matrix-quad-bar-fill.quad-sweet-spot { background: var(--quad-sweet-spot); }
+.matrix-quad-bar-fill.quad-crucible { background: var(--quad-crucible); }
+.matrix-quad-bar-fill.quad-nursery { background: var(--quad-nursery); }
+.matrix-quad-bar-fill.quad-graveyard { background: var(--quad-graveyard); }
+
+.matrix-quad-axes {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.matrix-quad-guidance {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.matrix-quad-top-section {
+  margin-top: auto;
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.matrix-quad-top-label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.matrix-top-repos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.matrix-top-repo-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: 5px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-caption);
+  cursor: pointer;
+  text-align: left;
+}
+
+.matrix-top-repo-btn:hover,
+.matrix-top-repo-btn.is-active {
+  border-color: var(--border-focus);
+  background: var(--bg-surface-hover);
+}
+
+.matrix-top-repo-name {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.matrix-top-repo-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.matrix-top-repo-score {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.matrix-quad-empty {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ---- Screen D: Configure weights (06 §3 D) ---- */
+.weight-controls {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.weight-sliders {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.weight-slider-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 56px auto;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+@media (max-width: 767px) {
+  .weight-slider-row {
+    grid-template-columns: 1fr auto auto;
+    grid-template-rows: auto auto;
+    gap: var(--space-2xs) var(--space-xs);
+  }
+
+  .weight-slider-label {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .weight-slider-value {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .weight-lock-toggle {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .weight-slider {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+.weight-slider {
+  width: 100%;
+}
+
+.weight-slider-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.weight-lock-toggle {
+  padding: 4px var(--space-xs);
+}
+
+.weight-presets {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-top: var(--space-md);
+}
+
+.weight-sum {
+  font-family: var(--font-mono);
+  margin-top: var(--space-sm);
+  color: var(--text-secondary);
+}
+
+.weight-sum-warning {
+  color: var(--accent-warning);
+}
+
+.custom-label-note {
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+}
+
+.configure-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: var(--space-md);
+  align-items: start;
+}
+
+@media (max-width: 1439px) {
+  .configure-table-col .leaderboard-table [data-col="stars"],
+  .configure-table-col .leaderboard-table [data-cell="stars"],
+  .configure-table-col .leaderboard-table [data-col="suspicion"],
+  .configure-table-col .leaderboard-table [data-cell="suspicion"],
+  .configure-table-col .leaderboard-table [data-col="no_reply_14d"],
+  .configure-table-col .leaderboard-table [data-cell="no_reply_14d"] {
+    display: none;
+  }
+}
+
+@media (max-width: 1599px) {
+  .configure-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .configure-delta-col {
+    position: static;
+  }
+}
+
+/* Wide viewports (>= 1024px): keep overflow-x visible so the window is the
+ * scroll container and `.leaderboard-table thead th` sticks below the nav
+ * (the layout stacks below 1600px, so the table has the full width there).
+ * Narrow viewports (< 1024px): scroll horizontally in its own box and disable
+ * sticky thead offset inside the non-vertically-scrolling box. */
+.configure-table-col {
+  min-width: 0;
+}
+
+@media (max-width: 1023px) {
+  .configure-table-col {
+    overflow-x: auto;
+  }
+
+  .configure-table-col .leaderboard-table thead th {
+    position: static;
+  }
+}
+
+.configure-delta-col {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm) var(--space-md);
+  position: sticky;
+  top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
+}
+
+.configure-delta-col > h2 {
+  font-size: var(--text-h2);
+  font-weight: 600;
+  margin: 0 0 var(--space-xs);
+}
+
+.delta-list h3 {
+  font-size: var(--text-body-md);
+  margin: var(--space-sm) 0 var(--space-2xs);
+}
+
+.delta-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+
+.delta-list li {
+  padding: 2px 0;
+}
+
+/* ---- Screen E: Compare (06 §3 E) ---- */
+.compare-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+}
+
+.compare-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 4px var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+
+.compare-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  color: var(--text-secondary);
+  font-size: var(--text-body-lg);
+  line-height: 1;
+}
+
+.compare-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  padding: 4px var(--space-xs);
+}
+
+.compare-picker {
+  position: relative;
+  margin-bottom: var(--space-md);
+  max-width: 420px;
+}
+
+.compare-picker input {
+  width: 100%;
+}
+
+.compare-results {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  list-style: none;
+  margin: var(--space-2xs) 0 0;
+  padding: var(--space-2xs) 0;
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-popover);
+}
+
+.compare-results:empty {
+  display: none;
+}
+
+.compare-results button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--text-primary);
+}
+
+.compare-results button:hover {
+  background: var(--bg-surface-hover);
+}
+
+.compare-onboarding {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  margin-top: var(--space-md);
+}
+
+.compare-onboarding-title {
+  margin: 0 0 4px;
+  font-size: var(--text-h2);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.compare-onboarding-sub {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.compare-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-md);
+}
+
+.compare-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.compare-preset-card:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-elevated);
+}
+
+.compare-preset-title {
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.compare-preset-desc {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.compare-preset-repos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: var(--space-2xs);
+}
+
+.compare-suggestions-title {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.compare-suggestions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.compare-quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px var(--space-sm);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+
+.compare-quick-chip:hover {
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-focus);
+}
+
+.compare-cards-section {
+  margin-bottom: var(--space-md);
+}
+
+.compare-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--space-md);
+}
+
+.compare-repo-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.compare-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.compare-card-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+
+.compare-status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+}
+
+.compare-status-pill.is-rated {
+  border-color: var(--coverage-full);
+  color: var(--text-primary);
+}
+
+.compare-status-pill.is-gated {
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
+/* Gate and unrated reasons are sentences that wrap; a pill radius on a
+ * multi-line box reads as a lozenge. */
+.compare-status-pill.is-gated,
+.compare-status-pill.is-unrated {
+  border-radius: var(--radius-control);
+}
+
+.compare-card-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.compare-card-score-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.compare-card-score-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.compare-card-score-num {
+  font-family: var(--font-mono);
+  font-size: var(--metric-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.compare-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.compare-card-quad {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.compare-card-wins {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  font-size: var(--text-caption);
+}
+
+.compare-card-wins-label {
+  color: var(--text-secondary);
+}
+
+.compare-card-wins-val {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.compare-card-pillars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.compare-mini-pillar {
+  display: grid;
+  grid-template-columns: 3.2rem 1fr 2.2rem;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-caption);
+}
+
+.compare-mini-pillar-name {
+  color: var(--text-secondary);
+}
+
+.compare-mini-pillar-bar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  overflow: hidden;
+}
+
+.compare-mini-pillar-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--spec-bar, var(--accent-cyan));
+}
+
+.compare-mini-pillar-val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-primary);
+}
+
+/* Side by side means equal columns: a fixed layout splits the width evenly
+ * between the compared repositories after the label column. With the auto
+ * layout one long gate reason took 798 px of a 1,408 px table at 1440 px,
+ * leaving 153-249 px for the others (MEASURED 2026-10-15). */
+.compare-table {
+  width: 100%;
+  min-width: 480px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.compare-table thead th:first-child {
+  width: 15rem;
+}
+
+@media (max-width: 767px) {
+  .compare-table thead th:first-child {
+    width: 9rem;
+  }
+}
+
+.compare-table .repo-name {
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+
+.link-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.link-button:hover {
+  color: var(--accent-cyan);
+  text-decoration: underline;
+}
+
+.compare-section-row th {
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px var(--space-sm);
+}
+
+.unmeasured-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: var(--text-caption);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  font-style: italic;
+}
+
+.compare-table th,
+.compare-table td {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+}
+
+.compare-cell-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.compare-inline-bar {
+  display: block;
+  height: 4px;
+  max-width: 120px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  overflow: hidden;
+}
+
+.compare-inline-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--spec-bar, var(--accent-cyan));
+}
+
+.compare-param-th {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.compare-dir-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+[data-compare-table-host] > .table-scroll {
+  overflow-x: visible;
+}
+
+.compare-table thead th {
+  position: sticky;
+  top: calc(var(--header-height) + var(--primary-nav-height, 41px));
+  z-index: 18;
+  background: var(--bg-surface-elevated);
+}
+
+@media (max-width: 1023px) {
+  [data-compare-table-host] > .table-scroll {
+    overflow-x: auto;
+  }
+
+  .compare-table thead th {
+    position: static;
+  }
+}
+
+.compare-better-mark {
+  color: var(--text-success);
+}
+
+.compare-better-cell {
+  background: var(--quad-sweet-spot-wash);
+}
+
+.compare-verdict {
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.compare-verdict h2 {
+  margin: 0 0 var(--space-2xs);
+  font-size: var(--text-h2);
+}
+
+.compare-verdict-main {
+  margin: 0 0 4px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.compare-verdict-subset {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--coverage-full);
+  background: var(--bg-surface-elevated);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  color: var(--text-primary);
+  font-size: var(--text-body-md);
+}
+
+/* Under a subset verdict the next line says which repository it leaves out:
+ * an explanation, not the result. */
+.compare-verdict-subset + .compare-verdict-main {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.app-main code,
+.app-main pre,
+.cell-numeric {
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
+/* ---- Screen F: Methodology and snapshot (06 §3 F) ----
+ * Redesign 2026-09-22. Screen F is a reference document, so it is laid out
+ * as one: an "On this page" index (a sticky rail on wide screens) beside one
+ * card per section, in the order the rating pipeline runs.
+ *
+ * What it replaces, MEASURED at a 1440 px viewport: nine collapsed <details>
+ * hairlines, and one generic `.evidence-table` whose cells were all `nowrap`
+ * except the first (`word-break: break-word`). Long prose cells pushed three
+ * tables to 1,545 / 2,092 / 3,079 px and the auto table layout squeezed the
+ * one breakable column to ~21 px, stacking identifiers one character per
+ * line. Every table cell now declares a role -- identifier (.cell-id),
+ * number (.num), prose (.cell-prose), meta (.cell-meta) -- and the
+ * prose-heavy lists (gates, detectors, change log) are entry lists.
+ *
+ * Wrapping rule used throughout: `overflow-wrap: break-word`, never
+ * `anywhere`/`break-all` inside a table or flex row. break-word still
+ * breaks a token that would overflow its line, but it does NOT lower the
+ * token's min-content size, so it can never collapse a column. */
+
+.doc-page-head {
+  margin-bottom: var(--space-lg);
+}
+
+.doc-page-head .view-heading {
+  margin-bottom: var(--space-2xs);
+}
+
+.doc-lede {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+}
+
+/* "Why Porchlamp": the one idea and the finding behind it, above the document. */
+.why-card {
+  margin: 0 0 var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.why-title {
+  margin: 0 0 var(--space-sm);
+  color: var(--text-primary);
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+.why-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-md);
+}
+
+@media (min-width: 960px) {
+  .why-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.why-item {
+  padding: var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.why-kicker {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.why-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  line-height: 1.6;
+}
+
+.app-main .doc-page code {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.doc-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@media (min-width: 1200px) {
+  .doc-layout {
+    grid-template-columns: 13.5rem minmax(0, 1fr);
+    gap: var(--space-xl);
+  }
+}
+
+/* The index: a wrapped row of chips on narrow screens, a sticky rail on
+ * wide ones. No max-height/overflow on the rail: ten links fit any desktop
+ * viewport, and the owner rule (base.css) is no inner scroll boxes. */
+.doc-index-title {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.doc-index-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-index-link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: 4px var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  text-decoration: none;
+}
+
+.doc-index-link:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.doc-index-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 1200px) {
+  .doc-index {
+    position: sticky;
+    top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
+    padding: var(--space-md);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+  }
+
+  .doc-index-list {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+
+  .doc-index-link {
+    padding: 6px var(--space-sm);
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--radius-control) var(--radius-control) 0;
+    background: none;
+  }
+
+  .doc-index-link:hover {
+    border-left-color: var(--border-strong);
+    background: var(--bg-surface-elevated);
+  }
+}
+
+/* ---- Sections ---- */
+.doc-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+}
+
+.doc-section {
+  min-width: 0;
+  padding: var(--space-lg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--bg-surface);
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
+}
+
+.doc-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* The static methodology page's anchors (#gates, #lenses, #missing-data, ...) are on the section heads, #reproduce and
+ * #hashes on those blocks: a deep link lands where the section's own link would, under the sticky header and nav. */
+.doc-section-head[id] {
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md) + var(--space-lg));
+}
+
+.identity-grid[id],
+.reproduce[id] {
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
+}
+
+.doc-section-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.doc-section-lede {
+  max-width: 72ch;
+  margin: var(--space-2xs) 0 var(--space-md);
+  color: var(--text-secondary);
+  font-size: var(--text-body-lg);
+  line-height: 1.55;
+}
+
+.doc-subhead {
+  margin: var(--space-lg) 0 var(--space-xs);
+  color: var(--text-secondary);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.doc-muted,
+.doc-page .is-muted {
+  color: var(--text-muted);
+}
+
+/* Says how much is behind each section heading. */
+.section-count {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+/* ---- Typed tables (parameters, personas, process constants) ---- */
+/* MEASURED 2026-09-22 at 390 px: the page scrolled sideways (document
+ * 794 px wide) with nothing visibly overflowing. The culprit was the
+ * position:absolute `.sr-only` text inside a scrolled table: with no
+ * positioned ancestor its containing block is the page, not the scroll
+ * box, so at its static x (~780 px) it widened the document. Making the
+ * scroll box the containing block keeps that overflow inside it. */
+.doc-page .table-scroll {
+  position: relative;
+}
+
+.spec-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body-md);
+  line-height: 1.5;
+}
+
+.spec-table th,
+.spec-table td {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.spec-table thead th {
+  border-bottom-color: var(--border-strong);
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.spec-table tbody th {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.spec-table tbody tr:not(.spec-group):hover > * {
+  background: var(--bg-surface-elevated);
+}
+
+.spec-table .num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.spec-table .cell-id {
+  white-space: nowrap;
+}
+
+/* The readable name above the identifier in the parameters table's row header.
+ * It may wrap (normal white-space never lowers min-content below one word), so
+ * the nowrap identifier stays what sizes the column. */
+.spec-table .cell-id .param-label {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: normal;
+}
+
+.spec-table .cell-id .param-label + code {
+  color: var(--text-secondary);
+}
+
+/* An identifier must never split: `.app-main code` breaks anywhere (it
+ * guards the rest of the app against unbroken digests). */
+.app-main .doc-page .spec-table code {
+  overflow-wrap: normal;
+  font-size: 0.95em;
+}
+
+.app-main .doc-page .spec-table .cell-prose code {
+  overflow-wrap: break-word;
+}
+
+.spec-table .col-prose {
+  width: 40%;
+}
+
+.spec-table .col-meta {
+  width: 12%;
+}
+
+.spec-table .col-domain {
+  width: 19%;
+}
+
+/* An enum domain: levels worst to best, one per line, each with its score. */
+.enum-caption {
+  display: block;
+  margin: 0 0 2px;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.enum-ladder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.enum-ladder + .enum-caption {
+  margin-top: var(--space-xs);
+}
+
+.spec-table .cell-meta {
+  color: var(--text-secondary);
+}
+
+/* A 5x5 matrix of weights is read across a row: at 100% width its columns
+ * sat ~180 px apart, so it shrinks to its content instead. Each weight's bar
+ * has one FIXED length (never a % of its cell): cells are as wide as their
+ * header, so a % bar drew the same weight shorter under "Rigor" than under
+ * "Responsiveness" (columns measured 84 vs 174 px) -- not one scale. */
+.spec-table-personas {
+  width: auto;
+}
+
+.spec-table-personas .num {
+  padding-left: var(--space-lg);
+}
+
+.persona-weight-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.persona-cell-bar {
+  display: block;
+  width: 64px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  overflow: hidden;
+}
+
+.persona-cell-bar-fill {
+  display: block;
+  height: 100%;
+  width: calc(var(--w, 0) * 100%);
+  border-radius: var(--radius-pill);
+  background: var(--spec-bar);
+}
+
+@media (max-width: 959px) {
+  .spec-table-personas .num {
+    padding-left: var(--space-sm);
+  }
+}
+
+.spec-group th {
+  padding-top: var(--space-md);
+  border-bottom-color: var(--border-strong);
+  color: var(--text-primary);
+  font-size: var(--text-body-md);
+  font-weight: 600;
+}
+
+.spec-group-share {
+  margin-left: var(--space-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+/* Narrow screens: a stackable table becomes one block per row -- the
+ * identifier on its own line, numbers inline, prose and meta as labelled
+ * blocks (labels from each cell's data-label). The parameters table's
+ * narrowest possible width is 806 px (seven columns, three fixed), which
+ * a card fits from ~890 px of viewport without the rail and ~1,120 px
+ * with it -- hence stacking below 960 px and the rail only from 1200 px.
+ * MEASURED before this at
+ * 390 px: the parameters table showed only ID / Weight / Min n in its
+ * scroll box, with rows ~100 px tall and blank because the off-screen
+ * Curve column was wrapping. */
+@media (max-width: 959px) {
+  .spec-table-stack,
+  .spec-table-stack tbody {
+    display: block;
+  }
+
+  .spec-table-stack thead {
+    display: none;
+  }
+
+  .spec-table-stack tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs) var(--space-md);
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .spec-table-stack tr > * {
+    padding: 0;
+    border: 0;
+  }
+
+  .spec-table-stack tbody th,
+  .spec-table-stack td:not(.num) {
+    flex: 1 1 100%;
+  }
+
+  .spec-table-stack .num {
+    text-align: left;
+  }
+
+  /* "No proxy path" on 15 of 18 cards was a labelled dash each: noise. */
+  .spec-table-stack td.is-empty {
+    display: none;
+  }
+
+  .spec-table-stack td[data-label]::before {
+    content: attr(data-label);
+    margin-right: 6px;
+    color: var(--text-muted);
+    font-size: var(--text-caption);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .spec-table-stack td:not(.num)::before {
+    display: block;
+    margin: 0 0 2px;
+  }
+
+  .spec-table-stack .spec-group {
+    display: block;
+    padding: var(--space-md) 0 var(--space-2xs);
+    border-bottom: 1px solid var(--border-strong);
+  }
+
+  .spec-table-stack .spec-group th {
+    display: block;
+  }
+
+  .spec-table-stack tbody tr:not(.spec-group):hover > * {
+    background: none;
+  }
+}
+
+/* ---- Entry lists (gates, detectors, persona gates, change log) ----
+ * A definition layout: name on the left, meaning on the right. */
+.spec-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spec-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-lg);
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--border-subtle);
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
+}
+
+.spec-entry:first-child {
+  padding-top: var(--space-2xs);
+  border-top: 0;
+}
+
+.spec-entry:last-child {
+  padding-bottom: 0;
+}
+
+@media (min-width: 900px) {
+  .spec-entry {
+    grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  }
+}
+
+.spec-entry-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.spec-entry-id,
+.spec-entry-date {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+
+.spec-entry-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+
+.spec-entry-title code {
+  font-size: 0.92em;
+}
+
+.spec-entry-body {
+  min-width: 0;
+}
+
+.spec-prose {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-body-lg);
+  line-height: 1.55;
+}
+
+.doc-page .spec-prose code,
+.doc-page .spec-def dd code,
+.doc-page .spec-rules code,
+.doc-page .spec-step-note code {
+  padding: 0 4px;
+  border-radius: var(--radius-badge);
+  background: var(--bg-surface-elevated);
+  font-size: 0.88em;
+}
+
+.spec-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-lg);
+  margin: var(--space-sm) 0 0;
+}
+
+.spec-fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.spec-fact dt,
+.spec-stat dt,
+.identity-label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.spec-fact dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2xs);
+  min-width: 0;
+  margin: 0;
+}
+
+.spec-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-badge);
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+
+.spec-chip-value {
+  margin-left: 6px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.spec-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Text stays in text ink; the colour lives only in the ring and the dot
+ * (graphics, 3:1), so the tag is legible in both themes. */
+.spec-tag-current {
+  border-color: var(--coverage-full);
+  color: var(--text-primary);
+}
+
+.spec-tag-current::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--coverage-full);
+  vertical-align: 1px;
+}
+
+/* A digest shortened by CSS only: the full value stays in the DOM, so one
+ * click (user-select: all) or a copy takes all of it. */
+.app-main .doc-page .spec-hash {
+  display: inline-block;
+  max-width: 13ch;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-body-md);
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.spec-hash-arrow {
+  color: var(--text-muted);
+}
+
+/* ---- Missingness ---- */
+.spec-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: var(--space-sm);
+  margin: 0;
+}
+
+.spec-stat {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+}
+
+.spec-stat dd {
+  margin: var(--space-2xs) 0 0;
+  color: var(--text-primary);
+  font-size: var(--metric-lg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.spec-defs {
+  margin: 0;
+}
+
+.spec-def {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-lg);
+  padding: var(--space-sm) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.spec-def:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+@media (min-width: 900px) {
+  .spec-def {
+    grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  }
+}
+
+.spec-def dt code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+}
+
+.spec-def dd {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-body-lg);
+  line-height: 1.55;
+}
+
+.spec-rules {
+  margin: 0;
+  padding-left: var(--space-lg);
+  font-size: var(--text-body-lg);
+  line-height: 1.55;
+}
+
+/* ---- Tie-breakers: a real sequence, numbered by CSS counters ---- */
+.spec-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: spec-step;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-sm);
+}
+
+@media (min-width: 960px) {
+  .spec-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.spec-step {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  column-gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  counter-increment: spec-step;
+}
+
+.spec-step::before {
+  content: counter(spec-step);
+  grid-row: 1 / span 2;
+  padding-top: 2px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.spec-step-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.spec-step-field {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+}
+
+.spec-step-note {
+  grid-column: 2;
+  max-width: 72ch;
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  line-height: 1.5;
+}
+
+/* ---- Pillars: one bar per pillar, scaled to the heaviest ----
+ * `--w` (the pillar's weight) and `--wmax` (the heaviest) come from the
+ * payload as inline custom properties; the division happens here, so
+ * views/methodology.js needs no numeric literal. Bars start at zero with no
+ * track, and the printed percentage carries the value (dataviz: thin marks,
+ * direct labels, rounded data end). */
+.pillar-weights {
+  width: 100%;
+  max-width: 48rem;
+  border-collapse: collapse;
+  font-size: var(--text-body-md);
+}
+
+.pillar-weights th,
+.pillar-weights td {
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.pillar-weights thead th {
+  border-bottom-color: var(--border-strong);
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pillar-weights tbody th {
+  width: 9.5rem;
+  padding-right: var(--space-md);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.pillar-weight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.pillar-bar {
+  flex: 1;
+  height: 8px;
+}
+
+.pillar-bar-fill {
+  display: block;
+  width: calc(var(--w) / var(--wmax) * 100%);
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--spec-bar);
+}
+
+.pillar-weight-value {
+  min-width: 4ch;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ---- Snapshot ---- */
+.snapshot-line {
+  margin: 0 0 var(--space-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+}
+
+.doc-section .counts-strip {
+  margin: 0 0 var(--space-md);
+}
+
+/* Digests and a commit: looked up and copied, never read as prose. Label
+ * column beside a monospace value column; one click selects a whole value. */
+.identity-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-lg);
+  margin: 0 0 var(--space-md);
+}
+
+@media (min-width: 900px) {
+  .identity-grid {
+    grid-template-columns: max-content minmax(0, 1fr);
+    row-gap: var(--space-xs);
+  }
+}
+
+.identity-row {
+  display: contents;
+}
+
+.identity-grid .identity-label {
+  padding-top: 2px;
+}
+
+.identity-value {
+  min-width: 0;
+  margin: 0 0 var(--space-xs);
+}
+
+@media (min-width: 900px) {
+  .identity-value {
+    margin: 0;
+  }
+}
+
+.app-main .doc-page .identity-value code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.snapshot-detectors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-md);
+}
+
+.detector-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.detector-flag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  padding: 4px var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+}
+
+.detector-flag a {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.detector-flag a:hover {
+  text-decoration-color: currentColor;
+}
+
+.detector-flag code {
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+}
+
+.detector-flag-count {
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  font-variant-numeric: tabular-nums;
+}
+
+/* How to look up one project's record, under the reproduce command. */
+.snapshot-check {
+  margin: var(--space-sm) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+}
+
+.reproduce-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-2xs);
+}
+
+.reproduce-copy {
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+
+.reproduce-copy:hover {
+  background: var(--bg-surface-hover);
+}
+
+.app-main .reproduce-command {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 767px) {
+  .doc-section {
+    padding: var(--space-md);
+  }
+}
+
+@media (forced-colors: active) {
+  .pillar-bar-fill,
+  .spec-tag-current::before {
+    background: CanvasText;
+  }
+}
+
+/* ---- Report (views/report.js) ---- */
+.report-page {
+  max-width: 70rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  font-size: var(--text-body-lg);
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.report-page p {
+  margin: 0;
+}
+
+.report-head {
+  max-width: 72ch;
+  padding-top: var(--space-xs);
+}
+
+.report-head .view-heading {
+  margin: 0 0 var(--space-2xs);
+  line-height: 1.25;
+}
+
+.report-lede {
+  color: var(--text-secondary);
+}
+
+.report-page .report-intro {
+  margin-top: var(--space-sm);
+}
+
+/* The lead: the headline figure, its sentence and the one lead chart. */
+.report-lead {
+  padding: var(--space-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--lamp-glow);
+  border-radius: var(--radius-card);
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height) + var(--space-md));
+}
+
+.report-figure {
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.report-page .report-figure-text {
+  max-width: 72ch;
+  margin: var(--space-xs) 0 var(--space-md);
+}
+
+.share-track {
+  height: 20px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--text-muted);
+  border-radius: var(--radius-badge);
+  overflow: hidden;
+}
+
+.share-fill {
+  display: block;
+  height: 100%;
+  background: var(--spec-bar);
+}
+
+.share-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-lg);
+  margin-top: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.share-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.share-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--spec-bar);
+}
+
+.share-swatch-track {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--text-muted);
+}
+
+/* Sections: the app's card (views.css .doc-section), one per heading. */
+.report-section {
+  min-width: 0;
+  padding: var(--space-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.report-h2 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.3;
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height) + var(--space-md));
+}
+
+.report-page .report-section p + p {
+  margin-top: var(--space-sm);
+}
+
+.report-answer,
+.report-caveat {
+  max-width: 72ch;
+}
+
+.report-caveat,
+.report-note {
+  color: var(--text-secondary);
+}
+
+.report-note {
+  font-size: var(--text-body-md);
+}
+
+/* Findings: four cards, two by two on a wide screen. */
+.finding-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-md);
+}
+
+@media (min-width: 960px) {
+  .finding-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.finding {
+  padding: var(--space-md);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height) + var(--space-md));
+}
+
+.finding:target,
+.report-lead:target {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.finding-lead {
+  margin: 0 0 var(--space-2xs);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* The bar charts: each is its own data table, full width, with an axis. */
+.bar-table-wrap {
+  margin: var(--space-md) 0;
+}
+
+.bar-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-table th,
+.bar-table td {
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.bar-table thead th {
+  font-size: var(--text-body-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+  vertical-align: bottom;
+}
+
+.bar-table .num {
+  width: 7rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bar-label {
+  width: 13rem;
+  font-weight: 500;
+}
+
+.bar-scale {
+  position: relative;
+  display: block;
+  height: 28px;
+  margin-right: 3.5rem;
+  border-right: 1px solid var(--border-subtle);
+  background-image: linear-gradient(to right, var(--border-strong) 1px, transparent 1px);
+  background-size: calc(100% / var(--ticks)) 100%;
+}
+
+.bar-cell {
+  position: relative;
+}
+
+.bar {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: calc(var(--f) * 100%);
+  background: var(--spec-bar);
+  border-radius: 0 var(--radius-badge) var(--radius-badge) 0;
+}
+
+/* The share sits just past its bar's end: the cell's left padding plus the bar's length on the scale. */
+.bar-value {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--space-sm) + (100% - 2 * var(--space-sm) - 3.5rem) * var(--f));
+  transform: translateY(-50%);
+  margin-left: var(--space-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.axis {
+  display: block;
+  margin-top: var(--space-2xs);
+}
+
+.axis-scale {
+  height: 1.4em;
+  border-right: 0;
+  background: none;
+}
+
+.axis-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.axis-tick:first-child {
+  transform: none;
+}
+
+.axis-tick:last-child {
+  transform: translateX(-100%);
+}
+
+/* Method beside limits, data beside the citation. */
+.report-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-lg);
+}
+
+@media (min-width: 960px) {
+  .report-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.report-list {
+  margin: 0;
+  padding-left: var(--space-lg);
+}
+
+.report-list li + li {
+  margin-top: var(--space-xs);
+}
+
+.report-cite {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface-elevated);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  overflow-wrap: anywhere;
+}
+
+.report-hashes {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.report-hashes [data-v] {
+  font-family: var(--font-mono);
+}
+
+.app-footer a {
+  color: var(--accent-cyan);
+}
+
+/* ---- Phone ---- */
+@media (max-width: 767px) {
+  .report-page {
+    gap: var(--space-md);
+  }
+
+  .report-lead,
+  .report-section {
+    padding: var(--space-md);
+  }
+
+  /* Each chart row stacks: name, then the bar with its share, then the two counts. */
+  .bar-table,
+  .bar-table thead,
+  .bar-table tbody,
+  .bar-table thead tr {
+    display: block;
+  }
+
+  .bar-table thead th {
+    display: none;
+  }
+
+  .bar-table thead th.bar-head {
+    display: block;
+    padding: 0 0 var(--space-2xs);
+  }
+
+  .bar-table tbody tr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: var(--space-md);
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .bar-table tbody th,
+  .bar-table tbody td {
+    padding: 2px 0;
+    border: 0;
+  }
+
+  .bar-label {
+    grid-column: 1 / -1;
+    width: auto;
+    order: 1;
+  }
+
+  .bar-cell {
+    grid-column: 1 / -1;
+    order: 2;
+  }
+
+  /* The bar takes the full width; its share moves up to the end of the name's line. */
+  .bar-scale {
+    margin-right: 0;
+  }
+
+  .bar-table tbody .bar-label {
+    padding-right: 4rem;
+  }
+
+  .bar-value {
+    top: -1.6em;
+    left: auto;
+    right: 0;
+    transform: none;
+    margin-left: 0;
+  }
+
+  .bar-table .num {
+    order: 3;
+    width: auto;
+    text-align: left;
+    font-size: var(--text-body-md);
+    color: var(--text-secondary);
+  }
+
+  .bar-table .num::before {
+    content: attr(data-label) ": ";
+  }
+}
+
+/* ---- Project (views/project.js) ---- */
+.project-view {
+  container: project / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  font-size: var(--text-body-lg);
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.project-view.is-page {
+  max-width: 70rem;
+  margin: 0 auto;
+}
+
+.project-view.is-panel {
+  gap: var(--space-md);
+}
+
+.project-view p {
+  margin: 0;
+}
+
+.project-crumb {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.project-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.project-identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  flex: 1 1 24ch;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.project-view .drawer-kicker {
+  margin: 0;
+}
+
+.project-title {
+  margin: 0;
+  font-size: var(--text-h1);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.project-title .repo-owner {
+  font-weight: 400;
+}
+
+.project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-md);
+}
+
+.project-view .project-eco {
+  margin-left: 0;
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+a.project-eco:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.project-view .drawer-page-link {
+  font-size: var(--text-body-md);
+}
+
+.project-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin-top: calc(-1 * var(--space-sm));
+}
+
+.project-number {
+  margin: var(--space-sm) 0 var(--space-md);
+}
+
+.project-number p {
+  margin: 0;
+}
+
+.project-number-label {
+  font-size: var(--text-body-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.project-number-value {
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-number-text {
+  max-width: 72ch;
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.project-lede {
+  max-width: 72ch;
+  color: var(--text-secondary);
+}
+
+.project-card {
+  min-width: 0;
+  padding: var(--space-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height) + var(--space-md));
+}
+
+.project-view .black-hole-evidence {
+  margin: 0;
+  background: var(--bg-surface);
+}
+
+.project-view .black-hole-evidence .project-h2 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-h2);
+  font-weight: 600;
+}
+
+.project-view .black-hole-stat {
+  margin: 0 0 var(--space-xs);
+}
+
+.project-h2 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.project-h3 {
+  margin: var(--space-lg) 0 var(--space-2xs);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+
+.project-h2 + .project-h3 {
+  margin-top: 0;
+}
+
+.project-view .project-card p + p,
+.project-view .project-card dl + p {
+  margin-top: var(--space-xs);
+}
+
+.project-note,
+.project-reason,
+.project-muted {
+  color: var(--text-secondary);
+}
+
+.project-note {
+  max-width: 72ch;
+  font-size: var(--text-body-md);
+}
+
+.project-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+  overflow-wrap: anywhere;
+}
+
+/* The lead: the composite facts as one strip, then the answer in plain words. */
+.project-lead {
+  border-left: 3px solid var(--lamp-glow);
+}
+
+.project-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  margin: 0 0 var(--space-md);
+}
+
+.project-fact dt {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.project-fact dd {
+  margin: 0;
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-figure {
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.project-figure-of {
+  font-size: var(--text-body-lg);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.project-facts .badge {
+  padding: 0;
+  font-size: var(--text-h2);
+  font-family: var(--font-ui);
+}
+
+.project-facts .badge-dot {
+  width: 10px;
+  height: 10px;
+}
+
+.project-facts .tier-pill {
+  font-family: var(--font-ui);
+}
+
+.project-answer {
+  max-width: 72ch;
+}
+
+.project-gate {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-control);
+}
+
+/* Tables: one style for every table in the view (pillars, personas, parameters, black-hole PRs). */
+.project-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-table caption {
+  margin-bottom: var(--space-xs);
+  text-align: left;
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.project-table th,
+.project-table td {
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.project-table thead th {
+  font-size: var(--text-body-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+  vertical-align: bottom;
+}
+
+.project-table tbody th {
+  font-weight: 500;
+}
+
+.project-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.project-table th:first-child,
+.project-table td:first-child {
+  padding-left: 0;
+}
+
+.project-table th:last-child,
+.project-table td:last-child {
+  padding-right: 0;
+}
+
+/* Parameters: the name carries its one-line meaning; source in mono. Fixed columns, so the five pillar tables
+ * line up under each other. */
+.param-table {
+  table-layout: fixed;
+}
+
+.param-table th:nth-child(1) { width: 26%; }
+.param-table th:nth-child(2) { width: 21%; }
+.param-table th:nth-child(3) { width: 7%; }
+.param-table th:nth-child(4) { width: 7%; }
+.param-table th:nth-child(5) { width: 17%; }
+
+.param-label {
+  display: block;
+}
+
+.param-meaning {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-body-md);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.param-value {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.param-source {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.param-source .project-mono {
+  display: block;
+}
+
+.persona-table .tier-pill {
+  font-size: var(--text-body-lg);
+}
+
+.similar-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-lg);
+  margin: var(--space-sm) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-md);
+  margin: 0 0 var(--space-xs);
+}
+
+.project-dl > div {
+  display: contents;
+}
+
+.project-dl dt {
+  color: var(--text-secondary);
+}
+
+.project-dl dd {
+  margin: 0;
+}
+
+.project-hash {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.project-view .black-hole-pr-scroll {
+  max-height: none;
+}
+
+.project-view .black-hole-pr-table th,
+.project-view .black-hole-pr-table td {
+  padding-left: var(--space-sm);
+  font-size: var(--text-body-md);
+}
+
+/* Cards side by side when the view is wide (the page at 1280); one column in the panel and on a phone. */
+.project-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: inherit;
+}
+
+.project-pair:empty {
+  display: none;
+}
+
+@container project (min-width: 900px) {
+  .project-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- Narrow: the panel (520 px) and a phone. Rows stack; every value keeps its label. ---- */
+@container project (max-width: 699px) {
+  .project-card {
+    padding: var(--space-md);
+  }
+
+  .project-table thead {
+    display: none;
+  }
+
+  .project-table caption {
+    display: block;
+  }
+
+  /* A dash (no count, no window) carries nothing in a stacked row; the wide table still shows it. */
+  .project-table td.is-empty {
+    display: none;
+  }
+
+  .project-table,
+  .project-table tbody {
+    display: block;
+  }
+
+  .project-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-md);
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .project-table tbody th,
+  .project-table tbody td {
+    padding: 0;
+    border: 0;
+    text-align: left;
+  }
+
+  .project-table tbody th {
+    flex: 1 1 100%;
+  }
+
+  .project-table td[data-label]::before {
+    content: attr(data-label) ": ";
+    font-weight: 400;
+    color: var(--text-secondary);
+  }
+
+  .project-table td.project-reason {
+    flex: 1 1 100%;
+  }
+
+  .param-table {
+    table-layout: auto;
+  }
+
+  .param-source,
+  .param-window {
+    flex: 1 1 100%;
+  }
+
+  .param-source .project-mono {
+    display: inline;
+    margin-left: var(--space-2xs);
+  }
+}
+
+@media (max-width: 767px) {
+  .project-view {
+    gap: var(--space-md);
+  }
+}
+
+/* The quadrant word in --text-primary, its glyph in the quadrant colour: --quad-crucible on the dark card is
+ * 4.0:1 (measured), under AA for 18 px text; the glyph is a graphic and needs 3:1 (WCAG 1.4.11). */
+.project-view [class^="quad-"] {
+  color: var(--text-primary);
+}
+
+.project-view .quad-sweet-spot .quadrant-glyph { color: var(--quad-sweet-spot); }
+.project-view .quad-crucible .quadrant-glyph { color: var(--quad-crucible); }
+.project-view .quad-nursery .quadrant-glyph { color: var(--quad-nursery); }
+.project-view .quad-graveyard .quadrant-glyph { color: var(--quad-graveyard); }
+
+/* The actions at the reading size (the drawer's buttons are --text-caption, 11 px). */
+.project-view .drawer-actions .btn,
+.project-view .drawer-actions [data-drawer-close] {
+  height: auto;
+  min-height: 30px;
+  font-size: var(--text-body-md);
+}
+
+/* Key facts: one small table of row headers right after the answer. */
+.key-facts-card {
+  padding: var(--space-md) var(--space-lg);
+}
+
+.key-facts th,
+.key-facts td {
+  padding-top: var(--space-2xs);
+  padding-bottom: var(--space-2xs);
+}
+
+.key-facts tbody th {
+  width: 14rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.key-facts tbody tr:last-child th,
+.key-facts tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.project-cite {
+  margin-top: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  overflow-wrap: anywhere;
+}
+
+/* Pillars: the radar, and under it the same five as a table. The labels are 13 px or more where the column is as
+ * wide as the viewBox (280), which a phone's column is (294 px in the panel on a 375 px screen, measured). */
+.radar-chart-container {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-xs) 0 var(--space-sm);
+}
+
+.radar-chart {
+  width: 100%;
+  max-width: 340px;
+  height: auto;
+}
+
+.radar-grid {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 0.8;
+}
+
+.radar-spoke {
+  stroke: var(--border-strong);
+  stroke-width: 0.8;
+  stroke-dasharray: 2, 2;
+}
+
+.radar-spoke-unmeasured {
+  stroke-dasharray: 1, 3;
+  opacity: 0.6;
+}
+
+.radar-area {
+  fill: var(--spec-bar);
+  fill-opacity: 0.25;
+  stroke: var(--spec-bar);
+  stroke-width: 1.5;
+}
+
+.radar-point {
+  fill: var(--spec-bar);
+}
+
+.radar-point-unmeasured {
+  fill: var(--bg-surface);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 2, 1;
+}
+
+.radar-label {
+  font-size: 13px;
+  font-weight: 500;
+  fill: var(--text-primary);
+}
+
+.pillar-table {
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.pillar-table .num {
+  width: 6rem;
+}
+
+@container project (max-width: 699px) {
+  .key-facts tbody th {
+    flex: 0 0 8.5rem;
+  }
+
+  .key-facts tbody td {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* The home's first page as the export draws it (views/leaderboard.js renderPrerenderedBoard): both layouts are in
+ * the page, because the export cannot know the width. Below 768px the cards show and the table hides; from 768px
+ * the table shows and the cards and their sort bar hide: the breakpoint the app draws them at. The app takes the
+ * board over and removes this class with the layout it does not use. */
+@media (max-width: 767px) {
+  .prerendered-board .leaderboard-table {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .prerendered-board .leaderboard-cards,
+  .prerendered-board .mobile-sort-bar {
+    display: none;
+  }
+}
+
+/* ---- The first-pull-requests report (views/first_pull_requests.js) ---- */
+.fpr-page {
+  --fpr-first: var(--spec-bar);
+  --fpr-returning: var(--text-muted);
+  --fpr-off: var(--border-strong);
+}
+
+.fpr-kicker {
+  margin: 0 0 var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+}
+
+.fpr-head {
+  max-width: 54rem;
+}
+
+.fpr-head .fpr-h1 {
+  margin: var(--space-2xs) 0 var(--space-sm);
+  font-size: clamp(1.625rem, 4vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.fpr-lede {
+  max-width: 72ch;
+  font-size: 1.0625rem;
+}
+
+.fpr-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+@media (min-width: 860px) {
+  .fpr-tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  /* Four tiles side by side: a label that wraps to a second line would push its value below the others'. */
+  .fpr-page .fpr-tile-label {
+    min-height: 2lh;
+  }
+}
+
+.fpr-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.fpr-page .fpr-tile-label,
+.fpr-page .fpr-tile-text {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.fpr-page .fpr-tile-value {
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.fpr-section > p {
+  max-width: 72ch;
+}
+
+.fpr-section .report-note {
+  margin-top: var(--space-sm);
+}
+
+.fpr-h2 {
+  font-size: 1.375rem;
+  text-wrap: balance;
+}
+
+.fpr-h3 {
+  margin: var(--space-lg) 0 var(--space-xs);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+
+.fpr-h2 + .fpr-h3 {
+  margin-top: var(--space-sm);
+}
+
+.fpr-next,
+.report-page .fpr-next {
+  margin-top: var(--space-sm);
+  font-weight: 600;
+}
+
+.fpr-read {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: var(--space-sm) var(--space-lg);
+  margin-top: var(--space-md);
+}
+
+.fpr-slide label {
+  display: block;
+  margin-bottom: var(--space-xs);
+  color: var(--text-secondary);
+}
+
+.fpr-slide input {
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  accent-color: var(--fpr-first);
+}
+
+.fpr-slide input:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 3px;
+}
+
+.fpr-page .fpr-silent-for {
+  color: var(--text-secondary);
+}
+
+.fpr-figure b {
+  display: block;
+  font-size: var(--text-display);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.fpr-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.fpr-key::before {
+  content: "";
+  width: 18px;
+  height: 0;
+  border-top: 3px solid var(--fpr-first);
+  border-radius: 2px;
+}
+
+.fpr-key-returning::before {
+  border-top-color: var(--fpr-returning);
+}
+
+.fpr-line-label {
+  position: absolute;
+  padding: 0 var(--space-2xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--bg-surface);
+}
+
+.fpr-chart {
+  margin: var(--space-md) 0 0;
+}
+
+.fpr-plot {
+  position: relative;
+  height: 320px;
+  margin: 0 var(--space-xs) 2rem 2.75rem;
+}
+
+.fpr-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.fpr-line {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.fpr-line-first {
+  stroke: var(--fpr-first);
+  stroke-width: 3px;
+}
+
+.fpr-line-returning {
+  stroke: var(--fpr-returning);
+  stroke-width: 2px;
+}
+
+.fpr-grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.fpr-grid-axis {
+  border-color: var(--border-strong);
+}
+
+.fpr-tick-y {
+  position: absolute;
+  right: 100%;
+  margin-right: var(--space-xs);
+  transform: translateY(-50%);
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fpr-tick-x {
+  position: absolute;
+  top: 100%;
+  margin-top: var(--space-xs);
+  transform: translateX(-50%);
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.fpr-tick-start {
+  transform: none;
+}
+
+.fpr-tick-end {
+  transform: translateX(-100%);
+}
+
+.fpr-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--text-secondary);
+}
+
+.fpr-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 2px solid var(--bg-surface);
+  border-radius: 50%;
+  box-sizing: content-box;
+  background: var(--fpr-first);
+}
+
+.fpr-dot-returning {
+  background: var(--fpr-returning);
+}
+
+.fpr-dot-picked {
+  transform: scale(1.5);
+}
+
+.fpr-range {
+  position: relative;
+  padding-bottom: 1.75rem;
+}
+
+.fpr-range-grid {
+  position: absolute;
+  top: 0;
+  bottom: 1.5rem;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.fpr-range-grid.fpr-grid-axis {
+  border-left-color: var(--text-muted);
+}
+
+.fpr-range-tick {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+}
+
+.fpr-range-row {
+  position: relative;
+  padding: var(--space-xs) 0;
+}
+
+.fpr-page .fpr-range-label {
+  position: relative;
+  display: inline-block;
+  padding-right: var(--space-xs);
+  font-size: var(--text-body-md);
+  background: var(--bg-surface);
+}
+
+.fpr-range-span {
+  color: var(--text-secondary);
+}
+
+.fpr-range-track {
+  position: relative;
+  height: 18px;
+  margin-top: var(--space-2xs);
+}
+
+.fpr-range-line {
+  position: absolute;
+  top: 50%;
+  height: 8px;
+  margin-top: -4px;
+  border-left: 2px solid var(--text-primary);
+  border-right: 2px solid var(--text-primary);
+  box-sizing: border-box;
+  background: linear-gradient(var(--text-primary), var(--text-primary)) center / 100% 2px no-repeat;
+}
+
+.fpr-range-dot {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: var(--fpr-first);
+  border: 2px solid var(--bg-surface);
+  box-sizing: content-box;
+}
+
+.fpr-range-dot-none {
+  background: var(--fpr-returning);
+}
+
+.fpr-cols-week {
+  max-width: 44rem;
+}
+
+.fpr-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-lg);
+  margin-top: var(--space-md);
+}
+
+.fpr-pair-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The taller chart sets the row's height; the other sits on the same baseline. */
+.fpr-pair-item .fpr-cols {
+  margin-top: auto;
+}
+
+@media (max-width: 560px) {
+  .fpr-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.fpr-cols {
+  --plot: 180px;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  align-items: end;
+  gap: var(--space-2xs);
+  margin-top: var(--space-md);
+}
+
+.fpr-col {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2xs);
+  text-align: center;
+  min-width: 0;
+}
+
+.fpr-col-value {
+  font-size: var(--text-body-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.fpr-col-bar {
+  display: block;
+  height: max(2px, calc(var(--f) * var(--plot)));
+  background: var(--fpr-first);
+  border-radius: var(--radius-badge) var(--radius-badge) 0 0;
+}
+
+.fpr-col-bar-off {
+  background: var(--fpr-off);
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+}
+
+.fpr-col-label {
+  min-height: 1.4em;
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.fpr-page .fpr-axis-title {
+  margin-top: var(--space-xs);
+  font-size: var(--text-body-md);
+  font-weight: 500;
+  text-align: center;
+  max-width: none;
+}
+
+.fpr-table-wrap {
+  margin-top: var(--space-md);
+  overflow-x: auto;
+}
+
+.fpr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.fpr-table th,
+.fpr-table td {
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  vertical-align: baseline;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.fpr-table thead th {
+  font-size: var(--text-body-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.fpr-table tbody th {
+  font-weight: 500;
+}
+
+.fpr-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.fpr-table td.num {
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+}
+
+.fpr-what {
+  display: block;
+  font-size: var(--text-body-md);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.fpr-tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 50;
+  max-width: 17rem;
+  padding: var(--space-2xs) var(--space-xs);
+  font-size: var(--text-body-md);
+  line-height: 1.35;
+  color: var(--bg-surface);
+  background: var(--text-primary);
+  border-radius: var(--radius-control);
+  pointer-events: none;
+}
+
+@media (max-width: 559px) {
+  .fpr-plot {
+    height: 240px;
+  }
+
+  .fpr-read {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fpr-slide,
+  .fpr-silent-for {
+    grid-column: 1 / -1;
+  }
+
+  .fpr-wide,
+  .fpr-hide-narrow {
+    visibility: hidden;
+  }
+
+  .fpr-tick-x.fpr-wide {
+    display: none;
+  }
+
+  .fpr-table th,
+  .fpr-table td {
+    padding: var(--space-xs) var(--space-2xs);
+  }
+
+  .fpr-table thead th,
+  .fpr-table thead th.num {
+    white-space: normal;
+    vertical-align: bottom;
+  }
+
+  .fpr-cols {
+    gap: 3px;
+  }
+
+  .fpr-cols-hist .fpr-col-label {
+    font-size: var(--text-caption);
+  }
+
+  /* The outer columns' words are wider than their bars: they lean inward and stay on the card. */
+  .fpr-cols-hist .fpr-col:last-child .fpr-col-value,
+  .fpr-cols-hist .fpr-col:last-child .fpr-col-label {
+    align-self: flex-end;
+  }
+
+  .fpr-cols-hist .fpr-col:first-child .fpr-col-label {
+    align-self: flex-start;
+  }
+}
+
+/* On a phone a table's row reads as its name over its numbers, with nothing cut off. */
+@media (max-width: 599px) {
+  .fpr-table,
+  .fpr-table thead,
+  .fpr-table tbody {
+    display: block;
+  }
+
+  .fpr-table tr {
+    display: grid;
+    grid-template-columns: repeat(var(--nums), minmax(0, 1fr));
+    column-gap: var(--space-xs);
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .fpr-table thead th:first-child {
+    display: none;
+  }
+
+  .fpr-table tbody th {
+    grid-column: 1 / -1;
+  }
+
+  .fpr-table th,
+  .fpr-table td {
+    padding: 2px 0;
+    border: 0;
+  }
+
+  .fpr-table td.num {
+    white-space: normal;
+  }
+}
+
+.fpr-page .report-pair {
+  align-items: start;
+}
+
+@media (forced-colors: active) {
+  .fpr-col-bar,
+  .fpr-dot,
+  .fpr-range-dot,
+  .fpr-range-line,
+  .fpr-key::before {
+    forced-color-adjust: none;
+  }
+
+  .fpr-col-bar {
+    background: CanvasText;
+  }
+
+  .fpr-col-bar-off {
+    background: GrayText;
+  }
+
+  .fpr-dot,
+  .fpr-range-dot {
+    background: CanvasText;
+    border-color: Canvas;
+  }
+
+  .fpr-dot-returning,
+  .fpr-range-dot-none {
+    background: GrayText;
+  }
+
+  .fpr-range-line {
+    background: linear-gradient(CanvasText, CanvasText) center / 100% 2px no-repeat;
+    border-color: CanvasText;
+  }
+
+  .fpr-key::before {
+    border-top-color: CanvasText;
+  }
+
+  .fpr-key-returning::before {
+    border-top-color: GrayText;
+  }
+
+  .fpr-line-first {
+    stroke: CanvasText;
+  }
+
+  .fpr-line-returning {
+    stroke: GrayText;
+  }
+}
+
+/* ---- The personal lookup (views/lookup.js) ---- */
+.lookup-result {
+  overflow-wrap: anywhere;
+  scroll-margin-top: var(--space-md);
+}
+
+.lookup-result:empty {
+  display: none;
+}
+
+.lookup-form label {
+  display: block;
+  margin-bottom: var(--space-xs);
+  font-weight: 600;
+}
+
+.lookup-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.lookup-row input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  max-width: 24rem;
+}
+
+.lookup-button {
+  padding: var(--space-xs) var(--space-md);
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-on-accent);
+  background: var(--accent-cyan);
+  border: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.lookup-button:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.report-page .lookup-cost {
+  margin-top: var(--space-sm);
+  max-width: 72ch;
+}
+
+.lookup-list {
+  margin: var(--space-md) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lookup-item {
+  padding: var(--space-sm) 0;
+  border-top: 1px solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+
+.lookup-repo {
+  font-weight: 600;
+}
+
+.report-page .lookup-title-text,
+.report-page .lookup-extra {
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+}
+
+.lookup-status {
+  margin-top: var(--space-2xs);
+}
+
+.lookup-silent .lookup-status {
+  font-weight: 600;
+}
+
+/* A printed chart keeps its bars and dots: browsers drop background colours when printing unless told otherwise. */
+.fpr-col-bar,
+.fpr-dot,
+.fpr-range-dot {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}

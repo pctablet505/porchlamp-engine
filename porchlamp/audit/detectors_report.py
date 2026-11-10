@@ -1,0 +1,294 @@
+"""``porchlamp audit detectors``: cross-snapshot detector counts.
+
+Runs every detector in :mod:`porchlamp.verify.detectors` over a set of scored
+repositories and reports, per detector, how many repositories triggered it
+and which ones. All detector *logic* lives in ``porchlamp.verify.detectors``
+(pure functions over ``ScoreRecord``/``DetectorInputs``); this module is
+I/O only -- reading the two input files, matching current against previous
+by repo key, and rendering the report.
+
+Input format (an interim contract, not a stored schema).
+``--current``/``--previous`` each take a JSON file: a list of "row"
+objects, one per repository::
+
+    [
+      {
+        "key": "owner/name",
+        "params": {
+          "ttfhr_hours": {"score": 92.0, "measured": true, "n": 40},
+          ...
+        },
+        "newcomer_issue_count": 12,
+        "elephant_factor": 3,
+        "top_email_domain_share": 0.6,
+        "closed_unread_share": 0.1,
+        "closed_unread_n": 12,
+        "star_lockstep_penalty_applied": false,
+        "source_drift_held": false,
+        "newcomer_accounts": [
+          {"login": "...", "account_created_at": "...", "all_prs_merged": true}
+        ]
+      },
+      ...
+    ]
+
+Every field but ``key`` and ``params`` is optional and maps 1:1 onto a
+:class:`~porchlamp.verify.detectors.DetectorInputs` field of the same name
+(omitted means ``None``/empty, i.e. "not collected" -- the
+unmeasured-never-fires rule). ``params`` need only list the five input ids
+the detectors actually read (``ttfhr_hours``, ``dr90_decision_rate``,
+``mr_first_rate``, ``newcomer_conversion``, ``rr90_return_rate``); missing
+or absent entries are treated as unmeasured. This row shape is this
+module's own interim contract, not a stored schema -- a real reader of
+``ScoreRecord`` rows from ``porchlamp.db`` would replace :func:`load_rows`, and
+the rest of this module (matching, counting, rendering) is unaffected.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping, Optional, Sequence
+
+from porchlamp.core.constants import PARAM_INPUT_IDS
+from porchlamp.core.models import GateResult, ParamScore, RepoIdentity, ScoreRecord
+from porchlamp.verify.detectors import DETECTOR_NAMES, DetectorInputs, NewcomerAccountSample, run_detectors
+
+__version__ = "1.0.0"
+
+#: Parameter input ids a detector row may carry (all 18 v2 parameter input
+#: ids from ``porchlamp.core.constants.PARAM_INPUT_IDS``, so ``detect_param_jump``
+#: can observe jumps across any of the 18 parameters).
+ROW_PARAM_IDS: tuple[str, ...] = PARAM_INPUT_IDS
+
+_HASH64_PLACEHOLDER = "0" * 64
+
+
+@dataclass(frozen=True)
+class DetectorRow:
+    """One repository's detector-relevant facts at one snapshot: a minimal
+    ``ScoreRecord`` (only ``params`` populated -- no detector reads
+    anything else off a ``ScoreRecord``, see ``porchlamp.verify.detectors``'s
+    module docstring) plus the raw ``DetectorInputs`` for that repo."""
+
+    key: str
+    record: ScoreRecord
+    inputs: DetectorInputs
+
+
+def _param_score_from_json(payload: Mapping[str, Any]) -> ParamScore:
+    """One ``params`` entry from the interim JSON row shape (module
+    docstring) into a :class:`~porchlamp.core.models.ParamScore`. ``value``,
+    ``window_start``, ``window_end``, ``source`` and ``fetched_at`` are
+    optional here too (they are ``ParamScore`` evidence fields no detector
+    reads -- ``porchlamp.verify.detectors``'s module docstring -- so a row
+    lacking them, as every example in this module's docstring does, still
+    parses; ``payload.get`` defaults each to ``None``, same as every other
+    optional field in this row format)."""
+    measured = bool(payload.get("measured", False))
+    score = payload.get("score")
+    return ParamScore(
+        value=payload.get("value"),
+        score=None if score is None else float(score),
+        measured=measured,
+        reason=payload.get("reason"),
+        n=int(payload.get("n", 0)),
+        window_start=payload.get("window_start"),
+        window_end=payload.get("window_end"),
+        method=payload.get("method"),
+        source=payload.get("source"),
+        fetched_at=payload.get("fetched_at"),
+    )
+
+
+#: Placeholder ``RepoIdentity`` fields the interim row format does not
+#: carry (ecosystem/archived/mirror/fork/license/branch): none of the nine
+#: detectors read ``ScoreRecord.repo`` (see ``porchlamp.verify.detectors``'s
+#: module docstring -- every predicate reads only ``.params`` and the
+#: separate ``DetectorInputs``), so only ``owner``/``name`` need to be
+#: real. ``repo`` is a required ``ScoreRecord`` field.
+_PLACEHOLDER_ECOSYSTEM = "unknown"
+
+
+def _repo_identity_from_key(key: str) -> RepoIdentity:
+    """Build a real ``RepoIdentity`` from a row's ``"owner/name"`` key.
+
+    Raises ``ValueError`` naming the key when it does not contain exactly
+    the one ``"/"`` the documented row format requires (assert values, not
+    shapes -- a malformed key must not silently become a single-part owner
+    or name)."""
+    parts = key.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError(f'row key must be "owner/name", got {key!r}')
+    owner, name = parts
+    return RepoIdentity(
+        owner=owner,
+        name=name,
+        ecosystem=_PLACEHOLDER_ECOSYSTEM,
+        archived=False,
+        mirror_url=None,
+        fork=False,
+        license_spdx=None,
+        default_branch=None,
+    )
+
+
+def _minimal_score_record(repo: RepoIdentity, params: Mapping[str, ParamScore]) -> ScoreRecord:
+    """A ``ScoreRecord`` carrying a real ``repo`` and ``params``; every
+    other field is a neutral placeholder (see :class:`DetectorRow`)."""
+    return ScoreRecord(
+        repo=repo,
+        snapshot_id="",
+        benchmark_version="",
+        constants_hash=_HASH64_PLACEHOLDER,
+        raw_hash=_HASH64_PLACEHOLDER,
+        gate=GateResult(eligible=True, reason=None, routed=None, undecided=()),
+        params=dict(params),
+        pillars={},
+        composite=None,
+        coverage=0.0,
+        tier=None,
+        leverage=None,
+        friction=None,
+        quadrant=None,
+        persona_gates={},
+        persona_composites={},
+        tie_key=(),
+        tie_group=None,
+        rank=None,
+        suspicion=[],
+    )
+
+
+def _newcomer_accounts_from_json(payload: Sequence[Mapping[str, Any]]) -> tuple[NewcomerAccountSample, ...]:
+    return tuple(
+        NewcomerAccountSample(
+            login=str(entry["login"]),
+            account_created_at=str(entry["account_created_at"]),
+            all_prs_merged=bool(entry["all_prs_merged"]),
+        )
+        for entry in payload
+    )
+
+
+def _row_from_json(payload: Mapping[str, Any]) -> DetectorRow:
+    key = str(payload["key"])
+    raw_params = payload.get("params") or {}
+    params = {
+        input_id: _param_score_from_json(raw_params[input_id])
+        for input_id in ROW_PARAM_IDS
+        if input_id in raw_params
+    }
+    inputs = DetectorInputs(
+        newcomer_issue_count=payload.get("newcomer_issue_count"),
+        elephant_factor=payload.get("elephant_factor"),
+        top_email_domain_share=payload.get("top_email_domain_share"),
+        closed_unread_share=payload.get("closed_unread_share"),
+        closed_unread_n=payload.get("closed_unread_n"),
+        newcomer_accounts=_newcomer_accounts_from_json(payload.get("newcomer_accounts") or ()),
+        star_lockstep_penalty_applied=payload.get("star_lockstep_penalty_applied"),
+        source_drift_held=payload.get("source_drift_held"),
+    )
+    return DetectorRow(key=key, record=_minimal_score_record(_repo_identity_from_key(key), params), inputs=inputs)
+
+
+def load_rows(path: "Path | str") -> dict[str, DetectorRow]:
+    """Load the interim JSON row format (see the module docstring) into
+    ``key -> DetectorRow``. Raises ``FileNotFoundError`` for a missing
+    file, ``json.JSONDecodeError`` for invalid JSON, and ``KeyError`` for a
+    row missing its required ``key`` field."""
+    document = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(document, list):
+        raise ValueError(f"expected a JSON list of row objects, got {type(document).__name__}")
+    rows = [_row_from_json(entry) for entry in document]
+    return {row.key: row for row in rows}
+
+
+@dataclass(frozen=True)
+class DetectorReport:
+    """Per-detector counts and flagged repository keys over one run.
+
+    ``counts`` and ``flagged`` are keyed by every name in
+    :data:`~porchlamp.verify.detectors.DETECTOR_NAMES`, including zero-count
+    detectors (so a caller never needs a ``.get(name, 0)``). ``total_repos``
+    is the number of repositories in ``current`` the report was computed
+    over."""
+
+    total_repos: int
+    counts: dict[str, int]
+    flagged: dict[str, tuple[str, ...]]
+
+
+def build_report(
+    current: Mapping[str, DetectorRow], previous: Mapping[str, DetectorRow]
+) -> DetectorReport:
+    """Run every detector over each repository in ``current``, matching
+    ``previous`` by key (a repository absent from ``previous`` is scored
+    with ``previous=None``: the same-snapshot detectors still run,
+    ``param_jump`` cannot fire -- see
+    ``porchlamp.verify.detectors.detect_param_jump``)."""
+    flagged: dict[str, list[str]] = {name: [] for name in DETECTOR_NAMES}
+    for key in sorted(current):
+        row = current[key]
+        previous_record = previous[key].record if key in previous else None
+        for name in run_detectors(row.record, previous_record, row.inputs):
+            flagged[name].append(key)
+    return DetectorReport(
+        total_repos=len(current),
+        counts={name: len(keys) for name, keys in flagged.items()},
+        flagged={name: tuple(keys) for name, keys in flagged.items()},
+    )
+
+
+def format_report(report: DetectorReport) -> str:
+    """Render the report as plain text: one line per detector, repos
+    counted first, ordered by :data:`~porchlamp.verify.detectors.DETECTOR_NAMES`
+    (03 section 6 table order) so the output order never depends on the
+    input's key order."""
+    lines = [
+        "Porchlamp cross-snapshot detector report",
+        f"repositories scored: {report.total_repos}",
+    ]
+    for name in DETECTOR_NAMES:
+        count = report.counts[name]
+        line = f"{name}: {count}"
+        if count:
+            line += " (" + ", ".join(report.flagged[name]) + ")"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Run ``porchlamp audit detectors``; returns the process exit code.
+
+    Exits 0 when the report completes; exits 2 on a missing/malformed
+    input file."""
+    parser = argparse.ArgumentParser(
+        description="Cross-snapshot manipulation-detector counts (03 section 6)."
+    )
+    parser.add_argument("--current", required=True, help="path to the current-snapshot rows JSON")
+    parser.add_argument("--previous", default=None, help="path to the previous-snapshot rows JSON")
+    parser.add_argument("--json", action="store_true", help="emit the report as JSON")
+    args = parser.parse_args(argv)
+    try:
+        current = load_rows(args.current)
+        previous = load_rows(args.previous) if args.previous else {}
+    except (OSError, ValueError, KeyError) as error:
+        print(f"cannot load detector rows: {error}", file=sys.stderr)
+        return 2
+    report = build_report(current, previous)
+    if args.json:
+        print(json.dumps({
+            "total_repos": report.total_repos,
+            "counts": report.counts,
+            "flagged": {name: list(keys) for name, keys in report.flagged.items()},
+        }, indent=2))
+    else:
+        print(format_report(report))
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

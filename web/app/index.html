@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- The one policy of every page the site serves, as a meta tag (GitHub Pages sends no headers): every other page
+       is built from 404.html, which carries the same (tests/test_app_routes.py, tests/test_site_chrome.py). The
+       pages' own scripts only (no inline, no eval); connect-src names one external origin, api.github.com, which
+       only the opt-in live check contacts (livecheck.js). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="/theme-init.js"></script>
+  <title>Porchlamp: do open-source projects answer pull requests? Rankings</title>
+  <meta name="description" content="Porchlamp measures open-source projects by whether they reply, review or merge a stranger's pull request, not by stars. Find the ones that leave the light on.">
+  <meta name="author" content="Rahul Kumar (pctablet505)">
+  <meta name="theme-color" content="#0f1419">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://porchlamp.org/">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <link rel="alternate" type="application/atom+xml" title="Porchlamp — Open-Source Benchmark &amp; Snapshots" href="https://porchlamp.org/feed.xml">
+  <!-- Link previews. Absolute URLs: crawlers do not resolve relative ones. -->
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:site_name" content="Porchlamp">
+  <meta property="og:title" content="Porchlamp: find the projects that leave the light on">
+  <meta property="og:description" content="Open-source projects ranked by what happens to a stranger's pull request, not by stars.">
+  <meta property="og:url" content="https://porchlamp.org/">
+  <meta property="og:image" content="https://porchlamp.org/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Porchlamp: a porch lamp with its light on, and the slogan 'Find the projects that leave the light on.'">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Porchlamp: find the projects that leave the light on">
+  <meta name="twitter:description" content="Open-source projects ranked by what happens to a stranger's pull request, not by stars.">
+  <meta name="twitter:image" content="https://porchlamp.org/og.png">
+  <meta name="twitter:image:alt" content="Porchlamp: a porch lamp with its light on, and the slogan 'Find the projects that leave the light on.'">
+  <link rel="stylesheet" href="/styles/tokens.css">
+  <link rel="stylesheet" href="/styles/base.css">
+  <link rel="stylesheet" href="/styles/components.css">
+  <link rel="stylesheet" href="/styles/views.css">
+</head>
+<body>
+  <a class="skip-link" href="#app-main">Skip to main content</a>
+  <div class="app-shell">
+    <header class="app-header" id="app-header-controls"></header>
+    <nav class="app-primary-nav" id="app-primary-nav"></nav>
+    <main class="app-main" id="app-main" tabindex="-1">
+    </main>
+    <footer class="app-footer" id="app-footer"></footer>
+  </div>
+  <div id="app-drawer-root"></div>
+  <div id="app-keymap-root"></div>
+  <div id="app-live-region" class="app-live-region" role="status" aria-live="polite"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

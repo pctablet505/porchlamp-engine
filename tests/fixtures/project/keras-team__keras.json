@@ -1,0 +1,403 @@
+{
+  "detail": {
+    "owner": "keras-team",
+    "name": "keras",
+    "ecosystem": "pypi",
+    "snapshot_id": "2026-10-17",
+    "benchmark_version": "2.0.0-rc1",
+    "raw_hash": "75c2681a07efe110c6802669a8517873255879b76dc1b411c207133be11db6c3",
+    "eligible": true,
+    "gate_reason": null,
+    "rated": true,
+    "unrated_reason": null,
+    "rank": 2531,
+    "tie_group": 692,
+    "porchlamp": 50.07,
+    "coverage": 0.8625,
+    "tier": "C",
+    "tier_ceiling": "A",
+    "quadrant": "Crucible",
+    "leverage": 65.78,
+    "friction": 62.67,
+    "leverage_coverage": 1.0,
+    "friction_coverage": 0.775,
+    "p_responsiveness": 30.734968406482,
+    "c_responsiveness": 0.75,
+    "p_criticality": 75.383687868643,
+    "c_criticality": 1.0,
+    "p_governance": 55.75,
+    "c_governance": 1.0,
+    "p_rigor": 56.45,
+    "c_rigor": 1.0,
+    "p_accessibility": 26.18124,
+    "c_accessibility": 0.5,
+    "persona_gates": {},
+    "persona_composites": {
+      "ai_assisted": {
+        "porchlamp": 51.96,
+        "coverage": 0.9,
+        "tier": "C",
+        "rated": true
+      },
+      "balanced": {
+        "porchlamp": 50.07,
+        "coverage": 0.8625,
+        "tier": "C",
+        "rated": true
+      },
+      "career_capital": {
+        "porchlamp": 51.78,
+        "coverage": 0.85,
+        "tier": "C",
+        "rated": true
+      },
+      "first_timer": {
+        "porchlamp": 40.16,
+        "coverage": 0.7625,
+        "tier": "C",
+        "rated": true
+      },
+      "senior_systems": {
+        "porchlamp": 57.53,
+        "coverage": 0.9375,
+        "tier": "B",
+        "rated": true
+      }
+    },
+    "suspicion": [],
+    "stars_audited": null,
+    "black_hole_evidence": null
+  },
+  "evidence": [
+    {
+      "param_id": "ai_posture",
+      "pillar": "rigor",
+      "measured": true,
+      "value": "AD_HOC",
+      "score": 40.0,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/governance/keras-team__keras.json",
+      "source_sha256": "e1adb478320f6e04358e22f277d78209aa778123b63491168cde65ef1a6b913c",
+      "fetched_at": "2026-10-10T03:16:56.321329+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "dependents_deduped",
+      "pillar": "criticality",
+      "measured": true,
+      "value": 587,
+      "score": 88.69918699186992,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/dependents/keras-team__keras.json",
+      "source_sha256": "231a5e83d5bf844222620801641a7005e4c3e2a2a96a9012708199bd0aba4133",
+      "fetched_at": "2026-10-10T14:09:28.684536+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "downloads_monthly",
+      "pillar": "criticality",
+      "measured": true,
+      "value": 11386830,
+      "score": 80.9640522875817,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/downloads/pypi__keras.json",
+      "source_sha256": "5ca172f7b5db30fe32c999902df5a07ffe8ab8cf3a842fa6b1eab8935fbce1c4",
+      "fetched_at": "2026-10-07T14:01:31.871200+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "dr90_decision_rate",
+      "pillar": "responsiveness",
+      "measured": false,
+      "value": null,
+      "score": null,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": null,
+      "source": null,
+      "source_sha256": null,
+      "fetched_at": null,
+      "unmeasured_reason": "insufficient_n"
+    },
+    {
+      "param_id": "dx",
+      "pillar": "accessibility",
+      "measured": true,
+      "value": 87.2708,
+      "score": 87.2708,
+      "n": 18,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/actions_runs/keras-team__keras.json",
+      "source_sha256": "04a2fde802e2a07988dcc1951ccb54afc3b57adbab29cb0898c7cf6ce4c89d00",
+      "fetched_at": "2026-10-13T02:28:03.140049+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "elephant_factor",
+      "pillar": "governance",
+      "measured": true,
+      "value": 6,
+      "score": 100.0,
+      "n": 983,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/commits_365d/keras-team__keras.json",
+      "source_sha256": "adff63a5a80acf89d7a792ffe80569f3f1fdd4891aae42efd63938e8ef54ee61",
+      "fetched_at": "2026-10-10T11:57:28.463680+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "gr14_ghost_rate",
+      "pillar": "responsiveness",
+      "measured": true,
+      "value": 0.3411764705882353,
+      "score": 31.764705882352942,
+      "n": 170,
+      "window_start": "2026-04-20T05:35:00+00:00",
+      "window_end": "2026-10-17T05:35:00+00:00",
+      "method": "primary",
+      "source": "raw/pr_window/keras-team__keras.json",
+      "source_sha256": "9bc32db432ae8cba31ea827c04fd827197c1c384d0e57863f6a34e818c818fbb",
+      "fetched_at": "2026-10-14T21:10:21.085332+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "legal_ip",
+      "pillar": "governance",
+      "measured": true,
+      "value": "CORP_CLA",
+      "score": 25.0,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/governance/keras-team__keras.json",
+      "source_sha256": "e1adb478320f6e04358e22f277d78209aa778123b63491168cde65ef1a6b913c",
+      "fetched_at": "2026-10-10T03:16:56.321329+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "mr_first_rate",
+      "pillar": "responsiveness",
+      "measured": true,
+      "value": 0.5556,
+      "score": 69.45,
+      "n": 9,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/author_history/keras-team__keras.json",
+      "source_sha256": "d516bba8eb6464ce76637de0d102d8301d381f1cb8a1e57f9a2779f4d9e96637",
+      "fetched_at": "2026-10-10T19:36:21.234809+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "newcomer_conversion",
+      "pillar": "accessibility",
+      "measured": false,
+      "value": null,
+      "score": null,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": null,
+      "source": null,
+      "source_sha256": null,
+      "fetched_at": null,
+      "unmeasured_reason": "insufficient_n"
+    },
+    {
+      "param_id": "newcomer_issue_supply",
+      "pillar": "accessibility",
+      "measured": true,
+      "value": 0,
+      "score": 0.0,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/gfi/keras-team__keras.json",
+      "source_sha256": "c854fdb880f44fd90f9d14f06399205d9b9fec4b6abddc96798ba19a14581e41",
+      "fetched_at": "2026-10-09T02:26:29.823576+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "openssf_criticality",
+      "pillar": "criticality",
+      "measured": true,
+      "value": 0.5618,
+      "score": 56.18,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/github_meta/keras-team__keras.json",
+      "source_sha256": "1372a311161abb79de5aba75fbf0b760d426315c47e68a61871b6ce7b2307fa1",
+      "fetched_at": "2026-10-10T14:09:28.684536+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "pipeline_defenses",
+      "pillar": "rigor",
+      "measured": true,
+      "value": 80.0,
+      "score": 80.0,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/scorecard/keras-team__keras.json",
+      "source_sha256": "52241b260eacd4e9b3de6b1140718b8c8624cde5c39c60676016e682257db715",
+      "fetched_at": "2026-10-07T14:01:16.035479+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "promotion_ladder",
+      "pillar": "governance",
+      "measured": true,
+      "value": "AD_HOC",
+      "score": 40.0,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/governance/keras-team__keras.json",
+      "source_sha256": "e1adb478320f6e04358e22f277d78209aa778123b63491168cde65ef1a6b913c",
+      "fetched_at": "2026-10-10T03:16:56.321329+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "rr90_return_rate",
+      "pillar": "accessibility",
+      "measured": false,
+      "value": null,
+      "score": null,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": null,
+      "source": null,
+      "source_sha256": null,
+      "fetched_at": null,
+      "unmeasured_reason": "insufficient_n"
+    },
+    {
+      "param_id": "substantive_review_rate",
+      "pillar": "rigor",
+      "measured": true,
+      "value": 0.332,
+      "score": 41.5,
+      "n": 241,
+      "window_start": "2026-04-17T21:10:21.085332+00:00",
+      "window_end": "2026-10-14T21:10:21.085332+00:00",
+      "method": "primary",
+      "source": "raw/pr_window/keras-team__keras.json",
+      "source_sha256": "9bc32db432ae8cba31ea827c04fd827197c1c384d0e57863f6a34e818c818fbb",
+      "fetched_at": "2026-10-14T21:10:21.085332+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "ttfhr_hours",
+      "pillar": "responsiveness",
+      "measured": true,
+      "value": 148.3311,
+      "score": 9.30712993069929,
+      "n": 201,
+      "window_start": "2026-04-17T21:10:21.085332+00:00",
+      "window_end": "2026-10-14T21:10:21.085332+00:00",
+      "method": "primary",
+      "source": "raw/pr_window/keras-team__keras.json",
+      "source_sha256": "9bc32db432ae8cba31ea827c04fd827197c1c384d0e57863f6a34e818c818fbb",
+      "fetched_at": "2026-10-14T21:10:21.085332+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "ttm_p90_hours",
+      "pillar": "responsiveness",
+      "measured": true,
+      "value": 740.3169,
+      "score": 16.04381443298969,
+      "n": 147,
+      "window_start": "2026-04-17T21:10:21.085332+00:00",
+      "window_end": "2026-10-14T21:10:21.085332+00:00",
+      "method": "primary",
+      "source": "raw/pr_window/keras-team__keras.json",
+      "source_sha256": "9bc32db432ae8cba31ea827c04fd827197c1c384d0e57863f6a34e818c818fbb",
+      "fetched_at": "2026-10-14T21:10:21.085332+00:00",
+      "unmeasured_reason": null
+    }
+  ],
+  "answer": [
+    "Outside pull requests to keras-team/keras got a first human reply in a median of 6.2 days (201 pull requests, 17 April to 14 October 2026); 34% got none within 14 days.",
+    "It ranks 2,531 of 4,322 overall.",
+    "For first-time contributors it ranks 2,039 of 2,132 (the bottom 5%)."
+  ],
+  "standings": {
+    "balanced": {
+      "rank": 2531,
+      "total": 4322,
+      "reason": null
+    },
+    "first_timer": {
+      "rank": 2039,
+      "total": 2132,
+      "reason": null
+    },
+    "career_capital": {
+      "rank": 712,
+      "total": 907,
+      "reason": null
+    },
+    "senior_systems": {
+      "rank": 520,
+      "total": 1346,
+      "reason": null
+    },
+    "ai_assisted": {
+      "rank": 2086,
+      "total": 4440,
+      "reason": null
+    }
+  },
+  "similar": [
+    {
+      "owner": "ranger",
+      "name": "ranger",
+      "rank": 2523
+    },
+    {
+      "owner": "jupyterlab",
+      "name": "jupyter-ai",
+      "rank": 2528
+    },
+    {
+      "owner": "ibis-project",
+      "name": "ibis",
+      "rank": 2530
+    },
+    {
+      "owner": "nodejs",
+      "name": "node-gyp",
+      "rank": 2535
+    },
+    {
+      "owner": "gevent",
+      "name": "gevent",
+      "rank": 2538
+    }
+  ],
+  "recordFile": "data/2026-10-17/repos/81.json"
+}

@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Test suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install "pytest==9.1.1" "pytest-xdist==3.8.0" "fastapi==0.141.1" "httpx==0.28.1" "ruff==0.16.7" "pyyaml==6.0.3" "uvicorn==0.52.4"
+
+      - name: "Lint (gate 1, ratchet: must stay clean)"
+        run: ruff check porchlamp/ phone/ scripts/ tests/
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run frontend Node test suite
+        run: node --test web/app/tests/unit.test.mjs web/app/tests/render.perf.test.mjs
+
+      - name: Run test suite
+        env:
+          # The perf budgets (100 ms queries, 150 ms API; 2x under xdist) describe the
+          # development host. Run 35878054799 measured this runner 1.3-1.5x over even the
+          # xdist budgets (257/276 ms vs 200, 443 ms vs 300) with no code change, and run
+          # 35879353753 the JS render budget re-run here (57 ms vs 48), so CI scales them
+          # by 2. A local run and the standalone node step above (factor unset) enforce
+          # the real numbers.
+          PORCHLAMP_PERF_HOST_FACTOR: "2"
+        run: env -u PYTEST_ADDOPTS python -m pytest tests/ -n auto --maxprocesses=16 -p no:cacheprovider
+
+      - name: Anchors, sensitivity, reproduce (fixture snapshot)
+        run: >
+          env -u PYTEST_ADDOPTS python -m pytest
+          tests/audit/test_anchors_fixture.py
+          tests/audit/test_sensitivity_fixture.py
+          tests/snapshot/test_reproduce_fixture.py
+          -p no:cacheprovider
+
+  package:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build
+        run: pip install build
+
+      - name: Build sdist
+        run: python -m build --sdist
+
+      - name: Show dist output
+        run: ls -l dist/
+
+      - name: sdist contains the store migrations
+        run: tar tzf dist/*.tar.gz | grep -q 'porchlamp/store/migrations/.*\.sql'
+
+      - name: "Non-editable install (W4-1: package move must survive a real install)"
+        run: |
+          python -m venv /tmp/porchlamp-install-check
+          /tmp/porchlamp-install-check/bin/pip install --quiet "$(ls dist/*.tar.gz)[server]"
+
+      - name: Non-editable install finds the moved/serving modules + migrations
+        # From outside the checkout: at the repo root `python -c` puts the working
+        # directory first on sys.path and imports the SOURCE tree, so this check
+        # passed whatever the install contained.
+        working-directory: ${{ runner.temp }}
+        run: |
+          /tmp/porchlamp-install-check/bin/python -c "
+          import os
+          import porchlamp
+          assert 'site-packages' in porchlamp.__file__, f'imported {porchlamp.__file__}, not the installed package'
+          import porchlamp.serve.app
+          import porchlamp.snapshot.store_cmd
+          import porchlamp.collect.ratelimit
+          import porchlamp.store.migrations as m
+          mdir = os.path.dirname(m.__file__)
+          sql_files = sorted(f for f in os.listdir(mdir) if f.endswith('.sql'))
+          assert sql_files, f'no .sql migrations found in installed {mdir}'
+          print('migrations found:', sql_files)
+          porchlamp_dir = os.path.dirname(porchlamp.__file__)
+          for gone in ('benchmark_data.py', 'ingest.py', 'benchmark.py'):
+              path = os.path.join(porchlamp_dir, gone)
+              assert not os.path.exists(path), f'{gone} should not exist in the installed package'
+          print('ALL CHECKS PASSED')
+          "

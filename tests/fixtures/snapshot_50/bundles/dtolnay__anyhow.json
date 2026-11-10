@@ -1,0 +1,449 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 223,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/dtolnay/anyhow/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "fetched_at": "2026-09-11T19:44:55.951653+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/downloads/crates__anyhow.json",
+      "source_hash": "402069185a1960d4cfdf637cf768ea7c2b6c756254e49679056dd14118b2c937",
+      "value": 70018445,
+      "window_end": null,
+      "window_start": null
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T19:44:49.000996+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/dtolnay__anyhow.json",
+      "source_hash": "2f15253dfb4ad987d7f27a36eea5eabbfd0360241b7d0fb30c45f195d664fe41",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T19:44:49.635626+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/dtolnay__anyhow.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/dtolnay/anyhow/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T19:44:52.571324+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "raw/commits_180d/dtolnay__anyhow.json",
+    "source_hash": "34553325c31c9c5c9e8ea622f183b15a5aaedd6594ce40c01e4c62cbdc73cea6",
+    "value": "2026-08-22T02:43:38Z"
+  },
+  "pr_window": {
+    "end": "2026-08-25T16:48:26+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "atheerium",
+        "closed_at": null,
+        "created_at": "2026-08-25T16:48:26+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 461
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "atheerium",
+        "closed_at": null,
+        "created_at": "2026-08-25T14:07:13+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 460
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "FadeHack",
+        "closed_at": null,
+        "created_at": "2026-08-23T16:08:33+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 459
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "eastspire",
+        "closed_at": null,
+        "created_at": "2026-08-17T05:58:08+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 457
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "saitejabandaru-in",
+        "closed_at": "2026-07-26T14:58:55+00:00",
+        "created_at": "2026-07-26T14:51:30+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 455
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "FuuuOverclocking",
+        "closed_at": "2026-07-04T18:27:18+00:00",
+        "created_at": "2026-07-04T07:38:10+00:00",
+        "first_human_review_at": "2026-07-04T18:27:13+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 454
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2026-06-25T20:42:49+00:00",
+        "created_at": "2026-06-25T20:41:58+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-06-25T20:42:49+00:00",
+        "pr_number": 452
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Cheese-Space",
+        "closed_at": null,
+        "created_at": "2026-03-29T20:57:53+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 445
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2026-02-19T18:33:09+00:00",
+        "created_at": "2026-02-19T18:28:41+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-02-19T18:33:09+00:00",
+        "pr_number": 442
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2026-02-19T18:16:13+00:00",
+        "created_at": "2026-02-19T18:16:06+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-02-19T18:16:12+00:00",
+        "pr_number": 441
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2026-02-19T18:09:30+00:00",
+        "created_at": "2026-02-19T18:07:51+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-02-19T18:09:29+00:00",
+        "pr_number": 440
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2026-02-19T18:01:58+00:00",
+        "created_at": "2026-02-19T18:00:16+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-02-19T18:01:58+00:00",
+        "pr_number": 439
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "DanielEScherzer",
+        "closed_at": "2026-02-19T15:53:39+00:00",
+        "created_at": "2026-02-19T07:51:31+00:00",
+        "first_human_review_at": "2026-02-19T15:53:33+00:00",
+        "is_external": true,
+        "merged_at": "2026-02-19T15:53:39+00:00",
+        "pr_number": 438
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Ibitier",
+        "closed_at": "2026-02-05T19:19:34+00:00",
+        "created_at": "2026-02-05T19:15:19+00:00",
+        "first_human_review_at": "2026-02-05T19:19:29+00:00",
+        "is_external": true,
+        "merged_at": "2026-02-05T19:19:34+00:00",
+        "pr_number": 437
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-12-13T04:29:49+00:00",
+        "created_at": "2025-12-13T04:28:44+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-12-13T04:29:49+00:00",
+        "pr_number": 436
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-12-13T04:15:20+00:00",
+        "created_at": "2025-12-13T04:02:52+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-12-13T04:15:20+00:00",
+        "pr_number": 435
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "alper",
+        "closed_at": null,
+        "created_at": "2025-11-09T18:35:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 433
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "wyrapeseed",
+        "closed_at": "2025-10-21T14:28:56+00:00",
+        "created_at": "2025-10-21T07:20:32+00:00",
+        "first_human_review_at": "2025-10-21T14:28:46+00:00",
+        "is_external": true,
+        "merged_at": "2025-10-21T14:28:56+00:00",
+        "pr_number": 432
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "umbrageodotus",
+        "closed_at": "2025-09-27T19:57:40+00:00",
+        "created_at": "2025-09-27T16:56:52+00:00",
+        "first_human_review_at": "2025-09-27T19:57:35+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 430
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "umbrageodotus",
+        "closed_at": "2025-09-27T16:41:02+00:00",
+        "created_at": "2025-09-27T16:40:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 429
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "aminya",
+        "closed_at": "2025-10-01T03:55:50+00:00",
+        "created_at": "2025-09-24T09:25:46+00:00",
+        "first_human_review_at": "2025-10-01T03:55:44+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 428
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-09-19T06:37:47+00:00",
+        "created_at": "2025-09-19T06:36:33+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-09-19T06:37:47+00:00",
+        "pr_number": 426
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "JiajieZeee",
+        "closed_at": "2025-08-26T12:07:15+00:00",
+        "created_at": "2025-08-26T09:37:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 422
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-08-11T23:05:36+00:00",
+        "created_at": "2025-08-11T22:58:26+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-08-11T23:05:36+00:00",
+        "pr_number": 420
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-04-14T00:33:19+00:00",
+        "created_at": "2025-04-14T00:32:05+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-04-14T00:33:19+00:00",
+        "pr_number": 416
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-04-14T00:38:03+00:00",
+        "created_at": "2025-04-14T00:16:45+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-04-14T00:38:03+00:00",
+        "pr_number": 415
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-04-13T22:41:44+00:00",
+        "created_at": "2025-04-13T22:32:37+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-04-13T22:41:44+00:00",
+        "pr_number": 414
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "afranchuk",
+        "closed_at": "2025-04-14T00:38:04+00:00",
+        "created_at": "2025-04-03T19:33:16+00:00",
+        "first_human_review_at": "2025-04-03T19:46:55+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 412
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-01-16T02:38:18+00:00",
+        "created_at": "2025-01-16T02:37:36+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-01-16T02:38:18+00:00",
+        "pr_number": 404
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2024-12-22T11:26:10+00:00",
+        "created_at": "2024-12-22T11:22:22+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-12-22T11:26:10+00:00",
+        "pr_number": 402
+      }
+    ],
+    "start": "2024-12-22T11:22:22+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "56edb37e137af42799e99d92d72abd57ce8ec486832f1b04d8ba759ca48f3599",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "crates",
+    "fork": false,
+    "license_spdx": "Apache-2.0",
+    "mirror_url": null,
+    "name": "anyhow",
+    "owner": "dtolnay"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "13 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
+}

@@ -1,0 +1,443 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 9317,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/0voice/interview_internal_reference/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T21:16:02.278294+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/0voice__interview_internal_reference.json",
+      "source_hash": "a37f133ff002aa7fd4f31d3f54b96fa72755d0e5dd3353b1a1d1d3c612fd805f",
+      "value": 2,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T21:16:02.994679+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/0voice__interview_internal_reference.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/0voice/interview_internal_reference/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T21:16:05.228173+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "raw/commits_180d/0voice__interview_internal_reference.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
+  "pr_window": {
+    "end": "2024-05-19T04:13:41+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "Queera17",
+        "closed_at": "2024-05-19T04:13:41+00:00",
+        "created_at": "2024-05-19T04:13:29+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 98
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "MrVitaly",
+        "closed_at": null,
+        "created_at": "2021-05-30T18:52:23+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 91
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "HerbertGao",
+        "closed_at": "2021-03-03T08:24:09+00:00",
+        "created_at": "2021-03-03T08:23:36+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 88
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "zhanling324",
+        "closed_at": null,
+        "created_at": "2020-10-17T02:49:23+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 83
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Yangdaidai",
+        "closed_at": "2020-06-03T07:29:07+00:00",
+        "created_at": "2020-04-10T13:15:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2020-06-03T07:29:07+00:00",
+        "pr_number": 77
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "sqjian",
+        "closed_at": "2020-01-24T09:00:45+00:00",
+        "created_at": "2020-01-24T09:00:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 72
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "sqjian",
+        "closed_at": "2020-01-24T08:42:03+00:00",
+        "created_at": "2020-01-24T08:40:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 71
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "SJshenjian",
+        "closed_at": "2020-03-18T03:01:23+00:00",
+        "created_at": "2020-01-21T08:57:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2020-03-18T03:01:22+00:00",
+        "pr_number": 70
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "SJshenjian",
+        "closed_at": "2020-03-18T03:01:44+00:00",
+        "created_at": "2020-01-20T02:05:35+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2020-03-18T03:01:44+00:00",
+        "pr_number": 69
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "EvanLeung08",
+        "closed_at": "2019-12-18T08:43:07+00:00",
+        "created_at": "2019-12-14T03:14:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-12-18T08:43:07+00:00",
+        "pr_number": 68
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Innei",
+        "closed_at": "2019-11-20T13:56:30+00:00",
+        "created_at": "2019-11-19T02:16:07+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-11-20T13:56:30+00:00",
+        "pr_number": 65
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "bornforafever",
+        "closed_at": null,
+        "created_at": "2019-11-07T11:41:19+00:00",
+        "first_human_review_at": "2020-07-21T06:01:22+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 63
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dengchaoyun007",
+        "closed_at": "2019-10-27T11:41:11+00:00",
+        "created_at": "2019-10-27T11:38:23+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 61
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "63isOK",
+        "closed_at": "2019-10-23T03:47:40+00:00",
+        "created_at": "2019-10-23T01:43:37+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-23T03:47:40+00:00",
+        "pr_number": 59
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Macyrate",
+        "closed_at": "2019-10-18T04:05:54+00:00",
+        "created_at": "2019-10-18T03:00:07+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-18T04:05:54+00:00",
+        "pr_number": 57
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "fnlearner",
+        "closed_at": "2019-10-16T10:10:06+00:00",
+        "created_at": "2019-10-16T09:15:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-16T10:10:05+00:00",
+        "pr_number": 56
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "SJshenjian",
+        "closed_at": "2019-10-16T03:14:48+00:00",
+        "created_at": "2019-10-16T01:47:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-16T03:14:47+00:00",
+        "pr_number": 55
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "xiepeiyang",
+        "closed_at": "2019-10-16T03:13:28+00:00",
+        "created_at": "2019-10-15T10:10:54+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-16T03:13:28+00:00",
+        "pr_number": 54
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "fnlearner",
+        "closed_at": "2019-10-15T08:35:10+00:00",
+        "created_at": "2019-10-15T07:48:52+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-15T08:35:10+00:00",
+        "pr_number": 53
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "likunyao",
+        "closed_at": "2019-10-11T09:40:55+00:00",
+        "created_at": "2019-10-11T06:33:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-11T09:40:55+00:00",
+        "pr_number": 51
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "SJshenjian",
+        "closed_at": "2019-10-11T09:40:29+00:00",
+        "created_at": "2019-10-11T06:03:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-11T09:40:29+00:00",
+        "pr_number": 50
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "SJshenjian",
+        "closed_at": "2019-10-11T09:40:06+00:00",
+        "created_at": "2019-10-11T05:49:37+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-11T09:40:06+00:00",
+        "pr_number": 49
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "SJshenjian",
+        "closed_at": "2019-10-11T02:50:14+00:00",
+        "created_at": "2019-10-11T01:19:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-11T02:50:14+00:00",
+        "pr_number": 48
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "SJshenjian",
+        "closed_at": "2019-10-09T11:37:55+00:00",
+        "created_at": "2019-10-09T07:51:01+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-09T11:37:54+00:00",
+        "pr_number": 47
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "SJshenjian",
+        "closed_at": "2019-10-08T11:48:03+00:00",
+        "created_at": "2019-10-08T09:40:29+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-08T11:48:03+00:00",
+        "pr_number": 46
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "SJshenjian",
+        "closed_at": "2019-10-08T11:48:21+00:00",
+        "created_at": "2019-10-08T09:38:41+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-08T11:48:21+00:00",
+        "pr_number": 45
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "keytouch",
+        "closed_at": "2019-09-27T04:55:42+00:00",
+        "created_at": "2019-09-27T04:46:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-09-27T04:55:41+00:00",
+        "pr_number": 42
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "jiaoqiyuan",
+        "closed_at": "2019-09-07T11:47:13+00:00",
+        "created_at": "2019-09-05T13:38:43+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-09-07T11:47:13+00:00",
+        "pr_number": 40
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "gytHW",
+        "closed_at": "2019-09-04T04:50:47+00:00",
+        "created_at": "2019-09-02T12:41:16+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-09-04T04:50:47+00:00",
+        "pr_number": 39
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Carmon-Lee",
+        "closed_at": "2019-09-02T02:47:50+00:00",
+        "created_at": "2019-09-01T12:48:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-09-02T02:47:49+00:00",
+        "pr_number": 38
+      }
+    ],
+    "start": "2019-09-01T12:48:27+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "823be18d6bd3cf16285ec26b6aae966d251603f80105737ac9394a87f144bbe1",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "pypi",
+    "fork": false,
+    "license_spdx": "NOASSERTION",
+    "mirror_url": null,
+    "name": "interview_internal_reference",
+    "owner": "0voice"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
+}

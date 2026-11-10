@@ -1,0 +1,176 @@
+/* Design tokens — Porchlamp v2 UI.
+ *
+ * Source of truth: docs/UI_UX_SPECIFICATION.md §3 (color, type, spacing,
+ * radius, elevation, motion), overridden by docs/v2/06-UX-DESIGN.md where
+ * the two disagree (06 wins on interaction semantics; it does not restate
+ * these token values, so the spec's numbers stand).
+ *
+ * One deliberate deviation from the spec, required by this packet's rules
+ * (no external resources, fonts included): the spec's "Inter" / "JetBrains
+ * Mono" font stacks are replaced by system font stacks. Every fallback
+ * already listed in the spec's own stack is kept; only the two named
+ * webfonts are dropped.
+ *
+ * Dark is the product's default aesthetic (spec §3: "Dark-Mode First
+ * Engineering Aesthetic"). Each themed token is written once, with both
+ * values: `var(--on-light, <light>) var(--on-dark, <dark>)`. Of the two
+ * switches, the theme in force has `initial`, so its var() takes the
+ * value, and the other is empty, so its var() adds nothing. Bare :root sets
+ * dark; the light rules below set light under prefers-color-scheme for
+ * users who have not chosen explicitly, and under [data-theme] so the
+ * in-app toggle (T) wins in both directions. (CSS light-dark() would read
+ * the same, but it leaves every themed colour unset in browsers before
+ * 2024, and the matrix canvas reads the quadrant tokens as plain colours
+ * through getComputedStyle.) --text-muted in both themes is tuned to
+ * clear WCAG AA 4.5:1 against every surface token, including the lightest
+ * (elevated) one — the spec's own muted value fails that on measurement,
+ * see tests/test_ui_contrast.py.
+ */
+
+:root {
+  /* The theme switches (see above): dark here, light in the two rules below. */
+  --on-light: ;
+  --on-dark: initial;
+  --lamp-glow: var(--on-light, #f59e0b) var(--on-dark, #fbbf24);
+  color-scheme: dark;
+
+  /* Canvas & surfaces */
+  --bg-base: var(--on-light, #f8fafc) var(--on-dark, #090d16);
+  --bg-surface: var(--on-light, #ffffff) var(--on-dark, #0f172a);
+  --bg-surface-elevated: var(--on-light, #f1f5f9) var(--on-dark, #1e293b);
+  --bg-surface-hover: var(--on-light, #e2e8f0) var(--on-dark, #334155);
+  --border-subtle: var(--on-light, #e2e8f0) var(--on-dark, #1e293b);
+  --border-strong: var(--on-light, #cbd5e1) var(--on-dark, #334155);
+  --border-focus: var(--on-light, #0284c7) var(--on-dark, #38bdf8);
+
+  /* Text */
+  --text-primary: var(--on-light, #0f172a) var(--on-dark, #f8fafc);
+  --text-secondary: var(--on-light, #475569) var(--on-dark, #94a3b8);
+  --text-muted: var(--on-light, #5b6472) var(--on-dark, #8896aa);
+  --text-success: var(--on-light, #15803d) var(--on-dark, #22c55e);  /* a gain in text (a rank moved up): AA on the dark surfaces, and on the light ones, where the accent green is not */
+  --text-warning: var(--on-light, #dc2626) var(--on-dark, #f87171);  /* a flag or a loss in text: AA on the dark surfaces */
+  --text-on-accent: var(--on-light, #f8fafc) var(--on-dark, #0b1220);
+
+  /* Quadrants (dual-encoded with glyphs in copy.js; never color-only) */
+  --quad-sweet-spot: var(--on-light, #065f46) var(--on-dark, #10b981);
+  --quad-crucible: var(--on-light, #4f46e5) var(--on-dark, #6366f1);
+  --quad-nursery: var(--on-light, #92400e) var(--on-dark, #f59e0b);
+  --quad-graveyard: var(--on-light, #b91c1c) var(--on-dark, #ef4444);
+  --quad-sweet-spot-wash: var(--on-light, rgba(6, 95, 70, 0.08)) var(--on-dark, rgba(16, 185, 129, 0.1));
+  --quad-crucible-wash: var(--on-light, rgba(79, 70, 229, 0.08)) var(--on-dark, rgba(99, 102, 241, 0.1));
+  --quad-nursery-wash: var(--on-light, rgba(146, 64, 14, 0.08)) var(--on-dark, rgba(245, 158, 11, 0.1));
+  --quad-graveyard-wash: var(--on-light, rgba(185, 28, 28, 0.08)) var(--on-dark, rgba(239, 68, 68, 0.1));
+
+  /* Coverage bands */
+  --coverage-full: var(--on-light, #16a34a) var(--on-dark, #22c55e);
+  --coverage-a: var(--on-light, #0891b2) var(--on-dark, #06b6d4);
+  --coverage-b: var(--on-light, #b45309) var(--on-dark, #f59e0b);
+  --coverage-below: var(--on-light, #dc2626) var(--on-dark, #ef4444);
+
+  /* Functional accents */
+  --accent-cyan: var(--on-light, #155e75) var(--on-dark, #06b6d4);  /* link and label text: 4.5:1 or better on every light surface, the hovered row's included */
+  --accent-violet: #8b5cf6;
+  --accent-warning: #dc2626;
+  --accent-success: #22c55e;
+
+  /* Corpus meter (rated / gated / unrated share of a snapshot).
+   * VALIDATED 2026-09-21 with the dataviz six-checks validator against
+   * --bg-surface. One accent plus two lightness-separated NEUTRALS, not
+   * three status hues: an amber/green adjacent pair measured only
+   * dE 5.7 for protanopia (below even the 6-8 floor band), while this
+   * trio measures dE 12.3 (deutan) / 20.6 (normal vision) in dark and
+   * 14.2 / 20.0 in light -- both PASS. The neutrals read as neutral ON
+   * PURPOSE ("gated" is excluded-by-design, not an error, and must not
+   * borrow the red of a failure), so the validator's chroma-floor and
+   * lightness-band checks -- which it scopes to CATEGORICAL palettes --
+   * do not apply -- every OTHER check passes, contrast included.
+   *
+   * MEASURED against the real ground (--bg-base), not guessed: the first
+   * attempt put `gated` at #475569, which came out at 2.56:1 while the
+   * other two measured 8.5 and 7.6 -- so the 60.8% MAJORITY segment was
+   * the one share nobody could see, reading as empty space. Lightness now
+   * carries the ordering (rated accent > unrated light > gated mid) and
+   * all three clear 3:1 in both themes. Every segment also carries a
+   * visible label and count, so colour never carries identity alone.
+   * Re-run the validator before changing any of the six values. */
+  --corpus-rated: var(--on-light, #16a34a) var(--on-dark, #22c55e);
+  --corpus-unrated: var(--on-light, #475569) var(--on-dark, #cbd5e1);
+  --corpus-gated: var(--on-light, #7a889f) var(--on-dark, #64748b);
+
+  /* Screen F pillar-weight bars: one hue (magnitude, single series).
+   * Graphic contrast vs --bg-surface, the card they render on (WCAG 1.4.11
+   * needs 3:1): MEASURED 8.33:1 dark, 4.10:1 light. Pinned in
+   * tests/test_ui_contrast.py. */
+  --spec-bar: var(--on-light, #0284c7) var(--on-dark, #38bdf8);
+
+  /* Tie-row band */
+  --tie-row-band: var(--on-light, rgba(2, 132, 199, 0.08)) var(--on-dark, rgba(56, 189, 248, 0.08));
+
+  /* Typography */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --text-display: 2rem;
+  --text-h1: 1.5rem;
+  --text-h2: 1.125rem;
+  --text-body-lg: 0.9375rem;
+  --text-body-md: 0.8125rem;
+  --text-caption: 0.6875rem;
+  --metric-lg: 1.75rem;
+  --metric-md: 0.875rem;
+  --metric-pill: 0.625rem;
+
+  /* Spacing scale */
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* The sticky app header's rendered height (approximate: it wraps its
+   * controls at narrow widths, so this is a floor, not an exact match —
+   * see the handoff's COULD NOT VERIFY note on multi-row header widths).
+   * The table's `thead` sticks just below this. */
+  --header-height: 60px;
+  --primary-nav-height: 41px;
+
+  /* Radius */
+  --radius-badge: 4px;
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-pill: 9999px;
+
+  /* Elevation */
+  --shadow-popover: var(--on-light, 0 10px 25px -5px rgba(15, 23, 42, 0.16)) var(--on-dark, 0 10px 25px -5px rgba(0, 0, 0, 0.6));
+  --shadow-drawer: var(--on-light, -15px 0 40px rgba(15, 23, 42, 0.22)) var(--on-dark, -15px 0 40px rgba(0, 0, 0, 0.8));
+
+  /* Motion (U-8 / 06 §5: <= 200ms, disabled under reduced motion below) */
+  --motion-duration: 200ms;
+  --motion-duration-fast: 120ms;
+  --motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The light theme: for a system that asks for light, unless the reader chose dark, and for the reader who chose
+ * light. Each turns the switches, so every themed token above takes its light value. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --on-light: initial;
+    --on-dark: ;
+    color-scheme: light;
+  }
+}
+
+:root[data-theme="light"] {
+  --on-light: initial;
+  --on-dark: ;
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration: 0ms;
+    --motion-duration-fast: 0ms;
+  }
+}

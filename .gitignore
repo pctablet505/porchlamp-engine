@@ -1,0 +1,40 @@
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor & IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary & Cache files
+*.tmp
+*.bak
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+.coverage.*
+ORIGINAL_REQUEST.md
+PROJECT.md
+uv.lock
+
+# Gathered data cache (raw/derived/verified are reproducible artifacts)
+data/
+
+# local Claude Code launch/config (per-machine)
+.claude/
+
+# Agent working notes stay out of the repository (moved to a private folder before the repository went public).
+.agents/

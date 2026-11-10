@@ -1,0 +1,443 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 4104,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cockroachdb/cockroach/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T21:40:21.526416+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/cockroachdb__cockroach.json",
+      "source_hash": "670ab4aeef60f4355fde023536c35626139ba4acba6bc9ad01e9f4d62a0019db",
+      "value": 8,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T21:40:22.220441+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/cockroachdb__cockroach.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cockroachdb/cockroach/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T21:40:30.964644+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "raw/commits_180d/cockroachdb__cockroach.json",
+    "source_hash": "329ad7195e9cbfa7f70fd2e00eaa2f7a4cd99fce120e0a8540a81925821b7d32",
+    "value": "2026-08-07T17:28:36Z"
+  },
+  "pr_window": {
+    "end": "2026-09-10T15:52:26+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-10T15:52:26+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 175013
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-10T11:39:59+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174980
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-10T11:39:54+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174979
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-10T11:39:50+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174978
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "shashi1973",
+        "closed_at": null,
+        "created_at": "2026-09-08T04:36:50+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174825
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "NAVEENKUMARKR777",
+        "closed_at": null,
+        "created_at": "2026-09-07T08:06:04+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174809
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "NAVEENKUMARKR777",
+        "closed_at": null,
+        "created_at": "2026-09-07T08:05:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174808
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "shashi1973",
+        "closed_at": null,
+        "created_at": "2026-09-06T20:40:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174792
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-06T15:24:52+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174790
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-06T10:58:31+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174773
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-06T09:28:36+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174772
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-06T07:21:59+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174770
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-06T03:03:11+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174767
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-06T02:44:55+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174766
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-06T01:57:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174764
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-05T12:08:57+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174737
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-05T11:32:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174736
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-05T10:58:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174733
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-05T09:31:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174732
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-05T01:24:56+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174721
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-05T01:24:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174720
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-05T01:23:43+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174719
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-05T01:23:07+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174718
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-05T01:22:25+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174717
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "alienvisitor8675-bit",
+        "closed_at": null,
+        "created_at": "2026-09-04T22:36:18+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174713
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "alienvisitor8675-bit",
+        "closed_at": null,
+        "created_at": "2026-09-04T21:47:08+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174711
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-04T12:21:08+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174680
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-04T11:29:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174679
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-04T10:10:32+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174678
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Alignyx",
+        "closed_at": null,
+        "created_at": "2026-09-04T08:09:26+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 174676
+      }
+    ],
+    "start": "2026-09-04T08:09:26+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "3e8cffa6a530635ad93e4c20002c8b9629ca7c7ab502e3ee6f38af34e36ae86f",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "go",
+    "fork": false,
+    "license_spdx": "NOASSERTION",
+    "mirror_url": null,
+    "name": "cockroach",
+    "owner": "cockroachdb"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "196 non-bot commits but none carry an author_email porchlamp.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
+}

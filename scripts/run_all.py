@@ -1,0 +1,220 @@
+"""Run the full verified-data pipeline over the candidate universe.
+
+Gathers every candidate repo (raw cache), then derives (feature bundle) and
+verifies (cross-source) each one, then freezes a snapshot manifest and promotes
+all CLEAN bundles into SQLite once. One ``as_of`` runs through every derivation,
+the freeze and the scoring: ``--as-of``, or else the clock read once after the
+gather sweep, so no bundle is derived at its own clock time. Checkpointed via
+the raw cache (existing envelopes are skipped), so reruns resume. --skip-downloads runs a fast pass (GitHub +
+deps.dev + scorecard + npm/crates) and defers pypistats (4/min) to a later
+backfill.
+
+Promotion requires a frozen snapshot (``scripts/promote.py --snapshot-id``,
+`03` §5), so the pipeline runs gather -> derive -> verify -> freeze ->
+promote -> serve.
+
+:func:`freeze_and_promote` passes the id ITS OWN freeze call reported
+straight into ``--snapshot-id`` rather than letting
+``promote.resolve_manifest`` re-discover "the newest manifest" by directory
+name -- a forward-dated or stray manifest already under ``snapshots/`` would
+win that lexical sort over the run's own freeze.
+
+Usage:
+  .venv/bin/python scripts/run_all.py --limit 50 --skip-downloads
+  .venv/bin/python scripts/run_all.py --all --db data/cvi.db
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import importlib.util
+import io
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+from porchlamp.collect.names import is_path_segment
+from porchlamp.lakehouse import repositories_dump_hash
+from porchlamp.snapshot import cli as snapshot_cli
+from porchlamp.snapshot.build_cmd import build_snapshot_dir
+from porchlamp.snapshot.manifest import code_commit
+from porchlamp.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.schema import connect as connect_store
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+
+def _load_script(mod_name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(mod_name, ROOT / "scripts" / filename)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+gather = _load_script("gather", "gather.py")
+derive = _load_script("derive", "derive.py")
+verify = _load_script("verify", "verify.py")
+promote = _load_script("promote", "promote.py")
+
+
+def _candidates(limit: int | None) -> list[tuple[str, str, str]]:
+    out = []
+    skipped = 0
+    for line in gather.CANDIDATES.read_text().splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        if r.get("owner"):
+            if not (is_path_segment(r["owner"]) and is_path_segment(r.get("name"))):
+                skipped += 1
+                continue
+            out.append((r["owner"], r["name"], r["ecosystem"]))
+        if limit and len(out) >= limit:
+            break
+    if skipped:
+        print(f"skipped {skipped} candidates whose owner/name is not a single path segment")
+    return out
+
+
+def derive_and_verify(owner: str, name: str, eco: str, as_of: datetime) -> str:
+    """derive->verify one gathered repo at ``as_of``; return CLEAN|FLAG."""
+    bundle = derive.derive_repo(owner, name, derive.Ecosystem(eco), now=as_of)
+    out = derive.DATA_DIR / "derived" / f"{owner}__{name}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(bundle, indent=2, sort_keys=True), encoding="utf-8")
+    report = verify.verify_repo(owner, name)
+    return "CLEAN" if report["clean"] else "FLAG"
+
+
+def promote_v2(db: str, data_dir: Path, snapshot_id: str, as_of: datetime) -> int:
+    """Build v2 snapshot directory, score it, and promote into v2 tables in ``db``."""
+    out_dir = data_dir / "snapshots_v2" / snapshot_id
+    commit = code_commit(ROOT) or "unknown"
+    build_snapshot_dir(
+        data_dir,
+        out_dir,
+        snapshot_id=snapshot_id,
+        as_of=as_of,
+        code_commit_sha=commit,
+    )
+    scored, frozen = score_snapshot_dir(out_dir)
+    db_path = Path(db)
+    conn = connect_store(db_path)
+    try:
+        apply_migrations(conn, applied_at=as_of.isoformat())
+        write_scored_snapshot(conn, db_path, scored, frozen, code_commit=commit)
+        has_meta = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_meta'"
+        ).fetchone()
+        if has_meta:
+            new_hash = repositories_dump_hash(str(db_path))
+            conn.execute(
+                "UPDATE snapshot_meta SET canonical_dump_hash = ? WHERE snapshot_id = ?",
+                (new_hash, snapshot_id),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+    print(f"promoted v2 snapshot {snapshot_id} -> {db}")
+    return 0
+
+
+def freeze_and_promote(db: str, data_dir: Path, as_of: datetime) -> int:
+    """Freeze ``data_dir`` at ``as_of``, then promote CLEAN bundles under the
+    id THAT freeze just reported (`03` §5) -- never by re-discovering "the
+    newest manifest" (a forward-dated or stray manifest already under
+    ``snapshots/`` wins that lexical sort over the run's own freeze).
+    ``as_of`` is read once by the caller and reused
+    for both the freeze and the scoring, so :func:`promote.resolved_as_of`'s
+    match-the-manifest check always passes here by construction. Returns the
+    process exit code (0 on success).
+    """
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        freeze_rc = snapshot_cli.main(
+            ["freeze", "--data-dir", str(data_dir), "--as-of", as_of.isoformat()])
+    output = captured.getvalue()
+    print(output, end="")
+    if freeze_rc != 0:
+        print(f"freeze failed (exit {freeze_rc}); not promoting")
+        return freeze_rc
+    snapshot_line = next((line for line in output.splitlines()
+                         if line.startswith("snapshot ")), None)
+    if snapshot_line is None:
+        print("freeze produced no snapshot id; not promoting")
+        return 1
+    snapshot_id = snapshot_line.split(" ", 1)[1]
+    manifest = promote.resolve_manifest(data_dir, snapshot_id)
+    bundles = promote.load_clean(data_dir)
+    if not bundles:
+        print("no clean verified bundles to promote; run verify.py first")
+        return 1
+    covered, not_in_manifest = promote.split_by_manifest(bundles, data_dir, manifest)
+    if not covered:
+        print(f"manifest {manifest['snapshot_id']} covers 0 of {len(bundles)} clean bundles")
+        return 1
+    if not_in_manifest:
+        print(f"{len(not_in_manifest)} of {len(bundles)} clean bundles not in manifest "
+              f"{manifest['snapshot_id']}: not promoted")
+    n = promote.promote_atomically(covered, db, as_of, data_dir, manifest)
+    print(f"promoted {n} verified repos -> {db} (snapshot {manifest['snapshot_id']})")
+    derived_dir = data_dir / "derived"
+    if derived_dir.is_dir() and any(derived_dir.glob("*.json")):
+        promote_v2(db, data_dir, snapshot_id, as_of)
+    return 0
+
+
+def _parse_as_of(text: str) -> datetime:
+    as_of = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if as_of.tzinfo is None:
+        raise ValueError(f"--as-of needs a UTC offset: {text!r}")
+    return as_of
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--limit", type=int)
+    ap.add_argument("--all", action="store_true")
+    ap.add_argument("--skip-downloads", action="store_true",
+                    help="defer pypistats (4/min) to a backfill pass")
+    ap.add_argument("--db", default=str(gather.DATA.parent / "porchlamp.db"))
+    ap.add_argument("--as-of", default=None,
+                    help="reference time (ISO-8601 with an offset) for every derivation, the freeze and "
+                         "the scoring; default: the clock, read once after the gather sweep")
+    a = ap.parse_args(argv)
+    try:
+        pinned = _parse_as_of(a.as_of) if a.as_of is not None else None
+    except ValueError as error:
+        ap.error(str(error))
+    repos = _candidates(None if a.all else a.limit)
+    tally = {"CLEAN": 0, "FLAG": 0, "FAIL": 0}
+    gathered = []
+    for i, (owner, name, eco) in enumerate(repos, 1):
+        try:
+            gather.gather_repo(owner, name, eco, skip_pypistats=a.skip_downloads)
+            gathered.append((owner, name, eco))
+        except Exception as e:  # review-ok: gate-network — one repo must not abort the sweep
+            tally["FAIL"] += 1
+            print(f"  [{i}] {owner}/{name}: gather {type(e).__name__}: {str(e)[:120]}")
+    as_of = pinned or datetime.now(timezone.utc)
+    print(f"gather done ({len(gathered)} of {len(repos)}); deriving at as_of {as_of.isoformat()}")
+    for i, (owner, name, eco) in enumerate(gathered, 1):
+        try:
+            result = derive_and_verify(owner, name, eco, as_of)
+        except Exception as e:  # review-ok: gate-network — one repo must not abort the sweep
+            result = "FAIL"
+            print(f"  [{i}] {owner}/{name}: {type(e).__name__}: {str(e)[:120]}")
+        tally[result] += 1
+        if i % 25 == 0 or result != "CLEAN":
+            print(f"[{i}/{len(gathered)}] {owner}/{name} {eco}: {result} | {tally}")
+    print(f"sweep done: {tally}")
+    if not a.skip_downloads:
+        return freeze_and_promote(a.db, gather.DATA.parent, as_of)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

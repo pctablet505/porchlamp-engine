@@ -1,0 +1,737 @@
+{
+  "benchmark_version": "2.0.0-rc1",
+  "schema_version": 2,
+  "constants_hash": "6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94",
+  "pillars": [
+    {
+      "name": "responsiveness",
+      "weight": 0.25
+    },
+    {
+      "name": "criticality",
+      "weight": 0.25
+    },
+    {
+      "name": "governance",
+      "weight": 0.2
+    },
+    {
+      "name": "rigor",
+      "weight": 0.15
+    },
+    {
+      "name": "accessibility",
+      "weight": 0.15
+    }
+  ],
+  "parameters": [
+    {
+      "input_id": "ttfhr_hours",
+      "pillar": "responsiveness",
+      "weight_within_pillar": 0.3,
+      "min_n": 10,
+      "window_days": 180,
+      "curve": "100 if the median hours to first substantive human response is <= 12; else max(0, 100 - 25 * log2(t / 12))",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 256.0,
+        "higher_is_better": false
+      }
+    },
+    {
+      "input_id": "dr90_decision_rate",
+      "pillar": "responsiveness",
+      "weight_within_pillar": 0.25,
+      "min_n": 10,
+      "window_days": 180,
+      "curve": "min(100, 125 * r)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 1.0,
+        "higher_is_better": true
+      }
+    },
+    {
+      "input_id": "mr_first_rate",
+      "pillar": "responsiveness",
+      "weight_within_pillar": 0.2,
+      "min_n": 5,
+      "window_days": 180,
+      "curve": "min(100, 125 * r)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 1.0,
+        "higher_is_better": true
+      }
+    },
+    {
+      "input_id": "gr14_ghost_rate",
+      "pillar": "responsiveness",
+      "weight_within_pillar": 0.15,
+      "min_n": 10,
+      "window_days": 180,
+      "curve": "max(0, 100 - 200 * g)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 1.0,
+        "higher_is_better": false
+      }
+    },
+    {
+      "input_id": "ttm_p90_hours",
+      "pillar": "responsiveness",
+      "weight_within_pillar": 0.1,
+      "min_n": 5,
+      "window_days": 180,
+      "curve": "100 - ECDF_mid(p90), mid-rank ECDF over the frozen ecosystem population (D-NORM-1)",
+      "value_domain": {
+        "kind": "ecdf",
+        "domain_min": 0.0,
+        "domain_max": 1000.0,
+        "higher_is_better": false
+      }
+    },
+    {
+      "input_id": "dependents_deduped",
+      "pillar": "criticality",
+      "weight_within_pillar": 0.4,
+      "min_n": null,
+      "window_days": null,
+      "curve": "ECDF_mid(value) on the raw measured value, no transform on either side (D-NORM-1/D-NORM-3)",
+      "value_domain": {
+        "kind": "ecdf",
+        "domain_min": 0.0,
+        "domain_max": 1000000.0,
+        "higher_is_better": true
+      }
+    },
+    {
+      "input_id": "openssf_criticality",
+      "pillar": "criticality",
+      "weight_within_pillar": 0.35,
+      "min_n": null,
+      "window_days": null,
+      "curve": "100 * C, the locally computed OpenSSF/Pike criticality score C in [0, 1]",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 1.0,
+        "higher_is_better": true
+      },
+      "proxy": {
+        "proxy_min_signals": 8
+      }
+    },
+    {
+      "input_id": "downloads_monthly",
+      "pillar": "criticality",
+      "weight_within_pillar": 0.25,
+      "min_n": null,
+      "window_days": null,
+      "curve": "ECDF_mid(value) on the raw measured value, no transform on either side (D-NORM-1/D-NORM-3)",
+      "value_domain": {
+        "kind": "ecdf",
+        "domain_min": 0.0,
+        "domain_max": 1000000000.0,
+        "higher_is_better": true
+      }
+    },
+    {
+      "input_id": "legal_ip",
+      "pillar": "governance",
+      "weight_within_pillar": 0.35,
+      "min_n": null,
+      "window_days": null,
+      "curve": "evidence-based regime lookup; see this parameter's value_domain.score_table",
+      "value_domain": {
+        "kind": "enum",
+        "values_worst_to_best": [
+          "CORP_CLA",
+          "FOUNDATION_CLA",
+          "NONE",
+          "DCO"
+        ],
+        "score_table": {
+          "DCO": 100.0,
+          "NONE": 85.0,
+          "FOUNDATION_CLA": 75.0,
+          "CORP_CLA": 25.0
+        }
+      }
+    },
+    {
+      "input_id": "elephant_factor",
+      "pillar": "governance",
+      "weight_within_pillar": 0.35,
+      "min_n": 30,
+      "window_days": null,
+      "curve": "min(100, 25 * EF)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 1.0,
+        "domain_max": 10.0,
+        "higher_is_better": true
+      }
+    },
+    {
+      "input_id": "promotion_ladder",
+      "pillar": "governance",
+      "weight_within_pillar": 0.3,
+      "min_n": null,
+      "window_days": null,
+      "curve": "evidence-based rung lookup; see this parameter's value_domain.score_table",
+      "value_domain": {
+        "kind": "enum",
+        "values_worst_to_best": [
+          "CLOSED",
+          "AD_HOC",
+          "DOCUMENTED",
+          "VERIFIED"
+        ],
+        "score_table": {
+          "VERIFIED": 100.0,
+          "DOCUMENTED": 75.0,
+          "AD_HOC": 40.0,
+          "CLOSED": 10.0
+        }
+      }
+    },
+    {
+      "input_id": "pipeline_defenses",
+      "pillar": "rigor",
+      "weight_within_pillar": 0.4,
+      "min_n": null,
+      "window_days": null,
+      "curve": "identity, clamped to [0, 100] (Scorecard check mean, or the proxy blend when absent)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 100.0,
+        "higher_is_better": true
+      },
+      "proxy": {
+        "proxy_min_n": 10
+      }
+    },
+    {
+      "input_id": "ai_posture",
+      "pillar": "rigor",
+      "weight_within_pillar": 0.3,
+      "min_n": null,
+      "window_days": null,
+      "curve": "persona-conditional posture lookup; see this parameter's value_domain.score_table",
+      "value_domain": {
+        "kind": "enum",
+        "persona_orders": {
+          "human": [
+            "AD_HOC",
+            "PROSCRIBED",
+            "REGULATED"
+          ],
+          "ai": [
+            "PROSCRIBED",
+            "AD_HOC",
+            "REGULATED"
+          ]
+        },
+        "score_table": {
+          "REGULATED": {
+            "human": 95.0,
+            "ai": 95.0
+          },
+          "PROSCRIBED": {
+            "human": 85.0,
+            "ai": 25.0
+          },
+          "AD_HOC": {
+            "human": 40.0,
+            "ai": 40.0
+          }
+        }
+      }
+    },
+    {
+      "input_id": "substantive_review_rate",
+      "pillar": "rigor",
+      "weight_within_pillar": 0.3,
+      "min_n": 10,
+      "window_days": 180,
+      "curve": "min(100, 125 * r)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 1.0,
+        "higher_is_better": true
+      }
+    },
+    {
+      "input_id": "newcomer_issue_supply",
+      "pillar": "accessibility",
+      "weight_within_pillar": 0.35,
+      "min_n": null,
+      "window_days": null,
+      "curve": "min(100, 10 * count)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 20.0,
+        "higher_is_better": true
+      }
+    },
+    {
+      "input_id": "newcomer_conversion",
+      "pillar": "accessibility",
+      "weight_within_pillar": 0.35,
+      "min_n": 5,
+      "window_days": null,
+      "curve": "min(100, 200 * r)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 1.0,
+        "higher_is_better": true
+      }
+    },
+    {
+      "input_id": "rr90_return_rate",
+      "pillar": "accessibility",
+      "weight_within_pillar": 0.15,
+      "min_n": 5,
+      "window_days": null,
+      "curve": "min(100, 200 * r)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 1.0,
+        "higher_is_better": true
+      }
+    },
+    {
+      "input_id": "dx",
+      "pillar": "accessibility",
+      "weight_within_pillar": 0.15,
+      "min_n": 5,
+      "window_days": null,
+      "curve": "identity, clamped to [0, 100] (0.5 CI runtime score + 0.5 setup-signal score)",
+      "value_domain": {
+        "kind": "numeric",
+        "domain_min": 0.0,
+        "domain_max": 100.0,
+        "higher_is_better": true
+      }
+    }
+  ],
+  "gates": [
+    {
+      "id": "D-GATE-1",
+      "name": "Software project",
+      "criterion": "repository tree contains a recognised build/package manifest at depth <= 2, or the repository is a curated anchor",
+      "reasons": [
+        "non_software"
+      ],
+      "cutoffs": {}
+    },
+    {
+      "id": "D-GATE-2",
+      "name": "Not archived, not a mirror, not a fork",
+      "criterion": "archived == false, mirror_url is null, fork == false (a fork is allowed only if its parent is absent from the universe)",
+      "reasons": [
+        "archived",
+        "mirror",
+        "fork"
+      ],
+      "cutoffs": {}
+    },
+    {
+      "id": "D-GATE-3",
+      "name": "Licensed",
+      "criterion": "SPDX id present and OSI-approved; an undetermined SPDX id falls back to a LICENSE* file search before the gate fails",
+      "reasons": [
+        "unlicensed"
+      ],
+      "cutoffs": {},
+      "license_vocabulary": {
+        "undetermined_spdx": [
+          "NOASSERTION",
+          "OTHER",
+          null
+        ]
+      }
+    },
+    {
+      "id": "D-GATE-4",
+      "name": "Vitality",
+      "criterion": ">= 1 commit by a non-bot User on the default branch in the trailing window",
+      "reasons": [
+        "stale"
+      ],
+      "cutoffs": {
+        "vitality_window_days": 180
+      }
+    },
+    {
+      "id": "D-GATE-5",
+      "name": "Not a black hole",
+      "criterion": "over external PRs by non-bot authors (D-IN-1) opened in the trailing PR window and at least the minimum age, the 95% one-sided Wilson lower confidence bound (z = 1.6448536269514722) on the zero-response share must not exceed the ceiling (a minimum population of 10 is required, else the gate is UNDECIDED rather than failed); the raw share is the gr14_ghost_rate parameter. A reply or review counts when it is substantive (D-IN-2: any review, or a comment of 40+ characters, by a non-author, non-bot member, owner or collaborator, or by an account that merged a PR in the window, since org membership can be private); a merge or maintainer close within the deadline counts on its own. Five false-positive exclusions apply (RFC-0008): draft PRs are excluded until marked ready for review (clock starts at ready_at); author self-closed PRs without prior maintainer response are excluded; accounts under 90 days old (MIN_ACCOUNT_AGE_DAYS) are excluded; maintainer closes within 14 days count as responses; and the 14-day observation age is judged from clock start against min(now, observed_at)",
+      "reasons": [
+        "black_hole"
+      ],
+      "cutoffs": {
+        "min_n": 10,
+        "min_age_days": 14,
+        "response_deadline_days": 14,
+        "max_zero_response_share": 0.5
+      }
+    },
+    {
+      "id": "D-GATE-6",
+      "name": "PR workflow",
+      "criterion": ">= 1 external PR decided in the trailing window, or off-platform markers present (routed, not failed); neither means unrated: no_external_workflow. A repository also routes off-platform, whatever its decided PRs, when it hands review off: among its outside PRs (external, non-bot authors in the recorded PR window) at least 5, and at least 50% of them, carry a notice, a comment by an account other than the PR's author that contains \"has been imported to gerrit for code review\", \"welcome to gitgitgadget\" or \"import it to our internal repository for further review\" (any letter case) or is written by an account whose login starts with \"gitgitgadget\". D-GATE-5 is then undecided for it, never failed",
+      "reasons": [
+        "unrated: no_external_workflow"
+      ],
+      "cutoffs": {
+        "decision_window_days": 365,
+        "handoff_min_prs": 5,
+        "handoff_min_share": 0.5
+      }
+    },
+    {
+      "id": "D-EVID-1",
+      "name": "Evidence sufficiency",
+      "criterion": "composite coverage must reach the rated minimum, else listed unranked",
+      "reasons": [
+        "unrated: insufficient_evidence"
+      ],
+      "cutoffs": {
+        "min_composite_coverage": 0.6
+      }
+    }
+  ],
+  "missingness": {
+    "reasons": [
+      {
+        "reason": "third_party_gap",
+        "semantics": "A third party (a registry, OpenSSF, deps.dev) never provided the fact; no maintainer action can close this gap."
+      },
+      {
+        "reason": "collector_failure",
+        "semantics": "The collector attempted to measure this input and failed (a fetch error, a stale window anchor); a retry can still measure it."
+      },
+      {
+        "reason": "insufficient_n",
+        "semantics": "The input was measured but its sample size fell below the parameter's minimum n; the measurement is recorded but scored as unmeasured."
+      },
+      {
+        "reason": "not_applicable",
+        "semantics": "The parameter is undefined for this repository's class by a closed, design-level rule (D-MISS-5); excluded from both the numerator and the denominator of coverage."
+      },
+      {
+        "reason": "no_population",
+        "semantics": "The parameter is ECDF-normalised and no rated, measured repository exists in its ecosystem or globally at this snapshot to build a population from."
+      }
+    ],
+    "coverage_thresholds": {
+      "unrated_below": 0.6,
+      "ceiling_b_below": 0.8,
+      "ceiling_a_below": 0.95
+    },
+    "not_applicable_rules": [
+      {
+        "parameter": "dependents_deduped",
+        "bundle_fact": "ecosystem",
+        "value": "systems"
+      },
+      {
+        "parameter": "downloads_monthly",
+        "bundle_fact": "ecosystem",
+        "value": "go"
+      },
+      {
+        "parameter": "downloads_monthly",
+        "bundle_fact": "ecosystem",
+        "value": "maven"
+      },
+      {
+        "parameter": "downloads_monthly",
+        "bundle_fact": "ecosystem",
+        "value": "systems"
+      }
+    ],
+    "openssf_proxy_min_signals": 8
+  },
+  "tie_break_levels": {
+    "composite_decimals": 2,
+    "levels": [
+      {
+        "field": "composite",
+        "direction": "descending",
+        "note": "rounded to 2 decimal place(s) before comparison"
+      },
+      {
+        "field": "coverage",
+        "direction": "descending",
+        "note": null
+      },
+      {
+        "field": "responsiveness_pillar_score",
+        "direction": "descending",
+        "note": null
+      },
+      {
+        "field": "friction",
+        "direction": "ascending",
+        "note": null
+      },
+      {
+        "field": "leverage",
+        "direction": "descending",
+        "note": null
+      },
+      {
+        "field": "ttfhr_p75_hours",
+        "direction": "ascending",
+        "note": "p75, not the median: consistency, not just the typical case"
+      },
+      {
+        "field": "last_non_bot_commit_at",
+        "direction": "descending",
+        "note": null
+      },
+      {
+        "field": "owner_name_lowercase",
+        "direction": "ascending",
+        "note": "deterministic last resort; never stars, forks or downloads"
+      }
+    ]
+  },
+  "personas": {
+    "presets": {
+      "balanced": {
+        "responsiveness": 0.25,
+        "criticality": 0.25,
+        "governance": 0.2,
+        "rigor": 0.15,
+        "accessibility": 0.15
+      },
+      "first_timer": {
+        "responsiveness": 0.35,
+        "criticality": 0.1,
+        "governance": 0.15,
+        "rigor": 0.1,
+        "accessibility": 0.3
+      },
+      "career_capital": {
+        "responsiveness": 0.2,
+        "criticality": 0.35,
+        "governance": 0.15,
+        "rigor": 0.1,
+        "accessibility": 0.2
+      },
+      "senior_systems": {
+        "responsiveness": 0.15,
+        "criticality": 0.35,
+        "governance": 0.25,
+        "rigor": 0.2,
+        "accessibility": 0.05
+      },
+      "ai_assisted": {
+        "responsiveness": 0.2,
+        "criticality": 0.2,
+        "governance": 0.15,
+        "rigor": 0.35,
+        "accessibility": 0.1
+      }
+    },
+    "gates": [
+      {
+        "persona": "ai_assisted",
+        "description": "Hard AI ban (exclusion gate): fires only when ai_posture is measured PROSCRIBED with non-empty evidence.",
+        "thresholds": {}
+      },
+      {
+        "persona": "senior_systems",
+        "description": "Multi-vendor (exclusion gate): fires only on a measured elephant factor below the minimum.",
+        "thresholds": {
+          "min_elephant_factor": 3.0
+        }
+      },
+      {
+        "persona": "first_timer",
+        "description": "Low barrier (inclusion gate): shown when decided first-timer PRs in the window reach the minimum count and MR_first reaches its minimum rate, or the newcomer-issue-supply count reaches its minimum; an unmeasured input never satisfies an inclusion gate (D-PERS-3).",
+        "thresholds": {
+          "min_decided_prs": 5,
+          "min_mr_first": 0.4,
+          "min_newcomer_issues": 3.0
+        }
+      },
+      {
+        "persona": "career_capital",
+        "description": "High-tier brand (inclusion gate): shown when the criticality pillar score and its coverage both reach their minimums.",
+        "thresholds": {
+          "min_criticality": 60.0,
+          "min_coverage": 0.8
+        }
+      }
+    ]
+  },
+  "detectors": [
+    {
+      "name": "param_jump",
+      "trigger": "any parameter score moves by more than threshold_points between consecutive snapshots, with n at least min_n on both snapshots",
+      "direction": "magnitude",
+      "thresholds": {
+        "threshold_points": 40.0,
+        "min_n": 10
+      }
+    },
+    {
+      "name": "speed_without_decisions",
+      "trigger": "TTFHR score >= ttfhr_score_min and DR_90 score <= dr90_score_max",
+      "direction": "compound",
+      "thresholds": {
+        "ttfhr_score_min": 90.0,
+        "dr90_score_max": 40.0
+      }
+    },
+    {
+      "name": "merges_without_return",
+      "trigger": "MR_first score >= mr_first_score_min and (conversion or return) score <= conversion_or_return_score_max, with n at least min_n",
+      "direction": "compound",
+      "thresholds": {
+        "mr_first_score_min": 90.0,
+        "conversion_or_return_score_max": 20.0,
+        "min_n": 10
+      }
+    },
+    {
+      "name": "closed_unread",
+      "trigger": "share of external PRs closed unmerged with no substantive response ever recorded >= share_min",
+      "direction": "above",
+      "thresholds": {
+        "share_min": 0.3
+      }
+    },
+    {
+      "name": "newcomer_burst",
+      "trigger": "at least min_accounts eligible-looking, all-merged first-timer accounts created within any window_days-day span",
+      "direction": "compound",
+      "thresholds": {
+        "min_accounts": 5,
+        "window_days": 7
+      }
+    },
+    {
+      "name": "star_burst",
+      "trigger": "the StarScout lockstep penalty was applied to this repo at universe entry",
+      "direction": "boolean",
+      "thresholds": {}
+    },
+    {
+      "name": "label_spam",
+      "trigger": "newcomer-labelled issue count >= issue_count_min and newcomer conversion score <= conversion_score_max",
+      "direction": "compound",
+      "thresholds": {
+        "issue_count_min": 50.0,
+        "conversion_score_max": 10.0
+      }
+    },
+    {
+      "name": "ef_domain_mismatch",
+      "trigger": "top commit email-domain share >= domain_share_min while elephant factor >= ef_min",
+      "direction": "compound",
+      "thresholds": {
+        "domain_share_min": 0.5,
+        "ef_min": 4.0
+      }
+    },
+    {
+      "name": "source_drift",
+      "trigger": "the live-sample canary currently holds this repo's row",
+      "direction": "boolean",
+      "thresholds": {}
+    }
+  ],
+  "not_hashed_process_constants": [
+    {
+      "name": "MIN_COVERAGE",
+      "module": "porchlamp.audit.anchors",
+      "value": 0.9,
+      "gates": "D-VER-4 anchor-check minimum rating coverage (a release gate, not a per-repo score)"
+    },
+    {
+      "name": "TAU_RELEASE_THRESHOLD",
+      "module": "porchlamp.audit.sensitivity",
+      "value": 0.9,
+      "gates": "D-AGG-3's Kendall tau-b release bar for a +/-5pp weight perturbation"
+    },
+    {
+      "name": "DEFAULT_PERTURBATION_PP",
+      "module": "porchlamp.audit.sensitivity",
+      "value": 5,
+      "gates": "the +/-5pp weight-perturbation size the sensitivity report tests at"
+    }
+  ],
+  "rfc_log": [
+    {
+      "date": "2026-09-13",
+      "rfc": "genesis",
+      "summary": "Initial v2 constants freeze (packet W2-8 round 2, `d7664f2`): relocated every scored tunable into `porchlamp.core.constants_v2` and computed `CONSTANTS_HASH` for the first time. No RFC \u2014 the procedure and this changelog begin governing changes only after this commit.",
+      "hash_before": null,
+      "hash_after": "391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8"
+    },
+    {
+      "date": "2026-09-13",
+      "rfc": "RFC-0001",
+      "summary": "Add `AUTHOR_UNMEASURED_MAX_FRACTION = 0.20` (D-MISS-1 collector-failure gate for row 1.2/1.3, W1-4 round-2 review B-2/B-3); relocated out of `porchlamp.collect.github_graphql`, closing the census escape. No rank movement (no scoring-path consumer yet).",
+      "hash_before": "391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8",
+      "hash_after": "d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e"
+    },
+    {
+      "date": "2026-09-13",
+      "rfc": "RFC-0002",
+      "summary": "Relocate the five `STARS_SCOUT_*` universe-entry thresholds (D-IN-5 star-velocity filter, W1-10) from the unhashed `porchlamp.constants` into `porchlamp.core.constants_v2`; values unchanged. No rank movement (D-IN-5: stars never enter the composite).",
+      "hash_before": "d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e",
+      "hash_after": "446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0"
+    },
+    {
+      "date": "2026-09-13",
+      "rfc": "RFC-0003",
+      "summary": "Add `NOT_APPLICABLE_RULES` (D-MISS-5's closed not_applicable rule list), `OPENSSF_PROXY_MIN_SIGNALS = 8` (row 2.2's `proxy:no_dependents_signal` minimum), and relocate `WINDOW_STALENESS_DAYS = 14` from `porchlamp.collect.pike_signals` (W1-7f follow-up). No rank movement on the fixture (0 rated repos; `records_hash` moves only from the new hashed constants and `PillarScore.applicable`'s structural addition).",
+      "hash_before": "446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0",
+      "hash_after": "419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9"
+    },
+    {
+      "date": "2026-09-13",
+      "rfc": "RFC-0004",
+      "summary": "Relocate D-IN-3's `MIN_ACCOUNT_AGE_DAYS = 90` / `MIN_PUBLIC_EVENTS = 5` / `AUTHOR_CAP_FRACTION = 0.20` out of `porchlamp.collect.github_graphql` into `porchlamp.core.constants_v2` / `porchlamp.core.hygiene` (W3-1). No rank movement (no scoring-path consumer yet).",
+      "hash_before": "419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9",
+      "hash_after": "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b"
+    },
+    {
+      "date": "2026-10-12",
+      "rfc": "RFC-0006",
+      "summary": "Add `(\"downloads_monthly\", \"ecosystem\", \"go\")`, `(\"downloads_monthly\", \"ecosystem\", \"maven\")`, and `(\"downloads_monthly\", \"ecosystem\", \"systems\")` to `NOT_APPLICABLE_RULES` (D-MISS-5: ecosystems with no public monthly-downloads registry).",
+      "hash_before": "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b",
+      "hash_after": "aa6c4cd6f702fdc738cafb68022eb2613491657a9cb74c180fc2a1bd1236e662"
+    },
+    {
+      "date": "2026-10-13",
+      "rfc": "RFC-0007",
+      "summary": "Add `GATE6_HANDOFF_MIN_PRS = 5`, `GATE6_HANDOFF_MIN_SHARE = 0.5`, `GATE6_HANDOFF_NOTICES` and `GATE6_HANDOFF_RELAY_LOGIN_PREFIXES` (D-GATE-6: a repository whose own notices send outside PRs to another review system, e.g. Gerrit or a mailing list, is routed off-platform and is not failed at D-GATE-5). No rank movement on the fixture (no `pr_window` envelopes in its corpus); on the recorded data six repositories hand off.",
+      "hash_before": "aa6c4cd6f702fdc738cafb68022eb2613491657a9cb74c180fc2a1bd1236e662",
+      "hash_after": "aca719a922264ba5edb6adcdab6c0c08eaff7a315d0e5818a567509e5b0d3ba9"
+    },
+    {
+      "date": "2026-10-14",
+      "rfc": "RFC-0008",
+      "summary": "Add `GATE5_WILSON_Z = 1.6448536269514722` (D-GATE-5: 95% one-sided Wilson lower confidence bound on zero-response share, plus 5 false-positive reduction rules: draft exclusion/ready clock start, author self-close exclusion, <90d account exclusion, maintainer close within 14d as response). No rank movement on the fixture (no `pr_window` envelopes in its corpus).",
+      "hash_before": "aca719a922264ba5edb6adcdab6c0c08eaff7a315d0e5818a567509e5b0d3ba9",
+      "hash_after": "6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94"
+    }
+  ]
+}

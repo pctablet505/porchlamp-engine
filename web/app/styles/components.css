@@ -1,0 +1,1689 @@
+/* Reusable component styles: header, badges, table, sparkbars, keymap
+ * overlay, drawer, banners, skeletons. */
+
+/* ---- Header ---- */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: var(--header-height);
+  box-sizing: border-box;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+/* The brand is a link to the rankings (components/chrome.js), laid out as the brand and slogan were. */
+.brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--text-h2);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.brand-mark {
+  width: 1.4em;
+  height: 1.4em;
+  flex: none;
+}
+
+.brand-mark-glow {
+  fill: var(--lamp-glow);
+}
+
+.brand-mark-rays {
+  stroke: var(--lamp-glow);
+}
+
+.brand-tagline {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+@media (max-width: 1365px) {
+  .brand-tagline {
+    display: none;
+  }
+}
+
+.snapshot-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius-pill);
+  padding: 2px var(--space-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+/* NB-2: a failed snapshot fetch (U-15) — the chip must be visibly
+ * distinct from its normal "id · version" state, never a silent
+ * "Loading..." that never resolves. */
+.snapshot-chip.error-chip {
+  color: var(--text-primary);
+  background: var(--quad-graveyard-wash);
+  border-color: var(--quad-graveyard);
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.header-filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.header-filter-group[hidden] {
+  display: none;
+}
+
+/* The search is a real form to the rankings, so it works on every page before (and without) the app. */
+form.header-filter-group {
+  margin: 0;
+}
+
+.field-label {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  margin-right: var(--space-2xs);
+}
+
+select.control,
+input.control {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  padding: 6px var(--space-sm);
+  color: var(--text-primary);
+}
+
+/* A placeholder is text a reader must read (the search box's hint): the browser's own grey is under AA on this
+ * surface (measured in Chrome: 4.21:1 light, 3.17:1 dark), so it takes the secondary text colour, unfaded. */
+input.control::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+.icon-button {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  padding: 6px var(--space-sm);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.icon-button:hover {
+  background: var(--bg-surface-hover);
+}
+
+/* The theme toggle shows the theme in force, as tokens.css decides it: dark on bare :root, light for a system that
+ * asks for light unless the reader chose dark, and the reader's choice (data-theme, set by theme-init.js before the
+ * first paint). Styled here rather than by a script, so the right SVG icon shows from the first paint on every page. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-icon {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+  pointer-events: none;
+}
+
+.theme-icon-light {
+  display: none;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .theme-icon-dark {
+    display: none;
+  }
+
+  :root:not([data-theme="dark"]) .theme-icon-light {
+    display: block;
+  }
+}
+
+:root[data-theme="light"] .theme-icon-dark {
+  display: none;
+}
+
+:root[data-theme="light"] .theme-icon-light {
+  display: block;
+}
+
+/* ---- Primary nav (06 §2 Leaderboard/Matrix/Compare/Configure/Methodology) ---- */
+.app-primary-nav {
+  position: sticky;
+  top: var(--header-height);
+  z-index: 19;
+  background: var(--bg-base);
+}
+
+.primary-tabs {
+  position: relative;
+  display: flex;
+  gap: var(--space-xs);
+  padding: 0 var(--space-md);
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.primary-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.primary-tab {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+/* Seven entries fit a tablet with tighter tabs; under the phone width the strip scrolls with its fade. */
+@media (max-width: 859px) {
+  .primary-tabs {
+    gap: var(--space-2xs);
+  }
+
+  .primary-tab {
+    padding: var(--space-sm);
+  }
+}
+
+.primary-tab:hover {
+  color: var(--text-primary);
+}
+
+.primary-tab[aria-current="page"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-violet);
+  /* On a phone the strip is wider than the screen: it opens with the current link in view, on every page (the app
+   * also keeps it in view as the reader moves between its views: components/chrome.js centerCurrentLink). */
+  scroll-initial-target: nearest;
+  scroll-snap-align: center;
+}
+
+/* ---- Onboarding subtitle ---- */
+.onboarding-banner {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.onboarding-link {
+  color: var(--accent-cyan);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.onboarding-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- The home's links to the lists: one row, opened by the reader (views/leaderboard.js renderBrowseLinks) ----
+ * Every link stays in the page, so they are real links to a crawler and to a reader without JavaScript; closed, the
+ * block is one row instead of five lines, which on a phone had pushed the ranking off the first screen. */
+.browse-block {
+  margin: 0 0 var(--space-sm);
+}
+
+.browse-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 40px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-body-md);
+  cursor: pointer;
+  list-style: none;
+}
+
+.browse-summary::-webkit-details-marker {
+  display: none;
+}
+
+.browse-summary::before {
+  content: "▸";
+  color: var(--text-secondary);
+}
+
+.browse-more[open] > .browse-summary::before {
+  content: "▾";
+}
+
+.browse-summary:hover {
+  background: var(--bg-surface-hover);
+}
+
+.browse-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  padding: var(--space-md) var(--space-2xs) var(--space-2xs);
+  font-size: var(--text-body-md);
+}
+
+.browse-group-label {
+  display: block;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Each link is a target of at least 24 px tall (an inline link is only as tall as its text). */
+.browse-groups .onboarding-link {
+  display: inline-block;
+  line-height: 24px;
+}
+
+/* The page numbers of the whole ranking take the full row, each a target a thumb can hit. */
+.browse-pages {
+  grid-column: 1 / -1;
+}
+
+.browse-pages .onboarding-link {
+  min-width: 32px;
+  padding: 0 var(--space-2xs);
+  text-align: center;
+  border-radius: var(--radius-badge);
+}
+
+.browse-pages .onboarding-link:hover {
+  background: var(--bg-surface-hover);
+}
+
+/* ---- Tabs (Leaderboard's own Ranked/Not-ranked sub-tabs) ---- */
+.tabs {
+  display: flex;
+  gap: var(--space-xs);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-md);
+}
+
+.tab {
+  padding: var(--space-xs) var(--space-md);
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.tab[aria-current="page"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-cyan);
+}
+
+.tab .count {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-left: var(--space-2xs);
+}
+
+/* ---- Counts strip (always visible; U-2) ---- */
+.counts-strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  padding: var(--space-2xs) 0 var(--space-sm);
+}
+
+/* ---- Corpus meter: how much of the snapshot is rated at all ----
+ * A part-to-whole of ONE population, so a single stacked bar, not three
+ * bars. Segment colours come from --corpus-* (validated; see tokens.css).
+ * The 2px surface gap between fills is the dataviz mark spec — it keeps
+ * adjacent segments readable without an outline, including in
+ * forced-colors mode where the fills may be overridden. */
+.corpus-meter {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  /* No track fill. The segments always sum to the whole, so a track adds
+   * nothing -- and it actively misled: the recessive `gated` segment (the
+   * MAJORITY of a mid-collection snapshot) sat at 2.4:1 against
+   * --bg-surface-elevated and read as empty track rather than as the
+   * largest share. The 2px inter-segment gaps now show the page surface,
+   * which delimits each segment crisply without a competing fill. */
+}
+
+.corpus-seg {
+  flex-basis: 0;
+  min-width: 2px; /* a tiny share stays visible instead of vanishing */
+}
+
+/* Rounded data-ends anchored to the ends of the bar (dataviz mark spec):
+ * only the outer edges round, so the inner joins stay square and the
+ * proportions read true. */
+.corpus-meter .corpus-seg:first-child {
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+}
+
+.corpus-meter .corpus-seg:last-child {
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+}
+
+.corpus-seg-rated { background: var(--corpus-rated); }
+.corpus-seg-gated { background: var(--corpus-gated); }
+.corpus-seg-unrated { background: var(--corpus-unrated); }
+
+.corpus-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  align-items: baseline;
+}
+
+.corpus-key {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2xs);
+}
+
+/* The swatch is decoration; the label and count beside it carry identity,
+ * which is what lets the muted segments sit below 3:1 on the surface. */
+.corpus-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-badge);
+  align-self: center;
+  flex: none;
+}
+
+.corpus-count {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.corpus-pct {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.corpus-lens {
+  color: var(--text-primary);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-xs);
+}
+
+@media (forced-colors: active) {
+  /* Forced-colors drops the fills; the legend text still identifies each
+   * segment, and a border keeps the proportions visible. */
+  .corpus-seg,
+  .corpus-swatch {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* ---- Badges ---- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-badge);
+  font-family: var(--font-mono);
+  font-size: var(--metric-pill);
+  font-weight: 600;
+}
+
+.badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.badge-coverage-full .badge-dot {
+  background: var(--coverage-full);
+}
+
+.badge-coverage-a .badge-dot {
+  background: var(--coverage-a);
+}
+
+.badge-coverage-b .badge-dot {
+  background: var(--coverage-b);
+}
+
+.badge-coverage-below .badge-dot {
+  background: var(--coverage-below);
+}
+
+.tier-pill {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.tier-capped {
+  color: var(--text-secondary);
+  font-weight: 400;
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+/* No audited stars in the rows on screen: hide the column as a unit (th + td share data-col/data-cell). */
+.stars-unaudited [data-col="stars"],
+.stars-unaudited [data-cell="stars"] {
+  display: none;
+}
+
+.quadrant-glyph {
+  font-size: 1rem;
+  margin-right: var(--space-2xs);
+}
+
+.quad-sweet-spot {
+  color: var(--quad-sweet-spot);
+}
+
+.quad-crucible {
+  color: var(--quad-crucible);
+}
+
+.quad-nursery {
+  color: var(--quad-nursery);
+}
+
+.quad-graveyard {
+  color: var(--quad-graveyard);
+}
+
+.suspicion-icon {
+  color: var(--text-warning);
+  cursor: default;
+}
+
+.tie-mark {
+  color: var(--accent-cyan);
+  font-weight: 700;
+  margin-left: var(--space-2xs);
+  cursor: default;
+}
+
+/* ---- Sparkbars (five-pillar mini bars) ---- */
+.sparkbar-group {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 20px;
+}
+
+.sparkbar {
+  width: 6px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent-cyan);
+  position: relative;
+}
+
+.sparkbar[data-unmeasured="true"] {
+  background: var(--bg-surface-hover);
+  border: 1px dashed var(--border-strong);
+}
+
+/* ---- Table ---- */
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body-md);
+}
+
+/* Owner instruction 2026-09-13: "the page itself scrolls with a sticky
+ * header row." The document/window scrolls now (not a bounded `main` box),
+ * so the thead sticks relative to the viewport, offset by the also-sticky
+ * app header + primary nav height so they never overlap. */
+.leaderboard-table thead th {
+  position: sticky;
+  top: calc(var(--header-height) + var(--primary-nav-height, 41px));
+  z-index: 18;
+  background: var(--bg-surface-elevated);
+}
+
+.leaderboard-table th {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: var(--text-caption);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.leaderboard-table th[data-sortable="true"] {
+  cursor: pointer;
+}
+
+.leaderboard-table th[data-sortable="true"]:hover,
+.leaderboard-table th[data-sortable="true"].is-active {
+  color: var(--text-primary);
+}
+
+.sort-arrow {
+  margin-left: 3px;
+  color: var(--accent-cyan);
+  font-size: 0.9em;
+}
+
+.pillars-col-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pillar-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  border: 0;
+  background: transparent;
+  padding: 2px 3px;
+  border-radius: var(--radius-badge);
+  font: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.pillar-sort-btn:hover,
+.pillar-sort-btn.is-active {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.pillar-sort-sep {
+  color: var(--text-muted);
+}
+
+.leaderboard-table td {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.leaderboard-table td[data-cell="repository"] {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Every column needs about 1,270px of window (a lens list has one more): narrower than 1,366px, four leave, so the
+ * page itself never scrolls sideways (the table keeps the window as its scroll container from 1024px, for its sticky
+ * header). */
+@media (max-width: 1365px) {
+  .leaderboard-table [data-col="stars"],
+  .leaderboard-table [data-cell="stars"],
+  .leaderboard-table [data-col="suspicion"],
+  .leaderboard-table [data-cell="suspicion"],
+  .leaderboard-table [data-col="no_reply_14d"],
+  .leaderboard-table [data-cell="no_reply_14d"],
+  .leaderboard-table [data-col="quadrant"],
+  .leaderboard-table [data-cell="quadrant"] {
+    display: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .leaderboard-table {
+    font-size: var(--text-caption);
+  }
+
+  .leaderboard-table th,
+  .leaderboard-table td {
+    padding: var(--space-xs) 3px;
+  }
+
+  .pillar-sort-btn {
+    padding: 1px 1px;
+  }
+
+  .leaderboard-table td[data-cell="repository"] {
+    min-width: 180px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .leaderboard-table .repo-line {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+
+  .leaderboard-table .repo-line .eco-chip {
+    margin-left: 0;
+  }
+}
+
+/* Fixed row height so the DOM's real rendered height matches
+ * components/table.js's ROW_HEIGHT_PX exactly — the windowing spacers'
+ * inline heights are computed from that same constant, and any drift
+ * between the two would misalign the scrollbar against the real content. */
+.leaderboard-table tbody tr:not([aria-hidden="true"]) {
+  height: 40px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.leaderboard-table tbody tr:not([aria-hidden="true"]) td {
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.leaderboard-table tbody tr:hover,
+.leaderboard-table tbody tr.row-selected {
+  background: var(--bg-surface-hover);
+}
+
+.leaderboard-table tbody tr.row-tied {
+  background: var(--tie-row-band);
+}
+
+/* Windowing spacers (components/table.js createSpacerElement): no border,
+ * no padding, no hover/cursor styling — only their inline `height` counts. */
+.leaderboard-table tbody tr[aria-hidden="true"] {
+  cursor: default;
+  border: 0;
+}
+
+.leaderboard-table tbody tr[aria-hidden="true"] td {
+  padding: 0;
+  border: 0;
+}
+
+.leaderboard-cards > div[aria-hidden="true"] {
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.cell-numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-missing {
+  color: var(--text-muted);
+  cursor: help;
+}
+
+.repo-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.repo-owner {
+  color: var(--text-secondary);
+}
+
+/* The repository name is a real link to the project's page; the row looks as it did, not cyan and underlined. */
+.repo-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* A row's and a card's name line (components/table.js repoLineHtml): a long name ends in "…" and its ecosystem chip
+ * stays whole beside it, inside the cell or the card. */
+.repo-line {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.repo-line-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-line .eco-chip {
+  flex: none;
+  white-space: nowrap;
+}
+
+.eco-chip {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-xs);
+  margin-left: var(--space-xs);
+}
+
+.delta-up {
+  color: var(--text-success);
+}
+
+.delta-down {
+  color: var(--text-warning);
+}
+
+.delta-flat {
+  color: var(--text-muted);
+}
+
+/* ---- Card list (< 768px leaderboard) ---- */
+/* No flex `gap` here: each real card's own `margin-bottom` supplies the
+ * spacing, so a card's total vertical footprint (content + margin) is one
+ * fixed number that matches components/table.js's CARD_HEIGHT_PX exactly —
+ * the same fixed-height contract the desktop table's rows keep, needed for
+ * the windowing spacers' inline heights to line up with real content. */
+.mobile-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.mobile-sort-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-sort-bar select.control {
+  flex: 1;
+  min-width: 0;
+}
+
+.leaderboard-cards {
+  display: block;
+}
+
+.leaderboard-card {
+  height: 180px;
+  box-sizing: border-box;
+  overflow: hidden;
+  margin-bottom: 12px; /* 180 + 12 = components/table.js CARD_HEIGHT_PX (192), the list's windowing pitch */
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: 8px var(--space-sm);
+  cursor: pointer;
+}
+
+.leaderboard-card > div:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard-card.row-tied {
+  background: var(--tie-row-band);
+}
+
+.leaderboard-card:hover,
+.leaderboard-card.row-selected {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+.leaderboard-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.leaderboard-card-line-4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
+}
+
+.leaderboard-card-replies {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The fastest-reply lists print a median's sample under it (components/table.js firstReplyHtml). */
+.reply-sample {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.leaderboard-card-replies .reply-sample {
+  display: inline;
+  margin-left: var(--space-2xs);
+}
+
+/* ---- A list at its own address: heading, intro, caveat, its other lists, the ranking's page links ---- */
+.list-head {
+  margin: 0 0 var(--space-md);
+  max-width: 72ch;
+}
+
+.list-head .view-heading {
+  margin-bottom: var(--space-xs);
+}
+
+.list-intro,
+.list-caveat,
+.list-sublinks {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-body-md);
+  line-height: 1.45;
+}
+
+.list-caveat {
+  color: var(--text-secondary);
+}
+
+.list-pages {
+  margin: var(--space-sm) 0;
+  font-size: var(--text-body-md);
+  line-height: 1.8;
+}
+
+.list-pages a[aria-current="page"],
+[data-ranking-pages] a[aria-current="page"] {
+  color: var(--text-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* ---- The not-ranked lists by reason (views/notranked.js): the lists line, and one sentence a project ---- */
+.reason-lists {
+  margin: var(--space-sm) 0;
+  font-size: var(--text-body-md);
+  line-height: 1.8;
+}
+
+.reason-list {
+  margin: 0;
+  padding-left: 4.5em;
+  font-size: var(--text-body-md);
+  line-height: 1.45;
+}
+
+.reason-list li {
+  padding: var(--space-2xs) 0;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.reason-list li:hover {
+  background: var(--bg-surface-hover);
+}
+
+.reason-list li:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  background: var(--bg-surface-hover);
+}
+
+/* ---- Reason chips (Not ranked) ---- */
+.reason-chip {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.notranked-group {
+  margin-bottom: var(--space-lg);
+}
+
+.notranked-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+/* The name and its ecosystem chip may shrink and break anywhere: a long name with no break points otherwise
+ * pushes the row past a 320 px screen. */
+.notranked-row > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.notranked-row:hover,
+.notranked-row.row-selected {
+  background: var(--bg-surface-hover);
+}
+
+/* ---- States: skeleton / empty / error / partial ---- */
+.skeleton-row {
+  height: 32px;
+  border-radius: var(--radius-control);
+  background: linear-gradient(
+    90deg,
+    var(--bg-surface-elevated) 25%,
+    var(--bg-surface-hover) 50%,
+    var(--bg-surface-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  margin-bottom: var(--space-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-row {
+    animation: none;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.empty-state,
+.error-banner {
+  padding: var(--space-md);
+  border-radius: var(--radius-card);
+  margin-bottom: var(--space-md);
+}
+
+.empty-state {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.error-banner {
+  background: var(--quad-graveyard-wash);
+  border: 1px solid var(--quad-graveyard);
+  color: var(--text-primary);
+}
+
+.stale-table {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Ruling C: persona refetch keeps the old table visible+greyed (via
+ * .stale-table above) with this thin indeterminate progress bar, instead
+ * of a full-page skeleton. */
+.refetch-progress {
+  position: sticky;
+  top: calc(var(--header-height) + var(--primary-nav-height, 41px));
+  left: 0;
+  z-index: 19;
+  height: 2px;
+  overflow: hidden;
+  background: var(--bg-surface-elevated);
+}
+
+.refetch-progress::before {
+  content: "";
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: var(--accent-cyan);
+  animation: refetch-progress-sweep 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refetch-progress::before {
+    animation: none;
+    width: 100%;
+  }
+}
+
+@keyframes refetch-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* ---- Keymap overlay ---- */
+.keymap-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.keymap-overlay {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: var(--space-lg);
+  max-width: 480px;
+  width: 90%;
+  box-shadow: var(--shadow-popover);
+}
+
+.keymap-overlay table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-sm);
+}
+
+.keymap-overlay td {
+  padding: var(--space-2xs) var(--space-xs);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.keymap-overlay kbd {
+  font-family: var(--font-mono);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-badge);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.keymap-overlay [data-keymap-close] {
+  margin-top: var(--space-md);
+}
+
+/* The footer's shortcuts button is for a keyboard: a touch screen has none to press. */
+@media (hover: none) and (pointer: coarse) {
+  .keymap-trigger {
+    display: none;
+  }
+}
+
+/* ---- Drawer ---- */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 90;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.drawer {
+  width: 520px;
+  max-width: 100%;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-drawer);
+  overflow-y: auto;
+  overflow-x: hidden; /* the wide tables inside scroll in their own .table-scroll box */
+  padding: var(--space-md);
+  transition: transform var(--motion-duration) var(--motion-easing);
+}
+
+@media (max-width: 767px) {
+  .drawer-backdrop {
+    align-items: flex-end;
+  }
+
+  .drawer {
+    width: 100%;
+    max-height: 90vh;
+    border-left: none;
+    border-top: 1px solid var(--border-strong);
+  }
+}
+
+.drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+/* The title takes the room the buttons leave and breaks a long owner/name instead of pushing the panel wider. */
+.drawer-header > :first-child {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex: 1 1 16ch;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.drawer-compare-btn,
+.drawer-github-link,
+.drawer [data-drawer-close] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 4px var(--space-sm);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.drawer-compare-btn:hover,
+.drawer-github-link:hover {
+  background: var(--bg-surface-hover);
+}
+
+/* A ranked project's own page, under its name in the side panel (views/drawer.js renderIdentity). */
+.drawer-page-link {
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--accent-cyan);
+  text-decoration: none;
+}
+
+.drawer-page-link:hover {
+  text-decoration: underline;
+}
+
+/* The not-in-snapshot drawer body and its opt-in live check (06 §3 C;
+ * components/livepanel.js). Every status pill carries its label as text, so
+ * colour is never the only signal. */
+.live-check {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.live-check:focus {
+  outline: none;
+}
+
+.live-check:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 4px;
+}
+
+.live-check-lede {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-body-md);
+}
+
+.live-check-title {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--text-h2);
+  font-weight: 600;
+}
+
+.live-check-start {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 var(--space-md);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-focus);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.live-check-start:hover {
+  background: var(--bg-surface-hover);
+}
+
+.live-check-note,
+.live-check-disclaimer,
+.live-check-foot {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.live-check-disclaimer {
+  padding: var(--space-xs) var(--space-sm);
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg-surface-elevated);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+.live-check-status,
+.live-check-renamed,
+.live-check-description {
+  margin: 0;
+  font-size: var(--text-body-md);
+  color: var(--text-primary);
+}
+
+.live-check-description {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.live-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-xs) var(--space-md);
+  width: 100%;
+  margin: 0;
+}
+
+.live-fact dt {
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+}
+
+.live-fact dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.live-gates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.live-gate {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.live-gate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.live-gate-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.live-gate-reason {
+  margin: 2px 0 0;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.live-pill {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.live-pill.is-pass,
+.live-pill.is-routed {
+  border-color: var(--coverage-full);
+}
+
+.live-pill.is-fail {
+  border-color: var(--coverage-below);
+}
+
+.live-pill.is-undecided,
+.live-pill.is-not-checked {
+  border-style: dashed;
+  color: var(--text-secondary);
+}
+
+/* The project view's cards sit on the page ground inside the drawer, so they read as cards on its surface. */
+.drawer .project-card {
+  background: var(--bg-base);
+}
+
+.drawer-fallback-title {
+  font-size: var(--text-h1);
+  margin: 0 0 var(--space-2xs);
+}
+
+.drawer-kicker {
+  font-size: var(--text-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2xs);
+}
+
+/* `.cell-numeric` breaks anywhere (views.css) so a digit run or digest never
+ * overflows a cell. The drawer also puts the class on four PARAGRAPHS of
+ * spaced text (pillar summary, Porchlamp line, hash, snapshot id), where break-all
+ * split words mid-letter ("Governan|ce", MEASURED 2026-09-22). A paragraph
+ * wraps at spaces and breaks a word only if it alone would overflow. */
+p.cell-numeric {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.gate-banner {
+  background: var(--quad-graveyard-wash);
+  border: 1px solid var(--quad-graveyard);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+/* README badge box, the last thing in the drawer's Composite section. The
+ * preview keeps its own line: the widest badge is 397 px, wider than a phone's
+ * drawer, so it scales down (proportionally) instead of overflowing. */
+.maintainer-badge-box {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--bg-surface-elevated);
+}
+
+.maintainer-badge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.maintainer-badge-head .reproduce-copy {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  padding: 3px var(--space-xs);
+  font-size: var(--text-caption);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.maintainer-badge-head .reproduce-copy:hover {
+  background: var(--bg-surface-hover);
+}
+
+.maintainer-badge-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-bottom: var(--space-xs);
+}
+
+.maintainer-badge-note {
+  margin: 0 0 var(--space-xs);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+}
+
+.maintainer-badge-snippet {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  max-height: 6.5rem;
+  overflow-y: auto;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+/* ---- Footer ---- */
+.app-footer {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+/* The lists every page links to: their own rows above the snapshot's fields. */
+.footer-browse {
+  flex: 1 0 100%;
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.footer-browse-row {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+}
+
+.footer-browse-label {
+  color: var(--text-primary);
+}
+
+/* A row of short words (Go, Java): each link is a target at least 24 px square (WCAG 2.5.8). */
+.footer-browse-row a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.app-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+/* The pager below the list: the same controls, spaced off the last row. */
+.pager-bottom {
+  margin-top: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+/* ---- Phone header and tab bar ----
+ * MEASURED 2026-10-12 at 375 px: the sticky header wrapped to 330 px (40% of the screen, on every screen) and the
+ * five tabs ran off the right edge with no hint. Now: the header scrolls away with the page, its three controls
+ * sit in two rows, the tab bar is the one thing that stays, and it fades at an edge that has more behind it. */
+@media (max-width: 767px) {
+  :root {
+    --header-height: 0px; /* the header no longer sticks: whatever sticks, sticks under the tab bar */
+  }
+
+  .app-header {
+    position: static;
+    gap: var(--space-xs) var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .header-controls {
+    display: contents;
+  }
+
+  /* Rows: brand and snapshot / persona and ecosystem / search and the theme toggle. */
+  .header-controls > [data-theme-toggle] {
+    order: 5;
+    flex: 0 0 auto;
+    align-self: flex-end;
+  }
+
+  .header-filter-group {
+    order: 3;
+    flex: 1 1 calc(50% - var(--space-sm));
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+
+  .header-filter-group[data-header-search-group] {
+    order: 4;
+    flex: 1 1 calc(100% - 64px); /* a row of its own, with room beside it for the theme toggle */
+  }
+
+  .header-filter-group[hidden] {
+    display: none;
+  }
+
+  .header-filter-group select.control,
+  .header-filter-group input.control {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .header-filter-group .field-label {
+    margin: 0;
+  }
+
+  .app-primary-nav {
+    position: sticky;
+    top: 0;
+    z-index: 19;
+  }
+
+  .primary-tabs {
+    position: relative; /* its own offsetParent: the active tab is centred from its offsetLeft */
+    padding: 0 var(--space-xs);
+    gap: 0;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--space-sm), #000 calc(100% - var(--space-xl)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--space-sm), #000 calc(100% - var(--space-xl)), transparent 100%);
+  }
+
+  .primary-tab {
+    padding: var(--space-sm);
+  }
+}
+
+/* The ways out of an empty list: side by side, wrapping on a phone. */
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  justify-content: flex-start; /* with the message above them */
+  margin: var(--space-xs) 0 0;
+}
+
+/* Black-hole determination evidence panel (D-GATE-5, Packet 4) */
+.black-hole-evidence {
+  margin-top: var(--space-md);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.black-hole-stat {
+  margin: var(--space-sm) 0 var(--space-xs) 0;
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.black-hole-pr-scroll {
+  margin: var(--space-sm) 0;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: visible;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.black-hole-pr-table {
+  width: 100%;
+  font-size: var(--text-caption);
+}
+
+.black-hole-pr-table a {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  text-decoration: underline;
+}
+

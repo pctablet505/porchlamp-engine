@@ -1,0 +1,439 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 39,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/dtolnay/ryu/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "fetched_at": "2026-09-11T19:42:51.956926+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/downloads/crates__ryu.json",
+      "source_hash": "c1913fbbba3b5c009f9ec4f008e7b8dc665bdaa7610a1c2f01d367eb89d18e30",
+      "value": 74943804,
+      "window_end": null,
+      "window_start": null
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T19:42:46.203739+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/dtolnay__ryu.json",
+      "source_hash": "d5cd10fc3db6e8918328312a20a73e550cadcfd237900a90f851a0f76a35d368",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T19:42:46.782436+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/dtolnay__ryu.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/dtolnay/ryu/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T19:42:49.282513+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "raw/commits_180d/dtolnay__ryu.json",
+    "source_hash": "5e48f2765e2268933125029d60546d1c94ac7999408d44847e6020229cb4c354",
+    "value": "2026-08-06T04:58:23Z"
+  },
+  "pr_window": {
+    "end": "2026-03-13T22:18:27+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "walter-woodall",
+        "closed_at": null,
+        "created_at": "2026-03-13T22:18:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 63
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2026-02-08T20:33:38+00:00",
+        "created_at": "2026-02-08T20:28:02+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-02-08T20:33:38+00:00",
+        "pr_number": 62
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "luohewuyang",
+        "closed_at": "2025-12-22T02:57:09+00:00",
+        "created_at": "2025-12-22T02:40:55+00:00",
+        "first_human_review_at": "2025-12-22T02:44:53+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 61
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "josh-brown-anchor",
+        "closed_at": "2025-10-16T17:54:26+00:00",
+        "created_at": "2025-10-16T17:31:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 60
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-10-13T23:54:58+00:00",
+        "created_at": "2025-10-13T23:32:28+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-10-13T23:54:57+00:00",
+        "pr_number": 59
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2025-01-28T03:19:38+00:00",
+        "created_at": "2025-01-28T03:15:43+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-01-28T03:19:38+00:00",
+        "pr_number": 58
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2024-06-02T03:32:44+00:00",
+        "created_at": "2024-06-02T03:24:29+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-06-02T03:32:44+00:00",
+        "pr_number": 57
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2024-05-07T01:51:00+00:00",
+        "created_at": "2024-05-07T01:49:13+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-05-07T01:51:00+00:00",
+        "pr_number": 55
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2023-12-09T18:25:26+00:00",
+        "created_at": "2023-12-09T18:24:28+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2023-12-09T18:25:26+00:00",
+        "pr_number": 53
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "CXWorks",
+        "closed_at": "2023-12-09T18:08:55+00:00",
+        "created_at": "2023-12-09T17:52:10+00:00",
+        "first_human_review_at": "2023-12-09T18:08:51+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 52
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2023-10-25T17:38:53+00:00",
+        "created_at": "2023-10-25T17:28:12+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2023-10-25T17:38:53+00:00",
+        "pr_number": 51
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "adetaylor",
+        "closed_at": "2022-05-15T21:13:40+00:00",
+        "created_at": "2022-03-04T21:54:13+00:00",
+        "first_human_review_at": "2022-05-15T21:13:35+00:00",
+        "is_external": true,
+        "merged_at": "2022-05-15T21:13:39+00:00",
+        "pr_number": 45
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2021-12-12T20:48:55+00:00",
+        "created_at": "2021-12-12T20:45:48+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2021-12-12T20:48:55+00:00",
+        "pr_number": 44
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2021-12-11T07:14:47+00:00",
+        "created_at": "2021-12-11T07:10:53+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2021-12-11T07:14:47+00:00",
+        "pr_number": 43
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2021-12-11T02:40:23+00:00",
+        "created_at": "2021-12-11T02:34:56+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2021-12-11T02:40:23+00:00",
+        "pr_number": 42
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2021-12-11T02:31:49+00:00",
+        "created_at": "2021-12-11T02:07:21+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2021-12-11T02:31:49+00:00",
+        "pr_number": 41
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2021-12-10T23:31:21+00:00",
+        "created_at": "2021-12-10T23:28:21+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2021-12-10T23:31:21+00:00",
+        "pr_number": 40
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2021-12-10T23:25:29+00:00",
+        "created_at": "2021-12-10T23:22:04+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2021-12-10T23:25:29+00:00",
+        "pr_number": 39
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "saethlin",
+        "closed_at": "2021-11-28T19:30:21+00:00",
+        "created_at": "2021-11-28T19:18:10+00:00",
+        "first_human_review_at": "2021-11-28T19:30:15+00:00",
+        "is_external": true,
+        "merged_at": "2021-11-28T19:30:21+00:00",
+        "pr_number": 37
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "pheki",
+        "closed_at": "2020-10-02T06:10:26+00:00",
+        "created_at": "2020-10-02T05:33:48+00:00",
+        "first_human_review_at": "2020-10-02T06:10:11+00:00",
+        "is_external": true,
+        "merged_at": "2020-10-02T06:10:26+00:00",
+        "pr_number": 34
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "pheki",
+        "closed_at": "2020-10-02T05:35:19+00:00",
+        "created_at": "2020-10-02T05:23:12+00:00",
+        "first_human_review_at": "2020-10-02T05:35:15+00:00",
+        "is_external": true,
+        "merged_at": "2020-10-02T05:35:19+00:00",
+        "pr_number": 33
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "pheki",
+        "closed_at": "2020-10-02T04:59:33+00:00",
+        "created_at": "2020-10-02T04:47:27+00:00",
+        "first_human_review_at": "2020-10-02T04:59:28+00:00",
+        "is_external": true,
+        "merged_at": "2020-10-02T04:59:33+00:00",
+        "pr_number": 32
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2020-05-30T05:06:20+00:00",
+        "created_at": "2020-05-30T05:02:12+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2020-05-30T05:06:20+00:00",
+        "pr_number": 31
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2020-05-30T04:55:45+00:00",
+        "created_at": "2020-05-30T04:53:02+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2020-05-30T04:55:45+00:00",
+        "pr_number": 30
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2020-05-30T04:26:10+00:00",
+        "created_at": "2020-05-30T04:13:38+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2020-05-30T04:26:10+00:00",
+        "pr_number": 29
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Torrencem",
+        "closed_at": "2020-05-31T04:17:15+00:00",
+        "created_at": "2020-05-27T17:55:22+00:00",
+        "first_human_review_at": "2020-05-31T04:17:10+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 28
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2020-05-03T08:15:41+00:00",
+        "created_at": "2020-05-03T08:02:16+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2020-05-03T08:15:41+00:00",
+        "pr_number": 26
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "dtolnay",
+        "closed_at": "2020-04-23T00:38:53+00:00",
+        "created_at": "2020-04-23T00:35:52+00:00",
+        "first_human_review_at": "2020-04-23T07:40:47+00:00",
+        "is_external": false,
+        "merged_at": "2020-04-23T00:38:53+00:00",
+        "pr_number": 25
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "silwol",
+        "closed_at": "2019-11-02T10:02:31+00:00",
+        "created_at": "2019-11-02T09:53:10+00:00",
+        "first_human_review_at": "2019-11-02T10:02:26+00:00",
+        "is_external": true,
+        "merged_at": "2019-11-02T10:02:30+00:00",
+        "pr_number": 22
+      }
+    ],
+    "start": "2019-11-02T09:53:10+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "66fb98c1a2d57fe2a3fa6068bbb40c8a307437feff4e150de75c29a419488c34",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "crates",
+    "fork": false,
+    "license_spdx": "Apache-2.0",
+    "mirror_url": null,
+    "name": "ryu",
+    "owner": "dtolnay"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "4 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
+}

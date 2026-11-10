@@ -1,0 +1,357 @@
+{
+  "detail": {
+    "owner": "3b1b",
+    "name": "manim",
+    "ecosystem": "pypi",
+    "snapshot_id": "2026-10-17",
+    "benchmark_version": "2.0.0-rc1",
+    "raw_hash": "a365f76f068bf263820ba0edc81415869e761162325db0f44f27757a0a5fb381",
+    "eligible": false,
+    "gate_reason": "black_hole",
+    "rated": false,
+    "unrated_reason": null,
+    "rank": null,
+    "tie_group": null,
+    "porchlamp": null,
+    "coverage": 0.0,
+    "tier": null,
+    "tier_ceiling": null,
+    "quadrant": null,
+    "leverage": null,
+    "friction": null,
+    "leverage_coverage": 0.0,
+    "friction_coverage": 0.0,
+    "p_responsiveness": null,
+    "c_responsiveness": null,
+    "p_criticality": null,
+    "c_criticality": null,
+    "p_governance": null,
+    "c_governance": null,
+    "p_rigor": null,
+    "c_rigor": null,
+    "p_accessibility": null,
+    "c_accessibility": null,
+    "persona_gates": {
+      "ai_assisted": "black_hole",
+      "career_capital": "black_hole",
+      "first_timer": "black_hole",
+      "senior_systems": "black_hole"
+    },
+    "persona_composites": {},
+    "suspicion": [],
+    "stars_audited": null,
+    "black_hole_evidence": {
+      "unanswered": 26,
+      "population_n": 41,
+      "unanswered_share": 0.6341463414634146,
+      "wilson_lower_bound": 0.5057,
+      "threshold_share": 0.5,
+      "min_n": 10,
+      "window_start": "2026-04-20T05:35:00+00:00",
+      "window_end": "2026-10-17T05:35:00+00:00",
+      "fetched_at": "2026-10-14T19:24:36.131460+00:00",
+      "source": "raw/pr_window/3b1b__manim.json",
+      "source_sha256": "b51a103699fc3dab310fa46245f7e369058a6140dd645fe6bc9baf1b4224757b",
+      "excluded": {
+        "draft": 1,
+        "self_closed": 5,
+        "new_account": 1,
+        "bot": 0,
+        "internal": 20,
+        "under_14d": 2
+      },
+      "counted_prs": [
+        {
+          "number": 2537,
+          "created_at": "2026-09-29T06:52:02Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2535,
+          "created_at": "2026-09-23T14:25:43Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2532,
+          "created_at": "2026-09-12T15:05:22Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2531,
+          "created_at": "2026-09-12T06:08:19Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2530,
+          "created_at": "2026-09-11T08:18:37Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2529,
+          "created_at": "2026-09-09T17:15:35Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2525,
+          "created_at": "2026-09-08T05:54:48Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2524,
+          "created_at": "2026-09-03T09:39:43Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2523,
+          "created_at": "2026-09-03T09:02:02Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2522,
+          "created_at": "2026-09-02T00:25:10Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2520,
+          "created_at": "2026-08-31T17:28:07Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2518,
+          "created_at": "2026-08-24T18:06:31Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2517,
+          "created_at": "2026-08-24T18:03:42Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2516,
+          "created_at": "2026-08-23T23:59:14Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2514,
+          "created_at": "2026-08-18T15:16:42Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2513,
+          "created_at": "2026-08-18T14:18:26Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2512,
+          "created_at": "2026-08-17T21:40:45Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2510,
+          "created_at": "2026-08-16T17:17:37Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-17T20:15:32Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2509,
+          "created_at": "2026-08-16T17:13:40Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-17T20:14:55Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2507,
+          "created_at": "2026-08-14T21:03:52Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-14T21:30:30Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2504,
+          "created_at": "2026-08-14T06:07:02Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2503,
+          "created_at": "2026-08-14T03:08:57Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-17T20:12:10Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2502,
+          "created_at": "2026-08-13T18:19:28Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-17T20:11:34Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2501,
+          "created_at": "2026-08-13T15:04:25Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-17T20:10:05Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2500,
+          "created_at": "2026-08-13T14:42:50Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-17T20:06:37Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2499,
+          "created_at": "2026-08-12T16:34:54Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-17T20:03:26Z",
+          "response_kind": "review_or_comment"
+        },
+        {
+          "number": 2497,
+          "created_at": "2026-08-11T16:23:23Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-17T20:00:03Z",
+          "response_kind": "review_or_comment"
+        },
+        {
+          "number": 2496,
+          "created_at": "2026-08-11T16:02:52Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-17T19:59:03Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2491,
+          "created_at": "2026-08-10T16:39:25Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-10T21:35:04Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2490,
+          "created_at": "2026-08-10T16:39:12Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-10T20:32:54Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2485,
+          "created_at": "2026-08-05T09:51:18Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-10T20:30:10Z",
+          "response_kind": "review_or_comment"
+        },
+        {
+          "number": 2483,
+          "created_at": "2026-08-04T03:59:13Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-08-04T16:48:07Z",
+          "response_kind": "review_or_comment"
+        },
+        {
+          "number": 2478,
+          "created_at": "2026-07-19T12:14:04Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2475,
+          "created_at": "2026-07-09T04:22:35Z",
+          "answered_within_14d": true,
+          "first_response_at": "2026-07-17T14:01:48Z",
+          "response_kind": "merged"
+        },
+        {
+          "number": 2472,
+          "created_at": "2026-06-24T08:48:46Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2470,
+          "created_at": "2026-05-27T08:09:09Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2467,
+          "created_at": "2026-05-18T05:02:02Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2466,
+          "created_at": "2026-05-13T18:57:43Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2465,
+          "created_at": "2026-05-13T18:52:35Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2463,
+          "created_at": "2026-05-12T23:46:36Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        },
+        {
+          "number": 2460,
+          "created_at": "2026-04-23T01:26:58Z",
+          "answered_within_14d": false,
+          "first_response_at": null,
+          "response_kind": "none"
+        }
+      ],
+      "rule_inputs_measured": true
+    }
+  },
+  "evidence": [],
+  "recordFile": "data/2026-10-17/repos/40.json"
+}

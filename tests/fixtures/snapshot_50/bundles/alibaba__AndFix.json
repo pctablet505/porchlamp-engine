@@ -1,0 +1,243 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 1594,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/alibaba/AndFix/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "D-MISS-5: ecosystem == systems has no package registry (2.1 is undefined)",
+      "kind": "unmeasured",
+      "reason": "not_applicable"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T05:07:17.787470+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/alibaba__AndFix.json",
+      "source_hash": "87a3249907d27a731119803a6a80289ccdc7739be94243a35e52cf8f2c2d03cf",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T05:07:18.472113+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/alibaba__AndFix.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/alibaba/AndFix/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T05:07:21.033056+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "raw/commits_180d/alibaba__AndFix.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
+  "pr_window": {
+    "end": "2025-10-01T11:44:01+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "marciak121",
+        "closed_at": "2025-10-01T11:44:01+00:00",
+        "created_at": "2025-10-01T11:43:58+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 374
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Softtanck",
+        "closed_at": null,
+        "created_at": "2020-11-17T03:34:09+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 372
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "liu7yong",
+        "closed_at": null,
+        "created_at": "2017-10-18T13:56:12+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 354
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "cmzy",
+        "closed_at": "2016-12-26T03:11:43+00:00",
+        "created_at": "2016-12-22T10:21:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2016-12-26T03:11:43+00:00",
+        "pr_number": 310
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "drakeet",
+        "closed_at": "2016-08-30T08:50:01+00:00",
+        "created_at": "2016-04-27T08:32:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2016-08-30T08:50:01+00:00",
+        "pr_number": 183
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "stefanlis",
+        "closed_at": "2016-08-31T02:00:17+00:00",
+        "created_at": "2016-03-09T09:13:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 145
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "tbruceyu",
+        "closed_at": "2016-08-31T02:00:17+00:00",
+        "created_at": "2016-03-04T08:58:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 143
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "lirenlong",
+        "closed_at": "2015-11-24T10:03:22+00:00",
+        "created_at": "2015-11-18T06:08:14+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2015-11-24T10:03:22+00:00",
+        "pr_number": 86
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "oldratlee",
+        "closed_at": "2015-09-18T03:01:01+00:00",
+        "created_at": "2015-09-17T05:02:57+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 15
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "gitter-badger",
+        "closed_at": "2015-09-15T13:56:54+00:00",
+        "created_at": "2015-09-15T13:43:30+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8
+      }
+    ],
+    "start": "2015-09-15T13:43:30+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "8f392e138d10099094aa2dbd56af14d223a21e69e40399ea9106a118fd565d58",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "systems",
+    "fork": false,
+    "license_spdx": "NOASSERTION",
+    "mirror_url": null,
+    "name": "AndFix",
+    "owner": "alibaba"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
+}

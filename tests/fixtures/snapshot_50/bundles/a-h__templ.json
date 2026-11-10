@@ -1,0 +1,443 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 366,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/a-h/templ/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T02:03:30.127329+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/a-h__templ.json",
+      "source_hash": "bc7ecbd63e3267a105ae41fe2f968bbab194ffde4657e4e3ba86d014ee7ff94d",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T02:03:30.829152+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/a-h__templ.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/a-h/templ/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T02:03:34.625869+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "raw/commits_180d/a-h__templ.json",
+    "source_hash": "712005e3c381c8abba483e95c9a56a0a269e07f24f008e5c737f2d9685febbdc",
+    "value": "2026-07-15T13:04:23Z"
+  },
+  "pr_window": {
+    "end": "2026-09-04T18:33:52+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-09-04T18:33:52+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1445
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-08-28T18:34:18+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1444
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-28T18:34:22+00:00",
+        "created_at": "2026-08-07T18:34:14+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1441
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "axadrn",
+        "closed_at": null,
+        "created_at": "2026-08-06T09:39:56+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1440
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-07T18:34:17+00:00",
+        "created_at": "2026-07-24T18:34:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1437
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-07-24T18:33:50+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1436
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Napam",
+        "closed_at": null,
+        "created_at": "2026-07-24T13:20:25+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1434
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-07-17T18:34:12+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1433
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-24T18:34:03+00:00",
+        "created_at": "2026-07-17T18:34:07+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1432
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-07-17T18:34:04+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1431
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vkcku",
+        "closed_at": "2026-07-15T12:35:07+00:00",
+        "created_at": "2026-07-15T03:24:19+00:00",
+        "first_human_review_at": "2026-07-15T12:34:32+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-15T12:35:07+00:00",
+        "pr_number": 1430
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-15T13:06:26+00:00",
+        "created_at": "2026-07-10T18:33:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-07-15T13:06:26+00:00",
+        "pr_number": 1429
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-06T15:12:24+00:00",
+        "created_at": "2026-07-03T18:33:38+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-07-06T15:12:24+00:00",
+        "pr_number": 1427
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-06T15:10:55+00:00",
+        "created_at": "2026-07-03T18:33:32+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-07-06T15:10:55+00:00",
+        "pr_number": 1426
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "a-h",
+        "closed_at": "2026-07-02T09:10:22+00:00",
+        "created_at": "2026-07-02T09:10:15+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-07-02T09:10:22+00:00",
+        "pr_number": 1425
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "AdamVig",
+        "closed_at": "2026-07-04T18:26:39+00:00",
+        "created_at": "2026-07-02T00:29:29+00:00",
+        "first_human_review_at": "2026-07-04T18:26:33+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-04T18:26:39+00:00",
+        "pr_number": 1424
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-01T22:39:50+00:00",
+        "created_at": "2026-06-26T18:33:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-07-01T22:39:50+00:00",
+        "pr_number": 1423
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-01T22:49:10+00:00",
+        "created_at": "2026-06-26T18:33:38+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-07-01T22:49:10+00:00",
+        "pr_number": 1422
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-01T22:39:44+00:00",
+        "created_at": "2026-06-19T18:33:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-07-01T22:39:44+00:00",
+        "pr_number": 1418
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-01T22:48:33+00:00",
+        "created_at": "2026-06-19T18:33:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-07-01T22:48:33+00:00",
+        "pr_number": 1417
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "bgurmendi",
+        "closed_at": null,
+        "created_at": "2026-06-18T12:37:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1416
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "akfaew",
+        "closed_at": null,
+        "created_at": "2026-06-15T04:30:22+00:00",
+        "first_human_review_at": "2026-06-15T04:31:58+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1412
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-26T18:33:50+00:00",
+        "created_at": "2026-06-12T18:34:17+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1410
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "whalenrp",
+        "closed_at": null,
+        "created_at": "2026-06-12T04:50:13+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1409
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "whalenrp",
+        "closed_at": "2026-07-01T22:37:43+00:00",
+        "created_at": "2026-06-06T04:27:09+00:00",
+        "first_human_review_at": "2026-07-01T22:37:19+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-01T22:37:43+00:00",
+        "pr_number": 1407
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-19T18:33:37+00:00",
+        "created_at": "2026-06-05T18:33:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1405
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-12T18:34:20+00:00",
+        "created_at": "2026-05-29T21:41:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1403
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "whalenrp",
+        "closed_at": null,
+        "created_at": "2026-05-29T20:44:56+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1402
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "c-tonneslan",
+        "closed_at": null,
+        "created_at": "2026-05-25T16:34:09+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1401
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "akfaew",
+        "closed_at": null,
+        "created_at": "2026-05-25T09:23:51+00:00",
+        "first_human_review_at": "2026-05-25T09:24:31+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1400
+      }
+    ],
+    "start": "2026-05-25T09:23:51+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "8b70480bf3ad891b2075ee1c587aae8da00a565c703febdd49231521a82c2670",
+  "repo": {
+    "archived": false,
+    "default_branch": "main",
+    "ecosystem": "go",
+    "fork": false,
+    "license_spdx": "MIT",
+    "mirror_url": null,
+    "name": "templ",
+    "owner": "a-h"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "44 non-bot commits but none carry an author_email porchlamp.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
+}

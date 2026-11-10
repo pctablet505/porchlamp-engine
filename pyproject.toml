@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "porchlamp"
+version = "0.1.0"
+description = "Porchlamp ranking engine"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+# W4-1 packaging fix: `porchlamp.serve.app`/`porchlamp.serve.contract` import
+# fastapi + pydantic directly, and `porchlamp.collect.ratelimit` (moved from
+# porchlamp/ingest.py, which had the same gap before it) imports httpx -- none
+# of the three were declared here, so `pip install .[server]` could not
+# actually import porchlamp.serve.app (ModuleNotFoundError: fastapi), confirmed
+# by the non-editable install check this packet's inventory asked for.
+server = ["fastapi>=0.141", "httpx>=0.28", "pydantic>=2.0", "uvicorn>=0.50"]
+# `python -m porchlamp.searchops`: a Search Console service account signs an RS256 JWT, which needs
+# an RSA library; google-auth (with cryptography) signs it. Imported only by the gsc commands.
+searchops = ["google-auth>=2.62.0", "httpx>=0.28"]
+dev = ["fastapi>=0.141", "httpx>=0.28", "pytest>=9", "pytest-xdist>=3.8", "pyyaml>=6.0.3", "uvicorn>=0.52.4"]
+
+[tool.setuptools]
+packages = ["porchlamp", "porchlamp.audit", "porchlamp.collect", "porchlamp.core", "porchlamp.core.params", "porchlamp.derive", "porchlamp.pillars", "porchlamp.searchops", "porchlamp.serve", "porchlamp.snapshot", "porchlamp.store", "porchlamp.store.migrations", "porchlamp.verify"]
+
+[tool.setuptools.package-data]
+"porchlamp.store.migrations" = ["*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Real bug-catchers only. UP045/UP037/UP035 (Optional -> X | None, etc.) are
+# disabled: the whole codebase uses Optional[...] consistently (house style).
+select = ["E", "F", "B", "SIM", "C4", "RUF"]
+ignore = [
+    "UP045", "UP037", "UP035",  # keep Optional[...] house style
+    "E501",                     # line length handled by formatter, not lint
+    "B008",                     # FastAPI Depends()/Query() in defaults is idiomatic
+    "RUF022",                   # __all__ ordering not enforced
+    "C408",                     # dict(...) kwargs style used across tests
+    "RUF059",                   # unused unpack targets in tuple swaps (test style)
+    "B905", "RUF007",           # zip without strict / pairwise preference
+    "RUF043",                   # pytest.raises match= patterns with literal metachars
+    "RUF012", "RUF005", "SIM401", "SIM910", "SIM300", "C420",  # cosmetic test style
+    "RUF001",                   # intentional typographic en-dash / minus sign in prose copy
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E402"]  # sys.path bootstrap before porchlamp import

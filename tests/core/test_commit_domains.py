@@ -1,0 +1,344 @@
+"""Covers ``porchlamp.core.commit_domains`` -- the commit-actor typing/bot/org-key
+primitives reachable from ``porchlamp.derive.bundle``/``porchlamp.core.pipeline`` -- plus
+the two pure facts D-TIE-1 item 7 and the ``ef_domain_mismatch`` detector
+need: :func:`last_non_bot_commit_date` and :func:`top_domain_share`. Also
+covers the ``last_non_bot_commit_at`` bundle-level sidecar accessor/setter
+pair that lives here (not in ``porchlamp.derive.bundle``) because
+``porchlamp.core.pipeline`` needs to read it back and may import only ``porchlamp.core``
+plus stdlib.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from porchlamp.core.commit_domains import (
+    CommitActor,
+    CommitRecord,
+    LastNonBotCommitMeasured,
+    TopDomainShare,
+    is_bot,
+    last_non_bot_commit_at,
+    last_non_bot_commit_date,
+    org_key,
+    set_last_non_bot_commit_at,
+    top_domain_share,
+)
+from porchlamp.core.models import FeatureBundle, PRWindow, RepoIdentity, Unmeasured
+
+
+def _actor(login: str = "alice", email: str = "alice@corp.com", actor_type: str = "User") -> CommitActor:
+    return CommitActor(login=login, email=email, actor_type=actor_type)
+
+
+def _record(login: str = "alice", email: str = "alice@corp.com", actor_type: str = "User",
+            date: "datetime | None" = None) -> CommitRecord:
+    return CommitRecord(actor=_actor(login, email, actor_type), date=date)
+
+
+# --------------------------------------------------------------------------- #
+# last_non_bot_commit_date (records-level, pure)                            #
+# --------------------------------------------------------------------------- #
+
+def test_last_non_bot_commit_date_is_the_max_non_bot_dated_commit() -> None:
+    records = [
+        _record("alice", date=datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        _record("bob", date=datetime(2026, 6, 1, tzinfo=timezone.utc)),
+        _record("carol", date=datetime(2026, 3, 1, tzinfo=timezone.utc)),
+    ]
+    assert last_non_bot_commit_date(records) == datetime(2026, 6, 1, tzinfo=timezone.utc)
+
+
+def test_last_non_bot_commit_date_excludes_bot_commits() -> None:
+    """The most recent commit is a bot's; the answer must be the most recent
+    *human* one, not the bot's later date (bots counted -> max->min-date-style
+    mutant target)."""
+    records = [
+        _record("alice", date=datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        _record("dependabot[bot]", actor_type="Bot", date=datetime(2026, 9, 1, tzinfo=timezone.utc)),
+    ]
+    assert last_non_bot_commit_date(records) == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_last_non_bot_commit_date_bot_by_known_login_exact_match() -> None:
+    records = [_record("dependabot", actor_type="", date=datetime(2026, 9, 1, tzinfo=timezone.utc))]
+    assert last_non_bot_commit_date(records) is None
+
+
+def test_last_non_bot_commit_date_no_login_non_noreply_email_counts_as_human() -> None:
+    """A commit with no linked GitHub account (``login == ""``) but a real,
+    non-noreply email is not a bot by any of D-IN-1's three conditions --
+    it counts as human under the documented bot rule."""
+    records = [_record(login="", email="ghost@example.com", actor_type="",
+                        date=datetime(2026, 5, 1, tzinfo=timezone.utc))]
+    assert last_non_bot_commit_date(records) == datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+
+def test_last_non_bot_commit_date_none_when_no_non_bot_commit() -> None:
+    assert last_non_bot_commit_date([]) is None
+    records = [_record("dependabot[bot]", actor_type="Bot", date=datetime(2026, 1, 1, tzinfo=timezone.utc))]
+    assert last_non_bot_commit_date(records) is None
+
+
+def test_last_non_bot_commit_date_none_when_non_bot_commits_are_undated() -> None:
+    records = [_record("alice", date=None)]
+    assert last_non_bot_commit_date(records) is None
+
+
+def test_last_non_bot_commit_date_mixed_timezones_same_instant() -> None:
+    """An offset-bearing date and a UTC (``Z``-equivalent) date for the same
+    instant must compare equal and pick either interchangeably -- the two
+    ``CommitRecord`` lists below differ only in which record carries the
+    later-looking but equal instant, and both must return that instant."""
+    same_instant_ist = datetime(2026, 6, 1, 5, 30, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    same_instant_utc = datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc)
+    assert same_instant_ist == same_instant_utc  # sanity: truly the same instant
+
+    earlier = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    result_a = last_non_bot_commit_date([_record("alice", date=earlier), _record("bob", date=same_instant_ist)])
+    result_b = last_non_bot_commit_date([_record("alice", date=earlier), _record("bob", date=same_instant_utc)])
+    assert result_a == result_b == same_instant_utc
+
+
+# --------------------------------------------------------------------------- #
+# top_domain_share (records-level, pure)                                    #
+# --------------------------------------------------------------------------- #
+
+def test_top_domain_share_corporate_domain_grouped() -> None:
+    records = [
+        _record("alice", "alice@corp.com"),
+        _record("bob", "bob@corp.com"),
+        _record("carol", "carol@other.com"),
+    ]
+    result = top_domain_share(records)
+    assert result == TopDomainShare(share=2 / 3, n=3, top_domain="corp.com")
+
+
+def test_top_domain_share_groups_noreply_addresses_under_their_domain() -> None:
+    """Three GitHub no-reply authors share one email domain: the detector
+    reads the raw domain (03 section 6, "top email domain share"), so they
+    are one bucket here even though 3.2's :func:`org_key` counts each of them
+    as their own org. Grouped by ``org_key`` (the defect this pins against)
+    the answer was three buckets of 1/3 and ``ef_domain_mismatch`` could not
+    fire."""
+    records = [
+        _record("alice", "1+alice@users.noreply.github.com"),
+        _record("bob", "2+bob@users.noreply.github.com"),
+        _record("carol", "3+carol@users.noreply.github.com"),
+    ]
+    result = top_domain_share(records)
+    assert result == TopDomainShare(share=1.0, n=3, top_domain="users.noreply.github.com")
+    assert {org_key(r.actor) for r in records} == {"alice", "bob", "carol"}  # EF's buckets stay per author
+
+
+def test_top_domain_share_groups_personal_provider_addresses_under_their_domain() -> None:
+    records = [_record("alice", "alice@gmail.com"), _record("bob", "bob@gmail.com"),
+               _record("carol", "carol@corp.com")]
+    result = top_domain_share(records)
+    assert result == TopDomainShare(share=2 / 3, n=3, top_domain="gmail.com")
+
+
+def test_top_domain_share_folds_domain_case() -> None:
+    records = [_record("alice", "1+alice@USERS.NOREPLY.GITHUB.COM"),
+               _record("bob", "2+bob@users.noreply.github.com")]
+    assert top_domain_share(records) == TopDomainShare(share=1.0, n=2, top_domain="users.noreply.github.com")
+
+
+def test_top_domain_share_can_reach_half_while_the_elephant_factor_is_at_least_four() -> None:
+    """The ``ef_domain_mismatch`` condition (share >= 0.5 while EF >= 4) is
+    reachable: eight authors on one personal provider plus two corporate
+    domains. EF counts the eight as eight one-person orgs (EF 5 at the 50%
+    line); the top email domain holds 0.8 of the commits."""
+    from porchlamp.collect.commits import elephant_factor
+
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    records = [_record(f"dev{i}", f"dev{i}@gmail.com", date=when) for i in range(8)]
+    records += [_record("x", "x@one.com", date=when), _record("y", "y@two.com", date=when)]
+    assert elephant_factor(records, now) == 5
+    assert top_domain_share(records) == TopDomainShare(share=0.8, n=10, top_domain="gmail.com")
+
+
+def test_top_domain_share_excludes_bot_commits_from_numerator_and_denominator() -> None:
+    """Bots counted mutant target: if bot commits were folded into ``n`` or
+    a domain's count, a bot-dominated repo would misreport ``n``/``share``."""
+    records = [
+        _record("alice", "alice@corp.com"),
+        _record("dependabot[bot]", "bot@corp.com", actor_type="Bot"),
+        _record("dependabot[bot]", "bot@corp.com", actor_type="Bot"),
+    ]
+    result = top_domain_share(records)
+    assert result == TopDomainShare(share=1.0, n=1, top_domain="corp.com")
+
+
+def test_top_domain_share_computed_over_non_bot_only_not_all_commits() -> None:
+    """"share computed over all commits instead of non-bot" mutant target:
+    a repo with 1 human commit and 99 bot commits must report share=1.0 /
+    n=1, never share=1/100."""
+    records = [_record("alice", "alice@corp.com")] + [
+        _record("dependabot[bot]", "bot@corp.com", actor_type="Bot") for _ in range(99)
+    ]
+    result = top_domain_share(records)
+    assert result.n == 1
+    assert result.share == 1.0
+
+
+def test_top_domain_share_tie_breaks_alphabetically_first() -> None:
+    """Pinned rule: a tie for the top domain resolves to the
+    alphabetically-first org key -- the same tie rule
+    ``porchlamp.collect.commits.elephant_factor`` already uses."""
+    records = [
+        _record("alice", "alice@zzz.com"),
+        _record("bob", "bob@aaa.com"),
+    ]
+    result = top_domain_share(records)
+    assert result.top_domain == "aaa.com"
+    assert result.share == pytest.approx(0.5)
+
+
+def test_top_domain_share_no_records_is_zero_share_zero_n() -> None:
+    assert top_domain_share([]) == TopDomainShare(share=0.0, n=0, top_domain="")
+
+
+def test_top_domain_share_no_attributable_org_despite_commits() -> None:
+    """Every non-bot commit lacks a resolvable email (``org_key`` returns
+    ``None`` for all of them): ``n`` is still the non-bot count, but
+    ``top_domain`` is "" and ``share`` is 0.0 -- distinct from the
+    ``n == 0`` case (``porchlamp.derive.bundle`` maps the two to different
+    ``Unmeasured`` reasons)."""
+    records = [_record(login="alice", email="", actor_type="User")]
+    result = top_domain_share(records)
+    assert result == TopDomainShare(share=0.0, n=1, top_domain="")
+
+
+# --------------------------------------------------------------------------- #
+# is_bot / org_key sanity (also covered via porchlamp.collect.commits, restated   #
+# here once as an anti-vacuity check)                                       #
+# --------------------------------------------------------------------------- #
+
+def test_is_bot_and_org_key_still_behave_after_relocation() -> None:
+    assert is_bot(_actor("dependabot[bot]", actor_type="")) is True
+    assert is_bot(_actor("alice", actor_type="User")) is False
+    assert org_key(_actor("alice", "alice@corp.com")) == "corp.com"
+    assert org_key(_actor("alice", "")) is None
+
+
+def test_org_key_folds_email_case_for_corporate_personal_and_noreply_domains() -> None:
+    """Pins the ``.lower()`` case fold ``org_key`` applies to the recorded
+    email before matching ``NOREPLY_DOMAIN``/``PERSONAL_DOMAINS`` (both
+    stored lowercase). Without it, an upper-case domain never matches
+    either table and falls through to the generic "return the literal
+    domain" branch: 40 distinct authors on
+    ``...@USERS.NOREPLY.GITHUB.COM`` would collapse into one org named
+    ``"USERS.NOREPLY.GITHUB.COM"`` instead of staying 40 distinct
+    individuals, moving the elephant factor from 20 to 1 on a repo with no
+    dominant contributor at
+    all."""
+    # Corporate: the returned domain itself must be lower-cased, not the
+    # verbatim recorded case.
+    assert org_key(_actor("Alice", "Alice@CORP.COM")) == "corp.com"
+    # Personal: an upper-case gmail.com must still match PERSONAL_DOMAINS
+    # (stored lowercase) and resolve to the login, not fall through to the
+    # literal upper-case domain string.
+    assert org_key(_actor("Bob", "Bob@GMAIL.COM")) == "Bob"
+    # Noreply: an upper-case users.noreply.github.com must still match
+    # NOREPLY_DOMAIN and resolve to the login, never the literal domain.
+    assert org_key(_actor("Carol", "1+Carol@USERS.NOREPLY.GITHUB.COM")) == "Carol"
+
+
+# --------------------------------------------------------------------------- #
+# last_non_bot_commit_at bundle-level sidecar (accessor/setter)             #
+# --------------------------------------------------------------------------- #
+
+def _bundle() -> FeatureBundle:
+    repo = RepoIdentity(
+        owner="acme", name="widget", ecosystem="pypi", archived=False,
+        mirror_url=None, fork=False, license_spdx=None, default_branch=None,
+    )
+    from porchlamp.core.models import Cohorts
+    return FeatureBundle(
+        schema_version=2, repo=repo, inputs={}, pr_window=PRWindow(None, None, False, ()),
+        cohorts=Cohorts((), ()), provenance_hash="0" * 64,
+    )
+
+
+def test_last_non_bot_commit_at_default_is_unmeasured_collector_failure() -> None:
+    bundle = _bundle()
+    fact = last_non_bot_commit_at(bundle)
+    assert isinstance(fact, Unmeasured)
+    assert fact.reason == "collector_failure"
+
+
+def test_set_and_read_last_non_bot_commit_at() -> None:
+    bundle = _bundle()
+    fact = LastNonBotCommitMeasured(
+        value="2026-06-01T00:00:00Z", method="measured:commits_365d",
+        source="raw/commits_365d/acme__widget.json", source_hash="a" * 64, fetched_at="2026-09-01T00:00:00Z",
+    )
+    set_last_non_bot_commit_at(bundle, fact)
+    assert last_non_bot_commit_at(bundle) is fact
+
+
+def test_last_non_bot_commit_measured_absence_value_is_none_not_unmeasured() -> None:
+    """D-MISS-1 F2 ruling: a measured absence is ``LastNonBotCommitMeasured
+    (value=None, ...)``, never ``Unmeasured`` -- pinning the distinction
+    ("absence and failure swapped" mutant target)."""
+    fact = LastNonBotCommitMeasured(
+        value=None, method="measured:no_non_bot_commit_365d",
+        source="raw/commits_365d/acme__widget.json", source_hash="a" * 64, fetched_at="2026-09-01T00:00:00Z",
+    )
+    assert isinstance(fact, LastNonBotCommitMeasured)
+    assert fact.value is None
+    assert fact.method == "measured:no_non_bot_commit_365d"
+
+
+# --------------------------------------------------------------------------- #
+# commit_window (RFC-0021: whole, sampled, and cut commits_365d records)      #
+# --------------------------------------------------------------------------- #
+
+def test_commit_window_bare_list_whole_below_legacy_cap_and_cut_at_it() -> None:
+    from porchlamp.core import constants
+    from porchlamp.core.commit_domains import CommitWindow, commit_window
+
+    assert commit_window(None) is None
+    assert commit_window({"not": "rows"}) is None
+
+    below = [{"sha": f"s{i}"} for i in range(constants.LEGACY_COMMIT_CAP - 1)]
+    assert commit_window(below) == CommitWindow(
+        rows=below, total=constants.LEGACY_COMMIT_CAP - 1, sampled=False, cut=False,
+    )
+
+    at_cap = [{"sha": f"s{i}"} for i in range(constants.LEGACY_COMMIT_CAP)]
+    assert commit_window(at_cap) == CommitWindow(
+        rows=at_cap, total=None, sampled=False, cut=True,
+    )
+
+    above_cap = [{"sha": f"s{i}"} for i in range(constants.LEGACY_COMMIT_CAP + 5)]
+    assert commit_window(above_cap) == CommitWindow(
+        rows=above_cap, total=None, sampled=False, cut=True,
+    )
+
+
+def test_commit_window_dict_whole_sampled_and_cut() -> None:
+    from porchlamp.core.commit_domains import CommitWindow, commit_window
+
+    rows = [{"sha": f"s{i}"} for i in range(10)]
+    # Whole window dict: total is len(rows), even if the pre-paging count was 9.
+    assert commit_window({"rows": rows, "truncated": False, "sampled": False, "total": 9}) == CommitWindow(
+        rows=rows, total=10, sampled=False, cut=False,
+    )
+    # Truncated (and not sampled) -> cut.
+    assert commit_window({"rows": rows, "truncated": True, "total": 10}) == CommitWindow(
+        rows=rows, total=None, sampled=False, cut=True,
+    )
+    # Sampled with valid total >= len(rows) -> sampled=True, cut=False.
+    assert commit_window({"rows": rows, "sampled": True, "total": 12345, "truncated": False}) == CommitWindow(
+        rows=rows, total=12345, sampled=True, cut=False,
+    )
+    # Sampled without a valid integer total >= len(rows) -> cut=True, sampled=False.
+    for bad_total in (None, 9, True, "12345"):
+        assert commit_window({"rows": rows, "sampled": True, "total": bad_total}) == CommitWindow(
+            rows=rows, total=None, sampled=False, cut=True,
+        )
+

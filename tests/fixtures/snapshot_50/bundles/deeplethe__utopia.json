@@ -1,0 +1,443 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 603,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/deeplethe/utopia/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T05:13:01.865366+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/deeplethe__utopia.json",
+      "source_hash": "04f39cfb2602025d91bf9eb5e1e2ef8483dbd2f07d1474d3c8a0879eee80451f",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T05:13:02.492050+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/deeplethe__utopia.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/deeplethe/utopia/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T05:13:08.025458+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "raw/commits_180d/deeplethe__utopia.json",
+    "source_hash": "a6762e159017f672b9e1a3af6fe66d1bd0a2953db9226bf755e4381bec40771d",
+    "value": "2026-09-11T06:00:13Z"
+  },
+  "pr_window": {
+    "end": "2026-09-11T18:37:23+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": null,
+        "created_at": "2026-09-11T18:37:23+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 615
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "plpycoin",
+        "closed_at": null,
+        "created_at": "2026-09-11T07:58:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 611
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": null,
+        "created_at": "2026-09-11T05:34:29+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 609
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": null,
+        "created_at": "2026-09-11T04:29:58+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 608
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": null,
+        "created_at": "2026-09-11T04:05:54+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 607
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-11T06:00:14+00:00",
+        "created_at": "2026-09-11T03:49:41+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-11T06:00:14+00:00",
+        "pr_number": 606
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-11T05:56:07+00:00",
+        "created_at": "2026-09-11T02:05:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-11T05:56:07+00:00",
+        "pr_number": 605
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Floating-Y",
+        "closed_at": null,
+        "created_at": "2026-09-11T01:57:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 604
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T23:47:28+00:00",
+        "created_at": "2026-09-10T23:24:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T23:47:28+00:00",
+        "pr_number": 602
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Floating-Y",
+        "closed_at": "2026-09-11T00:00:40+00:00",
+        "created_at": "2026-09-10T16:44:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-11T00:00:40+00:00",
+        "pr_number": 601
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T23:43:51+00:00",
+        "created_at": "2026-09-10T16:37:01+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T23:43:51+00:00",
+        "pr_number": 600
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-11T00:30:04+00:00",
+        "created_at": "2026-09-10T16:11:04+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-11T00:30:04+00:00",
+        "pr_number": 599
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T12:41:53+00:00",
+        "created_at": "2026-09-10T12:25:01+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T12:41:53+00:00",
+        "pr_number": 598
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T12:38:33+00:00",
+        "created_at": "2026-09-10T11:27:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T12:38:33+00:00",
+        "pr_number": 597
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T23:50:19+00:00",
+        "created_at": "2026-09-10T11:27:18+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T23:50:19+00:00",
+        "pr_number": 596
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": null,
+        "created_at": "2026-09-10T11:18:56+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 594
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T11:07:36+00:00",
+        "created_at": "2026-09-10T10:47:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T11:07:36+00:00",
+        "pr_number": 593
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "lml2468",
+        "closed_at": "2026-09-10T11:58:09+00:00",
+        "created_at": "2026-09-10T09:39:05+00:00",
+        "first_human_review_at": "2026-09-10T11:57:52+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-10T11:58:09+00:00",
+        "pr_number": 591
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "lml2468",
+        "closed_at": "2026-09-10T11:17:15+00:00",
+        "created_at": "2026-09-10T09:37:52+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 590
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T09:45:29+00:00",
+        "created_at": "2026-09-10T07:28:54+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T09:45:29+00:00",
+        "pr_number": 587
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T07:16:47+00:00",
+        "created_at": "2026-09-10T06:23:52+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T07:16:47+00:00",
+        "pr_number": 586
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T06:07:24+00:00",
+        "created_at": "2026-09-10T06:01:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T06:07:24+00:00",
+        "pr_number": 585
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T04:09:11+00:00",
+        "created_at": "2026-09-10T04:02:55+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T04:09:11+00:00",
+        "pr_number": 584
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T07:47:49+00:00",
+        "created_at": "2026-09-10T03:55:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T07:47:49+00:00",
+        "pr_number": 583
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-10T00:49:00+00:00",
+        "created_at": "2026-09-09T23:41:21+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-10T00:49:00+00:00",
+        "pr_number": 579
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-09T23:10:11+00:00",
+        "created_at": "2026-09-09T22:22:39+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-09T23:10:11+00:00",
+        "pr_number": 577
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-09T23:07:06+00:00",
+        "created_at": "2026-09-09T22:11:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-09T23:07:06+00:00",
+        "pr_number": 576
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-09T23:43:43+00:00",
+        "created_at": "2026-09-09T21:51:52+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-09T23:43:43+00:00",
+        "pr_number": 575
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "lml2468",
+        "closed_at": "2026-09-09T21:52:13+00:00",
+        "created_at": "2026-09-09T16:28:09+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-09T21:52:13+00:00",
+        "pr_number": 572
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WaylandYang",
+        "closed_at": "2026-09-09T23:37:26+00:00",
+        "created_at": "2026-09-09T16:27:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-09T23:37:26+00:00",
+        "pr_number": 571
+      }
+    ],
+    "start": "2026-09-09T16:27:27+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "f114d59f0104dac8dc6567a3e2eb344b30dd153ed486fd47deaa2f1bf92eac84",
+  "repo": {
+    "archived": false,
+    "default_branch": "dev",
+    "ecosystem": "crates",
+    "fork": false,
+    "license_spdx": "Apache-2.0",
+    "mirror_url": null,
+    "name": "utopia",
+    "owner": "deeplethe"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "300 non-bot commits but none carry an author_email porchlamp.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
+}

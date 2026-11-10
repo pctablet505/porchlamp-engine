@@ -1,0 +1,443 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 1413,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cymcsg/UltimateRecyclerView/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "root pom.xml contents not collected (tree envelope carries paths only; a later fetch must add one raw-content call per maven repo)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T04:57:32.203311+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/cymcsg__UltimateRecyclerView.json",
+      "source_hash": "81b622f88e2829045ccc235cf66a85fd78e5982615650afc77babe2534d34c69",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T04:57:32.917686+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/cymcsg__UltimateRecyclerView.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cymcsg/UltimateRecyclerView/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T04:57:34.976376+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "raw/commits_180d/cymcsg__UltimateRecyclerView.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
+  "pr_window": {
+    "end": "2019-06-29T19:14:40+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "vanshg",
+        "closed_at": "2019-06-29T19:14:40+00:00",
+        "created_at": "2019-06-28T22:53:40+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-06-29T19:14:40+00:00",
+        "pr_number": 498
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vanshg",
+        "closed_at": "2019-06-28T22:52:28+00:00",
+        "created_at": "2019-06-27T07:26:55+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 497
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Yellu",
+        "closed_at": "2018-03-12T10:16:19+00:00",
+        "created_at": "2018-03-12T07:39:24+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2018-03-12T10:16:19+00:00",
+        "pr_number": 488
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Yellu",
+        "closed_at": "2018-03-01T15:29:27+00:00",
+        "created_at": "2018-03-01T14:32:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2018-03-01T15:29:27+00:00",
+        "pr_number": 486
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Yellu",
+        "closed_at": "2018-02-27T07:59:35+00:00",
+        "created_at": "2018-02-27T07:07:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2018-02-27T07:59:35+00:00",
+        "pr_number": 485
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": null,
+        "created_at": "2016-09-19T17:29:24+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 425
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-09-19T17:28:49+00:00",
+        "created_at": "2016-09-19T17:21:41+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 424
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "cymcsg",
+        "closed_at": "2016-08-05T08:12:30+00:00",
+        "created_at": "2016-08-05T08:11:24+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-08-05T08:12:30+00:00",
+        "pr_number": 409
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "snakeice",
+        "closed_at": "2016-08-03T02:10:00+00:00",
+        "created_at": "2016-08-02T13:25:53+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2016-08-03T02:10:00+00:00",
+        "pr_number": 405
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "snakeice",
+        "closed_at": "2016-08-02T13:26:17+00:00",
+        "created_at": "2016-07-20T20:17:21+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 401
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "snakeice",
+        "closed_at": "2016-07-20T20:07:55+00:00",
+        "created_at": "2016-07-20T19:56:47+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 400
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-07-02T16:39:17+00:00",
+        "created_at": "2016-07-02T16:38:34+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-07-02T16:39:17+00:00",
+        "pr_number": 393
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mapyo",
+        "closed_at": "2016-05-31T01:53:49+00:00",
+        "created_at": "2016-05-31T00:59:13+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2016-05-31T01:53:49+00:00",
+        "pr_number": 385
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mapyo",
+        "closed_at": "2016-05-31T00:54:45+00:00",
+        "created_at": "2016-05-30T14:52:57+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 384
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-05-23T07:07:38+00:00",
+        "created_at": "2016-05-23T07:07:34+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-05-23T07:07:38+00:00",
+        "pr_number": 379
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-05-23T07:07:21+00:00",
+        "created_at": "2016-05-23T07:07:16+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-05-23T07:07:21+00:00",
+        "pr_number": 378
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-05-23T06:18:39+00:00",
+        "created_at": "2016-05-23T06:18:33+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-05-23T06:18:39+00:00",
+        "pr_number": 377
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-05-23T06:16:22+00:00",
+        "created_at": "2016-05-23T06:16:17+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-05-23T06:16:22+00:00",
+        "pr_number": 376
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-05-12T02:20:08+00:00",
+        "created_at": "2016-05-12T02:20:00+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-05-12T02:20:08+00:00",
+        "pr_number": 373
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-28T02:32:02+00:00",
+        "created_at": "2016-04-28T02:31:59+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-28T02:32:02+00:00",
+        "pr_number": 370
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-28T02:26:24+00:00",
+        "created_at": "2016-04-28T02:26:20+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-28T02:26:23+00:00",
+        "pr_number": 369
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-27T16:55:41+00:00",
+        "created_at": "2016-04-27T16:55:33+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-27T16:55:41+00:00",
+        "pr_number": 368
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-27T16:54:38+00:00",
+        "created_at": "2016-04-27T16:54:21+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-27T16:54:38+00:00",
+        "pr_number": 367
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-15T04:05:43+00:00",
+        "created_at": "2016-04-15T04:05:38+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-15T04:05:43+00:00",
+        "pr_number": 366
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-10T03:46:42+00:00",
+        "created_at": "2016-04-10T03:46:31+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-10T03:46:42+00:00",
+        "pr_number": 364
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-05T09:58:45+00:00",
+        "created_at": "2016-04-05T09:48:11+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-05T09:58:45+00:00",
+        "pr_number": 361
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-05T09:46:58+00:00",
+        "created_at": "2016-04-05T09:46:41+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 360
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-05T03:14:32+00:00",
+        "created_at": "2016-04-05T02:28:57+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-05T03:14:32+00:00",
+        "pr_number": 358
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-05T02:28:19+00:00",
+        "created_at": "2016-04-05T02:28:15+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-05T02:28:19+00:00",
+        "pr_number": 357
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "jjhesk",
+        "closed_at": "2016-04-04T05:30:21+00:00",
+        "created_at": "2016-04-04T05:30:17+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2016-04-04T05:30:21+00:00",
+        "pr_number": 356
+      }
+    ],
+    "start": "2016-04-04T05:30:17+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "6dff0a743f8281c6e6eca40e1330a95505f60cfc639adb944b4d985126e1b050",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "maven",
+    "fork": false,
+    "license_spdx": "Apache-2.0",
+    "mirror_url": null,
+    "name": "UltimateRecyclerView",
+    "owner": "cymcsg"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
+}

@@ -1,0 +1,436 @@
+# Ranking design v2 — the process, the parameters, their order, weights and tie-breakers
+
+Decision ids (`D-*`) are stable; packets cite them. Rationale follows each
+decision. Numbers in this document are decisions, not estimates, unless marked
+"to be measured".
+
+## 0. What the score means and the ordering principle
+
+**D-DEF-1.** Porchlamp estimates the expected value of one hour a contributor invests
+in a repository, decomposed as
+
+```
+value ≈ P(decision) · P(merge | decision) · Impact(merge) · RightsRetained · Growth − OnboardingCost
+```
+
+Responsiveness measures `P(decision)` and its latency; the merge-rate family
+measures `P(merge | decision)`; criticality measures `Impact`; governance
+measures `RightsRetained` and `Growth`; accessibility measures `OnboardingCost`.
+
+**D-DEF-2 (ordering principle).** Factors that multiply the value toward zero
+are evaluated *before* and *above* factors that add to it. That is why
+`P(decision)` is a non-compensatory gate (a repo that never answers has zero
+value regardless of impact) and why responsiveness keeps the largest weight
+among the friction terms. Within a pillar, parameters are ordered by how close
+they sit to an outcome the contributor experiences (a decision, a merge, a
+release) versus a declaration the maintainer can make for free (a label, a
+sentence in CONTRIBUTING.md). Outcome-anchored parameters get the larger weight.
+
+## 1. Stage order
+
+**D-ORDER-1.** Fixed sequence per snapshot:
+
+| Stage | Name | Output |
+|---|---|---|
+| 0 | Identity & eligibility gates (persona-independent) | `eligible`, `gate_reason`, `routed` |
+| 1 | Input hygiene | bot-typed actors, eligible authors, windowed samples |
+| 2 | Measurement | per parameter: `Measured(value, n, window, method, source)` or `Unmeasured(reason)` |
+| 3 | Evidence gate | `rated` / `unrated` from coverage |
+| 4 | Normalization | ECDF populations from rated repos only, frozen |
+| 5 | Pillar aggregation | pillar score + pillar coverage |
+| 6 | Composite | balanced Porchlamp, coverage, tier with ceiling |
+| 7 | Coordinates & quadrant | leverage, friction, quadrant |
+| 8 | Persona gates & projections | `persona_gates`, per-persona composite |
+| 9 | Ordering | strict rank after tie-breakers, `tie_group` |
+
+Why this order: ECDF populations must be built from rated repos only (stage 4
+after stage 3); otherwise black holes and unmeasured zeros define the
+percentiles (this is what F3 does today). Persona gates come after scoring so
+that a persona-gated repo keeps its balanced score and is hidden per view, not
+zeroed.
+
+## 2. Gates (stage 0)
+
+All gates are evaluated; the *first* failing gate in this order is the reason.
+A gate whose input is insufficient returns `UNDECIDED`, which never fails a
+repo but is recorded.
+
+| Id | Gate | Criterion | Outcome | Why |
+|---|---|---|---|---|
+| **D-GATE-1** | Software project | Repository tree contains a recognised build/package manifest (`pyproject.toml`, `setup.py`, `setup.cfg`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle*`, `CMakeLists.txt`, `Makefile`, `meson.build`, `configure.ac`, `*.cabal`, `mix.exs`, `Gemfile`; widened 2026-10-12 with the polyglot manifests of `RECOGNIZED_MANIFEST_BASENAMES`, `RECOGNIZED_MANIFEST_PREFIXES` and `RECOGNIZED_MANIFEST_SUFFIXES` in `porchlamp/derive/gate_evidence.py`: Bazel, Zig, Nix, SCons, vcpkg/Conan, Composer, Dart, Swift, sbt, Clojure, Haskell stack, dune, .NET, Lua and CocoaPods project files, so a real project built with them is not gated `non_software`; widened again 2026-10-24 with `requirements.txt`, `Pipfile`, `pixi.toml`, `xmake.lua`, `premake4.lua`, `premake5.lua`, `Rakefile`, `Podfile`, `tsconfig.json`, `deno.json`, `deno.jsonc` and `Gopkg.toml`, found in 400 of the 1,067 projects gated `non_software` on the 2026-10-24 data, among them projects such as tboox/tbox and QwenLM/Qwen-VL; widened 2026-10-26 with `configure.in` and `Dockerfile` at depth ≤ 2 plus root-only `configure` at depth 0 in `RECOGNIZED_ROOT_MANIFEST_BASENAMES` for projects such as alibaba/tengine) at depth ≤ 2, OR it is a curated anchor | Fail → **excluded from universe** (`non_software`) | Removes lists, courses, paper collections (the pollution named in the curation handoff) without hand curation |
+| **D-GATE-2** | Not archived, not a mirror, not a fork | `archived == false`, `mirror_url is null`, `fork == false` (forks allowed only if the parent is absent from the universe) | Fail → gated `archived` / `mirror` / `fork` | Mirrors and archives accept no PRs; today they read as black holes (F11) |
+| **D-GATE-3** | Licensed | SPDX id present and OSI-approved (`NOASSERTION`/`OTHER` → look for `LICENSE*` file; none → fail) | Fail → gated `unlicensed` | Contributing to unlicensed code is a legal trap; no pillar can compensate |
+| **D-GATE-4** | Vitality | ≥ 1 commit by a non-bot `User` on the default branch in the trailing 180 d | Fail → gated `stale` | Spec gate 1, with bot typing from D-IN-1 |
+| **D-GATE-5** | Not a black hole | Over external PRs *opened* in the trailing 180 d that are ≥ 14 d old (`n ≥ 10` required, else `UNDECIDED`): share that no maintainer reply, review, merge or close touched, within 14 d of opening or since, when the data was read (the *ignored* share; amended 2026-10-24, RFC-0026: was the share with zero substantive human response within 14 d) ≤ 0.50 | Fail → gated `black_hole` | Spec gate 2 with a window denominator and a minimum n; fixes F4/F6 |
+| **D-GATE-6** | PR workflow | (≥ 1 external PR decided in the trailing 365 d AND, RFC-0027, at least `GATE6_MIN_OUTSIDE_PRS` = 3 outside PRs (external, non-bot authors) opened in the trailing 180 d of a complete `pr_window`), OR off-platform markers present (`Documentation/process/submitting-patches*`, `MAINTAINERS` with `L:` mailing-list lines, README says patches go to a list/Gerrit/Phabricator), OR the repository **hands review off** (RFC-0007): among its outside PRs in the recorded `pr_window` (external, non-bot authors, no age filter) at least `GATE6_HANDOFF_MIN_PRS` = 5 and at least `GATE6_HANDOFF_MIN_SHARE` = 50 % carry a notice, i.e. a comment by an account other than the PR's author that contains (any letter case) one of `has been imported to Gerrit for code review`, `welcome to GitGitGadget`, `import it to our internal repository for further review`, or is written by an account whose login starts with `gitgitgadget` | Off-platform → **routed**, scored with responsiveness *unmeasured* and ranked under no lens (not on the balanced board, under any persona, or under custom weights); a repository that hands review off is routed whatever its decided PRs, and D-GATE-5 is then `UNDECIDED` for it, never failed (D-GATE-1..4 still decide; it gets no `black_hole` flag); neither → `unrated: no_external_workflow`; a complete window with fewer than 3 outside PRs is thin whatever was decided: off-platform markers → routed, markers unknown → `UNDECIDED`, else `unrated: no_external_workflow` | Spec gate 3 made detectable; `golang/go`, `git/git` and `mapbox/mapbox-gl-js` review outside PRs in Gerrit, on the mailing list and in an internal repository, where D-GATE-5 cannot see them |
+| **D-EVID-1** | Evidence sufficiency | Composite coverage `C ≥ 0.60` (see D-MISS-3) AND every pillar in `EVIDENCE_GATE_REQUIRED_PILLARS` (`responsiveness`, RFC-0024) has at least one measured parameter | Fail → `unrated: insufficient_evidence` (listed, not ranked) | A rank built on 40% of the weight is noise presented as order; responsiveness measures `P(decision)` (D-DEF-2), so a repo whose answers to outside PRs were never observed cannot be ranked on its other pillars alone |
+
+Gated and unrated repos are stored and shown with their reason; they have no
+rank and no tier.
+
+## 3. Input hygiene (stage 1)
+
+**D-IN-1 Bot identity.** An actor is a bot if GraphQL `__typename == "Bot"`, or
+the login ends with `[bot]`, or the login is in an exact-match list kept in the
+frozen constants (`porchlamp.core.constants.BOT_LOGINS`): the generic bot accounts
+(`dependabot`, `renovate`, `github-actions`, `codecov`, `stale`, `google-cla`,
+`cla-bot`, `easycla`, `mergify`, `pre-commit-ci`, `allcontributors`,
+`semantic-release`, `imgbot`, `netlify`, `vercel`, `sonarcloud`, `snyk-bot`,
+`greenkeeper`, `copilot`, `claude`), and the service accounts GitHub types as
+users that the recorded data shows answering pull requests as bots (RFC-0012
+and RFC-0014 give the method and the evidence for each). Substring matching is
+removed (F12). An outside pull request (the "external PRs" of 1.1, 1.2, 1.4,
+1.5, 4.3, D-GATE-5, D-GATE-6's hand-off notices and `closed_unread`) has an
+external `authorAssociation` and a non-bot author, read from the recorded PR
+nodes at derive time so a change to D-IN-1 reaches every stored record (#57,
+#66).
+
+**D-IN-2 Substantive human response.** A PR received a substantive response
+when a non-author, non-bot account whose `authorAssociation` is `MEMBER`,
+`OWNER` or `COLLABORATOR` posted a review (any state) or a comment of ≥ 40
+characters after the author's own last comment or at any time. Reactions,
+label changes and assignment do not count. Why: "thanks, will look" from a
+maintainer is a response; a bot's "CLA signed" is not; a drive-by comment from
+another outsider is not a maintainer decision signal.
+
+Amended 2026-10-24 (RFC-0025): a reply that follows an automated template does not count. A reply
+template (the first two words of a review or comment once links, `@mentions`, `#123` references and
+digits are removed) that one account posted on at least 20 PRs of the window, on at least 80% of them
+within 60 s of the PR opening, is automation running under a person's account (a ticket-link
+comment, a CLA notice, a CI summary): nobody answers 80% of 20 PRs inside a minute by hand. Only
+that template is dropped; the account's other replies still count.
+
+**D-IN-3 Eligible author.** For rate parameters (merge, decision, conversion,
+return) a PR author counts only if the account is ≥ 90 days old at PR creation
+and has ≥ 5 public events, mirroring StarScout's throwaway rule. Per-author cap:
+one author contributes at most 20% of any rate's numerator and denominator
+(excess PRs from one author are dropped, most recent first). Why: sock-puppet
+first-timers are the cheapest way to inflate merge and return rates.
+
+**D-IN-4 Windows and caps.**
+
+| Input | Window | Cap | Note |
+|---|---|---|---|
+| Pull requests (all states) | opened in trailing 180 d | every PR opened in the window (amended 2026-10-18, RFC-0013: was the 500 newest). Replies and reviews are recorded for every PR when the window holds at most `PR_CAP` (2,000), else for an even random sample of `PR_SAMPLE_CAP` (1,000) of them, drawn by PR number with a fixed seed (`sampled`); each PR's reviews and comments are read on by PR number until whole or `PR_REPLY_NODE_CAP` (300) of each, and a PR whose recorded thread stays cut (`pageInfo.hasNextPage`) without a D-IN-2 response is not read as unanswered or unreviewed (RFC-0022: was the first 10 reviews and 20 comments). A record that stops short of the window says so (`truncated`), and no window measure reads it | uniform window replaces "30 newest" (F4). The reply measures (1.1, 1.4 and D-GATE-5, 4.3) read the sample; decisions, merges and D-IN-2's maintainers read every PR |
+| Decision-rate cohort | opened in [now−180 d, now−90 d] (amended 2026-09-13: the older half of the W1-3 window; was [now−270 d, now−90 d]) | every author, except where more than 200 authors and a rate so high that a sample cannot change the score: then a fixed-seed random 150 authors, named by the record and refused if they differ (RFC-0028) | every PR in the cohort has had 90 d to be decided; n is smaller than the original design but the cohort is measurable from the collected 180 d window without a second fetch. D-IN-3's eligibility for its authors is read from the author history, so a history that stops short of the cohort's start (the PR window's anchor minus 180 d, whenever the history itself was collected) leaves the rate unmeasured (#66) |
+| Newcomer cohorts | first PR in [now−365 d, now−180 d] | 20 authors kept per repo, from every PR opened in the trailing 365 d (amended 2026-10-18, RFC-0013: was the 500 newest); accounts under 90 d old at their first PR and actors that are not users leave the pool first, and up to 15 more are drawn to replace any the search shows had an older PR (RFC-0028) | gives 180 d to convert and 90 d to return. A history that stops short of a cohort's start leaves that cohort's rates unmeasured |
+| Commits | trailing 365 d (EF, bus factor, 3.1 sign-off share, 2.2 commit signals), trailing 180 d (vitality) | every commit of the 365-day window up to `COMMIT_CAP` (5,000; amended 2026-10-23, RFC-0021: was the 1,000 newest, `LEGACY_COMMIT_CAP`), else `COMMIT_CAP` (5,000) in 50 whole REST pages of 100 spread evenly over the year (`sampled`) with GitHub's count of the year's commits (`total`). A record cut at the old cap without a sample or total (`truncated`, or a legacy 1,000-row list) is refused (`collector_failure`) by every windowed commit measure | `sha` and email domains collected; 3.2 EF, bus factor and 3.1 sign-off share read the rows unweighted; 2.2 `commit_frequency_weekly` scales the rows' non-bot share by `total / 52` |
+| Issues with newcomer labels | open, updated in trailing 90 d | 200 | label aliases per repo (D-PARAM 5.1) |
+| CI runs | `pull_request` runs created at least 24 h before the fetch, grouped by commit (amended 2026-10-13: was "last 30 completed runs on the default branch") | newest 30 commits; 100 runs per page, a second and third page only while fewer than 5 commits have a wait | a run's time is `updated_at − run_started_at` (the runs list carries no `run_timing`). A commit's wait is its slowest run that ended in success or failure; a commit is left out when one of its runs was cancelled or has not finished, or when a success/failure run on it lasted over 6 h (a run waiting for a maintainer's approval is timed from its creation, and one never approved is closed as a failure after 30 days: 8.2 % of sampled success/failure runs). The median over single runs was dropped because Actions lists one run per workflow file, most of them small: it read under 20 min for 19 of 20 sampled projects, and 4 min for `pytorch/pytorch`, whose day-old pull-request commits wait about 75 min. Not seen: CI outside `pull_request` Actions runs, approval waits under 6 h, earlier attempts of a re-run |
+| Stargazers | trailing 90 d | – | universe entry only (StarScout) |
+
+**D-IN-5 StarScout scope.** Stars never enter the composite. StarScout runs
+once at universe entry (stars-based criteria) and sets `stars_audited`; the UI
+`size` uses audited stars.
+
+## 4. Parameter set v2 (stage 2)
+
+18 parameters. Columns: within-pillar weight, global weight, minimum n
+(below it the parameter is `Unmeasured(insufficient_n)`), curve, missingness
+class (`TP` third-party gap → unmeasured; `RC` repo-controlled → measured zero;
+`N` needs minimum sample).
+
+**Pull requests landed outside GitHub's merge (RFC-0015, #60).** A closed,
+unmerged pull request (`mergedAt` null, `closedAt` present) whose latest
+`ClosedEvent` names a commit as its `closer` or that carries a label in
+`porchlamp.core.constants.LANDING_LABELS` (`{"integrated", "merged"}`, whole
+name compared lower-cased) was landed outside GitHub's merge (`porchlamp.core.landing.is_landed`):
+the merge-based measures — 1.3 `MR_first` (and its no-prior-merge predicate),
+1.5 `TTM_p90`, 5.2 `newcomer_conversion`, 5.3 `RR_90` and the 4.1 review proxy —
+count it as merged at its `closedAt` (`porchlamp.core.landing.merged_or_landed_at`).
+The decision measures (1.2 `DR_90`, 1.4 `GR_14` and D-GATE-5) are unchanged.
+
+### Pillar 1 — Responsiveness (25%)
+
+| Id | Parameter | Definition | w | global | min n | Curve | Class |
+|---|---|---|---|---|---|---|---|
+| 1.1 | TTFHR | median hours from opening to first substantive human response (D-IN-2), external PRs in window | .30 | 7.5 | 10 | 100 if ≤ 12 h; else `max(0, 100 − 25·log2(t/12))` | N |
+| 1.2 | DR_90 decision rate **(new)** | share of external PRs in the decision cohort that were merged or closed within 90 d | .25 | 6.25 | 10 | `min(100, 125·r)` | N |
+| 1.3 | MR_first | merged / decided among external PRs whose author had no prior merged PR in the repo (author history from W1-4; includes PRs landed outside GitHub's merge, RFC-0015) | .20 | 5.0 | 5 | `min(100, 125·r)` | N |
+| 1.4 | GR_14 ghost rate | share of external PRs in window, ≥ 14 d old, with no substantive human response within 14 d | .15 | 3.75 | 10 | `max(0, 100 − 200·g)` | N |
+| 1.5 | TTM_p90 | nearest-rank p90 of merge latency (h) over merged external PRs in window (including PRs landed outside GitHub's merge at `closedAt`, RFC-0015); ecosystem ECDF | .10 | 2.5 | 5 | `100 − ECDF_mid(p90)` | N |
+
+Why DR_90 is new and above MR_first: a decision (even a rejection with
+feedback) is the outcome the contributor is owed; merge rate alone rewards
+repos that only decide the easy PRs. Why TTFHR keeps the top weight: it is the
+best-supported predictor of newcomer retention in the literature the spec
+cites, and with a 180-day window it has enough samples (F4).
+
+### Pillar 2 — Criticality (25%)
+
+| Id | Parameter | Definition | w | global | min n | Curve | Class |
+|---|---|---|---|---|---|---|---|
+| 2.1 | Dependents | count of dependent packages, deduplicated by root organisation, excluding dependents owned by the repo's own org | .40 | 10.0 | – | `ECDF_mid(d)` on raw counts (a monotone transform such as log10 is inert under a mid-rank ECDF; ruling 2026-09-12) | TP |
+| 2.2 | OpenSSF criticality | Pike score computed locally from the 10 signals (all derivable: age, last update, contributors, org count from email domains, commit frequency, releases/yr, closed and updated issues 90 d, comments per issue, dependents) | .35 | 8.75 | signals complete | `100·C` | TP (only if a signal is missing) |
+| 2.3 | Downloads | monthly registry downloads | .25 | 6.25 | – | `ECDF_mid(m)` on raw counts (transform inert, as 2.1) | TP (maven, systems: unmeasured) |
+
+Systems ecosystem: dependents and downloads have no registry. Packet W1-2
+measures repology package-count as a proxy; until measured, criticality for
+systems is OpenSSF criticality only and coverage reflects it.
+
+### Pillar 3 — Governance (20%)
+
+| Id | Parameter | Definition | w | global | min n | Curve | Class |
+|---|---|---|---|---|---|---|---|
+| 3.1 | Legal IP | evidence-based regime (RFC-0017 precedence): **FOUNDATION_CLA** = foundation-branded CLA check (`EasyCLA`, `asf/apache-cla`, `cncf-cla`, `eclipse-cla`, `eclipsefdn/eca`) or generic CLA check on an owner in `FOUNDATION_ORGS` (`foundation_owner_cla_check`), or owner in `FOUNDATION_ORGS` when neither CLA nor DCO evidence is present; **CORP_CLA** = generic CLA bot (`cla-assistant`, `google-cla`, `license/cla`, …) on a non-foundation owner; **DCO** = DCO check run on recent PRs or ≥ 50% of window commits carry `Signed-off-by` (outranks a bare `FOUNDATION_ORGS` owner without a CLA check); **NONE** = no CLA and no DCO evidence | .35 | 7.0 | – | DCO 100 · NONE 85 · FOUNDATION_CLA 75 · CORP_CLA 25 | RC |
+| 3.2 | Elephant factor | orgs by commit-author email domain over 365 d; personal domains (gmail, outlook, proton, users.noreply…) count as one org each per author; EF = min orgs reaching 50% of commits | .35 | 7.0 | 30 commits | `min(100, 25·EF)` | N |
+| 3.3 | Promotion ladder | **VERIFIED** (100, RFC-0016): ≥ 1 non-bot D-IN-3 age-eligible (`≥ 90 d`) account in an uncut 180 d `pr_window` whose PR was merged by another non-bot human before the account's first access action and who ≥ `PROMOTION_MIN_OUTSIDE_DAYS` (30 d) later merged or closed another author's PR (D-IN-2); **CLOSED** (10): every merged PR in an uncut window authored by one org and no external merges; **DOCUMENTED** (75): GOVERNANCE / MAINTAINERS / CONTRIBUTING (resolved across `.github/` > root > `docs/`, case-insensitively across `.md`/`.rst`/`.txt`/extensionless, plus `<owner>/.github` org defaults for CONTRIBUTING) names a maintainer nomination process; **AD_HOC** (40): none | .30 | 6.0 | – | enum | RC |
+
+Why NONE scores 85 (owner decision O-1): with no CLA the inbound licence equals
+the outbound one and relicensing needs every contributor's consent, the same
+protection DCO gives; DCO adds provenance, so it stays above. Today 99% of repos
+default to DCO=100 (F7).
+
+### Pillar 4 — Rigor (15%)
+
+| Id | Parameter | Definition | w | global | min n | Curve | Class |
+|---|---|---|---|---|---|---|---|
+| 4.1 | Pipeline defenses | when Scorecard exists: mean of checks {Code-Review, CI-Tests, Branch-Protection, Maintained, Dangerous-Workflow} × 10; when absent: proxy = 0.6·code-review rate (merged PRs in window with ≥ 1 approving review by a non-author) ×100 + 0.4·CI pass rate on the default branch ×100 (0 if no CI); `method` stored | .40 | 6.0 | 10 merged PRs (proxy) | linear | TP with proxy |
+| 4.2 | AI policy posture | PROSCRIBED (explicit code-contribution ban sentence in `CONTRIBUTING.md`, `README.md`, an AI rule document, or a PR template, without a conditional/disclosure qualifier or non-code target; evaluated first), REGULATED (AI rule document, `Assisted-by`/`Co-authored-by`/`AI-generated` trailer convention, AI policy heading, AI disclosure checkbox in a PR template, or explicit AI rule directive in `CONTRIBUTING.md` or a PR template), AD_HOC otherwise; persona-conditional scores as spec (RFC-0019) | .30 | 4.5 | – | REGULATED 95/95 · PROSCRIBED 25 (AI) / 85 (human) · AD_HOC 40 | RC |
+| 4.3 | Substantive review rate **(replaces the Gaussian)** | share of decided external PRs (excluding never-ready drafts and unanswered author self-closes within 14 d) that received ≥ 1 non-bot, non-author review with inline comments or a non-boilerplate body ≥ 80 effective chars (CJK weight 3), or a non-boilerplate D-IN-2 maintainer issue comment ≥ 80 effective chars (`SUBSTANTIVE_REVIEW_BOILERPLATE_MIN_PRS = 3`, RFC-0018) | .30 | 4.5 | 10 | `min(100, 125·r)` | N |
+
+Why the Gaussian goes: a curve that penalises "too much review" is not
+monotone, cannot be improved by doing the right thing past 3.5 comments, and
+was fed by issue-comment totals (F8). A monotone rate is Goodhart-safer and
+measurable from review threads and D-IN-2 maintainer feedback.
+
+### Pillar 5 — Accessibility (15%)
+
+| Id | Parameter | Definition | w | global | min n | Curve | Class |
+|---|---|---|---|---|---|---|---|
+| 5.1 | Newcomer-issue supply | open, unassigned issues carrying a newcomer label (canonical: `good first issue`, `help wanted`, plus per-repo aliases matching `/good.?first|beginner|easy|newcomer|first.?timers?|help.?wanted|starter/i` from the repo's label list), updated within 90 d; capped | .35 | 5.25 | – | `min(100, 10·count)` | RC |
+| 5.2 | Newcomer conversion **(new)** | share of newcomer-cohort authors (D-IN-4) whose first PR was merged within 180 d | .35 | 5.25 | 5 authors | `min(100, 200·r)` | N |
+| 5.3 | RR_90 return rate | of newcomer-cohort authors with a merged first PR, share with a second PR within 90 d | .15 | 2.25 | 5 authors | `min(100, 200·r)` | N |
+| 5.4 | DX | when ≥ 5 PR commits have a finished GitHub Actions run: 0.5·runtime score (median CI wait over the newest 30 PR commits, D-IN-4 "CI runs": 100 if ≤ 20 min, −5/min after, floor 0) + 0.5·setup signals (devcontainer or Dockerfile or flake.nix; CONTRIBUTING.md with a setup/development section; README with install/build section: 0/1/2/3 → 0/40/70/100); when < 5 PR commits have a finished GitHub Actions run and setup-signal sources exist: setup-signals score alone (`method = "proxy:setup_signals_only"`, `proxy_min_n = 0`, RFC-0020) | .15 | 2.25 | 5 commits (primary) / 0 (proxy) | as stated | RC (signals), TP with proxy (runtime) |
+
+Why conversion outranks return: a newcomer whose first PR is merged got the
+value; returning is a second-order effect and needs the most expensive
+collection.
+
+**D-PARAM-MONO.** Every curve is monotone non-decreasing in "better for the
+contributor" over its domain. A property test asserts it for every parameter
+(packet W2-3). Non-monotone curves are not admitted.
+
+## 5. Missingness (stages 2–3)
+
+**D-MISS-1 Taxonomy.** Every parameter value is one of:
+- `Measured(value, n, window_start, window_end, method, source_url, fetched_at)`
+- `Unmeasured(reason)` with `reason ∈ {third_party_gap, collector_failure,
+  insufficient_n, not_applicable, no_population}` (`no_population`: an ECDF
+  parameter with no rated, measured repository in its ecosystem or globally at
+  this snapshot; added 2026-09-12).
+
+Repo-controlled absences are **measured zeros**: no newcomer labels → 5.1 = 0;
+no CI workflows → CI pass rate 0; no policy file → AD_HOC. Third-party gaps
+(OpenSSF never scanned, registry has no downloads, deps.dev has no data) and
+collector failures are **unmeasured**. Why: a maintainer must be able to
+improve every measured zero; nobody can improve a third party's coverage, and
+scoring it as worst (today) punishes the wrong actor, while scoring it neutral
+rewards hiding.
+
+**D-MISS-2 Renormalisation.** Pillar score = Σ w_i·s_i over measured
+parameters / Σ w_i over measured parameters. Pillar coverage c_p = Σ w_i
+(measured) / Σ w_i (all). If no parameter in a pillar is measured, the pillar is
+unmeasured and drops out of the composite the same way.
+
+**D-MISS-3 Coverage and ceilings.** Composite coverage `C = Σ_p W_p·c_p` under
+the active weights. `C < 0.60` → unrated. `0.60 ≤ C < 0.80` → tier ceiling B.
+`0.80 ≤ C < 0.90` → ceiling A. `C ≥ 0.90` → no ceiling (amended 2026-10-23,
+RFC-0024: was `0.95`, so at most one missing parameter in any pillar does not
+cap a repository at Tier A while two missing parameters do). Coverage is stored
+and displayed next to every score. Why ceilings: a repo cannot be certified
+elite on partial evidence, and the ceiling gives the maintainer and the third
+parties a reason to close the gap.
+
+**D-MISS-4 Proxies.** A parameter may define one proxy method (2.2, 4.1, and 5.4 do). The
+`method` field records which was used; proxies never mark `Measured` as
+`verified` in provenance, they are `derived`.
+
+**D-MISS-5 Not-applicable parameters leave the ratio (added 2026-09-13).**
+`Unmeasured(not_applicable)` is excluded from both the numerator and the
+denominator of pillar coverage (D-MISS-2) and therefore of composite coverage
+(D-MISS-3); the other four reasons count against coverage as before. Why: a
+parameter that is undefined for a repository class (2.1 dependents for a
+`systems` repository with no package registry) is not an evidence gap anyone
+can close, and counting it capped every such repository at ceiling B for a
+fact about the world, not about the repository. Guard: `not_applicable` may be
+assigned only by a design-level rule keyed on a bundle fact recorded at
+universe entry (today: `ecosystem == "systems"` → 2.1), never by a collector
+outcome and never by repo-authored text; the rule list lives in
+`constants_v2` and is part of the constants hash. Cost to fake: changing the
+ecosystem classification means removing the package manifests the
+classification is derived from (03 §4).
+
+Consequence for 2.2 (OpenSSF criticality): when the dependents signal is
+`not_applicable` or `third_party_gap`, the Pike score is computed over the
+remaining signals with weights renormalised over those present
+(`method = "proxy:no_dependents_signal"`, provenance `derived`, D-MISS-4),
+provided at least 8 of the 10 signals are present; a dependents
+`collector_failure` leaves 2.2 `Unmeasured(collector_failure)` because a
+retry can still measure it.
+
+## 6. Normalization (stage 4)
+
+**D-NORM-1 Mid-rank ECDF.** `R(x) = 100 · (#{x_k < x} + 0.5·#{x_k = x}) / N`.
+Why: the spec's `≤` form gives every member of an all-tied population 100
+(F3); mid-rank gives 50 and is the standard tie treatment.
+
+**D-NORM-2 Population.** Per ecosystem, over rated repos for which the parameter
+is measured, at the same snapshot; frozen and stored with the snapshot
+(`populations` table). Minimum population 30, else fall back to the global
+population and flag `population_fallback`.
+
+**D-NORM-3 Parameters normalised by ECDF.** 1.5, 2.1, 2.3 only. Populations store and are queried with raw values; no transform is applied on either side (one definition per fact; lead ruling 2026-09-12 after the W2-5 review). All others use
+absolute calibrated curves (a maintainer target that does not move when the
+universe changes).
+
+## 7. Aggregation and composite (stages 5–6)
+
+**D-AGG-1 Pillar weights.** Balanced: responsiveness .25, criticality .25,
+governance .20, rigor .15, accessibility .15 (mandated by R2; unchanged in v2;
+owner decision O-2 for any v3 change). Persona presets as in the spec §4.
+
+**D-AGG-2 Composite.** `Porchlamp = Σ_p W_p·pillar_p` over measured pillars,
+renormalised as in D-MISS-2, rounded to 2 decimals after all arithmetic.
+
+**D-AGG-3 Sensitivity requirement.** Each version publishes a sensitivity
+report (packet W0-5): Kendall τ between the canonical ranking and each ranking
+under ±5 pp perturbation of one pillar weight (redistributed proportionally).
+Release requires τ ≥ 0.90 for every perturbation among rated repos; otherwise
+the ranking is too weight-sensitive to be called a standard.
+
+**D-AGG-4 Persona projection is linear.** Per-persona composites are computed in
+SQL from stored pillar scores and per-pillar coverage; no Python full scan.
+
+## 8. Coordinates, quadrants, tiers (stage 7)
+
+**D-MAT-1.** Leverage `= .50·crit + .30·rigor + .20·gov`; friction
+`= .50·(100−resp) + .30·(100−gov) + .20·(100−access)`, using renormalised pillar
+scores; unmeasured pillars drop out of the coordinate with the same
+renormalisation. Quadrant threshold 50.0, `≥` counts as high (documented
+convention kept). Coordinates carry their own coverage.
+
+**D-MAT-2 Tiers.** Cutoffs 90/80/70/55/40 on the composite (kept, O-5), then
+the coverage ceiling from D-MISS-3 is applied: `tier = min(tier_by_score,
+ceiling)`. Gated and unrated repos have no tier.
+
+## 9. Personas and persona gates (stage 8)
+
+**D-PERS-1 Separation.** `is_stage0_disqualified` is persona-independent and
+comes only from §2. Persona gates are stored as `persona_gates = {persona:
+reason}` and applied as filters in persona views; they never change the stored
+balanced score.
+
+**D-PERS-2 Definitions.**
+
+| Persona | Gate | Definition |
+|---|---|---|
+| ai_assisted | Hard AI ban | `ai_posture == PROSCRIBED` with `ai_policy_evidence` non-empty |
+| senior_systems | Multi-vendor | EF ≥ 3 (measured) |
+| first_timer | Low barrier | (decided first-timer PRs in window ≥ 5 and MR_first ≥ 0.40) or 5.1 count ≥ 3 |
+| career_capital | High-tier brand | criticality pillar ≥ 60 and its coverage ≥ 0.80 |
+
+The two previously undefined gates now have concrete semantics; they are
+filters (D-PERS-1), so a wrong threshold hides rather than zeroes.
+
+**D-PERS-3 (ruling 2026-09-13).** `senior_systems` and `ai_assisted` are
+exclusion gates: they fire only on measured evidence (an unmeasured EF or
+posture never gates). `first_timer` and `career_capital` are inclusion gates:
+a repository appears under that lens only when the evidence satisfies the
+condition, so an unmeasured input does not satisfy it. When an inclusion gate
+fires because an input is unmeasured, the reason code is
+`insufficient_evidence:<input id>` (rendered as "not enough evidence to show
+under this lens"), never a substantive reason such as a low merge rate.
+
+## 10. Ordering and tie-breakers (stage 9)
+
+**D-TIE-1.** Rated repos are ordered by composite (2 decimals) descending, then
+by the following, in order:
+
+1. coverage `C` descending (more evidence wins: rewards transparency, never
+   hiding);
+2. responsiveness pillar descending (the contributor-first pillar, D-DEF-2);
+3. friction ascending;
+4. leverage descending;
+5. TTFHR p75 ascending (consistency, not just the median);
+6. date of last non-bot commit descending;
+7. lowercase `owner/name` ascending (deterministic last resort).
+
+Stars, forks and downloads are never tie-breakers (vanity and gameable).
+
+**D-TIE-2.** Rank is strict 1..N after tie-breaking; rows that tie on the
+composite share a `tie_group` id so the UI can mark them. Gated and unrated
+repos are listed after rated ones, unranked, ordered by name.
+
+## 11. Versioning and reproducibility
+
+**D-VER-1.** `benchmark_version` (semver): weights or curve constants change →
+minor; parameter set, gates or missingness policy change → major; collector
+fix that changes values → patch with a re-snapshot.
+
+**D-VER-2.** All constants live in one frozen module; `constants_hash =
+sha256(canonical JSON)` is written into every stored row and the snapshot
+manifest. A test asserts the hash matches the value recorded for the current
+version.
+
+**D-VER-3.** A snapshot is `(as_of, manifest_root, benchmark_version,
+constants_hash, code_commit)`. Scoring reads `as_of` from the snapshot; no
+`datetime.now()` in scoring code (test-enforced). `python -m porchlamp.snapshot reproduce <snapshot-id>`
+must yield a byte-identical database.
+
+**D-VER-4 Anchors.** Relational, computed from real data at every version:
+`torvalds/linux` routed off-platform; `gcc-mirror/gcc` gated `mirror`; a chosen
+archived repo gated `archived`; an `awesome-*` list `non_software`;
+`kubernetes/kubernetes` and `vllm-project/vllm` rated with `C ≥ 0.90` and tier
+≥ A; the DCO anchor `torvalds/linux` legal = DCO; any repo whose newcomer-label
+count is ≥ 1 on GitHub scores 5.1 > 0. `keras-team/keras-hub`'s gate status is
+reported, not asserted.
+
+## 12. Validation (owner decision O-6)
+
+**D-VAL-1 Forward outcome experiment.** At the first v2 snapshot `T`, freeze
+the ranking. At `T + 90 d`, collect for every rated repo the external PRs
+opened in `(T, T + 60 d]` by eligible first-timer authors. Labels: decision
+within 30 d; merge within 90 d. Report Spearman correlation and AUC between
+each pillar / the composite computed at `T` and the label rates. Success
+criteria are stated before collection: responsiveness pillar Spearman ≥ 0.40
+with the decision label; composite Spearman ≥ 0.30 with the merge label. A
+failed criterion is published as such and drives v2.1 weights.
+
+## 13. Universe (owner decision O-4)
+
+**D-UNI-1.** v2.0 universe = the 5,753 candidates minus D-GATE-1 exclusions.
+**D-UNI-2.** v2.1 entry criteria = union of top-N by audited stars per
+language (current), top-N by monthly downloads per registry, top-N by
+dependents per registry, plus anchors; every candidate records its
+`selected_by` criteria. Selection bias is documented on the methodology page:
+percentiles are relative to this universe. (Amended 2026-10-22, RFC-0023: a
+language's star criterion runs only when its projects have an ecosystem the
+benchmark models, the registry they publish to or none at all: Python → pypi;
+JavaScript, TypeScript → npm; Rust → crates; Go → go; Java, Kotlin, Scala,
+Groovy → maven; C, C++, Zig, Vim Script, LLVM → systems. A language whose
+registry is not modeled yet (C#, Ruby, PHP, Dart, Swift, Lua, Clojure) is left
+out rather than filed under an ecosystem it does not have. Every language faces
+one star floor. A registry list's figure is recorded as its own number
+(`downloads_at_selection`), never as stars, and a repo it selected is not cut for
+its star count.)
+
+## 14. What changed versus the spec, and why
+
+| Spec | v2 | Reason |
+|---|---|---|
+| 30 newest PRs | 180-day window, cap 500 | F4 |
+| Ghost rate over open PRs, no minimum | windowed denominator, n ≥ 10, `UNDECIDED` below | F6 |
+| `≤` ECDF | mid-rank ECDF over rated & measured population | F3 |
+| Missing → 0.0 or 50 by accident | taxonomy + renormalisation + coverage ceilings | F8, Q1 |
+| Substring bot list | typed actors + exact list | F12 |
+| Review-depth Gaussian | substantive review rate (monotone) | D-PARAM-MONO |
+| MR_first with `prior_merged` never derived | author history sampled; DR_90 added | F5 |
+| RR_90 over the same sample | newcomer cohorts with conversion + return | F5 |
+| GFI label AND-query | alias OR-queries, 90-day freshness | F2 |
+| Elephant by login | by email-domain org | F9 |
+| Legal/ladder/AI by keywords with best-case defaults | evidence-based with NONE/AD_HOC defaults | F7 |
+| No mirror/archive/licence/software gates | D-GATE-1..3 | F11, pollution |
+| Ties by `(owner, name)` | D-TIE-1 hierarchy with coverage first | 118 distinct values / 981 rows |
+| Persona gate mutates `is_stage0_disqualified` | separate `persona_gates` | Q3 |
+| Pinned numeric anchors | relational anchors | D-VER-4 |

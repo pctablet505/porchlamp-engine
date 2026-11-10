@@ -1,0 +1,433 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "forks": 1016,
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/1995parham/github-do-not-ban-us/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T01:23:01.300585+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/contributors/1995parham__github-do-not-ban-us.json",
+      "source_hash": "dd83e7512d162f5cc1674a9a40c1b61b0f299698d8a1e92bd376f231c89f8e82",
+      "value": 2,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T01:23:01.885999+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "raw/gfi/1995parham__github-do-not-ban-us.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/1995parham/github-do-not-ban-us/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T01:23:04.275797+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "raw/commits_180d/1995parham__github-do-not-ban-us.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
+  "pr_window": {
+    "end": "2019-08-01T17:11:18+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "mohammad425",
+        "closed_at": "2019-08-01T17:11:18+00:00",
+        "created_at": "2019-08-01T16:56:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T17:11:18+00:00",
+        "pr_number": 1601
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dj0nny",
+        "closed_at": "2019-08-01T15:42:00+00:00",
+        "created_at": "2019-08-01T15:39:25+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T15:42:00+00:00",
+        "pr_number": 1600
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "lexifdev",
+        "closed_at": "2019-08-01T15:03:08+00:00",
+        "created_at": "2019-08-01T14:53:21+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T15:03:08+00:00",
+        "pr_number": 1598
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ggarnier",
+        "closed_at": "2019-08-01T14:35:09+00:00",
+        "created_at": "2019-08-01T14:19:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T14:35:09+00:00",
+        "pr_number": 1597
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "kennyrafael",
+        "closed_at": "2019-08-01T14:35:21+00:00",
+        "created_at": "2019-08-01T13:36:55+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T14:35:21+00:00",
+        "pr_number": 1596
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "yikerman",
+        "closed_at": "2019-08-01T13:34:06+00:00",
+        "created_at": "2019-08-01T13:22:08+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T13:34:06+00:00",
+        "pr_number": 1595
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "youhide",
+        "closed_at": "2019-08-01T13:20:01+00:00",
+        "created_at": "2019-08-01T13:18:12+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T13:20:01+00:00",
+        "pr_number": 1594
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Gusted",
+        "closed_at": "2019-08-01T12:43:48+00:00",
+        "created_at": "2019-08-01T12:38:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T12:43:48+00:00",
+        "pr_number": 1592
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "nasserman",
+        "closed_at": "2019-08-01T12:19:53+00:00",
+        "created_at": "2019-08-01T12:15:56+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T12:19:53+00:00",
+        "pr_number": 1591
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ggarnier",
+        "closed_at": "2019-08-01T12:20:05+00:00",
+        "created_at": "2019-08-01T12:14:59+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T12:20:04+00:00",
+        "pr_number": 1590
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ggarnier",
+        "closed_at": "2019-08-01T12:20:14+00:00",
+        "created_at": "2019-08-01T12:12:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T12:20:14+00:00",
+        "pr_number": 1589
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "baumannzone",
+        "closed_at": "2019-08-01T11:57:51+00:00",
+        "created_at": "2019-08-01T10:51:35+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T11:57:51+00:00",
+        "pr_number": 1587
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "baumannzone",
+        "closed_at": "2019-08-01T11:36:32+00:00",
+        "created_at": "2019-08-01T10:49:17+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T11:36:32+00:00",
+        "pr_number": 1586
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "LC95",
+        "closed_at": "2019-08-01T11:36:14+00:00",
+        "created_at": "2019-08-01T09:48:47+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T11:36:14+00:00",
+        "pr_number": 1585
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Groctel",
+        "closed_at": "2019-08-01T11:35:52+00:00",
+        "created_at": "2019-08-01T08:59:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T11:35:51+00:00",
+        "pr_number": 1583
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Ammarpad",
+        "closed_at": "2019-08-01T09:03:16+00:00",
+        "created_at": "2019-08-01T08:58:16+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T09:03:16+00:00",
+        "pr_number": 1582
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "shivamsinghchahar",
+        "closed_at": "2019-08-01T11:58:03+00:00",
+        "created_at": "2019-08-01T08:53:21+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T11:58:03+00:00",
+        "pr_number": 1581
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "monomarh",
+        "closed_at": "2019-08-01T11:46:04+00:00",
+        "created_at": "2019-08-01T08:48:40+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T11:46:04+00:00",
+        "pr_number": 1580
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "shivamsinghchahar",
+        "closed_at": "2019-08-01T08:45:47+00:00",
+        "created_at": "2019-08-01T08:44:31+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T08:45:47+00:00",
+        "pr_number": 1579
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "alexmodrono",
+        "closed_at": "2019-08-01T09:01:23+00:00",
+        "created_at": "2019-08-01T08:30:38+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T09:01:23+00:00",
+        "pr_number": 1578
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "simon300000",
+        "closed_at": "2019-08-01T08:40:54+00:00",
+        "created_at": "2019-08-01T08:09:33+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T08:40:54+00:00",
+        "pr_number": 1577
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "alexmodrono",
+        "closed_at": "2019-08-01T07:54:54+00:00",
+        "created_at": "2019-08-01T07:52:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T07:54:54+00:00",
+        "pr_number": 1576
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "amiceli",
+        "closed_at": "2019-08-01T07:56:20+00:00",
+        "created_at": "2019-08-01T07:41:56+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T07:56:20+00:00",
+        "pr_number": 1575
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "intelligide",
+        "closed_at": "2019-08-01T07:56:48+00:00",
+        "created_at": "2019-08-01T07:33:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T07:56:48+00:00",
+        "pr_number": 1574
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "boraJeon",
+        "closed_at": "2019-08-01T06:24:23+00:00",
+        "created_at": "2019-08-01T06:23:13+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T06:24:23+00:00",
+        "pr_number": 1573
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "swaniris",
+        "closed_at": "2019-08-01T06:13:55+00:00",
+        "created_at": "2019-08-01T06:10:47+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T06:13:55+00:00",
+        "pr_number": 1572
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "boraJeon",
+        "closed_at": "2019-08-01T06:08:21+00:00",
+        "created_at": "2019-08-01T06:06:22+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T06:08:21+00:00",
+        "pr_number": 1571
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "boraJeon",
+        "closed_at": "2019-08-01T05:59:58+00:00",
+        "created_at": "2019-08-01T05:58:17+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T05:59:58+00:00",
+        "pr_number": 1570
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "swaniris",
+        "closed_at": "2019-08-01T05:56:40+00:00",
+        "created_at": "2019-08-01T05:52:21+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-08-01T05:56:40+00:00",
+        "pr_number": 1569
+      }
+    ],
+    "start": "2019-08-01T05:52:21+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "09342ec47e2aa14e134f720fce51389596f0a281fa8bb087591b4366ec6a5e05",
+  "repo": {
+    "archived": true,
+    "default_branch": "master",
+    "ecosystem": "npm",
+    "fork": false,
+    "license_spdx": "NOASSERTION",
+    "mirror_url": null,
+    "name": "github-do-not-ban-us",
+    "owner": "1995parham"
+  },
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
+}

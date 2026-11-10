@@ -1,0 +1,22 @@
+[
+  {"text": "Friendly ping, CI is green.", "kind": "ask"},
+  {"text": "Hi @maya, could you please take a look when you have a moment?", "kind": "ask"},
+  {"text": "@maya any update on this?", "kind": "ask"},
+  {"text": "bump", "kind": "ask"},
+  {"text": "cc @maya to ptal when you can", "kind": "ask"},
+  {"text": "Addressed the CodeRabbit notes, could you take a look?", "kind": "ask"},
+  {"text": "Can someone from the core team review this?", "kind": "ask"},
+  {"text": "What do you think about this approach?", "kind": "ask"},
+  {"text": "@maya what about the other branch", "kind": "mention"},
+  {"text": "See also @noor's earlier change", "kind": "mention"},
+  {"text": "Rebased on main, same change otherwise.", "kind": "other"},
+  {"text": "The cursor position was wrong, now fixed.", "kind": "other"},
+  {"text": "Added a test for the empty case.", "kind": "other"},
+  {"text": "I have read the CLA Document and I hereby sign the CLA", "kind": "tool"},
+  {"text": "/retest", "kind": "tool"},
+  {"text": "@coderabbitai review", "kind": "tool"},
+  {"text": "@sourcery-ai review", "kind": "tool"},
+  {"text": "Thanks @maya, could you take a look?", "kind": "tool"},
+  {"text": "recheck", "kind": "tool"},
+  {"text": "", "kind": "tool"}
+]
