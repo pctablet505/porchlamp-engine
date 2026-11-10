@@ -1,8 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Report a security problem privately
-    url: https://github.com/pctablet505/porchlamp-engine/security/advisories/new
-    about: Please do not open a public issue for a vulnerability.
   - name: How every number is measured
     url: https://porchlamp.org/methodology/
     about: The gates, parameters and weights behind every record.
