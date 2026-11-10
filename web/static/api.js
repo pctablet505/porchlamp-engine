@@ -353,12 +353,13 @@ export function fetchFirstPullRequests() {
 
 // ---------------------------------------------------------- /reproject
 /**
- * SQLite's ROUND(x, n) for the values a composite takes (0..100). Exact
- * half-up rounding (Number.prototype.toFixed) equals SQLite 3.53's ROUND
- * at n = 2 — measured on 1.6 M doubles, including every neighbour of a
- * .xx5 boundary — and at n = 12 (the tier-cutoff comparison) differs only
- * for a value within 5e-13 of a cutoff whose 15th-19th digits are a 4999…
- * run; the verifier's full-list comparisons would show such a case.
+ * porchlamp.store.queries._sql_round(x, n) for the values a composite
+ * takes (0..100): the decimal SQLite's ROUND picks, read back exactly.
+ * Exact half-up rounding (Number.prototype.toFixed) equals it on SQLite
+ * 3.53 at n = 2 — measured on 1.6 M doubles, including every neighbour of
+ * a .xx5 boundary — and at n = 12 (the tier-cutoff comparison) differs
+ * only for a value within 5e-13 of a cutoff whose 15th-19th digits are a
+ * 4999… run; the verifier's full-list comparisons would show such a case.
  */
 function sqlRound(x, n) {
   return x === null ? null : Number(x.toFixed(n));

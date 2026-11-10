@@ -310,20 +310,39 @@ def _build_order_by(
     raise ValueError(f"sort must be one of {ALLOWED_SORT_FIELDS} or None; got {sort!r}")
 
 
-def _tie_group_sql(composite_expr: str) -> str:
-    """``DENSE_RANK() OVER (ORDER BY ROUND(composite_expr, 2) DESC)``,
-    ``NULL``'d out when that composite
-    value's group has exactly one member
-    (``COUNT(*) OVER (PARTITION BY ROUND(composite_expr, 2)) = 1``) -- a
-    singleton has nothing to share a tie mark with, matching
+def _tie_group_sql(display_expr: str) -> str:
+    """``DENSE_RANK() OVER (ORDER BY display_expr DESC)``, ``NULL``'d out
+    when that display value's group has exactly one member
+    (``COUNT(*) OVER (PARTITION BY display_expr) = 1``) -- a singleton has
+    nothing to share a tie mark with, matching
     ``porchlamp.core.tiebreak.assign_ranks`` (``tie_group=None`` when
-    ``composite_counts[composite] == 1``). Both window functions partition
-    on the identical rounded expression, so a row's own group membership
-    and its own count agree by construction."""
+    ``composite_counts[composite] == 1``). ``display_expr`` is the composite
+    rounded to 2 decimals the way the caller's projection rounds it. Both
+    window functions partition on that identical expression, so a row's own
+    group membership and its own count agree by construction."""
     return (
-        f"(CASE WHEN COUNT(*) OVER (PARTITION BY ROUND({composite_expr}, 2)) = 1 THEN NULL "
-        f"ELSE DENSE_RANK() OVER (ORDER BY ROUND({composite_expr}, 2) DESC) END)"
+        f"(CASE WHEN COUNT(*) OVER (PARTITION BY {display_expr}) = 1 THEN NULL "
+        f"ELSE DENSE_RANK() OVER (ORDER BY {display_expr} DESC) END)"
     )
+
+
+def _sql_round(expr: str, digits: int) -> str:
+    """SQLite's ``ROUND(expr, digits)`` with its last step done exactly.
+
+    ``ROUND`` prints the value to ``digits`` decimals and reads the text
+    back, and that read depends on the SQLite library Python links: 3.46.1
+    reads ``0.803875589921`` as ``0.8038755899209999`` where 3.53.1 reads
+    it exactly, so the same custom weights gave GitHub's runner a coverage
+    one unit in the last place off the browser's (``web/static/api.js``
+    rounds with ``toFixed``, exact everywhere). For the values rounded here
+    (0..100, at most 12 decimals) the result scaled back by ``10**digits``
+    lies within 0.03 of the integer the printed digits spell, a plain
+    ``ROUND`` returns that integer exactly, and one IEEE division gives the
+    double nearest the printed decimal on any SQLite. Measured on 1.2 M
+    values: equal to ``ROUND`` on 3.53.1, and 228 misreads corrected on
+    3.46.1."""
+    scale = 10**digits
+    return f"(ROUND(ROUND({expr}, {digits}) * {scale}) / {scale})"
 
 
 def _validate_persona(persona: str) -> None:
@@ -550,7 +569,7 @@ def list_ranked(
         WITH ranked AS (
             SELECT id, porchlamp_p, coverage_p, tier_p, rated_p,
                 ROW_NUMBER() OVER (ORDER BY {rank_order_expr}) AS rank_p,
-                {_tie_group_sql("porchlamp_p")} AS tie_group_p
+                {_tie_group_sql("ROUND(porchlamp_p, 2)")} AS tie_group_p
             FROM ({slim_select})
         )
         SELECT r.*, s.benchmark_version AS benchmark_version,
@@ -1084,7 +1103,8 @@ def reproject(
     # left to right here and divided by the compensated total below, which can come to 1.0000000000000002 (for
     # example weights 0.25, 0.05, 0.55, 0.05, 0.1). Coverage is a share, so it is clamped: the response model
     # refuses a value over 1, and ``web/static/api.js`` clamps the same way.
-    coverage_sql = f"MIN(1.0, ROUND(({' + '.join(cov_terms)}) / ?, {RATIO_DECIMALS}))"
+    coverage_ratio_sql = f"({' + '.join(cov_terms)}) / ?"
+    coverage_sql = f"MIN(1.0, {_sql_round(coverage_ratio_sql, RATIO_DECIMALS)})"
     cov_params.append(total_weight)
     proj_params = [*num_params, *den_params, *cov_params]
     # D-EVID-1's required pillars (RFC-0024), "measured" exactly as the composite terms above read it.
@@ -1105,7 +1125,7 @@ def reproject(
 
     visible_sql = f"""
         SELECT *,
-            {_tier_by_score_case_sql(f"ROUND(composite_raw, {RATIO_DECIMALS})")} AS score_tier_index,
+            {_tier_by_score_case_sql(_sql_round("composite_raw", RATIO_DECIMALS))} AS score_tier_index,
             {_ceiling_index_case_sql("coverage_custom")} AS ceiling_index
         FROM ({proj_sql})
         WHERE composite_raw IS NOT NULL AND coverage_custom >= {_RATED_MIN_COVERAGE}
@@ -1114,7 +1134,7 @@ def reproject(
 
     total = conn.execute(f"SELECT COUNT(*) FROM ({visible_sql})", proj_full_params).fetchone()[0]
 
-    porchlamp_display_sql = "ROUND(composite_raw, 2)"
+    porchlamp_display_sql = _sql_round("composite_raw", 2)
     order_expr = _order_by_sql(porchlamp_display_sql, "coverage_custom")
     tier_label = _tier_label_case_sql("MIN(score_tier_index, ceiling_index)")
     sql = f"""
@@ -1124,7 +1144,7 @@ def reproject(
                 {tier_label} AS tier_custom,
                 coverage_custom,
                 ROW_NUMBER() OVER (ORDER BY {order_expr}) AS rank_custom,
-                {_tie_group_sql("composite_raw")} AS tie_group_custom
+                {_tie_group_sql(porchlamp_display_sql)} AS tie_group_custom
             FROM ({visible_sql})
             ORDER BY {order_expr}
             LIMIT ? OFFSET ?
