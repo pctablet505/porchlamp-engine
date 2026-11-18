@@ -1,7 +1,6 @@
 # Porchlamp Review & Verification Guidelines
 
-Adopted from AlgoTrading's bedrock docs (`SELF_REVIEW.md`, `VERIFICATION.md`,
-`CODE_REVIEW.md`, `TESTING.md`) on 2026-09-12, adapted for this repo.
+Self-contained review and verification guidelines for this repository.
 These rules bind every change here, human or agent.
 
 ## 1. Definition of done (VERIFICATION)
@@ -9,9 +8,9 @@ These rules bind every change here, human or agent.
 - [ ] Suite run with the ONE canonical invocation, exit code read directly
       (never through a pipe), capping xdist workers at 16 (`-n 16` or
       `-n auto --maxprocesses=16`):
-      `env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n 16 -p no:cacheprovider`
-- [ ] Node UI unit suite green:
-      `node --test web/app/tests/unit.test.mjs`
+      `env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n auto --maxprocesses=16 -p no:cacheprovider`
+- [ ] Full frontend Node UI suite green (all 6 `.test.mjs` suites):
+      `node --test web/app/tests/*.test.mjs`
 - [ ] Failure-set identity: same failing test IDs before/after a change;
       collected-count changes reconciled with a reason.
 - [ ] Every behavioral change seen to fail BEFORE the fix (mutation proof:
@@ -32,7 +31,7 @@ These rules bind every change here, human or agent.
   `assert isinstance(result, PorchlampCompositeResult)`.
 - A test that kills zero mutants is a Blocker (mutation battery in
   `tests/` must stay green under `scripts/` mutation probes when extended).
-- Tests edited to pass must also change `src/` (CA-1): a green suite after
+- Tests edited to pass must also change `porchlamp/` / `phone/` / `scripts/` / `web/` (or `.github/workflows/`) (CA-1): a green suite after
   test-only edits to a failing test needs a root-cause note.
 
 ## 3. Data provenance (Porchlamp-specific, owner rule 2026-09-12)
@@ -41,38 +40,52 @@ These rules bind every change here, human or agent.
   (git-ignored); `scripts/derive.py` adds per-field provenance + confidence;
   `scripts/verify.py` cross-checks second sources and flags mismatches;
   only CLEAN bundles are promoted.
-- Confidence vocabulary is closed: `verified | derived | missing | flag`.
-  `derived` fields (legal_ip_model, ai_posture, promotion_ladder,
-  elephant_factor org-proxy) must never be presented as ground truth.
+- Confidence vocabulary is closed: `verified | derived | missing | flag | collector_failure`.
+  `derived` fields (e.g., `legal_ip_model` / v2 `legal_ip`, `ai_posture`, `promotion_ladder`,
+  `*_evidence` companions, `elephant_factor` — primary `commits_365d` email-domain EF, or
+  `contributors` login-proxy fallback only when `commits_365d` is absent — plus derived
+  scored metrics tagged `"derived"` across `scripts/derive.py` (including commit-domain metrics
+  computed in `porchlamp/collect/commits.py`) and `porchlamp/collect/{governance,pike_signals,github_graphql,repo_object}.py`)
+  must never be presented as ground truth.
 - No fabricated repos: every row in a universe/dataset must trace to a
-  `candidates.jsonl` criterion or a fetched envelope. The old synthetic
-  `porchlamp/benchmark_data.py` is test fixture only — never a ranking source.
-- Provenance is unforgeable: a field may claim `verified` only with a
-  `data/raw/<collector>/<owner>__<name>.json` envelope path (never a bare
-  `http(s)://` URL) belonging to that field's own repository and collector,
-  whose hash matches the sha256 recorded in provenance at derive time
-  (`verify` flags `unverifiable_provenance`); and `serve.py` refuses a
-  database with `benchmark_data` fixture rows, no `snapshot_meta` row, or a
-  recomputed content hash that no longer matches the one recorded there.
+  `candidates.jsonl` criterion or a fetched envelope. The retired synthetic
+  `porchlamp/benchmark_data.py` module has been removed from the package (and
+  `ci.yml` guards against it returning) — never reintroduce synthetic ranking sources.
+- Provenance is unforgeable: a field may claim `verified` only with a data-dir-relative
+  `raw/<collector>/<owner>__<name>.json` envelope path under `data/raw/` (or
+  `raw/downloads/<ecosystem>__<name>.json` for ecosystem-keyed download fields per
+  `ECOSYSTEM_KEYED_FIELDS` in `scripts/verify.py`; never a bare `http(s)://` URL)
+  belonging to that field's own repository and collector, whose hash matches the sha256
+  recorded in provenance at derive time (`verify` flags `unverifiable_provenance` on
+  `verified` fields). At promote/serve time, `porchlamp/serve/guard.py` refuses
+  synthetic `tests/fixtures/synthetic_catalog.py` clock-sentinel rows (`BENCHMARK_NOW`)
+  and tampered content hashes, and promotion refuses snapshots missing a `snapshot_meta` row.
 - Hedge words (`should`, `likely`, `appears`) are banned in evidence blocks.
 
 ## 4. Review pipeline (CODE_REVIEW, adapted)
 
 - Gate 0: author self-review — read the whole enclosing function, not the
   hunk; absence inputs (`None/0/""/[]`) must not read as success.
-- Gate 1: deterministic — `ruff check porchlamp scripts tests` clean; new public
+- Gate 1: deterministic — `.venv/bin/ruff check porchlamp/ phone/ scripts/ tests/` clean; new public
   API fully typed with docstrings.
-- Gate 2: adversarial pass over 6 lenses: YAGNI, perf, API, compat,
-  observability, layering. Severities: `Blocker:` `Warning:` `Consider:`
-  `Nit:` `FYI:` `Praise:`.
+- Gate 2: **two-pass author-blind adversarial review** across 6 lenses: YAGNI, perf, API, compat, observability, layering. Severities: `Blocker:` `Warning:` `Consider:` `Nit:` `FYI:` `Praise:`.
+  - **Pass 1 (Author-Blind Code & DOM Audit):** Start with a fresh reviewer carrying zero authoring history and **without** reading PR rationalization prose first. The reviewer inspects the diff and its callers (and HTML/JS/CSS DOM semantics for UI changes), emits a **2-sentence diff paraphrase** summarizing what the change does in plain English (a materially wrong paraphrase is a non-contestable `Blocker:`), reports grounded findings with exact `file:line` citations, and lists every unexecuted check under `COULD NOT VERIFY`.
+  - **Pass 2 (Proof-Backed Verification):** Never dismiss a Pass-1 `Blocker:` or `Warning:` with prose alone. Every disputed finding resolves strictly to **`VERIFIED`** (must fix or escalate) or **`DISPUTED_WITH_PROOF`** backed by: (a) an executable counter-probe exercising the exact trigger input, (b) a caller-complete invariant citing every `file:line` call site in the repo, (c) a matching row from the **`<base>`** branch's `### Negative-Rule Ledger` below (never from self-edited PR lines), or (d) for findings strictly about non-executable `.md` prose (never to dismiss executable code/workflow findings or self-authored policy relaxations), an exact verbatim documentation clause.
 - New symbols with zero readers are a Blocker (caller sweep before adding).
-- Deletion > modification > addition. One definition per fact (constants
-  live in `porchlamp/constants.py` only; user-facing UI copy lives in
-  `web/app/copy.js` only and is referenced via `copy.<NAME>`).
+- Deletion > modification > addition. One definition per fact (active v2 constants
+  live in `porchlamp/core/constants.py` — `porchlamp/constants.py` is legacy v1 only;
+  user-facing UI copy lives in `web/app/copy.js` only and is referenced via `copy.<NAME>`).
+
+### Negative-Rule Ledger
+
+| Allowed Exact Shape (symbol/invariant) | Still-A-Bug Counter-Shape (never dismiss) |
+| :--- | :--- |
+| `PORCHLAMP_PERF_HOST_FACTOR: "2"` (or finite numeric `1 <= factor <= 2`) set **strictly on the `Run test suite` (`pytest tests/`) step** inside `.github/workflows/ci.yml` to accommodate GitHub-hosted runner jitter (or passed transiently with finite numeric `1 <= factor <= 2` on a slower contributor's CLI for `pytest` only when explicitly noted in `COULD NOT VERIFY`). | Setting `PORCHLAMP_PERF_HOST_FACTOR` at workflow/job `env:` level in `ci.yml`, setting it on CI's standalone `node --test` step or any non-primary step, inline shell overrides inside `run:`, out-of-range/non-finite/non-numeric/boolean values (`< 1`, `> 2`, `NaN`, `inf`, `true`/`false`), undisclosed local CLI overrides (omitting `COULD NOT VERIFY`), applying the override to local standalone `node --test`, committing it into local/default test configs, or loosening local performance budgets (`Blocker:`). |
+| `derived` confidence fields clearly tagged `derived` across `scripts/derive.py` (including commit-domain metrics computed in `porchlamp/collect/commits.py`) and `porchlamp/collect/{governance,pike_signals,github_graphql,repo_object}.py` (e.g., `legal_ip_model` / v2 `legal_ip`, `ai_posture`, `promotion_ladder`, `*_evidence` companions, `elephant_factor` — primary `commits_365d` email-domain EF, or `contributors` login-proxy fallback only when `commits_365d` is absent — plus derived scored metrics). | Presenting `derived` fields as `verified` ground truth, bypassing `data/raw/` `sha256` verification on `verified` fields, or downgrading a `verified` field to `derived` to skip envelope verification (`Blocker:`). |
 
 ### 4.1 UI/UX, Accessibility (WCAG 2.1 AA) & Static Export Gates
 
-Every change touching `web/app/`, `web/prerender.mjs`, or `porchlamp/serve/` must pass these review gates (see `docs/UI_UX_SPECIFICATION.md` §5.5):
+Every change touching `web/app/`, `web/prerender.mjs`, or `porchlamp/serve/` must pass these review gates (see [UI_UX_SPECIFICATION.md](UI_UX_SPECIFICATION.md#55-enforced-uiux-accessibility--cross-page-parity-invariants) §5.5):
 
 - **Semantic Table & Control Markup:** Never put `role="button"` or `tabindex="0"` on `<tr>` or `.leaderboard-card`; never override `<th role="columnheader">` with `role="button"`; never put `tabindex="0"` on non-interactive `.sparkbar`, `.tier-pill`, or `<td>` elements. Every `<input>` and `<select>` must carry both `id` and `name`. Interactive touch targets must be `>= 24x24px`.
 - **Table Wrapping & Prerender CSS Invariants:** Never put `word-break: break-all | break-word` or `overflow-wrap: anywhere` on any CSS selector targeting `td`, `th`, `.cell-id`, `.cell-prose`, `.cell-meta`, or `.spec-table .num` (`tests/test_ui_table_wrapping.py`). Never add `.prerendered-board` rules in `web/app/styles/views.css` outside its two responsive `@media` blocks.
@@ -87,11 +100,13 @@ Every change touching `web/app/`, `web/prerender.mjs`, or `porchlamp/serve/` mus
 - Force-push / `reset --hard` / bare `git stash` without owner confirmation.
 - `print()` in library code (`porchlamp/`); scripts may print progress.
 - Inline `TODO` (use the issue backlog).
-- Commit email other than `55033230+pctablet505@users.noreply.github.com`
-  (GH007 / employer rules).
+- For maintainer / maintainer-operated automated-agent commits: commit email
+  other than `55033230+pctablet505@users.noreply.github.com` or presence of
+  `Co-Authored-By:` / AI attribution trailers (external contributors retain
+  their own Apache 2.0 authorship attribution).
 
 ## 6. Commit convention
 
-`<type>: <description>` with type ∈ {fix, feat, refactor, test, docs, chore}.
+`<type>: <description>` with type ∈ {fix, feat, refactor, test, docs, chore, ci}.
 Data-pipeline changes name the affected collectors and the verification
 result (e.g. `feat(gather): crates monthly normalization — hashbrown CLEAN`).
