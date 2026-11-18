@@ -51,8 +51,9 @@ env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n auto --maxprocesses=1
 ```
 
 A few tests time queries and page renders against budgets measured on the
-maintainer's machine. In CI, `PORCHLAMP_PERF_HOST_FACTOR=2` is set strictly on
-`.github/workflows/ci.yml`'s `pytest` step (never at workflow/job level or on
+maintainer's machine. In CI, `PORCHLAMP_PERF_HOST_FACTOR=2` (finite numeric `1 <= factor <= 2`)
+is set strictly on `.github/workflows/ci.yml`'s primary `Run test suite` (`pytest tests/`) step
+(never at workflow/job level, on the fixture snapshot `pytest` step, or on
 the standalone `node --test` step). On a slower local machine, you may pass
 `PORCHLAMP_PERF_HOST_FACTOR=2` transiently on the CLI for `pytest` only (disclosing
 it under `COULD NOT VERIFY`), but never commit it into default test configs.

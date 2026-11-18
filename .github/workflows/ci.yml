@@ -13,6 +13,10 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
     name: Test suite
@@ -92,7 +96,7 @@ jobs:
         run: ls -l dist/
 
       - name: sdist contains the store migrations
-        run: tar tzf dist/*.tar.gz | grep -E 'porchlamp/store/migrations/.*\.sql'
+        run: tar tzf dist/*.tar.gz | grep -E 'porchlamp/store/migrations/.*\.sql$'
 
       - name: "Non-editable install (W4-1: package move must survive a real install)"
         run: |
