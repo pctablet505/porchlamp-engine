@@ -88,7 +88,7 @@ git clone https://github.com/pctablet505/porchlamp-engine.git
 cd porchlamp-engine
 python3.12 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
-.venv/bin/python -m pytest tests/ -n auto
+env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n auto --maxprocesses=16 -p no:cacheprovider
 ```
 
 CI runs this suite on Python 3.12, with lint and the UI's Node tests.

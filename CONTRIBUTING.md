@@ -46,13 +46,17 @@ http://127.0.0.1:8899/ .
 
 ```bash
 .venv/bin/ruff check porchlamp/ phone/ scripts/ tests/
-node --test web/app/tests/unit.test.mjs web/app/tests/render.perf.test.mjs
-.venv/bin/python -m pytest tests/ -n auto
+node --test web/app/tests/*.test.mjs
+env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n auto --maxprocesses=16 -p no:cacheprovider
 ```
 
 A few tests time queries and page renders against budgets measured on the
-maintainer's machine. If they fail on a slower one, run pytest with
-`PORCHLAMP_PERF_HOST_FACTOR=2` set, as CI does.
+maintainer's machine. In CI, `PORCHLAMP_PERF_HOST_FACTOR=2` (finite numeric `1 <= factor <= 2`)
+is set strictly on `.github/workflows/ci.yml`'s primary `Run test suite` (`pytest tests/`) step
+(never at workflow/job level, on the fixture snapshot `pytest` step, or on
+the standalone `node --test` step). On a slower local machine, you may pass
+`PORCHLAMP_PERF_HOST_FACTOR=2` transiently on the CLI for `pytest` only (disclosing
+it under `COULD NOT VERIFY`), but never commit it into default test configs.
 
 ## What a pull request needs
 

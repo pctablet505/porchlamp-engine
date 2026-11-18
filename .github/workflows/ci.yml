@@ -6,16 +6,30 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
     name: Test suite
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -26,12 +40,16 @@ jobs:
         run: ruff check porchlamp/ phone/ scripts/ tests/
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "20"
 
       - name: Run frontend Node test suite
-        run: node --test web/app/tests/unit.test.mjs web/app/tests/render.perf.test.mjs
+        run: |
+          shopt -s nullglob
+          suites=(web/app/tests/*.test.mjs)
+          test "${#suites[@]}" -gt 0
+          node --test "${suites[@]}"
 
       - name: Run test suite
         env:
@@ -55,18 +73,21 @@ jobs:
   package:
     name: Build sdist
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: test
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
       - name: Install build
-        run: pip install build
+        run: python -m pip install "build==1.6.1"
 
       - name: Build sdist
         run: python -m build --sdist
@@ -75,12 +96,16 @@ jobs:
         run: ls -l dist/
 
       - name: sdist contains the store migrations
-        run: tar tzf dist/*.tar.gz | grep -q 'porchlamp/store/migrations/.*\.sql'
+        run: tar tzf dist/*.tar.gz | grep -E 'porchlamp/store/migrations/.*\.sql$'
 
       - name: "Non-editable install (W4-1: package move must survive a real install)"
         run: |
-          python -m venv /tmp/porchlamp-install-check
-          /tmp/porchlamp-install-check/bin/pip install --quiet "$(ls dist/*.tar.gz)[server]"
+          shopt -s nullglob
+          sdists=(dist/*.tar.gz)
+          test "${#sdists[@]}" -eq 1
+          test -f "${sdists[0]}"
+          python -m venv "${RUNNER_TEMP:?RUNNER_TEMP must be set}/porchlamp-install-check"
+          "${RUNNER_TEMP:?RUNNER_TEMP must be set}/porchlamp-install-check/bin/python" -m pip install --quiet "${sdists[0]}[server]"
 
       - name: Non-editable install finds the moved/serving modules + migrations
         # From outside the checkout: at the repo root `python -c` puts the working
@@ -88,7 +113,7 @@ jobs:
         # passed whatever the install contained.
         working-directory: ${{ runner.temp }}
         run: |
-          /tmp/porchlamp-install-check/bin/python -c "
+          "${RUNNER_TEMP:?RUNNER_TEMP must be set}/porchlamp-install-check/bin/python" -c "
           import os
           import porchlamp
           assert 'site-packages' in porchlamp.__file__, f'imported {porchlamp.__file__}, not the installed package'
