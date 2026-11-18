@@ -1,7 +1,6 @@
 # Porchlamp Review & Verification Guidelines
 
-Adopted from AlgoTrading's bedrock docs (`SELF_REVIEW.md`, `VERIFICATION.md`,
-`CODE_REVIEW.md`, `TESTING.md`) on 2026-09-12, adapted for this repo.
+Self-contained review and verification guidelines for this repository.
 These rules bind every change here, human or agent.
 
 ## 1. Definition of done (VERIFICATION)
@@ -10,8 +9,8 @@ These rules bind every change here, human or agent.
       (never through a pipe), capping xdist workers at 16 (`-n 16` or
       `-n auto --maxprocesses=16`):
       `env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n 16 -p no:cacheprovider`
-- [ ] Node UI unit suite green:
-      `node --test web/app/tests/unit.test.mjs`
+- [ ] Full frontend Node UI suite green (all 6 `.test.mjs` suites):
+      `node --test web/app/tests/*.test.mjs`
 - [ ] Failure-set identity: same failing test IDs before/after a change;
       collected-count changes reconciled with a reason.
 - [ ] Every behavioral change seen to fail BEFORE the fix (mutation proof:
@@ -41,12 +40,14 @@ These rules bind every change here, human or agent.
   (git-ignored); `scripts/derive.py` adds per-field provenance + confidence;
   `scripts/verify.py` cross-checks second sources and flags mismatches;
   only CLEAN bundles are promoted.
-- Confidence vocabulary is closed: `verified | derived | missing | flag`.
-  `derived` fields (legal_ip_model, ai_posture, promotion_ladder,
-  elephant_factor org-proxy) must never be presented as ground truth.
+- Confidence vocabulary is closed: `verified | derived | missing | flag | collector_failure`.
+  `derived` fields (`legal_ip_model` / v2 `legal_ip`, `ai_posture`, `promotion_ladder`,
+  `elephant_factor` — both primary `commits_365d` email-domain EF and `contributors`
+  login-proxy fallback) must never be presented as ground truth.
 - No fabricated repos: every row in a universe/dataset must trace to a
-  `candidates.jsonl` criterion or a fetched envelope. The old synthetic
-  `porchlamp/benchmark_data.py` is test fixture only — never a ranking source.
+  `candidates.jsonl` criterion or a fetched envelope. The retired synthetic
+  `porchlamp/benchmark_data.py` module has been removed from the package (and
+  `ci.yml` guards against it returning) — never reintroduce synthetic ranking sources.
 - Provenance is unforgeable: a field may claim `verified` only with a
   `data/raw/<collector>/<owner>__<name>.json` envelope path (never a bare
   `http(s)://` URL) belonging to that field's own repository and collector,
@@ -60,7 +61,7 @@ These rules bind every change here, human or agent.
 
 - Gate 0: author self-review — read the whole enclosing function, not the
   hunk; absence inputs (`None/0/""/[]`) must not read as success.
-- Gate 1: deterministic — `ruff check porchlamp scripts tests` clean; new public
+- Gate 1: deterministic — `ruff check porchlamp/ phone/ scripts/ tests/` clean; new public
   API fully typed with docstrings.
 - Gate 2: **two-pass author-blind adversarial review** across 6 lenses: YAGNI, perf, API, compat, observability, layering. Severities: `Blocker:` `Warning:` `Consider:` `Nit:` `FYI:` `Praise:`.
   - **Pass 1 (Author-Blind Code & DOM Audit):** Start with a fresh reviewer carrying zero authoring history and **without** reading PR rationalization prose first. The reviewer inspects the diff and its callers (and HTML/JS/CSS DOM semantics for UI changes), emits a **2-sentence diff paraphrase** summarizing what the change does in plain English (a materially wrong paraphrase is a non-contestable `Blocker:`), reports grounded findings with exact `file:line` citations, and lists every unexecuted check under `COULD NOT VERIFY`.
@@ -74,8 +75,8 @@ These rules bind every change here, human or agent.
 
 | Allowed Exact Shape (symbol/invariant) | Still-A-Bug Counter-Shape (never dismiss) |
 | :--- | :--- |
-| `PORCHLAMP_PERF_HOST_FACTOR: "2"` set inside `.github/workflows/ci.yml` to accommodate GitHub-hosted runner timing jitter. | Loosening local performance budgets or setting `PORCHLAMP_PERF_HOST_FACTOR` in local/default test configs (`Blocker:`). |
-| `derived` confidence fields emitted by `scripts/derive.py` (`legal_ip_model`, `ai_posture`, `promotion_ladder`, `elephant_factor` org-proxy) clearly tagged `derived`. | Presenting `derived` fields as `verified` ground truth or bypassing `data/raw/` `sha256` envelope verification (`Blocker:`). |
+| `PORCHLAMP_PERF_HOST_FACTOR: "2"` set **strictly on the `pytest` step** inside `.github/workflows/ci.yml` to accommodate GitHub-hosted runner jitter (or passed transiently on a slower contributor's CLI for `pytest` only when explicitly noted in `COULD NOT VERIFY`). | Setting `PORCHLAMP_PERF_HOST_FACTOR` at workflow/job `env:` level in `ci.yml`, setting it on CI's standalone `node --test` step, setting values `> 2`, committing it into local/default test configs, or loosening local performance budgets (`Blocker:`). |
+| `derived` confidence fields emitted by `scripts/derive.py` / `porchlamp/collect/governance.py` (`legal_ip_model` / v2 `legal_ip`, `ai_posture`, `promotion_ladder`, and `elephant_factor` — both primary `commits_365d` email-domain EF and `contributors` login-proxy fallback) clearly tagged `derived`. | Presenting `derived` fields as `verified` ground truth or bypassing `data/raw/` `sha256` envelope verification (`Blocker:`). |
 
 ### 4.1 UI/UX, Accessibility (WCAG 2.1 AA) & Static Export Gates
 
@@ -99,6 +100,6 @@ Every change touching `web/app/`, `web/prerender.mjs`, or `porchlamp/serve/` mus
 
 ## 6. Commit convention
 
-`<type>: <description>` with type ∈ {fix, feat, refactor, test, docs, chore}.
+`<type>: <description>` with type ∈ {fix, feat, refactor, test, docs, chore, ci}.
 Data-pipeline changes name the affected collectors and the verification
 result (e.g. `feat(gather): crates monthly normalization — hashbrown CLEAN`).

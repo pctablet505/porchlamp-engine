@@ -105,3 +105,75 @@ def test_publish_from_drop_build_step_computes_its_own_as_of() -> None:
     assert "as_of" not in steps["pull"]["run"].lower(), "the pull step must not read or emit an as_of"
     text = (WORKFLOW_DIR / "publish_from_drop.yml").read_text(encoding="utf-8")
     assert "outputs.as_of" not in text
+
+
+def test_ci_workflow_enforces_supply_chain_permissions_and_worker_cap() -> None:
+    """PR 4 guard: ci.yml must pin every action to a 40-hex commit SHA, restrict permissions,
+    disable checkout credential persistence, cap xdist workers at <= 16, pin `build`, and keep
+    PORCHLAMP_PERF_HOST_FACTOR strictly on the pytest step (never workflow/job/node-step level)."""
+    import re
+
+    sha_pin_re = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+@[0-9a-f]{40}$")
+    path = WORKFLOW_DIR / "ci.yml"
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    assert doc.get("permissions") in ({"contents": "read"}, {}), (
+        f"ci.yml must declare minimal top-level permissions, got {doc.get('permissions')!r}"
+    )
+    assert "PORCHLAMP_PERF_HOST_FACTOR" not in (doc.get("env") or {}), (
+        "PORCHLAMP_PERF_HOST_FACTOR must not be set at workflow level"
+    )
+    assert doc.get("concurrency"), "ci.yml should define a concurrency group"
+
+    saw_pytest = False
+    saw_node = False
+    saw_build_install = False
+
+    for job_name, job in doc["jobs"].items():
+        assert "PORCHLAMP_PERF_HOST_FACTOR" not in (job.get("env") or {}), (
+            f"job {job_name!r} must not set PORCHLAMP_PERF_HOST_FACTOR at job level"
+        )
+        assert isinstance(job.get("timeout-minutes"), int) and job["timeout-minutes"] <= 30, (
+            f"job {job_name!r} should declare timeout-minutes <= 30"
+        )
+        for step in job["steps"]:
+            name = step.get("name", "")
+            if "uses" in step:
+                uses = step["uses"]
+                assert sha_pin_re.fullmatch(uses), (
+                    f"ci.yml job {job_name!r} step {name!r} must pin action to 40-hex SHA, got {uses!r}"
+                )
+                with_cfg = step.get("with") or {}
+                if uses.startswith("actions/checkout@"):
+                    assert with_cfg.get("persist-credentials") is False, (
+                        f"checkout step {name!r} must set persist-credentials: false"
+                    )
+                else:
+                    assert "persist-credentials" not in with_cfg, (
+                        f"non-checkout step {name!r} must not set persist-credentials"
+                    )
+            else:
+                run = str(step.get("run") or "")
+                env = step.get("env") or {}
+                if "node --test" in run:
+                    saw_node = True
+                    assert "PORCHLAMP_PERF_HOST_FACTOR" not in env, (
+                        "standalone node --test step must not set PORCHLAMP_PERF_HOST_FACTOR"
+                    )
+                    assert "*.test.mjs" in run, "standalone node step should run all web/app/tests/*.test.mjs suites"
+                if "pytest tests/" in run and "-n auto" in run:
+                    saw_pytest = True
+                    assert "--maxprocesses=16" in run, "ci.yml pytest step must cap -n auto with --maxprocesses=16"
+                    factor = env.get("PORCHLAMP_PERF_HOST_FACTOR")
+                    if factor is not None:
+                        assert int(str(factor)) <= 2, f"PORCHLAMP_PERF_HOST_FACTOR must be <= 2, got {factor!r}"
+                if "pip install" in run and "build" in run:
+                    saw_build_install = True
+                    assert re.search(r"build==\d+\.\d+", run), f"build install must be version-pinned: {run!r}"
+                assert "/tmp/porchlamp-install-check" not in run, (
+                    "ci.yml package job must use RUNNER_TEMP instead of hardcoded /tmp path"
+                )
+
+    assert saw_pytest and saw_node and saw_build_install, (
+        f"missing expected ci.yml steps: pytest={saw_pytest}, node={saw_node}, build={saw_build_install}"
+    )
