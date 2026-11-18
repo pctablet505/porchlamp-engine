@@ -31,7 +31,7 @@ These rules bind every change here, human or agent.
   `assert isinstance(result, PorchlampCompositeResult)`.
 - A test that kills zero mutants is a Blocker (mutation battery in
   `tests/` must stay green under `scripts/` mutation probes when extended).
-- Tests edited to pass must also change `porchlamp/` / `phone/` / `web/` (CA-1): a green suite after
+- Tests edited to pass must also change `porchlamp/` / `phone/` / `scripts/` / `web/` (or `.github/workflows/`) (CA-1): a green suite after
   test-only edits to a failing test needs a root-cause note.
 
 ## 3. Data provenance (Porchlamp-specific, owner rule 2026-09-12)
@@ -44,7 +44,8 @@ These rules bind every change here, human or agent.
   `derived` fields (e.g., `legal_ip_model` / v2 `legal_ip`, `ai_posture`, `promotion_ladder`,
   `*_evidence` companions, `elephant_factor` — primary `commits_365d` email-domain EF, or
   `contributors` login-proxy fallback only when `commits_365d` is absent — plus derived
-  scored metrics emitted across `scripts/derive.py` and `porchlamp/collect/{governance,commits,pike_signals,github_graphql,repo_object}.py`)
+  scored metrics tagged `"derived"` across `scripts/derive.py` (including commit-domain metrics
+  computed in `porchlamp/collect/commits.py`) and `porchlamp/collect/{governance,pike_signals,github_graphql,repo_object}.py`)
   must never be presented as ground truth.
 - No fabricated repos: every row in a universe/dataset must trace to a
   `candidates.jsonl` criterion or a fetched envelope. The retired synthetic
@@ -79,8 +80,8 @@ These rules bind every change here, human or agent.
 
 | Allowed Exact Shape (symbol/invariant) | Still-A-Bug Counter-Shape (never dismiss) |
 | :--- | :--- |
-| `PORCHLAMP_PERF_HOST_FACTOR: "2"` (or finite value `1 <= factor <= 2`) set **strictly on the `Run test suite` (`pytest tests/`) step** inside `.github/workflows/ci.yml` to accommodate GitHub-hosted runner jitter (or passed transiently on a slower contributor's CLI for `pytest` only when explicitly noted in `COULD NOT VERIFY`). | Setting `PORCHLAMP_PERF_HOST_FACTOR` at workflow/job `env:` level in `ci.yml`, setting it on CI's standalone `node --test` step or any non-primary step, inline shell overrides inside `run:`, non-positive/non-numeric values (`<= 0`, `NaN`, `inf`) or values `> 2`, committing it into local/default test configs, or loosening local performance budgets (`Blocker:`). |
-| `derived` confidence fields clearly tagged `derived` across `scripts/derive.py` and `porchlamp/collect/{governance,commits,pike_signals,github_graphql,repo_object}.py` (e.g., `legal_ip_model` / v2 `legal_ip`, `ai_posture`, `promotion_ladder`, `*_evidence` companions, `elephant_factor` — primary `commits_365d` email-domain EF, or `contributors` login-proxy fallback only when `commits_365d` is absent — plus derived scored metrics). | Presenting `derived` fields as `verified` ground truth, bypassing `data/raw/` `sha256` verification on `verified` fields, or downgrading a `verified` field to `derived` to skip envelope verification (`Blocker:`). |
+| `PORCHLAMP_PERF_HOST_FACTOR: "2"` (or finite numeric `1 <= factor <= 2`) set **strictly on the `Run test suite` (`pytest tests/`) step** inside `.github/workflows/ci.yml` to accommodate GitHub-hosted runner jitter (or passed transiently with finite numeric `1 <= factor <= 2` on a slower contributor's CLI for `pytest` only when explicitly noted in `COULD NOT VERIFY`). | Setting `PORCHLAMP_PERF_HOST_FACTOR` at workflow/job `env:` level in `ci.yml`, setting it on CI's standalone `node --test` step or any non-primary step, inline shell overrides inside `run:`, out-of-range/non-finite/non-numeric/boolean values (`< 1`, `> 2`, `NaN`, `inf`, `true`/`false`), undisclosed local CLI overrides (omitting `COULD NOT VERIFY`), applying the override to local standalone `node --test`, committing it into local/default test configs, or loosening local performance budgets (`Blocker:`). |
+| `derived` confidence fields clearly tagged `derived` across `scripts/derive.py` (including commit-domain metrics computed in `porchlamp/collect/commits.py`) and `porchlamp/collect/{governance,pike_signals,github_graphql,repo_object}.py` (e.g., `legal_ip_model` / v2 `legal_ip`, `ai_posture`, `promotion_ladder`, `*_evidence` companions, `elephant_factor` — primary `commits_365d` email-domain EF, or `contributors` login-proxy fallback only when `commits_365d` is absent — plus derived scored metrics). | Presenting `derived` fields as `verified` ground truth, bypassing `data/raw/` `sha256` verification on `verified` fields, or downgrading a `verified` field to `derived` to skip envelope verification (`Blocker:`). |
 
 ### 4.1 UI/UX, Accessibility (WCAG 2.1 AA) & Static Export Gates
 

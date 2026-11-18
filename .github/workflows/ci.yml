@@ -92,13 +92,14 @@ jobs:
         run: ls -l dist/
 
       - name: sdist contains the store migrations
-        run: tar tzf dist/*.tar.gz | grep -q 'porchlamp/store/migrations/.*\.sql'
+        run: tar tzf dist/*.tar.gz | grep -E 'porchlamp/store/migrations/.*\.sql'
 
       - name: "Non-editable install (W4-1: package move must survive a real install)"
         run: |
           shopt -s nullglob
           sdists=(dist/*.tar.gz)
-          test "${#sdists[@]}" -eq 1 && test -f "${sdists[0]}"
+          test "${#sdists[@]}" -eq 1
+          test -f "${sdists[0]}"
           python -m venv "${RUNNER_TEMP:?RUNNER_TEMP must be set}/porchlamp-install-check"
           "${RUNNER_TEMP:?RUNNER_TEMP must be set}/porchlamp-install-check/bin/python" -m pip install --quiet "${sdists[0]}[server]"
 
