@@ -62,17 +62,24 @@ These rules bind every change here, human or agent.
   hunk; absence inputs (`None/0/""/[]`) must not read as success.
 - Gate 1: deterministic — `ruff check porchlamp scripts tests` clean; new public
   API fully typed with docstrings.
-- Gate 2: adversarial pass over 6 lenses: YAGNI, perf, API, compat,
-  observability, layering. Severities: `Blocker:` `Warning:` `Consider:`
-  `Nit:` `FYI:` `Praise:`.
+- Gate 2: **two-pass author-blind adversarial review** across 6 lenses: YAGNI, perf, API, compat, observability, layering. Severities: `Blocker:` `Warning:` `Consider:` `Nit:` `FYI:` `Praise:`.
+  - **Pass 1 (Author-Blind Code & DOM Audit):** Start with a fresh reviewer carrying zero authoring history and **without** reading PR rationalization prose first. The reviewer inspects the diff and its callers (and HTML/JS/CSS DOM semantics for UI changes), emits a **2-sentence diff paraphrase** summarizing what the change does in plain English (a materially wrong paraphrase is a non-contestable `Blocker:`), reports grounded findings with exact `file:line` citations, and lists every unexecuted check under `COULD NOT VERIFY`.
+  - **Pass 2 (Proof-Backed Verification):** Never dismiss a Pass-1 `Blocker:` or `Warning:` with prose alone. Every disputed finding resolves strictly to **`VERIFIED`** (must fix or escalate) or **`DISPUTED_WITH_PROOF`** backed by: (a) an executable counter-probe exercising the exact trigger input, (b) a caller-complete invariant citing every `file:line` call site in the repo, (c) a matching row from the **`<base>`** branch's `### Negative-Rule Ledger` below (never from self-edited PR lines), or (d) an exact verbatim documentation clause on non-executable `.md` prose.
 - New symbols with zero readers are a Blocker (caller sweep before adding).
 - Deletion > modification > addition. One definition per fact (constants
   live in `porchlamp/constants.py` only; user-facing UI copy lives in
   `web/app/copy.js` only and is referenced via `copy.<NAME>`).
 
+### Negative-Rule Ledger
+
+| Allowed Exact Shape (symbol/invariant) | Still-A-Bug Counter-Shape (never dismiss) |
+| :--- | :--- |
+| `PORCHLAMP_PERF_HOST_FACTOR: "2"` set inside `.github/workflows/ci.yml` to accommodate GitHub-hosted runner timing jitter. | Loosening local performance budgets or setting `PORCHLAMP_PERF_HOST_FACTOR` in local/default test configs (`Blocker:`). |
+| `derived` confidence fields emitted by `scripts/derive.py` (`legal_ip_model`, `ai_posture`, `promotion_ladder`, `elephant_factor` org-proxy) clearly tagged `derived`. | Presenting `derived` fields as `verified` ground truth or bypassing `data/raw/` `sha256` envelope verification (`Blocker:`). |
+
 ### 4.1 UI/UX, Accessibility (WCAG 2.1 AA) & Static Export Gates
 
-Every change touching `web/app/`, `web/prerender.mjs`, or `porchlamp/serve/` must pass these review gates (see `docs/UI_UX_SPECIFICATION.md` §5.5):
+Every change touching `web/app/`, `web/prerender.mjs`, or `porchlamp/serve/` must pass these review gates (see [UI_UX_SPECIFICATION.md](UI_UX_SPECIFICATION.md#55-enforced-uiux-accessibility--cross-page-parity-invariants) §5.5):
 
 - **Semantic Table & Control Markup:** Never put `role="button"` or `tabindex="0"` on `<tr>` or `.leaderboard-card`; never override `<th role="columnheader">` with `role="button"`; never put `tabindex="0"` on non-interactive `.sparkbar`, `.tier-pill`, or `<td>` elements. Every `<input>` and `<select>` must carry both `id` and `name`. Interactive touch targets must be `>= 24x24px`.
 - **Table Wrapping & Prerender CSS Invariants:** Never put `word-break: break-all | break-word` or `overflow-wrap: anywhere` on any CSS selector targeting `td`, `th`, `.cell-id`, `.cell-prose`, `.cell-meta`, or `.spec-table .num` (`tests/test_ui_table_wrapping.py`). Never add `.prerendered-board` rules in `web/app/styles/views.css` outside its two responsive `@media` blocks.

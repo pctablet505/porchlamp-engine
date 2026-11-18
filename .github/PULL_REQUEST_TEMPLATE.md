@@ -8,5 +8,6 @@
 
 - [ ] `ruff check porchlamp/ phone/ scripts/ tests/` is clean
 - [ ] `node --test web/app/tests/unit.test.mjs web/app/tests/render.perf.test.mjs` passes
-- [ ] `python -m pytest tests/ -n auto` passes
+- [ ] `env -u PYTEST_ADDOPTS python -m pytest tests/ -n auto --maxprocesses=16 -p no:cacheprovider` passes
+- [ ] Fail-before or mutant-kill proof recorded for every behavioral change (or `N/A — pure docs/config` with reason)
 - [ ] A change to a scored constant links its RFC ([procedure](https://github.com/pctablet505/porchlamp-engine/blob/main/docs/v2/rfcs/README.md))
