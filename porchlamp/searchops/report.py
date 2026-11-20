@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from porchlamp.searchops.plan import is_project
@@ -123,6 +123,43 @@ def queries_summary(rows: Sequence[Mapping[str, Any]], top: int = 20) -> dict[st
         "projectPagesWithImpressions": sum(1 for page in page_impressions if is_project(page)),
         "blackHoleQueries": sorted(query for query in impressions if BLACK_HOLE_RE.search(query)),
     }
+
+
+def totals_rows(answers: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Search Analytics answers by one dimension as flat rows, the dimension's value under ``key``."""
+    rows = []
+    for answer in answers:
+        for row in answer.get("rows") or []:
+            keys = list(row.get("keys") or []) + [None]
+            rows.append({
+                "key": keys[0],
+                "clicks": row.get("clicks", 0), "impressions": row.get("impressions", 0),
+                "ctr": row.get("ctr", 0), "position": row.get("position"),
+            })
+    return rows
+
+
+def totals_summary(rows: Sequence[Mapping[str, Any]], dimension: str, top: int = 20) -> dict[str, Any]:
+    """Totals and the top values by impressions; by date, also the sums per ISO week (Monday to Sunday)."""
+    summary: dict[str, Any] = {
+        "rows": len(rows),
+        "clicks": sum(row["clicks"] for row in rows),
+        "impressions": sum(row["impressions"] for row in rows),
+        "top": [
+            {"key": row["key"], "impressions": row["impressions"], "clicks": row["clicks"]}
+            for row in sorted(rows, key=lambda row: (-row["impressions"], str(row["key"])))[:top]
+        ],
+    }
+    if dimension == "date":
+        weeks: dict[str, dict[str, Any]] = {}
+        for row in sorted(rows, key=lambda row: str(row["key"])):
+            year, week, _day = date.fromisoformat(str(row["key"])).isocalendar()
+            sums = weeks.setdefault(f"{year}-W{week:02d}", {"days": 0, "clicks": 0, "impressions": 0})
+            sums["days"] += 1
+            sums["clicks"] += row["clicks"]
+            sums["impressions"] += row["impressions"]
+        summary["weeks"] = [{"week": name, **sums} for name, sums in weeks.items()]
+    return summary
 
 
 def bing_date(value: Any) -> str | None:

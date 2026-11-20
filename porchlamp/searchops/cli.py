@@ -6,6 +6,7 @@ Commands::
     gsc sitemaps [--submit]             the property's sitemaps; --submit sends sitemap.xml first
     gsc inspect --site DIR --date DAY   the day's URL Inspection pass, within the daily quota
     gsc queries --date DAY [--days N]   Search Analytics for the N days before DAY
+    gsc totals --date DAY [--by DIM]    totals by date, page, country or device, anonymised queries kept
     bing submit --site DIR              SubmitFeed, the URL submission quota, then the priority URLs
     bing stats --date DAY               Bing traffic, query, page and crawl stats
 
@@ -59,6 +60,8 @@ from porchlamp.searchops.report import (
     queries_summary,
     query_rows,
     sitemap_rows,
+    totals_rows,
+    totals_summary,
 )
 
 PAUSE_SECONDS = 0.1  # between URL Inspection calls: at most 600 a minute, Google's per-minute limit
@@ -314,6 +317,50 @@ def _gsc_queries(args: argparse.Namespace, out: Output) -> int:
     return 0
 
 
+def _gsc_totals(args: argparse.Namespace, out: Output) -> int:
+    """Search Analytics totals (web) by one dimension for the ``--days`` days before ``--date``. Unlike ``queries``,
+    the rows keep the impressions and clicks of anonymised queries."""
+    info = read_service_account(os.environ, out.redact)
+    state = state_dir(os.environ)
+    start, end = args.date - timedelta(days=args.days), args.date - timedelta(days=1)
+    _print_account(out, info, False)
+    out.line(f"range {start} to {end}: web search, totals by {args.by} (anonymised queries kept)")
+    out.line(f"send POST {gsc.search_analytics_url()} (pages of {gsc.ROW_LIMIT:,} rows, {QUERY_PAGES} at most)")
+    out.line(f"state {state}")
+    if args.dry_run:
+        return _dry_run(out)
+    from porchlamp.searchops.transport import Http
+
+    answers = []
+    with Http(out.redact) as http:
+        console = _console(info, False, http)
+        for page in range(QUERY_PAGES):
+            body = gsc.totals_body(start, end, args.by, start_row=page * gsc.ROW_LIMIT)
+            answer = console.post(gsc.search_analytics_url(), body, f"Search Analytics totals by {args.by}") or {}
+            answers.append(answer)
+            if len(answer.get("rows") or []) < gsc.ROW_LIMIT:
+                break
+    rows = totals_rows(answers)
+    summary = totals_summary(rows, args.by)
+    path = state / f"totals-{args.by}-{args.date.isoformat()}.json"
+    _write_json(path, {"date": args.date.isoformat(), "startDate": start.isoformat(), "endDate": end.isoformat(),
+                       "property": gsc.PROPERTY, "dimension": args.by, "summary": summary, "rows": rows}, out.redact)
+    out.line(f"report {path}")
+    out.line(f"rows {summary['rows']:,}, clicks {summary['clicks']:,}, impressions {summary['impressions']:,}")
+
+    def counted(count: int, word: str) -> str:
+        return f"{count:,} {word}{'' if count == 1 else 's'}"
+
+    for week in summary.get("weeks", []):
+        out.line(f"week {week['week']} ({counted(week['days'], 'day')}): {counted(week['impressions'], 'impression')}, "
+                 f"{counted(week['clicks'], 'click')}")
+    if args.by != "date":
+        for row in summary["top"][:10]:
+            out.line(f"{args.by} {row['key']}: {counted(row['impressions'], 'impression')}, "
+                     f"{counted(row['clicks'], 'click')}")
+    return 0
+
+
 def _bing_submit(args: argparse.Namespace, out: Output) -> int:
     """Bing SubmitFeed for the sitemap index, the URL submission quota, then the priority URLs."""
     key = read_bing_key(os.environ, out.redact)
@@ -440,6 +487,13 @@ def _parser() -> argparse.ArgumentParser:
     queries.add_argument("--date", type=_day, required=True, help=date_help)
     queries.add_argument("--days", type=_count(1), default=3, help="how many days before --date (default 3)")
     queries.set_defaults(handler=_gsc_queries)
+    totals = google_commands.add_parser(
+        "totals", help="Search Analytics totals by one dimension, anonymised queries kept, for the days before --date")
+    totals.add_argument("--date", type=_day, required=True, help=date_help)
+    totals.add_argument("--days", type=_count(1), default=28, help="how many days before --date (default 28)")
+    totals.add_argument("--by", choices=gsc.TOTAL_DIMENSIONS, default="date",
+                        help="the one dimension to group by (default date, which also sums each week)")
+    totals.set_defaults(handler=_gsc_totals)
 
     microsoft = commands.add_parser("bing", help="Bing Webmaster: submit the sitemap and priority URLs, read stats",
                                     epilog=_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -455,7 +509,7 @@ def _parser() -> argparse.ArgumentParser:
     stats.add_argument("--date", type=_day, required=True, help=f"{date_help}: names the report")
     stats.set_defaults(handler=_bing_stats)
 
-    for command in (indexnow, sitemaps, inspect, queries, submit, stats):
+    for command in (indexnow, sitemaps, inspect, queries, totals, submit, stats):
         command.add_argument("--dry-run", action="store_true",
                              help="check the inputs and print the plan; send nothing, write nothing")
     return parser

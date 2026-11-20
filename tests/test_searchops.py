@@ -47,6 +47,8 @@ from porchlamp.searchops.report import (
     queries_summary,
     query_rows,
     sitemap_rows,
+    totals_rows,
+    totals_summary,
 )
 from porchlamp.searchops.transport import ApiError, Http, failure_text
 
@@ -325,12 +327,14 @@ def test_only_a_sitemap_submission_asks_for_the_read_write_scope(
     site = make_site(tmp_path / "site")
     asked = {}
     for argv in (["gsc", "sitemaps", "--submit"], ["gsc", "sitemaps"],
-                 ["gsc", "inspect", "--site", str(site), "--date", DAY_ARG], ["gsc", "queries", "--date", DAY_ARG]):
+                 ["gsc", "inspect", "--site", str(site), "--date", DAY_ARG], ["gsc", "queries", "--date", DAY_ARG],
+                 ["gsc", "totals", "--date", DAY_ARG]):
         assert cli.main([*argv, "--dry-run"]) == 0
         account = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("account "))
         asked[" ".join(argv[:3])] = account.rsplit(" scope ", 1)[1]
     assert asked == {"gsc sitemaps --submit": WRITE_SCOPE, "gsc sitemaps": READ_SCOPE,
-                     "gsc inspect --site": READ_SCOPE, "gsc queries --date": READ_SCOPE}
+                     "gsc inspect --site": READ_SCOPE, "gsc queries --date": READ_SCOPE,
+                     "gsc totals --date": READ_SCOPE}
     restricted = {"siteEntry": [{"siteUrl": "sc-domain:porchlamp.org", "permissionLevel": "siteRestrictedUser"}]}
     full = {"siteEntry": [{"siteUrl": "sc-domain:porchlamp.org", "permissionLevel": "siteFullUser"}]}
     assert gsc.access_problem(restricted, write=False) is None
@@ -427,6 +431,47 @@ def test_the_queries_report_totals_ranks_and_finds_black_hole_queries() -> None:
     assert summary["blackHoleQueries"] == ["Black-Holes in open source", "is vllm a black hole"]
 
 
+def test_totals_ask_for_one_dimension_so_anonymised_queries_stay_in(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+        block_live_network: None) -> None:
+    assert gsc.totals_body(date(2026, 10, 14), date(2026, 10, 16), "date", start_row=25_000) == {
+        "startDate": "2026-10-14", "endDate": "2026-10-16", "dimensions": ["date"],
+        "type": "web", "rowLimit": 25_000, "startRow": 25_000,
+    }
+    assert "query" not in gsc.TOTAL_DIMENSIONS  # asked by query, Search Console leaves anonymised queries out
+    plant_service_account(tmp_path, monkeypatch)
+    assert cli.main(["gsc", "totals", "--date", DAY_ARG, "--days", "3", "--by", "page", "--dry-run"]) == 0
+    assert "range 2026-10-14 to 2026-10-16: web search, totals by page (anonymised queries kept)" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["gsc", "totals", "--date", DAY_ARG, "--by", "query", "--dry-run"])
+    assert stop.value.code == 2
+
+
+def test_totals_add_days_into_iso_weeks_and_rank_any_dimension() -> None:
+    answers = [{"rows": [
+        {"keys": ["2026-11-01"], "clicks": 1, "impressions": 100, "ctr": 0.01, "position": 6.0},
+        {"keys": ["2026-11-02"], "clicks": 2, "impressions": 50, "ctr": 0.04, "position": 7.0},
+    ]}, {"rows": [
+        {"keys": ["2026-11-08"], "clicks": 0, "impressions": 30, "ctr": 0, "position": 8.0},
+        {"keys": ["2026-11-09"], "clicks": 0, "impressions": 3, "ctr": 0, "position": 9.0},
+    ]}]
+    rows = totals_rows(answers)
+    assert rows[0] == {"key": "2026-11-01", "clicks": 1, "impressions": 100, "ctr": 0.01, "position": 6.0}
+    by_day = totals_summary(rows, "date")
+    assert (by_day["rows"], by_day["clicks"], by_day["impressions"]) == (4, 3, 183)
+    assert by_day["weeks"] == [  # ISO weeks start on a Monday, and 1 Nov 2026 is a Sunday
+        {"week": "2026-W44", "days": 1, "clicks": 1, "impressions": 100},
+        {"week": "2026-W45", "days": 2, "clicks": 2, "impressions": 80},
+        {"week": "2026-W46", "days": 1, "clicks": 0, "impressions": 3},
+    ]
+    by_page = totals_summary(totals_rows([{"rows": [
+        {"keys": ["https://porchlamp.org/"], "clicks": 0, "impressions": 30},
+        {"keys": ["https://porchlamp.org/projects/tencent/ncnn/"], "clicks": 1, "impressions": 147},
+    ]}]), "page")
+    assert by_page["top"][0] == {"key": "https://porchlamp.org/projects/tencent/ncnn/", "impressions": 147, "clicks": 1}
+    assert "weeks" not in by_page
+
+
 def test_bing_stats_are_summed_per_query_and_dated_in_their_own_offset() -> None:
     assert bing_date("/Date(1316156400000-0700)/") == "2011-09-16"
     assert bing_date("/Date(1729123200000)/") == "2024-10-17"
@@ -494,7 +539,8 @@ def test_a_planted_key_never_reaches_stdout_stderr_or_logs(
     seen = []
     for argv in (["indexnow", "--site", str(site)], ["bing", "submit", "--site", str(site)],
                  ["bing", "stats", "--date", DAY_ARG], ["gsc", "sitemaps", "--submit"],
-                 ["gsc", "inspect", "--site", str(site), "--date", DAY_ARG], ["gsc", "queries", "--date", DAY_ARG]):
+                 ["gsc", "inspect", "--site", str(site), "--date", DAY_ARG], ["gsc", "queries", "--date", DAY_ARG],
+                 ["gsc", "totals", "--date", DAY_ARG]):
         assert cli.main([*argv, "--dry-run"]) == 0
         captured = capsys.readouterr()
         seen += [captured.out, captured.err]
@@ -568,9 +614,11 @@ def test_a_real_search_console_run_that_cannot_sign_exits_in_one_sentence_withou
     (["gsc", "inspect", "--site", "no-such-site", "--date", DAY_ARG], GSC_CREDENTIALS_ENV,
      "the Search Console service-account JSON file"),
     (["gsc", "queries", "--date", DAY_ARG], GSC_CREDENTIALS_ENV, "the Search Console service-account JSON file"),
+    (["gsc", "totals", "--date", DAY_ARG], GSC_CREDENTIALS_ENV, "the Search Console service-account JSON file"),
     (["bing", "submit", "--site", "no-such-site"], BING_KEY_FILE_ENV, "the file holding the Bing Webmaster API key"),
     (["bing", "stats", "--date", DAY_ARG, "--dry-run"], BING_KEY_FILE_ENV, "the file holding the Bing Webmaster API key"),
-], ids=["gsc-sitemaps-dry-run", "gsc-sitemaps-submit", "gsc-inspect", "gsc-queries", "bing-submit", "bing-stats-dry-run"])
+], ids=["gsc-sitemaps-dry-run", "gsc-sitemaps-submit", "gsc-inspect", "gsc-queries", "gsc-totals", "bing-submit",
+        "bing-stats-dry-run"])
 def test_a_missing_credential_exits_with_one_sentence_naming_its_variable(
         argv: list[str], variable: str, what: str, capsys: pytest.CaptureFixture[str], block_live_network: None) -> None:
     assert cli.main(argv) == 2
@@ -632,14 +680,15 @@ def test_a_service_account_file_of_the_wrong_shape_is_refused_in_one_sentence(
 
 
 @pytest.mark.parametrize("argv", [[], ["indexnow"], ["gsc"], ["gsc", "sitemaps"], ["gsc", "inspect"],
-                                  ["gsc", "queries"], ["bing"], ["bing", "submit"], ["bing", "stats"]])
+                                  ["gsc", "queries"], ["gsc", "totals"], ["bing"], ["bing", "submit"], ["bing", "stats"]])
 def test_every_command_prints_its_help(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as stop:
         cli.main([*argv, "--help"])
     assert stop.value.code == 0
     out = capsys.readouterr().out
     assert out.startswith(" ".join(["usage: python -m porchlamp.searchops", *argv]))
-    if argv in (["indexnow"], ["gsc", "sitemaps"], ["gsc", "inspect"], ["gsc", "queries"], ["bing", "submit"], ["bing", "stats"]):
+    if argv in (["indexnow"], ["gsc", "sitemaps"], ["gsc", "inspect"], ["gsc", "queries"], ["gsc", "totals"],
+                ["bing", "submit"], ["bing", "stats"]):
         assert "--dry-run" in out
 
 
