@@ -67,6 +67,23 @@ def query_body(start: date, end: date, start_row: int = 0) -> dict[str, Any]:
     }
 
 
+#: The dimensions a totals query may group by. Grouped by query, Search Console leaves anonymised queries out of the
+#: rows, so query is not one of them (``gsc queries`` reads by query and page for what the queries are).
+TOTAL_DIMENSIONS = ("date", "page", "country", "device")
+
+
+def totals_body(start: date, end: date, dimension: str, start_row: int = 0) -> dict[str, Any]:
+    """One page of a Search Analytics query by one ``dimension``, whose rows keep the anonymised queries."""
+    return {
+        "startDate": start.isoformat(),
+        "endDate": end.isoformat(),
+        "dimensions": [dimension],
+        "type": "web",
+        "rowLimit": ROW_LIMIT,
+        "startRow": start_row,
+    }
+
+
 def access_problem(sites: Mapping[str, Any], write: bool, prop: str = PROPERTY) -> str | None:
     """Why the credential cannot run the command on ``prop`` (from sites.list), or None."""
     levels = [entry.get("permissionLevel") for entry in sites.get("siteEntry") or [] if entry.get("siteUrl") == prop]
